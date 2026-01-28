@@ -30,16 +30,17 @@ class AdvancedChipDynamicsService:
         self.price_granularity = 200  # 价格粒度
         
         # 中国A股特定参数
+        # 修正：降低阈值以适应 200 格的价格粒度 (平均每格仅 0.5%)
         self.params = {
-            'significant_change_threshold': 2.0,  # 显著变化阈值（%）
-            'noise_threshold': 1.0,              # 噪声阈值（%）
-            'institution_min_change': 5.0,       # 机构行为最小变化（%）
+            'significant_change_threshold': 0.5,  # 显著变化阈值（%）原 2.0
+            'noise_threshold': 0.1,              # 噪声阈值（%）原 1.0
+            'institution_min_change': 1.0,       # 机构行为最小变化（%）原 5.0
             'main_force_concentration': 0.3,     # 主力控盘集中度阈值
             'retail_scatter_threshold': 0.7,     # 散户分散阈值
             'accumulation_days': 5,              # 吸筹天数判定
             'distribution_days': 3,              # 派发天数判定
         }
-        
+   
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20) -> Dict[str, any]:
         """
         分析单日筹码动态 - 主入口函数

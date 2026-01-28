@@ -615,11 +615,13 @@ class ChipHoldingMatrixBase(models.Model):
             concentration = dynamics_result.get('concentration_metrics', {})
             behavior = dynamics_result.get('behavior_patterns', {})
             absolute_signals = dynamics_result.get('absolute_change_signals', {})
+            
             # 基础因子提取
             convergence_score = convergence.get('comprehensive_convergence', 0.5)
             concentration_score = concentration.get('comprehensive_concentration', 0.5)
             activity_score = behavior.get('main_force_activity', 0.0)
             signal_quality = absolute_signals.get('signal_quality', 0.0)
+            
             print(f"🕵️ [PROBE-CALC] 因子提取值 check:")
             print(f"   > Convergence: {convergence_score}")
             print(f"   > Concentration: {concentration_score}")
@@ -633,22 +635,50 @@ class ChipHoldingMatrixBase(models.Model):
             # 信号质量调整：高质量信号可能意味着筹码稳定
             long_term_adjusted = long_term_adjusted * (0.7 + signal_quality * 0.3)
             self.long_term_ratio = min(0.8, long_term_adjusted)
-            # 短线筹码比例：高活跃度 + 低收敛度 + 高质量信号
-            short_term_base = activity_score * (1.0 - convergence_score)
+            
+            # =======================================================
+            # 修正短线筹码计算逻辑：增加基础自然换手，防止为 0
+            # =======================================================
+            
+            # 1. 基础自然换手（Base Churn）：发散度越高，自然换手越多
+            # 假设发散部分的 30% 是短线交易造成的
+            base_churn = (1.0 - convergence_score) * 0.3
+            
+            # 2. 主力活跃交易（Active Trading）
+            active_trading = activity_score
+            
+            # 3. 组合短线基准
+            short_term_base = base_churn + active_trading
+            
             # 吸筹/派发信号调整
             accumulation = behavior.get('accumulation', {}).get('strength', 0.0)
             distribution = behavior.get('distribution', {}).get('strength', 0.0)
             signal_adjust = max(accumulation, distribution)
+            
             short_term_adjusted = min(0.6, short_term_base + signal_adjust * 0.2)
-            # 信号质量调整：高质量信号可能意味着短期交易活跃
-            short_term_adjusted = short_term_adjusted * (0.5 + signal_quality * 0.5)
-            self.short_term_ratio = short_term_adjusted
+            
+            # 信号质量调整：
+            # 即使信号质量低（噪声大），短线交易（噪声本身）也可能很高，所以不能简单乘法衰减
+            # 只有当信号质量极高且显示为长线锁仓时才减少短线
+            # 这里改为：保留至少 5% 的底数
+            self.short_term_ratio = max(0.05, short_term_adjusted)
+            
             # 中线筹码比例：剩余部分
-            self.mid_term_ratio = max(0.1, 1.0 - self.short_term_ratio - self.long_term_ratio)
+            # 确保三者之和接近 1.0 (允许微小误差，或者做归一化)
+            remaining = 1.0 - self.short_term_ratio - self.long_term_ratio
+            if remaining < 0:
+                # 如果溢出，优先压缩长线
+                excess = -remaining
+                self.long_term_ratio = max(0.1, self.long_term_ratio - excess)
+                self.mid_term_ratio = 0.0
+            else:
+                self.mid_term_ratio = remaining
+            
             # 平均持有天数：长线比例越高，平均持有天数越长
             base_days = 30 + self.long_term_ratio * 120  # 30-150天范围
             # 活跃度调整：活跃度越高，持有时间越短
             self.avg_holding_days = max(10, base_days * (1.0 - activity_score * 0.7))
+            
             print(f"📊 [推算持有因子] 长线={self.long_term_ratio:.3f}, 短线={self.short_term_ratio:.3f}, 中线={self.mid_term_ratio:.3f}, 平均天数={self.avg_holding_days:.1f}")
         except Exception as e:
             print(f"⚠️ [PROBE-ERROR] 推算持有时间因子发生异常，回退默认值: {e}")
