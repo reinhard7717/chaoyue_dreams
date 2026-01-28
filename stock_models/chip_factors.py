@@ -564,45 +564,77 @@ class ChipHoldingMatrixBase(models.Model):
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
         """保存动态分析结果版本：重构适配AdvancedChipDynamicsService的输出格式"""
         try:
+            print(f"🕵️ [PROBE-SAVE] {self.stock.stock_code} 接收分析结果 keys: {list(dynamics_result.keys()) if dynamics_result else 'None'}")
+            
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
                 status = dynamics_result.get('analysis_status') if dynamics_result else 'None'
                 print(f"🕵️ [PROBE-SAVE] ❌ 分析状态非成功: {status}，保存失败")
                 self.calc_status = 'failed'
                 self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
                 return False
+                
+            print(f"💾 [保存动态分析结果] 开始保存 {self.stock.stock_code} {self.trade_time} 的动态分析结果")
+            
             # =======================================================
             # 内部辅助函数：递归清洗数据（降低精度）
             # =======================================================
             def _clean_data(data, precision=3):
                 """递归将浮点数保留指定小数位"""
                 if isinstance(data, float):
-                    # 极小值置为0
-                    if abs(data) < 1e-6:
-                        return 0.0
+                    if abs(data) < 1e-6: return 0.0
                     return round(data, precision)
                 elif isinstance(data, dict):
                     return {k: _clean_data(v, precision) for k, v in data.items()}
                 elif isinstance(data, list):
                     return [_clean_data(i, precision) for i in data]
-                elif isinstance(data, np.generic):  # 处理 numpy 类型
+                elif isinstance(data, np.generic):
                     return _clean_data(data.item(), precision)
                 return data
-            # 1. 保存核心分析数据（经过清洗）
-            # price_grid 通常需要较高一点的精度（如价格），但也无需过高，保留3位足够覆盖A股分
+
+            # 1. 保存核心分析数据
             self.price_grid = _clean_data(dynamics_result.get('price_grid', []), 3)
-            # 优化：压缩 percent_change_matrix
+            
+            # =======================================================
+            # 🕵️ [PROBE] 矩阵压缩逻辑增强探针
+            # =======================================================
             raw_change_matrix = dynamics_result.get('percent_change_matrix', [])
             if raw_change_matrix:
                 try:
+                    # PROBE 1: 检查原始数据规模
+                    print(f"🕵️ [PROBE-MATRIX] 原始数据行数: {len(raw_change_matrix)}")
+                    
+                    # 尝试转换 numpy
                     arr = np.array(raw_change_matrix)
-                    arr[np.abs(arr) < 0.05] = 0.0  # 阈值过滤
-                    arr = np.round(arr, 3)         # 精度截断
+                    
+                    # PROBE 2: 检查 Numpy 数组属性
+                    # 如果 dtype 是 object，说明可能有 None 或非数字，这会导致后续 < 0.05 报错或无效
+                    print(f"🕵️ [PROBE-MATRIX] Numpy属性: shape={arr.shape}, dtype={arr.dtype}")
+                    
+                    # 阈值设定
+                    threshold = 0.05
+                    
+                    # PROBE 3: 检查清洗前的统计
+                    mask = np.abs(arr) < threshold
+                    clean_count = np.sum(mask)
+                    total_count = arr.size
+                    print(f"🕵️ [PROBE-MATRIX] 预计清洗元素数: {clean_count}/{total_count} (阈值 {threshold})")
+                    
+                    # 执行清洗
+                    arr[mask] = 0.0
+                    arr = np.round(arr, 3)
+                    
                     self.percent_change_matrix = arr.tolist()
+                    print(f"🕵️ [PROBE-MATRIX] ✅ 矩阵清洗成功")
+                    
                 except Exception as e:
-                    print(f"⚠️ [保存警告] 矩阵压缩失败: {e}")
-                    self.percent_change_matrix = []
+                    # PROBE 4: 捕获并打印详细错误
+                    print(f"🕵️ [PROBE-MATRIX] ❌ 矩阵清洗失败，回退到原始数据。错误: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self.percent_change_matrix = raw_change_matrix
             else:
                 self.percent_change_matrix = []
+
             # 清洗其他 JSON 指标字段
             self.absolute_change_signals = _clean_data(dynamics_result.get('absolute_change_signals', {}), 3)
             self.concentration_metrics = _clean_data(dynamics_result.get('concentration_metrics', {}), 4)
@@ -610,30 +642,39 @@ class ChipHoldingMatrixBase(models.Model):
             self.behavior_patterns = _clean_data(dynamics_result.get('behavior_patterns', {}), 3)
             self.migration_patterns = _clean_data(dynamics_result.get('migration_patterns', {}), 4)
             self.convergence_metrics = _clean_data(dynamics_result.get('convergence_metrics', {}), 4)
+            
             # 2. 保存验证信息
             self.validation_score = _clean_data(dynamics_result.get('validation_score'), 2)
             self.validation_warnings = dynamics_result.get('validation_warnings')
+            
             # 3. 保存矩阵数据与压缩 (chip_matrix)
             chip_matrix_list = dynamics_result.get('chip_matrix', [])
             if chip_matrix_list:
                 try:
                     chip_arr = np.array(chip_matrix_list)
-                    chip_arr = np.round(chip_arr, 3) 
-                    # 再次清洗极小值，进一步利用稀疏性
+                    chip_arr = np.round(chip_arr, 3)
+                    # 再次清洗极小值
                     chip_arr[chip_arr < 0.001] = 0.0
+                    
                     chip_clean_list = chip_arr.tolist()
                     self.matrix_data = {'matrix': chip_clean_list}
+                    
                     matrix_bytes = pickle.dumps(chip_arr)
                     self.compressed_matrix = base64.b64encode(matrix_bytes)
                 except Exception as e:
                     print(f"⚠️ [保存警告] 筹码矩阵处理失败: {e}")
                     self.matrix_data = {'matrix': chip_matrix_list}
+            
             # 4. 计算并保存持有时间因子
             self._calculate_holding_factors_from_dynamics(dynamics_result)
+            
             self.calc_status = 'success'
             self.analysis_method = 'advanced_dynamics'
             self.used_percent_data = True
+            
             self.save()
+            
+            print(f"✅ [保存动态分析结果] 保存成功，持有时间因子: 短线={self.short_term_ratio:.2f}, 中线={self.mid_term_ratio:.2f}, 长线={self.long_term_ratio:.2f}")
             return True
         except Exception as e:
             print(f"❌ 保存动态分析结果失败: {e}")
@@ -646,7 +687,7 @@ class ChipHoldingMatrixBase(models.Model):
             except:
                 pass
             return False
-        
+
     def _calculate_holding_factors_from_dynamics(self, dynamics_result: Dict[str, Any]):
         """从动态分析结果推算持有时间因子版本"""
         try:
