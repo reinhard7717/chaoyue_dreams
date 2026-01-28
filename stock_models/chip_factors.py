@@ -565,11 +565,12 @@ class ChipHoldingMatrixBase(models.Model):
         """保存动态分析结果版本：重构适配AdvancedChipDynamicsService的输出格式"""
         try:
             print(f"🕵️ [PROBE-SAVE] {self.stock.stock_code} 接收分析结果 keys: {list(dynamics_result.keys()) if dynamics_result else 'None'}")
-            
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
                 status = dynamics_result.get('analysis_status') if dynamics_result else 'None'
                 print(f"🕵️ [PROBE-SAVE] ❌ 分析状态非成功: {status}，保存失败")
                 self.calc_status = 'failed'
+                # 即使失败也要保存状态，否则下次还会认为是 pending
+                self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
                 return False
                 
             print(f"💾 [保存动态分析结果] 开始保存 {self.stock.stock_code} {self.trade_time} 的动态分析结果")
@@ -582,13 +583,16 @@ class ChipHoldingMatrixBase(models.Model):
             self.behavior_patterns = dynamics_result.get('behavior_patterns', {})
             self.migration_patterns = dynamics_result.get('migration_patterns', {})
             self.convergence_metrics = dynamics_result.get('convergence_metrics', {})
-            
             # 计算并保存持有时间因子
+            # 注意：此方法只更新 self 属性，不负责 save
             self._calculate_holding_factors_from_dynamics(dynamics_result)
-            
             self.calc_status = 'success'
             self.analysis_method = 'advanced_dynamics'
             self.used_percent_data = True
+            # ==========================================
+            # 核心修复：显式调用 save() 提交到数据库
+            # ==========================================
+            self.save()
             print(f"✅ [保存动态分析结果] 保存成功，持有时间因子: 短线={self.short_term_ratio:.2f}, 中线={self.mid_term_ratio:.2f}, 长线={self.long_term_ratio:.2f}")
             return True
         except Exception as e:
@@ -597,6 +601,11 @@ class ChipHoldingMatrixBase(models.Model):
             traceback.print_exc()
             self.calc_status = 'failed'
             self.error_message = str(e)
+            # 发生异常时也尝试保存错误状态
+            try:
+                self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
+            except:
+                pass
             return False
 
     def _calculate_holding_factors_from_dynamics(self, dynamics_result: Dict[str, Any]):
@@ -606,13 +615,11 @@ class ChipHoldingMatrixBase(models.Model):
             concentration = dynamics_result.get('concentration_metrics', {})
             behavior = dynamics_result.get('behavior_patterns', {})
             absolute_signals = dynamics_result.get('absolute_change_signals', {})
-            
             # 基础因子提取
             convergence_score = convergence.get('comprehensive_convergence', 0.5)
             concentration_score = concentration.get('comprehensive_concentration', 0.5)
             activity_score = behavior.get('main_force_activity', 0.0)
             signal_quality = absolute_signals.get('signal_quality', 0.0)
-            
             print(f"🕵️ [PROBE-CALC] 因子提取值 check:")
             print(f"   > Convergence: {convergence_score}")
             print(f"   > Concentration: {concentration_score}")
@@ -626,28 +633,22 @@ class ChipHoldingMatrixBase(models.Model):
             # 信号质量调整：高质量信号可能意味着筹码稳定
             long_term_adjusted = long_term_adjusted * (0.7 + signal_quality * 0.3)
             self.long_term_ratio = min(0.8, long_term_adjusted)
-            
             # 短线筹码比例：高活跃度 + 低收敛度 + 高质量信号
             short_term_base = activity_score * (1.0 - convergence_score)
-            
             # 吸筹/派发信号调整
             accumulation = behavior.get('accumulation', {}).get('strength', 0.0)
             distribution = behavior.get('distribution', {}).get('strength', 0.0)
             signal_adjust = max(accumulation, distribution)
-            
             short_term_adjusted = min(0.6, short_term_base + signal_adjust * 0.2)
             # 信号质量调整：高质量信号可能意味着短期交易活跃
             short_term_adjusted = short_term_adjusted * (0.5 + signal_quality * 0.5)
             self.short_term_ratio = short_term_adjusted
-            
             # 中线筹码比例：剩余部分
             self.mid_term_ratio = max(0.1, 1.0 - self.short_term_ratio - self.long_term_ratio)
-            
             # 平均持有天数：长线比例越高，平均持有天数越长
             base_days = 30 + self.long_term_ratio * 120  # 30-150天范围
             # 活跃度调整：活跃度越高，持有时间越短
             self.avg_holding_days = max(10, base_days * (1.0 - activity_score * 0.7))
-            
             print(f"📊 [推算持有因子] 长线={self.long_term_ratio:.3f}, 短线={self.short_term_ratio:.3f}, 中线={self.mid_term_ratio:.3f}, 平均天数={self.avg_holding_days:.1f}")
         except Exception as e:
             print(f"⚠️ [PROBE-ERROR] 推算持有时间因子发生异常，回退默认值: {e}")
