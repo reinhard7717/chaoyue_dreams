@@ -1942,7 +1942,7 @@ def archive_historical_trade_data(self, days_to_keep: int = 233, segment_days: i
             while current_segment_start_date < effective_cutoff_for_comparison:
                 current_segment_end_date = min(current_segment_start_date + timedelta(days=segment_days), effective_cutoff_for_comparison)
                 logger.info(f"正在处理表 {table_name} 的数据段: 从 {current_segment_start_date} 到 {current_segment_end_date} (不含)。")
-                print(f"调试信息: 表 {table_name} 当前处理段: {current_segment_start_date} to {current_segment_end_date}")
+                # print(f"调试信息: 表 {table_name} 当前处理段: {current_segment_start_date} to {current_segment_end_date}")
                 date_format_for_filename = '%Y%m%d%H%M%S' if is_datetime_field else '%Y%m%d'
                 date_format_for_where_clause = '%Y-%m-%d %H:%M:%S' if is_datetime_field else '%Y-%m-%d'
                 segment_start_str = current_segment_start_date.strftime(date_format_for_filename)
@@ -1967,7 +1967,7 @@ def archive_historical_trade_data(self, days_to_keep: int = 233, segment_days: i
                 ]
                 compress_cmd = ['xz', '-9', '-c']
                 logger.info(f"正在导出并压缩表 {table_name} 的数据段 [{current_segment_start_date} - {current_segment_end_date})...")
-                print(f"调试信息: 导出命令 (密码已隐藏): mysqldump --user={db_user} ... --where=\"{where_clause}\"")
+                # print(f"调试信息: 导出命令 (密码已隐藏): mysqldump --user={db_user} ... --where=\"{where_clause}\"")
                 try:
                     with open(archive_filepath, 'wb') as f_out:
                         dump_process = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
