@@ -141,235 +141,177 @@ class AdvancedChipDynamicsService:
             traceback.print_exc()
             return self._get_default_result(stock_code, trade_date)
 
-    def _build_normalized_chip_matrix(self,chip_history: List[pd.DataFrame],current_chip: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    def _build_normalized_chip_matrix(self, chip_history: List[pd.DataFrame], current_chip: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
-        构建归一化的筹码矩阵
-        关键：确保每个分布都归一化为总和100%
+        版本: v2.0
+        说明: 构建归一化筹码矩阵（向量化优化版）
+        优化: 使用np.interp替代scipy.interpolate.interp1d，移除对象构建开销
         """
-        # 合并历史和当前数据
         all_chips = chip_history + [current_chip]
-        # 提取所有价格点
         all_prices = []
         for chip_df in all_chips:
             if not chip_df.empty:
                 all_prices.extend(chip_df['price'].values)
         if not all_prices:
-            # 默认价格范围
             min_price, max_price = 1.0, 100.0
         else:
-            min_price = np.min(all_prices)
-            max_price = np.max(all_prices)
-            # 扩展范围
+            min_price, max_price = np.min(all_prices), np.max(all_prices)
             price_range = max_price - min_price
             min_price = max(0.01, min_price - price_range * 0.15)
             max_price = max_price + price_range * 0.15
-        # 创建价格网格
         price_grid = np.linspace(min_price, max_price, self.price_granularity)
-        # 构建筹码矩阵
         n_days = len(all_chips)
         n_prices = len(price_grid)
         chip_matrix = np.zeros((n_days, n_prices))
+        uniform_dist = np.full(n_prices, 100.0 / n_prices)
         for day_idx, chip_df in enumerate(all_chips):
             if chip_df.empty or len(chip_df) < 3:
-                # 均匀分布
-                chip_matrix[day_idx, :] = 100.0 / n_prices
+                chip_matrix[day_idx, :] = uniform_dist
                 continue
-            # 线性插值到价格网格
-            from scipy.interpolate import interp1d
             try:
-                # 确保数据有效
                 valid_mask = (~chip_df['price'].isna()) & (~chip_df['percent'].isna())
-                chip_df_valid = chip_df[valid_mask].copy()
-                if len(chip_df_valid) < 2:
-                    chip_matrix[day_idx, :] = 100.0 / n_prices
+                df_valid = chip_df[valid_mask].sort_values('price').drop_duplicates('price')
+                if len(df_valid) < 2:
+                    chip_matrix[day_idx, :] = uniform_dist
                     continue
-                # 排序并去重
-                chip_df_valid = chip_df_valid.sort_values('price')
-                chip_df_valid = chip_df_valid.drop_duplicates('price')
-                # 归一化确保总和为100%
-                total_percent = chip_df_valid['percent'].sum()
-                if total_percent == 0:
-                    chip_matrix[day_idx, :] = 100.0 / n_prices
+                x = df_valid['price'].values
+                y = df_valid['percent'].values
+                total_p = np.sum(y)
+                if total_p == 0:
+                    chip_matrix[day_idx, :] = uniform_dist
                     continue
-                chip_df_valid['percent_normalized'] = chip_df_valid['percent'] * (100.0 / total_percent)
-                # 线性插值
-                f = interp1d(
-                    chip_df_valid['price'],
-                    chip_df_valid['percent_normalized'],
-                    kind='linear',
-                    bounds_error=False,
-                    fill_value=0.0
-                )
-                interpolated = f(price_grid)
-                # 再次归一化
-                if interpolated.sum() > 0:
-                    interpolated = interpolated * (100.0 / interpolated.sum())
-                chip_matrix[day_idx, :] = interpolated
+                y_normalized = y * (100.0 / total_p)
+                interpolated = np.interp(price_grid, x, y_normalized, left=0.0, right=0.0)
+                sum_interp = np.sum(interpolated)
+                if sum_interp > 0:
+                    chip_matrix[day_idx, :] = interpolated * (100.0 / sum_interp)
+                else:
+                    chip_matrix[day_idx, :] = uniform_dist
             except Exception as e:
                 print(f"⚠️ 第{day_idx}天插值失败: {e}")
-                chip_matrix[day_idx, :] = 100.0 / n_prices
+                chip_matrix[day_idx, :] = uniform_dist
         return price_grid, chip_matrix
-    
-    def _calculate_percent_change_matrix(self,chip_matrix: np.ndarray) -> np.ndarray:
+
+    def _calculate_percent_change_matrix(self, chip_matrix: np.ndarray) -> np.ndarray:
         """
-        计算百分比变化矩阵
-        返回: n_days-1 × n_prices 矩阵
-        每个值 = 当天百分比 - 前一天百分比
+        版本: v2.0
+        说明: 计算百分比变化矩阵（完全向量化版）
+        优化: 移除Python循环，使用Numpy切片相减
         """
         if chip_matrix.shape[0] < 2:
             return np.zeros((1, chip_matrix.shape[1]))
-        # 计算每日变化
-        n_days = chip_matrix.shape[0]
-        change_matrix = np.zeros((n_days - 1, chip_matrix.shape[1]))
-        for i in range(1, n_days):
-            change_matrix[i-1, :] = chip_matrix[i, :] - chip_matrix[i-1, :]
-        return change_matrix
-    
-    def _analyze_absolute_changes(self,percent_change_matrix: np.ndarray,price_grid: np.ndarray,current_price: float) -> Dict[str, any]:
+        return chip_matrix[1:] - chip_matrix[:-1]
+
+    def _analyze_absolute_changes(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
         """
-        基于绝对变化的信号分析
-        关键：区分有效变动（>2%）和噪声（<1%）
+        版本: v2.0
+        说明: 基于绝对变化的信号分析（向量化筛选版）
+        优化: 移除对价格网格的循环，使用Numpy掩码和where进行批量筛选
         """
         if percent_change_matrix.shape[0] == 0:
             return self._get_default_absolute_signals()
-        # 获取最近3天的变化
         recent_changes = percent_change_matrix[-min(3, len(percent_change_matrix)):, :]
+        avg_changes = np.mean(recent_changes, axis=0) if recent_changes.shape[0] > 0 else np.zeros_like(price_grid)
+        increase_mask = avg_changes > self.params['significant_change_threshold']
+        decrease_mask = avg_changes < -self.params['significant_change_threshold']
+        noise_mask = np.abs(avg_changes) < self.params['noise_threshold']
         signals = {
-            'significant_increase_areas': [],  # 显著增加区域
-            'significant_decrease_areas': [],  # 显著减少区域
-            'accumulation_signals': [],        # 吸筹信号
-            'distribution_signals': [],        # 派发信号
-            'noise_level': 0.0,                # 噪声水平
-            'signal_quality': 0.0              # 信号质量
+            'significant_increase_areas': [],
+            'significant_decrease_areas': [],
+            'accumulation_signals': [],
+            'distribution_signals': [],
+            'noise_level': float(np.mean(noise_mask)),
+            'signal_quality': 1.0 - float(np.mean(noise_mask))
         }
-        # 阈值
-        increase_threshold = self.params['significant_change_threshold']
-        decrease_threshold = -self.params['significant_change_threshold']
-        noise_threshold = self.params['noise_threshold']
-        # 分析每个价格区间
-        for price_idx, price in enumerate(price_grid):
-            # 最近3天的平均变化
-            avg_change = np.mean(recent_changes[:, price_idx]) if recent_changes.shape[0] > 0 else 0
-            # 判断信号类型
-            if avg_change > increase_threshold:
-                signal_type = 'significant_increase'
-                signals['significant_increase_areas'].append({
-                    'price': float(price),
-                    'change': float(avg_change),
-                    'distance_to_current': abs(price - current_price) / current_price if current_price > 0 else 1.0
+        dist_to_current = np.abs(price_grid - current_price) / (current_price if current_price > 0 else 1.0)
+        inc_indices = np.where(increase_mask)[0]
+        for idx in inc_indices:
+            signals['significant_increase_areas'].append({
+                'price': float(price_grid[idx]),
+                'change': float(avg_changes[idx]),
+                'distance_to_current': float(dist_to_current[idx])
+            })
+            if price_grid[idx] < current_price * 0.95:
+                signals['accumulation_signals'].append({
+                    'price': float(price_grid[idx]),
+                    'change': float(avg_changes[idx]),
+                    'strength': min(1.0, float(avg_changes[idx]) / 10.0)
                 })
-                # 吸筹判断：价格低于当前价 + 显著增加
-                if price < current_price * 0.95:
-                    signals['accumulation_signals'].append({
-                        'price': float(price),
-                        'change': float(avg_change),
-                        'strength': min(1.0, avg_change / 10.0)
-                    })
-                    
-            elif avg_change < decrease_threshold:
-                signal_type = 'significant_decrease'
-                signals['significant_decrease_areas'].append({
-                    'price': float(price),
-                    'change': float(avg_change),
-                    'distance_to_current': abs(price - current_price) / current_price if current_price > 0 else 1.0
+        dec_indices = np.where(decrease_mask)[0]
+        for idx in dec_indices:
+            signals['significant_decrease_areas'].append({
+                'price': float(price_grid[idx]),
+                'change': float(avg_changes[idx]),
+                'distance_to_current': float(dist_to_current[idx])
+            })
+            if price_grid[idx] > current_price * 1.05:
+                signals['distribution_signals'].append({
+                    'price': float(price_grid[idx]),
+                    'change': float(avg_changes[idx]),
+                    'strength': min(1.0, abs(float(avg_changes[idx])) / 10.0)
                 })
-                # 派发判断：价格高于当前价 + 显著减少
-                if price > current_price * 1.05:
-                    signals['distribution_signals'].append({
-                        'price': float(price),
-                        'change': float(avg_change),
-                        'strength': min(1.0, abs(avg_change) / 10.0)
-                    })
-            # 噪声水平计算
-            if abs(avg_change) < noise_threshold:
-                signals['noise_level'] += 1
-        # 计算噪声水平百分比
-        signals['noise_level'] = signals['noise_level'] / len(price_grid) if len(price_grid) > 0 else 1.0
-        # 信号质量 = 1 - 噪声水平
-        signals['signal_quality'] = 1.0 - signals['noise_level']
-        # 排序并限制数量
-        for key in ['significant_increase_areas', 'significant_decrease_areas', 
-                   'accumulation_signals', 'distribution_signals']:
+        for key in ['significant_increase_areas', 'significant_decrease_areas', 'accumulation_signals', 'distribution_signals']:
             signals[key] = sorted(signals[key], key=lambda x: abs(x['change']), reverse=True)[:10]
         return signals
-    
-    def _calculate_concentration_metrics(self,current_chip_dist: np.ndarray,price_grid: np.ndarray) -> Dict[str, float]:
+
+    def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
         """
-        计算集中度指标 - 基于筹码分布百分比
+        版本: v2.0
+        说明: 计算集中度指标（精简计算版）
+        优化: 优化数学计算流程，减少临时列表创建
         """
         if len(current_chip_dist) == 0:
             return self._get_default_concentration_metrics()
         metrics = {}
-        # 1. 熵值集中度（越低越集中）
-        chip_entropy = entropy(current_chip_dist + 1e-10)
-        max_entropy = np.log(len(current_chip_dist))
-        metrics['entropy_concentration'] = 1.0 - (chip_entropy / max_entropy)
-        # 2. 峰值集中度（前20%峰值的占比）
+        chip_prob = current_chip_dist + 1e-10
+        metrics['entropy_concentration'] = 1.0 - (entropy(chip_prob) / np.log(len(current_chip_dist)))
         sorted_chip = np.sort(current_chip_dist)[::-1]
-        top_20_percent = int(len(current_chip_dist) * 0.2)
-        metrics['peak_concentration'] = sorted_chip[:top_20_percent].sum() / 100.0
-        # 3. 价格变异系数（CV越低越集中）
-        price_mean = np.sum(price_grid * current_chip_dist) / 100.0
+        top_20_idx = int(len(current_chip_dist) * 0.2)
+        metrics['peak_concentration'] = np.sum(sorted_chip[:top_20_idx]) / 100.0
+        price_mean = np.dot(price_grid, current_chip_dist) / 100.0
         if price_mean > 0:
-            variance = np.sum(current_chip_dist * (price_grid - price_mean) ** 2) / 100.0
-            price_std = np.sqrt(variance)
+            price_std = np.sqrt(np.dot(current_chip_dist, (price_grid - price_mean) ** 2) / 100.0)
             metrics['cv_concentration'] = 1.0 - min(1.0, price_std / price_mean)
+            mask_main = (price_grid >= price_mean * 0.9) & (price_grid <= price_mean * 1.1)
+            metrics['main_force_concentration'] = np.sum(current_chip_dist[mask_main]) / 100.0
         else:
             metrics['cv_concentration'] = 0.5
-        # 4. 主力集中度（假设主力集中在窄区间）
-        # 计算筹码在±10%区间内的集中度
-        if price_mean > 0:
-            mask = (price_grid >= price_mean * 0.9) & (price_grid <= price_mean * 1.1)
-            metrics['main_force_concentration'] = current_chip_dist[mask].sum() / 100.0
-        else:
             metrics['main_force_concentration'] = 0.0
-        # 5. 综合集中度
-        weights = [0.3, 0.3, 0.2, 0.2]
-        values = [
-            metrics['entropy_concentration'],
-            metrics['peak_concentration'],
-            metrics['cv_concentration'],
-            metrics['main_force_concentration']
-        ]
-        metrics['comprehensive_concentration'] = np.sum(np.array(weights) * np.array(values))
-        # 6. 峰度与偏度
+        metrics['comprehensive_concentration'] = (
+            0.3 * metrics['entropy_concentration'] +
+            0.3 * metrics['peak_concentration'] +
+            0.2 * metrics['cv_concentration'] +
+            0.2 * metrics['main_force_concentration']
+        )
         metrics['chip_skewness'] = float(skew(current_chip_dist))
         metrics['chip_kurtosis'] = float(kurtosis(current_chip_dist))
         return metrics
-    
-    def _calculate_pressure_metrics(self,current_chip_dist: np.ndarray,price_grid: np.ndarray,current_price: float,price_history: pd.DataFrame) -> Dict[str, float]:
+
+    def _calculate_pressure_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, float]:
         """
-        计算压力指标 - 基于绝对百分比
+        版本: v2.0
+        说明: 计算压力指标（向量化掩码版）
+        优化: 统一掩码计算逻辑，确保历史数据计算高效
         """
         if len(current_chip_dist) == 0 or current_price <= 0:
             return self._get_default_pressure_metrics()
         metrics = {}
-        # 1. 获利盘压力（成本低于当前价）
-        profit_mask = price_grid < current_price
-        metrics['profit_pressure'] = current_chip_dist[profit_mask].sum() / 100.0
-        # 2. 套牢盘压力（成本高于当前价10%以上）
-        trapped_mask = price_grid > current_price * 1.10
-        metrics['trapped_pressure'] = current_chip_dist[trapped_mask].sum() / 100.0
-        # 3. 近期套牢盘（成本在当前价5-10%之间）
-        recent_trapped_mask = (price_grid > current_price * 1.05) & (price_grid <= current_price * 1.10)
-        metrics['recent_trapped_pressure'] = current_chip_dist[recent_trapped_mask].sum() / 100.0
-        # 4. 支撑强度（当前价下方5%内的筹码）
-        support_mask = (price_grid >= current_price * 0.95) & (price_grid < current_price)
-        metrics['support_strength'] = current_chip_dist[support_mask].sum() / 100.0
-        # 5. 阻力强度（当前价上方5%内的筹码）
-        resistance_mask = (price_grid > current_price) & (price_grid <= current_price * 1.05)
-        metrics['resistance_strength'] = current_chip_dist[resistance_mask].sum() / 100.0
-        # 6. 压力释放度（需要历史数据）
+        total_percent = 100.0
+        metrics['profit_pressure'] = np.sum(current_chip_dist[price_grid < current_price]) / total_percent
+        metrics['trapped_pressure'] = np.sum(current_chip_dist[price_grid > current_price * 1.10]) / total_percent
+        mask_recent_trapped = (price_grid > current_price * 1.05) & (price_grid <= current_price * 1.10)
+        metrics['recent_trapped_pressure'] = np.sum(current_chip_dist[mask_recent_trapped]) / total_percent
+        mask_support = (price_grid >= current_price * 0.95) & (price_grid < current_price)
+        metrics['support_strength'] = np.sum(current_chip_dist[mask_support]) / total_percent
+        mask_resistance = (price_grid > current_price) & (price_grid <= current_price * 1.05)
+        metrics['resistance_strength'] = np.sum(current_chip_dist[mask_resistance]) / total_percent
         if not price_history.empty and len(price_history) >= 10:
-            # 计算最近10天价格区间
-            recent_low = price_history['low'].min()
-            recent_high = price_history['high'].max()
-            # 释放的套牢盘
-            released_mask = (price_grid >= recent_high * 1.05) | (price_grid <= recent_low * 0.95)
-            metrics['pressure_release'] = current_chip_dist[released_mask].sum() / 100.0
+            recent_low = float(price_history['low'].min())
+            recent_high = float(price_history['high'].max())
+            mask_released = (price_grid >= recent_high * 1.05) | (price_grid <= recent_low * 0.95)
+            metrics['pressure_release'] = np.sum(current_chip_dist[mask_released]) / total_percent
         else:
             metrics['pressure_release'] = 0.0
-        # 7. 综合压力分数
         metrics['comprehensive_pressure'] = (
             metrics['trapped_pressure'] * 0.5 +
             metrics['recent_trapped_pressure'] * 0.3 +
@@ -377,9 +319,11 @@ class AdvancedChipDynamicsService:
         )
         return metrics
     
-    def _identify_behavior_patterns(self,percent_change_matrix: np.ndarray,chip_matrix: np.ndarray,price_grid: np.ndarray,current_price: float) -> Dict[str, any]:
+    def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
         """
-        识别主力行为模式 - 基于绝对百分比变化
+        版本: v2.0
+        说明: 识别主力行为模式（向量化逻辑版）
+        优化: 移除外层价格循环，使用矩阵轴向操作(axis=0)批量判断连续天数条件
         """
         if percent_change_matrix.shape[0] < 3:
             return self._get_default_behavior_patterns()
@@ -390,71 +334,58 @@ class AdvancedChipDynamicsService:
             'breakout_preparation': {'detected': False, 'strength': 0.0},
             'main_force_activity': 0.0
         }
-        # 分析最近3-5天的变化模式
         lookback = min(5, percent_change_matrix.shape[0])
         recent_changes = percent_change_matrix[-lookback:, :]
-        # 1. 寻找显著的连续变化区域
-        for price_idx, price in enumerate(price_grid):
-            price_changes = recent_changes[:, price_idx]
-            # 连续3天增加（吸筹迹象）
-            if len(price_changes) >= 3:
-                if np.all(price_changes[-3:] > self.params['noise_threshold']):
-                    if price < current_price * 0.95:  # 低位吸筹
-                        patterns['accumulation']['detected'] = True
-                        patterns['accumulation']['strength'] += np.mean(price_changes[-3:]) / 10.0
-                        patterns['accumulation']['areas'].append({
-                            'price': float(price),
-                            'avg_change': float(np.mean(price_changes[-3:])),
-                            'distance_to_price': (current_price - price) / current_price
-                        })
-            # 连续3天减少（派发迹象）
-            if len(price_changes) >= 3:
-                if np.all(price_changes[-3:] < -self.params['noise_threshold']):
-                    if price > current_price * 1.05:  # 高位派发
-                        patterns['distribution']['detected'] = True
-                        patterns['distribution']['strength'] += abs(np.mean(price_changes[-3:])) / 10.0
-                        patterns['distribution']['areas'].append({
-                            'price': float(price),
-                            'avg_change': float(np.mean(price_changes[-3:])),
-                            'distance_to_price': (price - current_price) / current_price
-                        })
-        # 2. 计算主力活跃度
+        changes_last_3 = recent_changes[-3:, :]
+        mean_changes_3 = np.mean(changes_last_3, axis=0)
+        is_accumulating = np.all(changes_last_3 > self.params['noise_threshold'], axis=0)
+        is_distributing = np.all(changes_last_3 < -self.params['noise_threshold'], axis=0)
+        low_price_mask = price_grid < current_price * 0.95
+        high_price_mask = price_grid > current_price * 1.05
+        accum_indices = np.where(is_accumulating & low_price_mask)[0]
+        if len(accum_indices) > 0:
+            patterns['accumulation']['detected'] = True
+            patterns['accumulation']['strength'] = min(1.0, np.sum(mean_changes_3[accum_indices]) / 10.0)
+            for idx in accum_indices:
+                patterns['accumulation']['areas'].append({
+                    'price': float(price_grid[idx]),
+                    'avg_change': float(mean_changes_3[idx]),
+                    'distance_to_price': (current_price - price_grid[idx]) / current_price
+                })
+        dist_indices = np.where(is_distributing & high_price_mask)[0]
+        if len(dist_indices) > 0:
+            patterns['distribution']['detected'] = True
+            patterns['distribution']['strength'] = min(1.0, np.sum(np.abs(mean_changes_3[dist_indices])) / 10.0)
+            for idx in dist_indices:
+                patterns['distribution']['areas'].append({
+                    'price': float(price_grid[idx]),
+                    'avg_change': float(mean_changes_3[idx]),
+                    'distance_to_price': (price_grid[idx] - current_price) / current_price
+                })
         significant_changes = np.abs(recent_changes) > self.params['significant_change_threshold']
         patterns['main_force_activity'] = np.sum(significant_changes) / significant_changes.size
-        # 3. 整理信号（吸筹/派发）
-        if patterns['accumulation']['detected']:
-            patterns['accumulation']['strength'] = min(1.0, patterns['accumulation']['strength'])
-            patterns['accumulation']['areas'] = sorted(
-                patterns['accumulation']['areas'],
-                key=lambda x: x['avg_change'],
-                reverse=True
-            )[:5]
-        if patterns['distribution']['detected']:
-            patterns['distribution']['strength'] = min(1.0, patterns['distribution']['strength'])
-            patterns['distribution']['areas'] = sorted(
-                patterns['distribution']['areas'],
-                key=lambda x: abs(x['avg_change']),
-                reverse=True
-            )[:5]
-        # 4. 整理信号（震荡/突破准备）
-        current_concentration = self._calculate_concentration_metrics(
-            chip_matrix[-1], price_grid
-        )['comprehensive_concentration']
+        if patterns['accumulation']['areas']:
+            patterns['accumulation']['areas'] = sorted(patterns['accumulation']['areas'], key=lambda x: x['avg_change'], reverse=True)[:5]
+        if patterns['distribution']['areas']:
+            patterns['distribution']['areas'] = sorted(patterns['distribution']['areas'], key=lambda x: abs(x['avg_change']), reverse=True)[:5]
+        current_concentration = self._calculate_concentration_metrics(chip_matrix[-1], price_grid)['comprehensive_concentration']
         if 0.4 <= current_concentration <= 0.6:
             patterns['consolidation']['detected'] = True
             patterns['consolidation']['strength'] = 1.0 - abs(current_concentration - 0.5) * 2
-        # 5. 突破准备：筹码在阻力位下方聚集
-        resistance_idx = np.argmin(np.abs(price_grid - current_price * 1.05))
+        resistance_mask = np.abs(price_grid - current_price * 1.05)
+        resistance_idx = np.argmin(resistance_mask)
         if resistance_idx > 0:
-            support_area = chip_matrix[-1, :resistance_idx].sum() / 100.0
-            if support_area > 0.6:  # 60%以上筹码在阻力位下方
+            support_area = np.sum(chip_matrix[-1, :resistance_idx]) / 100.0
+            if support_area > 0.6:
                 patterns['breakout_preparation']['detected'] = True
                 patterns['breakout_preparation']['strength'] = min(1.0, support_area)
         return patterns
-    
-    def _calculate_migration_patterns(self,percent_change_matrix: np.ndarray,chip_matrix: np.ndarray,price_grid: np.ndarray) -> Dict[str, any]:
+
+    def _calculate_migration_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, any]:
         """
-        计算筹码迁移模式
+        版本: v2.0
+        说明: 计算筹码迁移模式（合并掩码优化版）
+        优化: 合并布尔掩码操作，减少中间数组内存分配
         """
         if percent_change_matrix.shape[0] < 2:
             return self._get_default_migration_patterns()
@@ -463,85 +394,78 @@ class AdvancedChipDynamicsService:
             'downward_migration': {'strength': 0.0, 'volume': 0.0},
             'convergence_migration': {'strength': 0.0, 'areas': []},
             'divergence_migration': {'strength': 0.0, 'areas': []},
-            'net_migration_direction': 0.0  # 正值向上，负值向下
+            'net_migration_direction': 0.0
         }
-        # 使用最近的变化矩阵
         recent_changes = percent_change_matrix[-1, :] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
-        # 1. 计算净迁移方向
-        price_center = np.sum(price_grid * chip_matrix[-1]) / 100.0
-        weighted_changes = np.sum(recent_changes * price_grid) / np.sum(np.abs(recent_changes) + 1e-10)
+        price_center = np.dot(price_grid, chip_matrix[-1]) / 100.0
+        abs_changes = np.abs(recent_changes)
+        sum_abs_changes = np.sum(abs_changes) + 1e-10
+        weighted_changes = np.dot(recent_changes, price_grid) / sum_abs_changes
         patterns['net_migration_direction'] = weighted_changes - price_center
-        # 2. 向上迁移：低价区减少，高价区增加
-        low_price_mask = price_grid < price_center * 0.9
-        high_price_mask = price_grid > price_center * 1.1
-        low_decrease = np.sum(recent_changes[low_price_mask][recent_changes[low_price_mask] < 0])
-        high_increase = np.sum(recent_changes[high_price_mask][recent_changes[high_price_mask] > 0])
-        patterns['upward_migration']['strength'] = min(1.0, abs(high_increase - low_decrease) / 50.0)
-        patterns['upward_migration']['volume'] = abs(high_increase - low_decrease)
-        # 3. 向下迁移：高价区减少，低价区增加
-        high_decrease = np.sum(recent_changes[high_price_mask][recent_changes[high_price_mask] < 0])
-        low_increase = np.sum(recent_changes[low_price_mask][recent_changes[low_price_mask] > 0])
-        patterns['downward_migration']['strength'] = min(1.0, abs(high_decrease - low_increase) / 50.0)
-        patterns['downward_migration']['volume'] = abs(high_decrease - low_increase)
-        # 4. 收敛迁移：向中间价格聚集
-        mid_price_mask = (price_grid >= price_center * 0.95) & (price_grid <= price_center * 1.05)
-        mid_increase = np.sum(recent_changes[mid_price_mask][recent_changes[mid_price_mask] > 0])
+        mask_low = price_grid < price_center * 0.9
+        mask_high = price_grid > price_center * 1.1
+        low_decrease = np.sum(recent_changes[mask_low & (recent_changes < 0)])
+        high_increase = np.sum(recent_changes[mask_high & (recent_changes > 0)])
+        diff_up = abs(high_increase - low_decrease)
+        patterns['upward_migration']['strength'] = min(1.0, diff_up / 50.0)
+        patterns['upward_migration']['volume'] = float(diff_up)
+        high_decrease = np.sum(recent_changes[mask_high & (recent_changes < 0)])
+        low_increase = np.sum(recent_changes[mask_low & (recent_changes > 0)])
+        diff_down = abs(high_decrease - low_increase)
+        patterns['downward_migration']['strength'] = min(1.0, diff_down / 50.0)
+        patterns['downward_migration']['volume'] = float(diff_down)
+        mask_mid = (price_grid >= price_center * 0.95) & (price_grid <= price_center * 1.05)
+        mid_increase = np.sum(recent_changes[mask_mid & (recent_changes > 0)])
         if mid_increase > 0:
             patterns['convergence_migration']['strength'] = min(1.0, mid_increase / 30.0)
+            idx_conv = np.where(mask_mid & (recent_changes > 0))[0][:5]
             patterns['convergence_migration']['areas'] = [
                 {'price': float(price_grid[i]), 'change': float(recent_changes[i])}
-                for i in np.where(mid_price_mask & (recent_changes > 0))[0][:5]
+                for i in idx_conv
             ]
-        # 5. 发散迁移：从中间价格向两侧分散
-        mid_decrease = np.sum(recent_changes[mid_price_mask][recent_changes[mid_price_mask] < 0])
+        mid_decrease = np.sum(recent_changes[mask_mid & (recent_changes < 0)])
         if mid_decrease < 0:
             patterns['divergence_migration']['strength'] = min(1.0, abs(mid_decrease) / 30.0)
+            idx_div = np.where(mask_mid & (recent_changes < 0))[0][:5]
             patterns['divergence_migration']['areas'] = [
                 {'price': float(price_grid[i]), 'change': float(recent_changes[i])}
-                for i in np.where(mid_price_mask & (recent_changes < 0))[0][:5]
+                for i in idx_div
             ]
         return patterns
     
-    def _calculate_convergence_metrics(self,chip_matrix: np.ndarray,percent_change_matrix: np.ndarray,price_grid: np.ndarray) -> Dict[str, float]:
+    def _calculate_convergence_metrics(self, chip_matrix: np.ndarray, percent_change_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
         """
-        计算聚散度指标 - 基于百分比绝对变化
+        版本: v2.0
+        说明: 计算聚散度指标（计数优化版）
+        优化: 使用np.count_nonzero替代数组筛选后的len()，避免拷贝
         """
         if chip_matrix.shape[0] < 2 or len(percent_change_matrix) == 0:
             return self._get_default_convergence_metrics()
         metrics = {}
-        # 1. 静态聚散度（基于当前分布）
         current_chip = chip_matrix[-1]
-        # 筹码熵（越低越聚集）
         chip_entropy = entropy(current_chip + 1e-10)
-        max_entropy = np.log(len(current_chip))
-        metrics['static_convergence'] = 1.0 - (chip_entropy / max_entropy)
-        # 2. 动态聚散度（基于变化）
+        metrics['static_convergence'] = 1.0 - (chip_entropy / np.log(len(current_chip)))
         recent_changes = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
-        # 计算变化的方向一致性
-        positive_changes = recent_changes[recent_changes > 0]
-        negative_changes = recent_changes[recent_changes < 0]
-        if len(positive_changes) > 0 and len(negative_changes) > 0:
-            # 双向变化 = 发散
-            divergence_ratio = min(len(positive_changes), len(negative_changes)) / len(recent_changes)
+        n_pos = np.count_nonzero(recent_changes > 0)
+        n_neg = np.count_nonzero(recent_changes < 0)
+        total_changes = len(recent_changes)
+        if n_pos > 0 and n_neg > 0:
+            divergence_ratio = min(n_pos, n_neg) / total_changes
             metrics['dynamic_convergence'] = 1.0 - divergence_ratio
         else:
-            # 单向变化 = 聚集
             metrics['dynamic_convergence'] = 1.0
-        # 3. 迁移聚散度（净迁移方向强度）
-        price_center = np.sum(price_grid * current_chip) / 100.0
-        weighted_changes = np.sum(np.abs(recent_changes) * np.abs(price_grid - price_center)) / np.sum(np.abs(recent_changes) + 1e-10)
-        max_distance = np.max(np.abs(price_grid - price_center))
-        metrics['migration_convergence'] = 1.0 - (weighted_changes / max_distance)
-        # 4. 综合聚散度
-        weights = [0.4, 0.3, 0.3]
-        values = [
-            metrics['static_convergence'],
-            metrics['dynamic_convergence'],
-            metrics['migration_convergence']
-        ]
-        metrics['comprehensive_convergence'] = np.sum(np.array(weights) * np.array(values))
-        # 5. 收敛强度（正值收敛，负值发散）
-        net_change_direction = np.sum(recent_changes * (price_grid - price_center))
+        price_center = np.dot(price_grid, current_chip) / 100.0
+        abs_changes = np.abs(recent_changes)
+        dist_from_center = np.abs(price_grid - price_center)
+        weighted_changes = np.dot(abs_changes, dist_from_center) / (np.sum(abs_changes) + 1e-10)
+        max_distance = np.max(dist_from_center)
+        metrics['migration_convergence'] = 1.0 - (weighted_changes / max_distance) if max_distance > 0 else 0.5
+        metrics['comprehensive_convergence'] = (
+            0.4 * metrics['static_convergence'] +
+            0.3 * metrics['dynamic_convergence'] +
+            0.3 * metrics['migration_convergence']
+        )
+        net_change_direction = np.dot(recent_changes, price_grid - price_center)
         if net_change_direction > 0:
             metrics['convergence_strength'] = min(1.0, net_change_direction / 100.0)
             metrics['divergence_strength'] = 0.0
@@ -549,7 +473,7 @@ class AdvancedChipDynamicsService:
             metrics['convergence_strength'] = 0.0
             metrics['divergence_strength'] = min(1.0, abs(net_change_direction) / 100.0)
         return metrics
-    
+
     # ============== 数据获取方法 ==============
     
     async def _fetch_chip_percent_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
