@@ -20,7 +20,8 @@ class FundFlowFactorBase(models.Model):
         on_delete=models.CASCADE,
         verbose_name='股票',
         db_index=True,
-        related_name="fundflow_factors"  # 添加关联名称
+        related_name="%(class)s_factors",  # 修改这里：使用占位符
+        related_query_name="%(class)s_factor"  # 添加查询名称
     )
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     
