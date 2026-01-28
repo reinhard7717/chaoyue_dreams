@@ -685,8 +685,16 @@ class ChipHoldingMatrixBase(models.Model):
             base_days = 30 + self.long_term_ratio * 120  # 30-150天范围
             # 活跃度调整：活跃度越高，持有时间越短
             self.avg_holding_days = max(10, base_days * (1.0 - activity_score * 0.7))
+            # =======================================================
+            # 优化：对最终结果保留 4 位小数，保持数据整洁
+            # =======================================================
+            self.short_term_ratio = round(self.short_term_ratio, 4)
+            self.mid_term_ratio = round(self.mid_term_ratio, 4)
+            self.long_term_ratio = round(self.long_term_ratio, 4)
+            self.avg_holding_days = round(self.avg_holding_days, 1) # 天数保留1位即可
+
         except Exception as e:
-            print(f"⚠️ [PROBE-ERROR] 推算持有时间因子发生异常，回退默认值: {e}")
+            print(f"⚠️ [计算警告] 推算持有时间因子异常: {e}")
             import traceback
             traceback.print_exc()
             # 使用默认值
