@@ -514,8 +514,13 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                         trade_time=current_date,
                         defaults={'calc_status': 'pending'}
                     )
-                    # 保存动态分析结果
-                    save_success = record.save_dynamics_result(dynamics_result)
+                    
+                    # =========================================================
+                    # 核心修复：使用 sync_to_async 包装同步的模型方法调用
+                    # 因为 save_dynamics_result 内部包含 self.save() 数据库操作
+                    # =========================================================
+                    save_success = await sync_to_async(record.save_dynamics_result)(dynamics_result)
+                    
                     if save_success:
                         processed_dates += 1
                         saved_dates.append(current_date)
@@ -528,6 +533,8 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                     print(f"⚠️ [持有矩阵] {stock_code} {current_date} 动态分析失败")
             except Exception as e:
                 print(f"❌ [持有矩阵] {stock_code} {current_date} 计算失败: {e}")
+                import traceback
+                traceback.print_exc()
                 failed_dates.append(current_date)
         print(f"✅ [持有矩阵完成] {stock_code} 处理完成，成功 {len(saved_dates)} 个交易日，失败 {len(failed_dates)} 个交易日")
         return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
