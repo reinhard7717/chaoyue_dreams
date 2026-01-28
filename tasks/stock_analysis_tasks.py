@@ -1909,9 +1909,11 @@ def archive_historical_trade_data(self, days_to_keep: int = 233, segment_days: i
     db_name = db_config['NAME']
     target_models = []
     all_models = apps.get_models()
+    print(f"调试信息: 所有模型数量: {len(all_models)}")
     for model in all_models:
         if hasattr(model, '_meta') and not model._meta.abstract and 'trade_time' in [f.name for f in model._meta.get_fields()]:
             if model.objects.exists():
+                print(f"调试信息: 模型 {model.__name__} 有数据，添加到处理列表。")
                 target_models.append(model)
     if not target_models:
         logger.info("未找到任何含有 'trade_time' 字段且有数据的表，任务结束。")
