@@ -1447,29 +1447,39 @@ class ChipFactorCalculator:
     def calculate_main_cost_range_ratio(chip_dist_data: pd.DataFrame, cost_50pct: float) -> float:
         """
         基于筹码分布数据计算主力成本区间锁定比例 (main_cost_range_ratio)
-        逻辑: 计算筹码成本在成本中位数(cost_50pct)上下10%区间内的筹码占比
+        逻辑: 计算筹码成本在成本中位数(cost_50pct)上下5%区间内的筹码占比
+        修改说明：
+        1. 将统计区间从 ±10% 缩小为 ±5% (0.95-1.05)，以解决原指标数值普遍趋近于1、缺乏区分度的问题。
+        2. 异常情况默认返回值由 0.5 改为 0.0，避免误导。
         """
         try:
             if chip_dist_data.empty or cost_50pct <= 0:
-                print(f"⚠️ [calculate_main_cost_range_ratio] 输入数据无效，返回默认值0.5")
-                return 0.5
-            lower_bound = cost_50pct * 0.9
-            upper_bound = cost_50pct * 1.1
+                return 0.0
+            
+            # 调整为 ±5% 区间，提高指标区分度
+            lower_bound = cost_50pct * 0.95
+            upper_bound = cost_50pct * 1.05
+            
             # 筛选在主力成本区间的筹码
             main_mask = (chip_dist_data['price'] >= lower_bound) & (chip_dist_data['price'] <= upper_bound)
+            
             if not main_mask.any():
-                print(f"⚠️ [calculate_main_cost_range_ratio] 无筹码落在主力成本区间[{lower_bound:.2f}, {upper_bound:.2f}]，返回0")
                 return 0.0
+                
             main_chip_sum = chip_dist_data.loc[main_mask, 'percent'].sum()
             total_chip_sum = chip_dist_data['percent'].sum()
+            
             if total_chip_sum <= 0:
                 return 0.0
+                
             ratio = main_chip_sum / total_chip_sum
-            print(f"📊 [calculate_main_cost_range_ratio] 计算完成: {ratio:.4f} (区间: {lower_bound:.2f}-{upper_bound:.2f})")
-            return float(ratio)
+            
+            # 确保比例在0-1之间
+            return float(min(max(ratio, 0.0), 1.0))
+            
         except Exception as e:
-            print(f"❌ [calculate_main_cost_range_ratio] 计算失败: {e}，返回默认值0.5")
-            return 0.5
+            logger.error(f"计算主力成本区间锁定比例失败: {e}")
+            return 0.0
 
     @staticmethod
     def calculate_high_position_lock_ratio_90(chip_dist_data: pd.DataFrame, current_price: float) -> float:
