@@ -14,6 +14,18 @@ class ChipFactorCalculator:
     """
     筹码因子计算器
     """
+    
+    def to_factor_dict(self) -> Dict[str, float]:
+        """
+        转换为筹码因子字典（处理字段名映射）
+        将 ChipHoldingMatrix 的字段映射为 ChipFactor 所需的字段名
+        """
+        return {
+            'avg_holding_days': self.avg_holding_days if self.avg_holding_days is not None else 100.0,
+            'short_term_chip_ratio': self.short_term_ratio if self.short_term_ratio is not None else 0.2,
+            'long_term_chip_ratio': self.long_term_ratio if self.long_term_ratio is not None else 0.5,
+        }
+
     @staticmethod
     def calculate_chip_entropy(price_percent_dict: Dict[float, float]) -> float:
         """
@@ -1453,45 +1465,6 @@ class ChipFactorCalculator:
         except Exception as e:
             print(f"❌ [calculate_main_cost_range_ratio] 计算失败: {e}，返回默认值0.5")
             return 0.5
-    @staticmethod
-    def calculate_high_position_lock_ratio_90(chip_dist_data: pd.DataFrame, current_price: float) -> float:
-        """
-        基于筹码分布数据计算90%分位以上高位筹码沉淀比例 (high_position_lock_ratio_90)
-        逻辑: 计算价格高于"当前价格90%分位"的筹码占比，用于反映高位套牢盘。
-             如果当前价格很低，则计算价格高于"筹码分布价格90%分位"的筹码占比。
-        """
-        try:
-            if chip_dist_data.empty or current_price <= 0:
-                print(f"⚠️ [calculate_high_position_lock_ratio_90] 输入数据无效，返回默认值0.0")
-                return 0.0
-            # 方法1: 基于当前价格计算90%分位阈值
-            price_threshold_1 = current_price * 1.0  # 当前价格的100%作为阈值（即高于当前价的筹码）
-            # 方法2: 基于筹码分布自身计算90%价格分位
-            sorted_chips = chip_dist_data.sort_values('price')
-            cum_pct = sorted_chips['percent'].cumsum()
-            # 找到累计占比达到90%的价格点
-            if (cum_pct >= 0.9).any():
-                idx_90 = (cum_pct >= 0.9).idxmax()
-                price_threshold_2 = sorted_chips.loc[idx_90, 'price']
-            else:
-                price_threshold_2 = sorted_chips['price'].max()
-            # 使用两者中较高的作为阈值，更严格反映"高位"
-            price_threshold = max(price_threshold_1, price_threshold_2)
-            # 计算高于阈值的筹码占比
-            high_mask = chip_dist_data['price'] >= price_threshold
-            if not high_mask.any():
-                print(f"⚠️ [calculate_high_position_lock_ratio_90] 无筹码高于阈值{price_threshold:.2f}，返回0")
-                return 0.0
-            high_chip_sum = chip_dist_data.loc[high_mask, 'percent'].sum()
-            total_chip_sum = chip_dist_data['percent'].sum()
-            if total_chip_sum <= 0:
-                return 0.0
-            ratio = high_chip_sum / total_chip_sum
-            print(f"📊 [calculate_high_position_lock_ratio_90] 计算完成: {ratio:.4f} (阈值: {price_threshold:.2f}, 当前价: {current_price:.2f})")
-            return float(ratio)
-        except Exception as e:
-            print(f"❌ [calculate_high_position_lock_ratio_90] 计算失败: {e}，返回默认值0.0")
-            return 0.0
 
     @staticmethod
     def calculate_high_position_lock_ratio_90(chip_dist_data: pd.DataFrame, current_price: float) -> float:
@@ -1499,6 +1472,7 @@ class ChipFactorCalculator:
         基于筹码分布数据计算90%分位以上高位筹码沉淀比例 (high_position_lock_ratio_90)
         逻辑: 计算价格高于“当前价格90%分位”的筹码占比，用于反映高位套牢盘。
              如果当前价格很低，则计算价格高于“筹码分布价格90%分位”的筹码占比。
+        注意：请确保文件中只保留这一个定义，删除文件末尾重复的定义。
         """
         try:
             if chip_dist_data.empty or current_price <= 0:

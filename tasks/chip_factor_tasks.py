@@ -1361,33 +1361,40 @@ def schedule_comprehensive_calculation(
     task_ids = []
     if start_date_str is None:
         start_date_str = ChipTaskConfig.DEFAULT_START_DATE
+    
     if end_date_str is None:
         end_date_str = get_last_trade_date().strftime('%Y%m%d')
+        
     print(f"🔗 [链式调度开始] 日期范围: {start_date_str} 到 {end_date_str}")
+    
     # 导入 Celery chain
     from celery import chain
+    
     # 1. 如果同时需要持有矩阵和筹码因子，创建链式任务
     if include_holding_matrix and include_chip_factors:
         print(f"🔗 [链式调度] 创建链式任务：持有矩阵 → 筹码因子")
         # 创建任务链：先执行持有矩阵计算，再执行筹码因子计算
+        # 注意：使用 .si() (immutable signature) 避免将上一个任务的结果作为参数传递给下一个任务
         task_chain = chain(
             schedule_holding_matrix_calculation.s(
                 stock_codes=None,
                 start_date_str=start_date_str,
                 end_date_str=end_date_str
             ),
-            schedule_chip_factor_calculation.s(
+            schedule_chip_factor_calculation.si(
                 stock_codes=None,
                 start_date_str=start_date_str,
                 end_date_str=end_date_str,
                 batch_mode=True
             )
         )
+        
         # 执行链式任务
         chain_result = task_chain.delay()
         task_ids.append(chain_result.id)
         print(f"✅ [链式调度] 链式任务已创建: ID={chain_result.id}")
         print(f"📋 [链式调度] 任务链: 持有矩阵计算 → 筹码因子计算")
+        
     # 2. 如果只需要持有矩阵
     elif include_holding_matrix and not include_chip_factors:
         print(f"⏳ [链式调度] 仅调度持有矩阵计算任务...")
@@ -1398,6 +1405,7 @@ def schedule_comprehensive_calculation(
         )
         task_ids.append(holding_task.id)
         print(f"✅ [链式调度] 持有矩阵任务已调度: {holding_task.id}")
+        
     # 3. 如果只需要筹码因子
     elif not include_holding_matrix and include_chip_factors:
         print(f"⏳ [链式调度] 仅调度筹码因子计算任务...")
@@ -1409,8 +1417,10 @@ def schedule_comprehensive_calculation(
         )
         task_ids.append(chip_task.id)
         print(f"✅ [链式调度] 筹码因子任务已调度: {chip_task.id}")
+        
     else:
         print(f"⚠️ [链式调度] 未选择任何计算任务，请设置 include_chip_factors 或 include_holding_matrix 为 True")
+        
     print(f"✅ [链式调度完成] 任务ID列表: {task_ids}")
     return task_ids
 
