@@ -562,7 +562,7 @@ class ChipHoldingMatrixBase(models.Model):
         return f"{self.stock.stock_code} {self.trade_time} 动态分析"
     
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
-        """保存动态分析结果版本：稳健清洗版"""
+        """保存动态分析结果版本：稳健清洗版 + 调试增强"""
         try:
             # 1. 基础状态检查
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
@@ -577,19 +577,29 @@ class ChipHoldingMatrixBase(models.Model):
             # =======================================================
             def _clean_structure(data, precision=3, threshold=0.0):
                 """
-                递归清洗数据结构，不依赖 Numpy
-                args:
-                    threshold: 绝对值小于此数的将被置为0
+                递归清洗数据结构
                 """
-                if isinstance(data, float):
-                    if abs(data) < threshold: return 0.0
-                    return round(data, precision)
-                elif isinstance(data, int):
-                    return data
+                # 处理浮点数和整数（包括 numpy 类型）
+                if isinstance(data, (float, int, np.number)):
+                    val = float(data)  # 强制转为 python float
+                    if abs(val) < threshold: 
+                        return 0.0
+                    if val == 0.0: 
+                        return 0.0
+                    return round(val, precision)
+                
+                # 递归处理字典
                 elif isinstance(data, dict):
                     return {k: _clean_structure(v, precision, threshold) for k, v in data.items()}
-                elif isinstance(data, list):
+                
+                # 递归处理列表/元组
+                elif isinstance(data, (list, tuple, np.ndarray)):
+                    # 如果是 numpy 数组，先转列表
+                    if isinstance(data, np.ndarray):
+                        data = data.tolist()
                     return [_clean_structure(i, precision, threshold) for i in data]
+                
+                # 其他类型直接返回
                 return data
 
             # =======================================================
@@ -597,29 +607,36 @@ class ChipHoldingMatrixBase(models.Model):
             # =======================================================
             raw_change = dynamics_result.get('percent_change_matrix', [])
             if raw_change:
-                # 使用纯 Python 清洗，阈值设为 0.05 (即 0.05% 的变化视为噪声)
-                # 这种方式对 2D 列表绝对安全，不会因为行列不齐而报错
+                # 调试日志：检查清洗前的一个非零小值
+                flat_raw = [x for row in raw_change for x in row]
+                sample_raw = next((x for x in flat_raw if 0 < abs(x) < 0.05), None)
+                if sample_raw is not None:
+                    print(f"🔍 [清洗调试] 发现待清洗值: {sample_raw} (应被置0)")
+
+                # 执行清洗
                 self.percent_change_matrix = _clean_structure(raw_change, precision=3, threshold=0.05)
+                
+                # 调试日志：检查清洗后是否还有
+                flat_clean = [x for row in self.percent_change_matrix for x in row]
+                sample_clean = next((x for x in flat_clean if 0 < abs(x) < 0.05), None)
+                if sample_clean is None:
+                    print(f"✅ [清洗调试] 矩阵清洗成功，所有 < 0.05 的值均已置0")
+                else:
+                    print(f"❌ [清洗调试] 警告！依然存在小值: {sample_clean}")
+
             else:
                 self.percent_change_matrix = []
 
             # =======================================================
             # 3. 保存其他指标 (保留有效精度)
             # =======================================================
-            # 价格网格
             self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
-            
-            # 信号与模式 (保留3位小数)
             self.absolute_change_signals = _clean_structure(dynamics_result.get('absolute_change_signals', {}), 3)
             self.behavior_patterns = _clean_structure(dynamics_result.get('behavior_patterns', {}), 3)
-            
-            # 各类指标 (保留4位小数)
             self.concentration_metrics = _clean_structure(dynamics_result.get('concentration_metrics', {}), 4)
             self.pressure_metrics = _clean_structure(dynamics_result.get('pressure_metrics', {}), 4)
             self.migration_patterns = _clean_structure(dynamics_result.get('migration_patterns', {}), 4)
             self.convergence_metrics = _clean_structure(dynamics_result.get('convergence_metrics', {}), 4)
-            
-            # 验证信息
             self.validation_score = dynamics_result.get('validation_score')
             self.validation_warnings = dynamics_result.get('validation_warnings')
             
@@ -633,17 +650,12 @@ class ChipHoldingMatrixBase(models.Model):
                     cleaned_matrix = _clean_structure(chip_matrix_list, precision=3, threshold=0.001)
                     self.matrix_data = {'matrix': cleaned_matrix}
                     
-                    # 压缩存储 (使用 pickle + base64)
-                    # 为了压缩效率，这里可以使用 numpy 转换后再 dump，因为 pickle numpy 数组更小
-                    # 如果转换失败（形状不对），则直接 pickle list
-                    import numpy as np
-                    try:
-                        matrix_obj = np.array(cleaned_matrix)
-                    except:
-                        matrix_obj = cleaned_matrix
-                        
-                    matrix_bytes = pickle.dumps(matrix_obj)
-                    self.compressed_matrix = base64.b64encode(matrix_bytes)
+                    # 压缩存储：使用 zlib 压缩 JSON 字符串，比 pickle 更通用且通常更小
+                    import zlib
+                    json_str = json.dumps(cleaned_matrix)
+                    compressed = zlib.compress(json_str.encode('utf-8'))
+                    self.compressed_matrix = compressed
+                    
                 except Exception as e:
                     print(f"⚠️ [保存警告] 筹码矩阵压缩失败: {e}")
                     self.matrix_data = {'matrix': chip_matrix_list}
@@ -669,7 +681,6 @@ class ChipHoldingMatrixBase(models.Model):
             try: self.save(update_fields=['calc_status', 'error_message'])
             except: pass
             return False
-        
     def _calculate_holding_factors_from_dynamics(self, dynamics_result: Dict[str, Any]):
         """从动态分析结果推算持有时间因子版本"""
         try:
