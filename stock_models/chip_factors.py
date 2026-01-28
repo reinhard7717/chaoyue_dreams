@@ -564,14 +564,12 @@ class ChipHoldingMatrixBase(models.Model):
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
         """保存动态分析结果版本：重构适配AdvancedChipDynamicsService的输出格式"""
         try:
-            print(f"🕵️ [PROBE-SAVE] {self.stock.stock_code} 接收分析结果 keys: {list(dynamics_result.keys()) if dynamics_result else 'None'}")
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
                 status = dynamics_result.get('analysis_status') if dynamics_result else 'None'
                 print(f"🕵️ [PROBE-SAVE] ❌ 分析状态非成功: {status}，保存失败")
                 self.calc_status = 'failed'
                 self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
                 return False
-            print(f"💾 [保存动态分析结果] 开始保存 {self.stock.stock_code} {self.trade_time} 的动态分析结果")
             # =======================================================
             # 内部辅助函数：递归清洗数据（降低精度）
             # =======================================================
@@ -589,7 +587,6 @@ class ChipHoldingMatrixBase(models.Model):
                 elif isinstance(data, np.generic):  # 处理 numpy 类型
                     return _clean_data(data.item(), precision)
                 return data
-
             # 1. 保存核心分析数据（经过清洗）
             # price_grid 通常需要较高一点的精度（如价格），但也无需过高，保留3位足够覆盖A股分
             self.price_grid = _clean_data(dynamics_result.get('price_grid', []), 3)
@@ -606,7 +603,6 @@ class ChipHoldingMatrixBase(models.Model):
                     self.percent_change_matrix = []
             else:
                 self.percent_change_matrix = []
-
             # 清洗其他 JSON 指标字段
             self.absolute_change_signals = _clean_data(dynamics_result.get('absolute_change_signals', {}), 3)
             self.concentration_metrics = _clean_data(dynamics_result.get('concentration_metrics', {}), 4)
@@ -625,10 +621,8 @@ class ChipHoldingMatrixBase(models.Model):
                     chip_arr = np.round(chip_arr, 3) 
                     # 再次清洗极小值，进一步利用稀疏性
                     chip_arr[chip_arr < 0.001] = 0.0
-                    
                     chip_clean_list = chip_arr.tolist()
                     self.matrix_data = {'matrix': chip_clean_list}
-                    
                     matrix_bytes = pickle.dumps(chip_arr)
                     self.compressed_matrix = base64.b64encode(matrix_bytes)
                 except Exception as e:
@@ -640,7 +634,6 @@ class ChipHoldingMatrixBase(models.Model):
             self.analysis_method = 'advanced_dynamics'
             self.used_percent_data = True
             self.save()
-            print(f"✅ [保存动态分析结果] 保存成功，持有时间因子: 短线={self.short_term_ratio:.2f}, 中线={self.mid_term_ratio:.2f}, 长线={self.long_term_ratio:.2f}")
             return True
         except Exception as e:
             print(f"❌ 保存动态分析结果失败: {e}")
@@ -666,12 +659,6 @@ class ChipHoldingMatrixBase(models.Model):
             concentration_score = concentration.get('comprehensive_concentration', 0.5)
             activity_score = behavior.get('main_force_activity', 0.0)
             signal_quality = absolute_signals.get('signal_quality', 0.0)
-            print(f"🕵️ [PROBE-CALC] 因子提取值 check:")
-            print(f"   > Convergence: {convergence_score}")
-            print(f"   > Concentration: {concentration_score}")
-            print(f"   > Activity: {activity_score}")
-            print(f"   > Signal Quality: {signal_quality}")
-
             # 长线筹码比例：高集中度 + 高收敛度 + 低活跃度
             long_term_base = (concentration_score + convergence_score) / 2
             # 活动度调整：活动度越高，长线筹码越少
@@ -713,7 +700,6 @@ class ChipHoldingMatrixBase(models.Model):
             base_days = 30 + self.long_term_ratio * 120  # 30-150天范围
             # 活跃度调整：活跃度越高，持有时间越短
             self.avg_holding_days = max(10, base_days * (1.0 - activity_score * 0.7))
-            print(f"📊 [推算持有因子] 长线={self.long_term_ratio:.3f}, 短线={self.short_term_ratio:.3f}, 中线={self.mid_term_ratio:.3f}, 平均天数={self.avg_holding_days:.1f}")
         except Exception as e:
             print(f"⚠️ [PROBE-ERROR] 推算持有时间因子发生异常，回退默认值: {e}")
             import traceback

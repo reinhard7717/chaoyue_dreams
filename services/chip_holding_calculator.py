@@ -10,7 +10,7 @@ from scipy.optimize import minimize
 from sklearn.mixture import GaussianMixture
 import asyncio
 from asgiref.sync import sync_to_async
-from utils.model_helpers import get_cyq_chips_model_by_code
+from utils.model_helpers import get_cyq_chips_model_by_code, get_daily_data_model_by_code
 
 logger = logging.getLogger(__name__)
 
@@ -579,21 +579,15 @@ class AdvancedChipDynamicsService:
                 trade_time__lt=trade_date_dt
             ).order_by('trade_time').values('trade_time', 'price', 'percent')
             history_chip_list = await sync_to_async(list)(history_chip_qs)
-            print(f"🕵️ [PROBE-FETCH] {stock_code} {trade_date} (lookback={lookback_days})")
-            print(f"   > Start Date: {start_date}")
-            print(f"   > Current Rows: {len(current_chip_list)}")
-            print(f"   > History Raw Rows: {len(history_chip_list)}")
             # 按日期分组
             chip_history = []
             if history_chip_list:
                 history_df = pd.DataFrame(history_chip_list)
                 unique_dates = history_df['trade_time'].unique()
-                print(f"   > History Unique Dates: {len(unique_dates)}")
                 for date in unique_dates:
                     day_df = history_df[history_df['trade_time'] == date][['price', 'percent']]
                     chip_history.append(day_df)
             # 获取价格历史
-            from utils.model_helpers import get_daily_data_model_by_code
             daily_model = get_daily_data_model_by_code(stock_code)
             price_history = pd.DataFrame()
             if daily_model:
