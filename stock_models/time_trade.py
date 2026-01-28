@@ -426,682 +426,267 @@ class StockDailyData_BJ(models.Model):
         return f"{self.stock} {self.trade_time}"
 
 # 分钟行情模型（StockMinuteData）
-class StockMinuteData(models.Model):
-    """A股分钟行情"""
-    stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data',
-        verbose_name='股票'
-    )
+class StockMinuteDataBase(models.Model):
+    """
+    A股分钟行情抽象基类
+    包含了标准的OHLCV量化数据结构
+    """
     trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    time_level = models.CharField(max_length=10, verbose_name='分钟频度')  # 1min/5min/15min/30min/60min
     open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
     high = models.FloatField(null=True, blank=True, verbose_name='最高价')
     low = models.FloatField(null=True, blank=True, verbose_name='最低价')
     close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
     vol = models.BigIntegerField(verbose_name='成交量')
     amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
+
     class Meta:
+        abstract = True
+        ordering = ['-trade_time']
         verbose_name = 'A股分钟行情'
         verbose_name_plural = verbose_name
-        db_table = 'stock_time_trade_minute'
-        unique_together = ('stock', 'trade_time', 'time_level')
-        ordering = ['-trade_time']
+
     def __str__(self):
         return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_1_SZ(models.Model):
-    """A股分钟行情"""
+# ==========================================
+# 1. 深圳 (SZ) 分钟行情
+# ==========================================
+class StockMinuteData_1_SZ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_1_sz',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_1_sz', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_1_sz'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_5_SZ(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_5_SZ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_5_sz',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_5_sz', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_5_sz'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_15_SZ(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_15_SZ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_15_sz',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_15_sz', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_15_sz'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_30_SZ(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_30_SZ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_30_sz',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_30_sz', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_30_sz'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_60_SZ(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_60_SZ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_60_sz',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_60_sz', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_60_sz'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_1_SH(models.Model):
-    """A股分钟行情"""
+# ==========================================
+# 2. 上海 (SH) 分钟行情
+# ==========================================
+class StockMinuteData_1_SH(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_1_sh',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_1_sh', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_1_sh'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_5_SH(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_5_SH(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_5_sh',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_5_sh', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_5_sh'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_15_SH(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_15_SH(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_15_sh',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_15_sh', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_15_sh'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_30_SH(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_30_SH(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_30_sh',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_30_sh', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_30_sh'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_60_SH(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_60_SH(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_60_sh',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_60_sh', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_60_sh'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_1_BJ(models.Model):
-    """A股分钟行情"""
+# ==========================================
+# 3. 北京 (BJ) 分钟行情
+# ==========================================
+class StockMinuteData_1_BJ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_1_bj',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_1_bj', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_1_bj'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_5_BJ(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_5_BJ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_5_bj',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_5_bj', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_5_bj'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_15_BJ(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_15_BJ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_15_bj',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_15_bj', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_15_bj'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_30_BJ(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_30_BJ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_30_bj',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_30_bj', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_30_bj'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_60_BJ(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_60_BJ(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_60_bj',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_60_bj', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_60_bj'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_1_CY(models.Model):
-    """A股分钟行情"""
+# ==========================================
+# 4. 创业板 (CY) 分钟行情
+# ==========================================
+class StockMinuteData_1_CY(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_1_cy',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_1_cy', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_1_cy'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_5_CY(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_5_CY(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_5_cy',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_5_cy', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_5_cy'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_15_CY(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_15_CY(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_15_cy',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_15_cy', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_15_cy'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_30_CY(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_30_CY(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_30_cy',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_30_cy', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_30_cy'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_60_CY(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_60_CY(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_60_cy',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_60_cy', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_60_cy'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_1_KC(models.Model):
-    """A股分钟行情"""
+# ==========================================
+# 5. 科创板 (KC) 分钟行情
+# ==========================================
+class StockMinuteData_1_KC(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_1_kc',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_1_kc', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_1_kc'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_5_KC(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_5_KC(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_5_kc',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_5_kc', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_5_kc'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_15_KC(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_15_KC(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_15_kc',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_15_kc', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_15_kc'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_30_KC(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_30_KC(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_30_kc',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_30_kc', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_30_kc'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
-class StockMinuteData_60_KC(models.Model):
-    """A股分钟行情"""
+class StockMinuteData_60_KC(StockMinuteDataBase):
     stock = models.ForeignKey(
-        'StockInfo',
-        to_field='stock_code',
-        db_column='stock_code',
-        on_delete=models.CASCADE,
-        related_name='minute_data_60_kc',
-        verbose_name='股票'
+        'StockInfo', to_field='stock_code', db_column='stock_code',
+        on_delete=models.CASCADE, related_name='minute_data_60_kc', verbose_name='股票'
     )
-    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
-    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
-    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
-    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
-    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
-    vol = models.BigIntegerField(verbose_name='成交量')
-    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
-    class Meta:
-        verbose_name = 'A股分钟行情'
-        verbose_name_plural = verbose_name
+    class Meta(StockMinuteDataBase.Meta):
         db_table = 'stock_time_trade_minute_60_kc'
         unique_together = ('stock', 'trade_time')
-        ordering = ['-trade_time']
-    def __str__(self):
-        return f"{self.stock} {self.trade_time}"
 
 # 周线行情模型（StockWeeklyData）
 class StockWeeklyData(models.Model):

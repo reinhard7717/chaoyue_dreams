@@ -1868,7 +1868,7 @@ def run_top_n_performance_analysis(
 # =================== 4. 数据维护任务 ==================
 # =================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.archive_historical_trade_data', queue='celery')
-def archive_historical_trade_data(self, days_to_keep: int = 650, segment_days: int = 30):
+def archive_historical_trade_data(self, days_to_keep: int = 233, segment_days: int = 30):
     """
     归档含有 'trade_time' 字段的表的历史数据。
     - 保留最近 `days_to_keep` 个交易日的数据。
