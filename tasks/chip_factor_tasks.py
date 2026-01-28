@@ -12,12 +12,12 @@ from asgiref.sync import sync_to_async, async_to_sync
 import logging
 from typing import List, Dict, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from services.chip_holding_calculator import AdvancedChipDynamicsService
 import time
 
 # 导入模型和工具
 from stock_models.chip_factors import (
-    ChipFactorSZ, ChipFactorSH, ChipFactorCY, 
-    ChipFactorKC, ChipFactorBJ, 
+    ChipFactorSZ, ChipFactorSH, ChipFactorCY, ChipFactorKC, ChipFactorBJ, 
 )
 from stock_models.chip import StockCyqPerf
 from stock_models.index import TradeCalendar
@@ -342,8 +342,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
     """异步版本的单个股票计算函数（按股票循环）"""
     try:
         logger.debug(f"开始计算股票 {stock_code} 的筹码因子")
-        from stock_models.index import TradeCalendar
-        from asgiref.sync import sync_to_async
         print(f"🔴 [单股异步开始] {stock_code} {start_date} 到 {end_date}")
         # 注意：不再在这里调度持有矩阵计算，因为链式调度已经确保了先后顺序
         # 检查持有矩阵数据是否已存在
@@ -475,8 +473,6 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
     """异步版本的单个股票持有矩阵计算函数（使用AdvancedChipDynamicsService）版本：重构适配AdvancedChipDynamicsService"""
     try:
         logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵（使用AdvancedChipDynamicsService）")
-        from services.chip_dynamics_service import AdvancedChipDynamicsService
-        from utils.model_helpers import get_chip_holding_matrix_model_by_code
         # 获取持有矩阵模型
         holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
         # 获取股票基本信息
@@ -489,7 +485,6 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
         saved_dates = []
         failed_dates = []
         # 获取日期范围内的所有交易日
-        from stock_models.index import TradeCalendar
         get_dates_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_func(start_date, end_date)
         if not trade_dates:
@@ -700,7 +695,6 @@ async def save_chip_factors(chip_factor_model, stock, trade_date: date, factors:
 async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
     """验证筹码因子是否已保存到数据库"""
     try:
-        from asgiref.sync import sync_to_async
         # 获取股票
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock:
@@ -1230,7 +1224,6 @@ def check_holding_matrix_status(stock_code: str, start_date: date, end_date: dat
             calc_status='success'
         ).count()
         # 查询总交易日数
-        from stock_models.index import TradeCalendar
         trade_dates = TradeCalendar.get_trade_dates_between(start_date, end_date)
         total_days = len(trade_dates) if trade_dates else 0
         return {

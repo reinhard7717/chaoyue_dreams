@@ -1,4 +1,4 @@
-# services/chip_dynamics_service.py
+# services/chip_holding_calculator.py
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
