@@ -14,81 +14,6 @@ class ChipFactorCalculator:
     """
     筹码因子计算器
     """
-    
-    def to_factor_dict(self) -> Dict[str, Any]:
-        """
-        转换为筹码因子字典
-        包含：基础持有时间因子 + 高级动态分析因子
-        """
-        # 1. 基础持有时间因子
-        factors = {
-            'avg_holding_days': self.avg_holding_days if self.avg_holding_days is not None else 100.0,
-            'short_term_chip_ratio': self.short_term_ratio if self.short_term_ratio is not None else 0.2,
-            'long_term_chip_ratio': self.long_term_ratio if self.long_term_ratio is not None else 0.5,
-        }
-
-        # 2. 如果有动态分析数据，计算高级因子
-        if self.calc_status == 'success':
-            try:
-                # 重构 dynamics_result 结构，以便复用 ChipFactorBase 的计算逻辑
-                # 从 JSON 字段中提取数据
-                dynamics_result = {
-                    'analysis_status': 'success',
-                    'convergence_metrics': self.convergence_metrics or {},
-                    'behavior_patterns': self.behavior_patterns or {},
-                    'migration_patterns': self.migration_patterns or {},
-                    'absolute_change_signals': self.absolute_change_signals or {},
-                    'pressure_metrics': self.pressure_metrics or {},
-                    'concentration_metrics': self.concentration_metrics or {},
-                }
-                
-                # 调用 ChipFactorBase 的类方法计算聚散度等因子
-                # ChipFactorBase 在本文件中定义，可以直接使用
-                advanced_factors = ChipFactorBase.calculate_convergence_divergence(dynamics_result)
-                factors.update(advanced_factors)
-                
-                # 3. 补充趋势得分逻辑 (参考 ChipFactorBase._calculate_trend_score)
-                # 提取需要的变量
-                net_migration = advanced_factors.get('net_migration_direction', 0.0)
-                main_force_score = advanced_factors.get('main_force_activity_index', 0.0)
-                support_ratio = advanced_factors.get('support_resistance_ratio', 1.0)
-                signal_score = advanced_factors.get('signal_quality_score', 0.0)
-                confirmation_score = advanced_factors.get('behavior_confirmation', 0.0)
-                
-                # 计算趋势方向得分
-                direction_score = 0.0
-                if net_migration > 0.1: 
-                    direction_score = min(1.0, net_migration / 5.0)
-                elif net_migration < -0.1: 
-                    direction_score = -min(1.0, abs(net_migration) / 5.0)
-                
-                # 计算支撑强度得分
-                support_score = min(1.0, support_ratio) if support_ratio > 1 else support_ratio
-                
-                # 综合加权计算
-                weights = [0.3, 0.25, 0.2, 0.15, 0.1]
-                scores = [
-                    (direction_score + 1) / 2,  # 归一化到0-1
-                    main_force_score,
-                    (support_score + 1) / 2,
-                    signal_score,
-                    confirmation_score
-                ]
-                trend_score = sum(w * s for w, s in zip(weights, scores))
-                
-                factors['trend_confirmation_score'] = round(trend_score, 3)
-                
-                # 反转预警
-                if trend_score < 0.4 and main_force_score > 0.6:
-                    factors['reversal_warning_score'] = round(1.0 - trend_score, 3)
-                else:
-                    factors['reversal_warning_score'] = 0.0
-                    
-            except Exception as e:
-                print(f"⚠️ [to_factor_dict] 计算高级因子失败: {e}")
-                
-        return factors
-
     @staticmethod
     def calculate_chip_entropy(price_percent_dict: Dict[float, float]) -> float:
         """
@@ -115,7 +40,7 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"计算筹码熵值失败: {e}")
             return 0.0
-    
+
     @staticmethod
     def calculate_chip_skewness_kurtosis(price_percent_dict: Dict[float, float]) -> Tuple[float, float, float, float]:
         """
@@ -155,7 +80,7 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"计算筹码分布统计量失败: {e}")
             return 0.0, 0.0, 0.0, 0.0
-    
+
     @staticmethod
     def calculate_profit_ratio(chip_data: pd.DataFrame, current_price: float) -> float:
         """
@@ -182,7 +107,7 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"计算获利比例失败: {e}")
             return 0.0
-    
+
     @staticmethod
     def calculate_all_factors(
         chip_perf_data: Dict,  # cyq_perf数据
@@ -303,7 +228,7 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"计算移动平均线失败: {e}")
             return {}
-    
+
     @staticmethod
     def detect_peaks(chip_dist: pd.DataFrame, min_height: float = 1.0, 
                      min_distance: float = 0.02) -> Tuple[List[float], List[float]]:
@@ -339,7 +264,7 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"检测筹码峰失败: {e}")
             return [], []
-    
+
     @staticmethod
     def analyze_peak_pattern(peak_prices: List[float], peak_heights: List[float], price_range: Tuple[float, float]) -> Dict:
         """
@@ -437,7 +362,7 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"计算筹码流动失败: {e}")
             return 0, 0.0
-    
+
     @staticmethod
     def calculate_convergence_divergence(chip_dist: pd.DataFrame, cost_50pct: float,
                                         price_range: Tuple[float, float]) -> Tuple[float, float]:
@@ -471,14 +396,9 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"计算聚集发散度失败: {e}")
             return 0.0, 0.0
-    
+
     @staticmethod
-    def calculate_trend_reversal_scores(
-        chip_factors: Dict,
-        ma_values: Dict,
-        price_data: Dict,
-        volume_data: Dict
-    ) -> Tuple[float, float]:
+    def calculate_trend_reversal_scores(chip_factors: Dict,ma_values: Dict,price_data: Dict,volume_data: Dict) -> Tuple[float, float]:
         """
         计算趋势确认和反转预警得分
         Args:
@@ -707,9 +627,7 @@ class ChipFactorCalculator:
         return analysis
 
     @staticmethod
-    def calculate_chip_migration(chip_current: pd.DataFrame, 
-                                chip_previous: pd.DataFrame,
-                                window_days: int = 5) -> Dict:
+    def calculate_chip_migration(chip_current: pd.DataFrame, chip_previous: pd.DataFrame,window_days: int = 5) -> Dict:
         """
         计算筹码迁移情况
         关键指标：
@@ -908,9 +826,7 @@ class ChipFactorCalculator:
             return 50.0
 
     @staticmethod
-    def calculate_volatility_adjusted_concentration(
-        chip_concentration: float, 
-        volatility_20d: float,
+    def calculate_volatility_adjusted_concentration(chip_concentration: float, volatility_20d: float,
         market_volatility: float = 0.2  # 市场平均波动率，默认20%
     ) -> float:
         """
@@ -939,12 +855,7 @@ class ChipFactorCalculator:
             return chip_concentration
 
     @staticmethod
-    def calculate_chip_rsi_divergence(
-        rsi_value: float, 
-        chip_flow_direction: int,
-        price_trend_5d: float,
-        rsi_trend_5d: float
-    ) -> float:
+    def calculate_chip_rsi_divergence(rsi_value: float, chip_flow_direction: int,price_trend_5d: float,rsi_trend_5d: float) -> float:
         """
         计算筹码RSI背离度
         Args:
@@ -1038,11 +949,7 @@ class ChipFactorCalculator:
             return 0.0
 
     @staticmethod
-    def determine_enhanced_chip_structure(
-        chip_factors: Dict,
-        ma_values: Dict,
-        volume_trend: float  # 成交量趋势
-    ) -> str:
+    def determine_enhanced_chip_structure(chip_factors: Dict,ma_values: Dict,volume_trend: float) -> str:
         """
         增强的筹码结构状态判断
         """
@@ -1305,11 +1212,7 @@ class ChipFactorCalculator:
         }
 
     @staticmethod
-    def validate_data_availability(
-        chip_perf_data: Dict,
-        chip_dist_data: pd.DataFrame,
-        historical_prices: pd.Series = None
-    ) -> Tuple[bool, str]:
+    def validate_data_availability(chip_perf_data: Dict,chip_dist_data: pd.DataFrame,historical_prices: pd.Series = None) -> Tuple[bool, str]:
         """
         验证数据是否足够计算所有因子
         Returns:
@@ -1414,12 +1317,7 @@ class ChipFactorCalculator:
             return 0.0
     
     @staticmethod
-    def calculate_layered_flow_factors(
-        chip_dist_current: pd.DataFrame,
-        chip_dist_previous: pd.DataFrame,
-        cost_15pct: float,
-        cost_85pct: float
-    ) -> Dict[str, float]:
+    def calculate_layered_flow_factors(chip_dist_current: pd.DataFrame,chip_dist_previous: pd.DataFrame,cost_15pct: float,cost_85pct: float) -> Dict[str, float]:
         """
         计算分层筹码流动因子
         Returns:
@@ -1472,11 +1370,7 @@ class ChipFactorCalculator:
             return {}
     
     @staticmethod
-    def calculate_main_force_behavior(
-        flow_factors: Dict[str, float],
-        turnover_rate: float,
-        price_change: float
-    ) -> Dict[str, float]:
+    def calculate_main_force_behavior(flow_factors: Dict[str, float],turnover_rate: float,price_change: float) -> Dict[str, float]:
         """
         计算主力行为强度因子
         """

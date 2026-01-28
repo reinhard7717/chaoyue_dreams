@@ -372,6 +372,73 @@ class ChipFactorBase(models.Model):
                         pass
         super().save(*args, **kwargs)
 
+    def to_factor_dict(self) -> Dict[str, Any]:
+        """
+        转换为筹码因子字典
+        包含：基础持有时间因子 + 高级动态分析因子
+        """
+        # 1. 基础持有时间因子
+        factors = {
+            'avg_holding_days': self.avg_holding_days if self.avg_holding_days is not None else 100.0,
+            'short_term_chip_ratio': self.short_term_ratio if self.short_term_ratio is not None else 0.2,
+            'long_term_chip_ratio': self.long_term_ratio if self.long_term_ratio is not None else 0.5,
+        }
+
+        # 2. 如果有动态分析数据，计算高级因子
+        if self.calc_status == 'success':
+            try:
+                # 重构 dynamics_result 结构，以便复用 ChipFactorBase 的计算逻辑
+                # 从 JSON 字段中提取数据
+                dynamics_result = {
+                    'analysis_status': 'success',
+                    'convergence_metrics': self.convergence_metrics or {},
+                    'behavior_patterns': self.behavior_patterns or {},
+                    'migration_patterns': self.migration_patterns or {},
+                    'absolute_change_signals': self.absolute_change_signals or {},
+                    'pressure_metrics': self.pressure_metrics or {},
+                    'concentration_metrics': self.concentration_metrics or {},
+                }
+                # 调用 ChipFactorBase 的类方法计算聚散度等因子
+                # ChipFactorBase 在本文件中定义，可以直接使用
+                advanced_factors = ChipFactorBase.calculate_convergence_divergence(dynamics_result)
+                factors.update(advanced_factors)
+                # 3. 补充趋势得分逻辑 (参考 ChipFactorBase._calculate_trend_score)
+                # 提取需要的变量
+                net_migration = advanced_factors.get('net_migration_direction', 0.0)
+                main_force_score = advanced_factors.get('main_force_activity_index', 0.0)
+                support_ratio = advanced_factors.get('support_resistance_ratio', 1.0)
+                signal_score = advanced_factors.get('signal_quality_score', 0.0)
+                confirmation_score = advanced_factors.get('behavior_confirmation', 0.0)
+                # 计算趋势方向得分
+                direction_score = 0.0
+                if net_migration > 0.1: 
+                    direction_score = min(1.0, net_migration / 5.0)
+                elif net_migration < -0.1: 
+                    direction_score = -min(1.0, abs(net_migration) / 5.0)
+                # 计算支撑强度得分
+                support_score = min(1.0, support_ratio) if support_ratio > 1 else support_ratio
+                # 综合加权计算
+                weights = [0.3, 0.25, 0.2, 0.15, 0.1]
+                scores = [
+                    (direction_score + 1) / 2,  # 归一化到0-1
+                    main_force_score,
+                    (support_score + 1) / 2,
+                    signal_score,
+                    confirmation_score
+                ]
+                trend_score = sum(w * s for w, s in zip(weights, scores))
+                factors['trend_confirmation_score'] = round(trend_score, 3)
+                # 反转预警
+                if trend_score < 0.4 and main_force_score > 0.6:
+                    factors['reversal_warning_score'] = round(1.0 - trend_score, 3)
+                else:
+                    factors['reversal_warning_score'] = 0.0
+                    
+            except Exception as e:
+                print(f"⚠️ [to_factor_dict] 计算高级因子失败: {e}")
+                
+        return factors
+
     # ========== 新增：计算聚散度的方法 ==========
     @classmethod
     def calculate_convergence_divergence(cls,chip_dynamics_result: Dict[str, any]) -> Dict[str, float]:
@@ -496,7 +563,6 @@ class ChipFactorBase(models.Model):
             if behavior_patterns:
                 accumulation = behavior_patterns.get('accumulation', {})
                 distribution = behavior_patterns.get('distribution', {})
-                
                 if accumulation.get('detected', False):
                     if accumulation.get('strength', 0) > distribution.get('strength', 0):
                         self.chip_structure_state = 'accumulation'
