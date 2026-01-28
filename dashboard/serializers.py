@@ -69,19 +69,6 @@ class DisclosureDateSerializer(serializers.ModelSerializer):
         model = DisclosureDate
         fields = '__all__'
 
-
-class FundFlowDailyTHSSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.fund_flow import FundFlowDailyTHS
-        model = FundFlowDailyTHS
-        fields = '__all__'
-
-class FundFlowDailyDCSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.fund_flow import FundFlowDailyDC
-        model = FundFlowDailyDC
-        fields = '__all__'
-
 class FundFlowCntTHSSerializer(serializers.ModelSerializer):
     class Meta:
         from stock_models.fund_flow import FundFlowCntTHS
@@ -247,12 +234,6 @@ class StockDailyBasicSerializer(serializers.ModelSerializer):
     class Meta:
         from stock_models.time_trade import StockDailyBasic
         model = StockDailyBasic
-        fields = '__all__'
-
-class StockMinuteDataSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.time_trade import StockMinuteData
-        model = StockMinuteData
         fields = '__all__'
 
 class StockWeeklyDataSerializer(serializers.ModelSerializer):
