@@ -196,12 +196,6 @@ class ChipFactorBase(models.Model):
         help_text='(cost_50pct±10%)区间筹码占比，反映主力控盘度',
         default=0.5  # 添加默认值
     )
-    # ========== 筹码平均持有时间 ==========
-    avg_holding_days = models.FloatField(
-        verbose_name='平均持有时长(天)',
-        help_text='基于换手率推算的筹码平均持有时间',
-        default=100.0  # 添加默认值
-    )
     # ========== 长线锁定筹码 ==========
     long_term_chip_ratio = models.FloatField(
         verbose_name='长线锁定筹码比例(>60日)',
@@ -372,12 +366,11 @@ class ChipFactorBase(models.Model):
                         pass
         super().save(*args, **kwargs)
 
-    # ========== 新增：计算聚散度的方法 ==========
+    # ========== 计算聚散度的方法 ==========
     @classmethod
     def calculate_convergence_divergence(cls,chip_dynamics_result: Dict[str, any]) -> Dict[str, float]:
         """
         计算筹码聚散度因子 - 基于百分比绝对变化
-        
         返回:
             Dict包含聚散度相关因子
         """
@@ -468,7 +461,6 @@ class ChipFactorBase(models.Model):
     def update_from_chip_dynamics(self, chip_dynamics_result: Dict[str, any]):
         """
         从筹码动态分析结果更新因子
-        
         Args:
             chip_dynamics_result: AdvancedChipDynamicsService 的分析结果
         """
@@ -519,7 +511,6 @@ class ChipFactorBase(models.Model):
     def _calculate_trend_score(self, chip_dynamics_result: Dict[str, any]):
         """
         计算综合趋势得分
-        
         考虑因素：
         1. 筹码聚散方向与价格趋势的一致性
         2. 主力行为强度
@@ -567,6 +558,50 @@ class ChipFactorBase(models.Model):
             print(f"⚠️ 计算趋势得分失败: {e}")
             self.trend_confirmation_score = 0.5
             self.reversal_warning_score = 0.0
+
+    # ========== 筹码因子基类 - 增强版 ==========
+    @classmethod
+    def _calculate_turnover_intensity(cls, factors: Dict[str, float]) -> float:
+        """
+        计算筹码换手强度指数（替代avg_holding_days）
+        逻辑：高吸收低派发 = 筹码沉淀（持有时间延长）
+              低吸收高派发 = 筹码换手（持有时间缩短）
+        """
+        accum_volume = factors.get('direct_accumulation_volume', 0)
+        distrib_volume = factors.get('direct_distribution_volume', 0)
+        accum_quality = factors.get('accumulation_quality_score', 0.5)
+        distrib_quality = factors.get('distribution_quality_score', 0.5)
+        # 净吸收强度
+        net_accum = (accum_volume * accum_quality) - (distrib_volume * distrib_quality)
+        # 总换手量
+        total_turnover = accum_volume + distrib_volume + 1e-10
+        # 换手强度：净吸收为负表示高换手（持有时间短），为正表示低换手（持有时间长）
+        turnover_intensity = 1.0 - (net_accum / (total_turnover * 2))
+        # 归一化到0-1
+        return max(0.0, min(1.0, turnover_intensity))
+    
+    @classmethod
+    def _extract_level_ratio(cls, level_data: Dict, level_name: str, ad_type: str) -> float:
+        """提取层级比例"""
+        if level_name in level_data:
+            return level_data[level_name].get(f'{ad_type}_ratio', 0.0)
+        return 0.0
+    
+    @classmethod
+    def _get_default_ad_factors(cls) -> Dict[str, float]:
+        return {
+            'direct_accumulation_volume': 0.0,
+            'direct_distribution_volume': 0.0,
+            'net_accumulation_ratio': 0.0,
+            'accumulation_quality_score': 0.5,
+            'distribution_quality_score': 0.5,
+            'false_distribution_flag': 0.0,
+            'breakout_acceleration': 1.0,
+            'near_price_accum_ratio': 0.0,
+            'deep_above_distrib_ratio': 0.0,
+            'chip_turnover_intensity': 0.5,  # 中性值
+        }
+
 
 # 深交所主板筹码因子分表
 class ChipFactorSZ(ChipFactorBase):
@@ -632,11 +667,6 @@ class ChipHoldingMatrixBase(models.Model):
         null=True, blank=True,
         default=0.5
     )
-    avg_holding_days = models.FloatField(
-        verbose_name='平均持有天数',
-        null=True, blank=True,
-        default=100.0
-    )
     # ========== 新增：动态分析结果 ==========
     # 价格网格
     price_grid = models.JSONField(
@@ -685,6 +715,56 @@ class ChipHoldingMatrixBase(models.Model):
     compressed_matrix = models.BinaryField(
         verbose_name='压缩矩阵',
         null=True, blank=True
+    )
+    # ========== 新增：博弈能量场因子 ==========
+    absorption_energy = models.FloatField(
+        verbose_name='吸收能量(0-100)',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    distribution_energy = models.FloatField(
+        verbose_name='派发能量(0-100)',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    net_energy_flow = models.FloatField(
+        verbose_name='净能量流向(-100~100)',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    game_intensity = models.FloatField(
+        verbose_name='博弈强度(0-1)',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    breakout_potential = models.FloatField(
+        verbose_name='突破势能(0-100)',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    energy_concentration = models.FloatField(
+        verbose_name='能量集中度(0-1)',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    # ========== 关键博弈区域（JSON存储） ==========
+    key_battle_zones = models.JSONField(
+        verbose_name='关键博弈区域',
+        null=True, blank=True,
+        help_text='当前主要的筹码对抗区域'
+    )
+    
+    # ========== 绝对变化分析结果 ==========
+    absolute_change_analysis = models.JSONField(
+        verbose_name='绝对变化分析',
+        null=True, blank=True,
+        help_text='基于绝对值变化的分析结果，用于纠偏'
     )
     # ========== 验证信息 ==========
     validation_score = models.FloatField(
@@ -751,67 +831,37 @@ class ChipHoldingMatrixBase(models.Model):
     def to_factor_dict(self) -> Dict[str, Any]:
         """
         转换为筹码因子字典
-        包含：基础持有时间因子 + 高级动态分析因子
+        重构：移除avg_holding_days，加入能量场因子
         """
-        # 1. 基础持有时间因子
+        # 1. 能量场因子（核心）
         factors = {
-            'avg_holding_days': self.avg_holding_days if self.avg_holding_days is not None else 100.0,
-            'short_term_chip_ratio': self.short_term_ratio if self.short_term_ratio is not None else 0.2,
-            'long_term_chip_ratio': self.long_term_ratio if self.long_term_ratio is not None else 0.5,
+            # 能量场因子
+            'absorption_energy': round(self.absorption_energy, 2) if self.absorption_energy is not None else 0.0,
+            'distribution_energy': round(self.distribution_energy, 2) if self.distribution_energy is not None else 0.0,
+            'net_energy_flow': round(self.net_energy_flow, 2) if self.net_energy_flow is not None else 0.0,
+            'game_intensity': round(self.game_intensity, 3) if self.game_intensity is not None else 0.0,
+            'breakout_potential': round(self.breakout_potential, 2) if self.breakout_potential is not None else 0.0,
+            'energy_concentration': round(self.energy_concentration, 3) if self.energy_concentration is not None else 0.0,
+            'fake_distribution_flag': self.fake_distribution_flag,
+            # 关键博弈区域强度
+            'key_battle_intensity': self._calculate_key_battle_intensity(),
+            # 趋势得分（基于能量场）
+            'trend_score': self._calculate_trend_score(),
+            # 突破概率
+            'breakout_probability': self._calculate_breakout_probability(),
         }
-        # 2. 如果有动态分析数据，计算高级因子
-        if self.calc_status == 'success':
-            try:
-                # 重构 dynamics_result 结构，以便复用 ChipFactorBase 的计算逻辑
-                # 从 JSON 字段中提取数据
-                dynamics_result = {
-                    'analysis_status': 'success',
-                    'convergence_metrics': self.convergence_metrics or {},
-                    'behavior_patterns': self.behavior_patterns or {},
-                    'migration_patterns': self.migration_patterns or {},
-                    'absolute_change_signals': self.absolute_change_signals or {},
-                    'pressure_metrics': self.pressure_metrics or {},
-                    'concentration_metrics': self.concentration_metrics or {},
-                }
-                # 调用 ChipFactorBase 的类方法计算聚散度等因子
-                # ChipFactorBase 在本文件中定义，可以直接使用
-                advanced_factors = ChipFactorBase.calculate_convergence_divergence(dynamics_result)
-                factors.update(advanced_factors)
-                # 3. 补充趋势得分逻辑 (参考 ChipFactorBase._calculate_trend_score)
-                # 提取需要的变量
-                net_migration = advanced_factors.get('net_migration_direction', 0.0)
-                main_force_score = advanced_factors.get('main_force_activity_index', 0.0)
-                support_ratio = advanced_factors.get('support_resistance_ratio', 1.0)
-                signal_score = advanced_factors.get('signal_quality_score', 0.0)
-                confirmation_score = advanced_factors.get('behavior_confirmation', 0.0)
-                # 计算趋势方向得分
-                direction_score = 0.0
-                if net_migration > 0.1: 
-                    direction_score = min(1.0, net_migration / 5.0)
-                elif net_migration < -0.1: 
-                    direction_score = -min(1.0, abs(net_migration) / 5.0)
-                # 计算支撑强度得分
-                support_score = min(1.0, support_ratio) if support_ratio > 1 else support_ratio
-                # 综合加权计算
-                weights = [0.3, 0.25, 0.2, 0.15, 0.1]
-                scores = [
-                    (direction_score + 1) / 2,  # 归一化到0-1
-                    main_force_score,
-                    (support_score + 1) / 2,
-                    signal_score,
-                    confirmation_score
-                ]
-                trend_score = sum(w * s for w, s in zip(weights, scores))
-                factors['trend_confirmation_score'] = round(trend_score, 3)
-                # 反转预警
-                if trend_score < 0.4 and main_force_score > 0.6:
-                    factors['reversal_warning_score'] = round(1.0 - trend_score, 3)
-                else:
-                    factors['reversal_warning_score'] = 0.0
-                    
-            except Exception as e:
-                print(f"⚠️ [to_factor_dict] 计算高级因子失败: {e}")
-                
+        # 2. 保留原有的部分重要因子（可选）
+        if hasattr(self, 'short_term_ratio'):
+            factors['short_term_chip_ratio'] = self.short_term_ratio if self.short_term_ratio is not None else 0.2
+            factors['long_term_chip_ratio'] = self.long_term_ratio if self.long_term_ratio is not None else 0.5
+        # 3. 添加交叉验证因子（来自direct_ad）
+        if hasattr(self, 'direct_ad_data') and self.direct_ad_data:
+            direct_factors = {
+                'direct_accumulation_volume': self.direct_ad_data.get('accumulation_volume', 0.0),
+                'direct_distribution_volume': self.direct_ad_data.get('distribution_volume', 0.0),
+                'direct_net_ad_ratio': self.direct_ad_data.get('net_ad_ratio', 0.0),
+            }
+            factors.update(direct_factors)
         return factors
 
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
@@ -898,8 +948,22 @@ class ChipHoldingMatrixBase(models.Model):
                     # 降级方案：存原始数据
                     print(f"⚠️ [保存警告] 筹码矩阵压缩失败: {e}")
                     self.matrix_data = {'matrix': chip_matrix_list}
-            # 4. 计算持有时间因子
-            self._calculate_holding_factors_from_dynamics(dynamics_result)
+            # 新增：保存博弈能量场因子
+            game_energy = dynamics_result.get('game_energy_result', {})
+            if game_energy:
+                self.absorption_energy = game_energy.get('absorption_energy', 0.0)
+                self.distribution_energy = game_energy.get('distribution_energy', 0.0)
+                self.net_energy_flow = game_energy.get('net_energy_flow', 0.0)
+                self.game_intensity = game_energy.get('game_intensity', 0.0)
+                self.breakout_potential = game_energy.get('breakout_potential', 0.0)
+                self.energy_concentration = game_energy.get('energy_concentration', 0.0)
+                self.fake_distribution_flag = game_energy.get('fake_distribution_flag', False)
+                self.key_battle_zones = game_energy.get('key_battle_zones', [])
+            # 新增：保存直接吸收/派发结果（用于交叉验证）
+            direct_ad = dynamics_result.get('direct_ad_result', {})
+            if direct_ad:
+                # 可选：将直接AD结果也保存到JSON字段中
+                self.direct_ad_data = direct_ad
             # 5. 保存状态与提交
             self.calc_status = 'success'
             self.analysis_method = 'advanced_dynamics'
@@ -983,6 +1047,117 @@ class ChipHoldingMatrixBase(models.Model):
             self.mid_term_ratio = 0.3
             self.long_term_ratio = 0.5
             self.avg_holding_days = 100.0
+
+    def _calculate_change_concentration(self, changes: np.ndarray) -> float:
+        """计算变化集中度（越高表示主力行为越明显）"""
+        if len(changes) == 0:
+            return 0.0
+        abs_changes = np.abs(changes)
+        total_volume = np.sum(abs_changes)
+        if total_volume == 0:
+            return 0.0
+        # 计算Top 5价格格的变化占比
+        top_indices = np.argsort(abs_changes)[-5:]
+        top_volume = np.sum(abs_changes[top_indices])
+        return top_volume / total_volume
+    
+    def _analyze_pullback_pattern(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
+        """分析拉升初期模式"""
+        analysis = {
+            'pullback_phase_detected': False,
+            'pullback_strength': 0.0,
+            'support_levels': [],
+        }
+        # 寻找当前价以下的筹码增加区域（支撑形成）
+        below_current = price_grid < current_price * 0.99
+        accumulation_below = np.sum(changes[below_current & (changes > 0)])
+        # 寻找当前价以上的筹码减少区域（获利回吐）
+        above_current = price_grid > current_price * 1.01
+        distribution_above = np.sum(-changes[above_current & (changes < 0)])
+        # 拉升初期特征：低位支撑形成 + 高位获利回吐
+        if accumulation_below > 0.5 and distribution_above > 0.3:
+            analysis['pullback_phase_detected'] = True
+            analysis['pullback_strength'] = min(1.0, (accumulation_below + distribution_above) / 2.0)
+            # 识别支撑位
+            support_mask = below_current & (changes > 0.3)
+            support_indices = np.where(support_mask)[0]
+            for idx in support_indices[:3]:  # 取前3个支撑位
+                analysis['support_levels'].append({
+                    'price': float(price_grid[idx]),
+                    'strength': float(changes[idx]),
+                    'distance_to_current': float((current_price - price_grid[idx]) / current_price),
+                })
+        return analysis
+    
+    def _detect_false_distribution(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> bool:
+        """检测虚假派发（获利回吐 vs 真实派发）"""
+        # 真实派发特征：高位筹码大幅增加 + 低位筹码减少
+        high_price_mask = price_grid > current_price * 1.05
+        low_price_mask = price_grid < current_price * 0.95
+        high_increase = np.sum(changes[high_price_mask & (changes > 0)])
+        low_decrease = np.sum(-changes[low_price_mask & (changes < 0)])
+        # 获利回吐特征：中高位筹码减少，但低位形成支撑
+        mid_high_mask = (price_grid > current_price) & (price_grid <= current_price * 1.05)
+        mid_decrease = np.sum(-changes[mid_high_mask & (changes < 0)])
+        # 虚假派发判断：中高位减少但高位未明显增加，且低位有支撑
+        if mid_decrease > 0.4 and high_increase < 0.2:
+            return True
+        return False
+
+    def _calculate_key_battle_intensity(self) -> float:
+        """计算关键博弈区域的总强度"""
+        if not self.key_battle_zones:
+            return 0.0
+        total_intensity = sum([zone.get('battle_intensity', 0) for zone in self.key_battle_zones])
+        return min(1.0, total_intensity / 5.0)  # 归一化
+
+    def _get_absolute_change_quality(self) -> float:
+        """基于绝对变化的信号质量"""
+        if not self.absolute_change_analysis:
+            return 0.5
+        analysis = self.absolute_change_analysis
+        # 高质量信号：变化集中度高，虚假派发标志为False
+        concentration_score = analysis.get('change_concentration', 0.0)
+        false_distribution = analysis.get('false_distribution_flag', False)
+        if false_distribution:
+            return 0.3  # 虚假信号，质量较低
+        else:
+            return 0.5 + concentration_score * 0.5
+    
+    def _calculate_trend_score(self) -> float:
+        """基于能量场的趋势评分"""
+        # 基础评分：净能量流向
+        if self.net_energy_flow > 10:
+            direction_score = min(1.0, self.net_energy_flow / 50.0)
+        elif self.net_energy_flow < -10:
+            direction_score = -min(1.0, abs(self.net_energy_flow) / 50.0)
+        else:
+            direction_score = 0.0
+        # 能量集中度决定趋势可靠性
+        reliability_score = self.energy_concentration
+        # 博弈强度决定趋势持续性
+        sustainability_score = min(1.0, self.game_intensity * 1.5)
+        # 综合评分
+        trend_score = (direction_score + 1) / 2 * 0.4 + reliability_score * 0.3 + sustainability_score * 0.3
+        # 虚假派发修正：如果是虚假派发，实际趋势可能比显示的要强
+        if self.fake_distribution_flag:
+            trend_score = min(1.0, trend_score * 1.2)
+        return round(trend_score, 3)
+    
+    def _calculate_breakout_probability(self) -> float:
+        """基于能量场的突破概率"""
+        if self.breakout_potential < 20:
+            return 0.0
+        # 基础概率：突破势能
+        base_prob = min(1.0, self.breakout_potential / 100)
+        # 能量集中度加成
+        concentration_bonus = self.energy_concentration * 0.2
+        # 博弈强度加成（适中的博弈强度最有利于突破）
+        intensity_bonus = 0.1 if 0.3 < self.game_intensity < 0.7 else 0.0
+        # 净能量流向加成
+        flow_bonus = min(0.2, max(0, self.net_energy_flow / 100))
+        total_prob = base_prob + concentration_bonus + intensity_bonus + flow_bonus
+        return round(min(1.0, total_prob), 3)
 
     def get_holding_matrix(self) -> np.ndarray:
         """

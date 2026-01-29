@@ -3,126 +3,81 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 import pandas as pd
 
-# 筹码分布模型（StockCyqChips）
-class StockCyqChipsSZ(models.Model):
+from django.db import models
+
+class BaseStockCyqChips(models.Model):
     """
-    A股每日筹码分布模型
+    A股每日筹码分布模型 - 抽象基类
+    包含所有板块通用的字段和逻辑
     """
     stock = models.ForeignKey(
-        'StockInfo',  # 这里用字符串，避免循环引用
-        to_field='stock_code',  # 指定外键对应StockInfo的哪个字段
+        'StockInfo',
+        to_field='stock_code',
         on_delete=models.CASCADE,
-        verbose_name='stock_cyq_chips_sz',
+        verbose_name='股票',  # 统一使用通用的中文名称
         db_index=True
     )
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     price = models.FloatField(verbose_name='成本价格')
     percent = models.FloatField(verbose_name='价格占比(%)')
+
     class Meta:
+        abstract = True  # 关键：标记为抽象基类，不会生成数据库表
+        unique_together = ('stock', 'trade_time', 'price')  # 联合唯一索引
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),   # 通用查询索引
+        ]
+
+    def __str__(self):
+        return f"{self.stock.stock_code} {self.trade_time} {self.price}"
+
+# ==========================================
+# 具体板块模型实现
+# ==========================================
+class StockCyqChipsSZ(BaseStockCyqChips):
+    """
+    深市(SZ) 每日筹码分布
+    """
+    class Meta(BaseStockCyqChips.Meta):
         verbose_name = '每日筹码分布SZ'
-        verbose_name_plural = '每日筹码分布SZ'
+        verbose_name_plural = verbose_name
         db_table = 'stock_cyq_chips_sz'
-        unique_together = ('stock', 'trade_time', 'price')
-        indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-        ]
-    def __str__(self):
-        return f"{self.stock.stock_code} {self.trade_time} {self.price}"
 
-# 筹码分布模型（StockCyqChips）
-class StockCyqChipsSH(models.Model):
+class StockCyqChipsSH(BaseStockCyqChips):
     """
-    A股每日筹码分布模型
+    沪市(SH) 每日筹码分布
     """
-    stock = models.ForeignKey(
-        'StockInfo',  # 这里用字符串，避免循环引用
-        to_field='stock_code',  # 指定外键对应StockInfo的哪个字段
-        on_delete=models.CASCADE,
-        verbose_name='stock_cyq_chips_sh',
-        db_index=True
-    )
-    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    price = models.FloatField(verbose_name='成本价格')
-    percent = models.FloatField(verbose_name='价格占比(%)')
-    class Meta:
+    class Meta(BaseStockCyqChips.Meta):
         verbose_name = '每日筹码分布SH'
-        verbose_name_plural = '每日筹码分布SH'
+        verbose_name_plural = verbose_name
         db_table = 'stock_cyq_chips_sh'
-        unique_together = ('stock', 'trade_time', 'price')
-        indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-        ]
-    def __str__(self):
-        return f"{self.stock.stock_code} {self.trade_time} {self.price}"
 
-# 筹码分布模型（StockCyqChips）
-class StockCyqChipsCY(models.Model):
+class StockCyqChipsCY(BaseStockCyqChips):
     """
-    A股每日筹码分布模型
+    创业板(CY) 每日筹码分布
     """
-    stock = models.ForeignKey(
-        'StockInfo',  # 这里用字符串，避免循环引用
-        to_field='stock_code',  # 指定外键对应StockInfo的哪个字段
-        on_delete=models.CASCADE,
-        verbose_name='stock_cyq_chips_cy',
-        db_index=True
-    )
-    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    price = models.FloatField(verbose_name='成本价格')
-    percent = models.FloatField(verbose_name='价格占比(%)')
-    class Meta:
+    class Meta(BaseStockCyqChips.Meta):
         verbose_name = '每日筹码分布CY'
-        verbose_name_plural = '每日筹码分布CY'
+        verbose_name_plural = verbose_name
         db_table = 'stock_cyq_chips_cy'
-        unique_together = ('stock', 'trade_time', 'price')
-    def __str__(self):
-        return f"{self.stock.stock_code} {self.trade_time} {self.price}"
 
-# 筹码分布模型（StockCyqChips）
-class StockCyqChipsKC(models.Model):
+class StockCyqChipsKC(BaseStockCyqChips):
     """
-    A股每日筹码分布模型
+    科创板(KC) 每日筹码分布
     """
-    stock = models.ForeignKey(
-        'StockInfo',  # 这里用字符串，避免循环引用
-        to_field='stock_code',  # 指定外键对应StockInfo的哪个字段
-        on_delete=models.CASCADE,
-        verbose_name='股票',
-        db_index=True
-    )
-    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    price = models.FloatField(verbose_name='成本价格')
-    percent = models.FloatField(verbose_name='价格占比(%)')
-    class Meta:
+    class Meta(BaseStockCyqChips.Meta):
         verbose_name = '每日筹码分布KC'
-        verbose_name_plural = '每日筹码分布KC'
+        verbose_name_plural = verbose_name
         db_table = 'stock_cyq_chips_kc'
-        unique_together = ('stock', 'trade_time', 'price')
-    def __str__(self):
-        return f"{self.stock.stock_code} {self.trade_time} {self.price}"
 
-# 筹码分布模型（StockCyqChips）
-class StockCyqChipsBJ(models.Model):
+class StockCyqChipsBJ(BaseStockCyqChips):
     """
-    A股每日筹码分布模型
+    北交所(BJ) 每日筹码分布
     """
-    stock = models.ForeignKey(
-        'StockInfo',  # 这里用字符串，避免循环引用
-        to_field='stock_code',  # 指定外键对应StockInfo的哪个字段
-        on_delete=models.CASCADE,
-        verbose_name='stock_cyq_chips_bj',
-        db_index=True
-    )
-    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    price = models.FloatField(verbose_name='成本价格')
-    percent = models.FloatField(verbose_name='价格占比(%)')
-    class Meta:
+    class Meta(BaseStockCyqChips.Meta):
         verbose_name = '每日筹码分布BJ'
-        verbose_name_plural = '每日筹码分布BJ'
+        verbose_name_plural = verbose_name
         db_table = 'stock_cyq_chips_bj'
-        unique_together = ('stock', 'trade_time', 'price')
-    def __str__(self):
-        return f"{self.stock.stock_code} {self.trade_time} {self.price}"
 
 # 筹码平均成本和胜率模型（StockCyqPerf）
 class StockCyqPerf(models.Model):

@@ -927,77 +927,6 @@ class ChipFactorCalculator:
             return 0.0
 
     @staticmethod
-    def calculate_rsi_trend(rsi_values: List[float], days: int = 5) -> float:
-        """
-        计算RSI趋势
-        Args:
-            rsi_values: RSI值列表
-            days: 趋势天数
-        Returns:
-            float: RSI趋势（变化值）
-        """
-        try:
-            if len(rsi_values) < days + 1:
-                return 0.0
-            # 计算days日RSI变化
-            start_rsi = rsi_values[-days-1]
-            end_rsi = rsi_values[-1]
-            trend = end_rsi - start_rsi
-            return float(trend)
-        except Exception as e:
-            logger.error(f"计算RSI趋势失败: {e}")
-            return 0.0
-
-    @staticmethod
-    def determine_enhanced_chip_structure(chip_factors: Dict,ma_values: Dict,volume_trend: float) -> str:
-        """
-        增强的筹码结构状态判断
-        """
-        try:
-            price_position = chip_factors.get('price_percentile_position', 0.5)
-            chip_concentration = chip_factors.get('chip_concentration_ratio', 0.5)
-            chip_flow_direction = chip_factors.get('chip_flow_direction', 0)
-            winner_rate = chip_factors.get('winner_rate', 0.5)
-            turnover_rate = chip_factors.get('turnover_rate', 0)
-            # 1. 吸筹阶段
-            # 特征：价格低位+筹码集中+换手率适中+胜率低+成交量温和放大
-            if (price_position < 0.3 and 
-                chip_concentration < 0.4 and 
-                2.0 < turnover_rate < 5.0 and
-                winner_rate < 0.4 and
-                volume_trend > 0.1 and  # 成交量趋势向上
-                chip_flow_direction == 1):
-                return 'accumulation'
-            # 2. 拉升阶段
-            # 特征：均线多头排列+价格突破关键位+换手率放大+获利盘增加
-            ma_arrangement = ChipFactorCalculator.calculate_ma_arrangement(ma_values)
-            if (ma_arrangement == 1 and
-                price_position > 0.5 and
-                chip_concentration < 0.6 and
-                turnover_rate > 3.0 and
-                winner_rate > 0.6):
-                return 'lifting'
-            # 3. 派发阶段
-            # 特征：价格高位+筹码发散+换手率高+获利盘大但开始减少
-            if (price_position > 0.7 and
-                chip_concentration > 0.6 and
-                turnover_rate > 8.0 and
-                winner_rate > 0.8 and
-                chip_flow_direction == -1):
-                return 'distribution'
-            # 4. 回落阶段
-            # 特征：均线空头排列+筹码向下流动+换手率降低
-            if (ma_arrangement == -1 and
-                chip_flow_direction == -1 and
-                turnover_rate < 3.0):
-                return 'decline'
-            # 5. 整理阶段
-            return 'consolidation'
-        except Exception as e:
-            logger.error(f"判断增强筹码结构失败: {e}")
-            return 'consolidation'
-
-    @staticmethod
     def calculate_complete_factors(
         chip_perf_data: Dict,
         chip_dist_data: pd.DataFrame,
@@ -1198,125 +1127,6 @@ class ChipFactorCalculator:
         return factors
 
     @staticmethod
-    def get_historical_data_requirements() -> Dict:
-        """
-        获取计算所需的历史数据要求
-        Returns:
-            Dict: 数据要求描述
-        """
-        return {
-            'min_days_for_ma': 55,  # 计算MA55需要55天数据
-            'min_days_for_trend': 20,  # 计算趋势需要20天数据
-            'min_days_for_migration': 5,  # 计算迁移需要5天数据
-            'required_fields': ['close', 'volume', 'turnover_rate']
-        }
-
-    @staticmethod
-    def validate_data_availability(chip_perf_data: Dict,chip_dist_data: pd.DataFrame,historical_prices: pd.Series = None) -> Tuple[bool, str]:
-        """
-        验证数据是否足够计算所有因子
-        Returns:
-            Tuple: (是否足够, 原因)
-        """
-        try:
-            # 检查基础数据
-            if not chip_perf_data:
-                return False, "缺少筹码性能数据"
-            if chip_dist_data.empty:
-                return False, "缺少筹码分布数据"
-            # 检查历史价格数据
-            if historical_prices is not None:
-                if len(historical_prices) < 20:
-                    return False, "历史价格数据不足20天"
-            return True, "数据足够"
-        except Exception as e:
-            return False, f"数据验证失败: {str(e)}"
-
-    @staticmethod
-    def calculate_holding_time_factors(
-        chip_dist_current: pd.DataFrame,
-        chip_dist_history: List[pd.DataFrame],  # 过去N日的筹码分布
-        turnover_rate: float,
-        avg_turnover_20d: float
-    ) -> Dict[str, float]:
-        """
-        计算持有时间相关因子（基于换手率估算）
-        Args:
-            chip_dist_current: 当前筹码分布
-            chip_dist_history: 历史筹码分布列表（按时间倒序）
-            turnover_rate: 当日换手率(%)
-            avg_turnover_20d: 20日平均换手率(%)
-        Returns:
-            Dict: 持有时间因子
-        """
-        factors = {}
-        try:
-            # 1. 平均持有时间估算（基于换手率）
-            if turnover_rate > 0:
-                # 简化公式：平均持有天数 = 总流通股本 / 日换手股本
-                factors['avg_holding_days'] = 100 / turnover_rate  # 换手率已为百分比
-            else:
-                factors['avg_holding_days'] = 250  # 默认值（约一年）
-            # 2. 短线筹码比例估算（<5日）
-            # 假设换手筹码在5日内均匀分布
-            daily_turnover = turnover_rate / 100  # 转换为小数
-            factors['short_term_chip_ratio'] = min(daily_turnover * 5, 1.0)
-            # 3. 长线筹码比例估算（>60日）
-            # 使用历史筹码分布变化估算
-            if len(chip_dist_history) >= 60:
-                # 简单方法：比较60日前与当前的筹码分布重叠度
-                chip_dist_60d_ago = chip_dist_history[-60]
-                overlap_ratio = ChipFactorCalculator._calculate_chip_overlap(
-                    chip_dist_current, chip_dist_60d_ago
-                )
-                factors['long_term_chip_ratio'] = overlap_ratio
-            else:
-                # 基于换手率估算
-                factors['long_term_chip_ratio'] = max(0, 1 - (turnover_rate * 60 / 100))
-            # 4. 筹码换手强度
-            if avg_turnover_20d > 0:
-                factors['chip_turnover_intensity'] = turnover_rate / avg_turnover_20d
-            else:
-                factors['chip_turnover_intensity'] = 1.0
-            return factors
-        except Exception as e:
-            logger.error(f"计算持有时间因子失败: {e}")
-            return {
-                'avg_holding_days': 0,
-                'short_term_chip_ratio': 0,
-                'long_term_chip_ratio': 0,
-                'chip_turnover_intensity': 1.0
-            }
-    
-    @staticmethod
-    def _calculate_chip_overlap(chip1: pd.DataFrame, chip2: pd.DataFrame) -> float:
-        """
-        计算两个筹码分布的重叠度
-        """
-        try:
-            # 对齐价格区间
-            min_price = min(chip1['price'].min(), chip2['price'].min())
-            max_price = max(chip1['price'].max(), chip2['price'].max())
-            # 创建相同的价格网格
-            price_grid = np.linspace(min_price, max_price, 200)
-            # 插值得到连续分布
-            from scipy.interpolate import interp1d
-            f1 = interp1d(chip1['price'], chip1['percent'], 
-                         bounds_error=False, fill_value=0)
-            f2 = interp1d(chip2['price'], chip2['percent'], 
-                         bounds_error=False, fill_value=0)
-            percent1 = f1(price_grid)
-            percent2 = f2(price_grid)
-            # 归一化
-            percent1 = percent1 / max(percent1.sum(), 1e-6)
-            percent2 = percent2 / max(percent2.sum(), 1e-6)
-            # 计算重叠度（最小重叠积分）
-            overlap = np.minimum(percent1, percent2).sum()
-            return float(overlap)
-        except:
-            return 0.0
-    
-    @staticmethod
     def calculate_layered_flow_factors(chip_dist_current: pd.DataFrame,chip_dist_previous: pd.DataFrame,cost_15pct: float,cost_85pct: float) -> Dict[str, float]:
         """
         计算分层筹码流动因子
@@ -1368,37 +1178,6 @@ class ChipFactorCalculator:
         except Exception as e:
             logger.error(f"计算分层流动因子失败: {e}")
             return {}
-    
-    @staticmethod
-    def calculate_main_force_behavior(flow_factors: Dict[str, float],turnover_rate: float,price_change: float) -> Dict[str, float]:
-        """
-        计算主力行为强度因子
-        """
-        factors = {}
-        try:
-            # 吸筹强度：低价区流入且换手率适中
-            if flow_factors.get('low_zone_chip_flow', 0) > 0:
-                # 流入量 * 换手率 * 价格配合度
-                factors['accumulation_intensity'] = (
-                    flow_factors['low_zone_chip_flow'] * 
-                    (turnover_rate / 100) * 
-                    max(0, 1 + price_change)  # 价格上涨加强信号
-                )
-            else:
-                factors['accumulation_intensity'] = 0
-            # 派发强度：高价区流出且换手率高
-            if flow_factors.get('high_zone_chip_flow', 0) < 0:
-                factors['distribution_intensity'] = (
-                    abs(flow_factors['high_zone_chip_flow']) * 
-                    (turnover_rate / 100) * 
-                    max(0, 1 - price_change)  # 价格下跌加强信号
-                )
-            else:
-                factors['distribution_intensity'] = 0
-            return factors
-        except Exception as e:
-            logger.error(f"计算主力行为因子失败: {e}")
-            return {'accumulation_intensity': 0, 'distribution_intensity': 0}
 
     @staticmethod
     def calculate_main_cost_range_ratio(chip_dist_data: pd.DataFrame, cost_50pct: float) -> float:
@@ -1478,13 +1257,6 @@ class ChipFactorCalculator:
         except Exception as e:
             print(f"❌ [calculate_high_position_lock_ratio_90] 计算失败: {e}，返回默认值0.0")
             return 0.0
-
-
-
-
-
-
-
 
 
 
