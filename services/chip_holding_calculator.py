@@ -1062,7 +1062,7 @@ class GameEnergyCalculator:
                 fake_distribution = self._detect_fake_distribution(latest_change, price_grid, reference_price, volume_history)
             else:
                 # 没有成交量数据时，基于价格变化判断
-                fake_distribution = self._detect_fake_distribution_simple(latest_change, price_grid, reference_price)
+                fake_distribution = self._detect_fake_distribution_advanced(latest_change, price_grid, reference_price)
             
             energy_result['fake_distribution_flag'] = fake_distribution
             print(f"🔍 [探针] 虚假派发标志: {fake_distribution}")
@@ -1121,14 +1121,15 @@ class GameEnergyCalculator:
             absorption_advanced = 0.0
             distribution_advanced = 0.0
             
-            # 4.1 重新定义区域（基于参考价格）
+            # 4.1 重新定义区域（基于A股博弈特性优化权重）
+            # A股特性：当前价附近（±5%）是主战场，权重最高
             zones = [
-                ('deep_below', -np.inf, -0.15, 0.7),    # 深度套牢区
-                ('below', -0.15, -0.05, 1.2),          # 支撑区
-                ('near_below', -0.05, 0, 1.0),         # 当前价下方缓冲区
-                ('near_above', 0, 0.05, 0.9),          # 当前价上方缓冲区
-                ('above', 0.05, 0.15, 1.1),            # 阻力区
-                ('deep_above', 0.15, np.inf, 0.8)      # 深度获利区
+                ('deep_below', -np.inf, -0.15, 0.6),    # 深度套牢区：换手率低，影响力小
+                ('below', -0.15, -0.05, 0.9),           # 支撑区：有一定影响力
+                ('near_below', -0.05, 0, 1.5),          # 当前价下方主战场：权重最高（1.5）
+                ('near_above', 0, 0.05, 1.3),           # 当前价上方缓冲区：权重较高（1.3）
+                ('above', 0.05, 0.15, 1.0),             # 阻力区：中等权重
+                ('deep_above', 0.15, np.inf, 0.7)       # 深度获利区：影响力较小
             ]
             
             for zone_name, low, high, weight in zones:
@@ -1346,22 +1347,44 @@ class GameEnergyCalculator:
             print(f"❌ [关键区域识别] 异常: {e}")
             return []
 
-    def _detect_fake_distribution_simple(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> bool:
-        """简化版虚假派发检测（无成交量数据时使用）"""
+    def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, 
+                                         current_price: float, close_price: float) -> bool:
+        """高级虚假派发检测 - 基于A股特性"""
         try:
-            if len(changes) == 0:
-                return False
-            # 寻找中高位和低位的变化
-            mid_high_mask = (price_grid > current_price) & (price_grid <= current_price * 1.05)
-            high_mask = price_grid > current_price * 1.05
-            mid_decrease = np.sum(changes[mid_high_mask & (changes < 0)])
-            high_increase = np.sum(changes[high_mask & (changes > 0)])
-            # 如果中高位减少但高位没有明显增加，可能是虚假派发
-            if mid_decrease < -0.3 and high_increase < 0.2:
+            # 1. 价格位置分析
+            price_rel = (price_grid - current_price) / current_price
+            
+            # 2. 当前价附近的筹码变化
+            near_mask = np.abs(price_rel) < 0.08
+            near_net = np.sum(changes[near_mask])
+            
+            # 3. 上方派发 vs 下方吸收
+            above_mask = price_rel > 0.08
+            below_mask = price_rel < -0.08
+            
+            above_distrib = np.sum(np.abs(changes[above_mask & (changes < 0)]))
+            below_accum = np.sum(changes[below_mask & (changes > 0)])
+            
+            # 4. A股虚假派发特征：
+            #    a) 上方派发量大但下方吸收更强
+            #    b) 当前价附近有净吸收
+            #    c) 价格处于上升趋势中
+            
+            if (below_accum > above_distrib * 1.5 and  # 下方吸收远大于上方派发
+                near_net > 0 and                       # 当前价附近净增加
+                above_distrib > 0.5):                  # 上方有一定派发
                 return True
+            
+            # 5. 另一种情况：缩量调整
+            # 如果价格在均线上方但出现派发信号，可能是正常回调
+            if (np.mean(changes[above_mask]) < -0.3 and  # 上方平均减少
+                np.mean(changes[below_mask]) > 0.2 and   # 下方平均增加
+                above_distrib < 2.0):                    # 派发量不大
+                return True
+            
             return False
         except Exception as e:
-            print(f"⚠️ [虚假派发检测] 异常: {e}")
+            print(f"⚠️ [高级虚假派发检测] 异常: {e}")
             return False
 
     def _calculate_breakout_potential_simple(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> float:
@@ -1516,7 +1539,7 @@ class GameEnergyCalculator:
         game_intensity = active_count / total_count * 2.0 if total_count > 0 else 0
         print(f"🔍 [探针-指标] {stock_code} {trade_date} 博弈强度: 活跃区域={active_count}/{total_count}, 强度={game_intensity:.4f}")
         
-        # 2. 突破势能（修正计算）
+        # 2. 优化突破势能计算（A股特性）
         above_mask = price_grid > current_price
         below_mask = price_grid < current_price
         
@@ -1526,19 +1549,43 @@ class GameEnergyCalculator:
         distribution_above = np.sum(np.abs(changes[above_mask & (changes < 0)]))
         # 下方吸收（价格以下筹码增加）
         absorption_below = np.sum(changes[below_mask & (changes > 0)])
+        # 下方派发（价格以下筹码减少）
+        distribution_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
         
         print(f"🔍 [探针-指标] {stock_code} {trade_date} 突破势能计算:")
-        print(f"    上方吸收={absorption_above:.4f}, 上方派发={distribution_above:.4f}, 下方吸收={absorption_below:.4f}")
+        print(f"    上方吸收={absorption_above:.4f}, 上方派发={distribution_above:.4f}")
+        print(f"    下方吸收={absorption_below:.4f}, 下方派发={distribution_below:.4f}")
         
-        # 突破势能 = (上方吸收 / (上方派发 + 1e-10)) * (下方吸收 + 1) * 系数
-        if absorption_below > 0:
-            # 有下方支撑
-            breakout_potential = (absorption_above / (distribution_above + 1e-10)) * absorption_below * 0.5
+        # 突破势能计算优化：
+        # 1. 下方支撑强度 = 下方吸收 / (下方派发 + 1e-10)
+        # 2. 上方突破压力 = 上方派发 / (上方吸收 + 1e-10)
+        # 3. 净突破能量 = (吸收_above - 派发_above) * 支撑强度 * 系数
+        
+        if distribution_below > 0:
+            support_strength = absorption_below / distribution_below
         else:
-            # 无下方支撑，仅看上方的吸收力度
-            breakout_potential = absorption_above * 10
+            support_strength = absorption_below * 2 + 1  # 无派发时支撑更强
         
-        print(f"🔍 [探针-指标] {stock_code} {trade_date} 突破势能结果: {breakout_potential:.4f}")
+        # 限制支撑强度范围
+        support_strength = min(3.0, max(0.1, support_strength))
+        
+        # 计算净上方能量
+        net_above = absorption_above - distribution_above
+        
+        # 突破势能 = 净上方能量 * 支撑强度 * 放大系数
+        # A股特性：突破需要较强的能量
+        if net_above > 0:
+            breakout_potential = net_above * support_strength * 10
+        else:
+            # 上方净减少，突破可能性低
+            breakout_potential = max(0, net_above) * 5
+        
+        # 能量集中度加成：能量越集中，突破越容易
+        if energy_concentration > 0.8:
+            breakout_potential *= (1 + energy_concentration)
+        
+        print(f"🔍 [探针-指标] {stock_code} {trade_date} 突破势能结果: {breakout_potential:.4f} "
+              f"(支撑强度={support_strength:.2f}, 净上方能量={net_above:.4f})")
         
         # 3. 能量集中度
         abs_changes = np.abs(changes)
