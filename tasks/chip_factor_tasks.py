@@ -190,7 +190,7 @@ def schedule_chip_factor_calculation(
         else:
             raise ValueError(f"未知的计算模式: {calculation_mode}")
             
-        logger.info(f"筹码因子计算任务调度完成: {result}")
+        # logger.info(f"筹码因子计算任务调度完成: {result}")
         return result
         
     except Exception as e:
