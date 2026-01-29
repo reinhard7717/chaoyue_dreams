@@ -564,14 +564,15 @@ class AdvancedChipDynamicsService:
                     stock=stock,
                     trade_time__gte=start_date,
                     trade_time__lte=trade_date_dt
-                ).order_by('trade_time').values('trade_time', 'open', 'high', 'low', 'close')
+                ).order_by('trade_time').values('trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq')
                 price_list = await sync_to_async(list)(price_qs)
                 price_history = pd.DataFrame(price_list) if price_list else pd.DataFrame()
             current_price = 0
             if not current_chip_df.empty:
                 current_price = current_chip_df['price'].mean()
             elif not price_history.empty:
-                current_price = price_history['close'].iloc[-1]
+                current_price = price_history['close_qfq'].iloc[-1]
+            print(f"获取筹码数据成功 {stock_code} {trade_date} 当前价格: {current_price}, 当前收盘价格: {price_history['close_qfq'].iloc[-1]}")
             return {
                 'current_chip_dist': current_chip_df,
                 'chip_history': chip_history,
