@@ -572,12 +572,14 @@ class AdvancedChipDynamicsService:
                 ).order_by('trade_time').values('trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq')
                 price_list = await sync_to_async(list)(price_qs)
                 price_history = pd.DataFrame(price_list) if price_list else pd.DataFrame()
+            # 修改价格获取逻辑
             current_price = 0
-            if not current_chip_df.empty:
-                current_price = current_chip_df['price'].mean()
-            elif not price_history.empty:
+            # 优先使用日线收盘价
+            if not price_history.empty and 'close_qfq' in price_history.columns:
                 current_price = price_history['close_qfq'].iloc[-1]
-            print(f"获取筹码数据成功 {stock_code} {trade_date} 当前价格: {current_price}, 当前收盘价格: {price_history['close_qfq'].iloc[-1]}")
+            # 如果没有日线数据，使用筹码平均价作为后备
+            elif not current_chip_df.empty:
+                current_price = current_chip_df['price'].mean()
             return {
                 'current_chip_dist': current_chip_df,
                 'chip_history': chip_history,
@@ -860,7 +862,6 @@ class DirectAccumulationDistributionCalculator:
         if false_distribution_conditions:
             correction_factor = min(0.5, len(false_distribution_conditions) * 0.15)
             corrected_distribution = ad_result['distribution_volume'] * (1 - correction_factor)
-            
             ad_result.update({
                 'distribution_volume': corrected_distribution,
                 'false_distribution_flag': True,
@@ -1015,18 +1016,12 @@ class GameEnergyCalculator:
         """
         计算博弈能量场 - 修复空数据问题
         """
-        print(f"🔍 [探针-开始] 计算博弈能量场 股票：{stock_code} 日期：{trade_date}")
-        print(f"   当前价格={current_price:.2f}, 收盘价格={close_price:.2f}")
-        
         # 优先使用收盘价作为参考价格
         reference_price = close_price if close_price > 0 else current_price
-        print(f"   使用参考价格={reference_price:.2f}")
-        
         if percent_change_matrix.shape[0] == 0 or len(price_grid) == 0 or reference_price <= 0:
             print(f"❌ [探针] 输入数据无效: 变化矩阵{percent_change_matrix.shape}, 价格网格{len(price_grid)}, 参考价{reference_price}")
             result = self._get_default_energy()
             return result
-        
         try:
             # 1. 获取最近一天的变化（确保有数据）
             if len(percent_change_matrix) == 0:
@@ -1034,28 +1029,21 @@ class GameEnergyCalculator:
                 result = self._get_default_energy()
                 print(f"   返回默认值: absorption={result['absorption_energy']}, distribution={result['distribution_energy']}")
                 return result
-            
             latest_change = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
-            print(f"🔍 [探针] 最新变化数据: 长度={len(latest_change)}, 均值={np.mean(latest_change):.4f}, 最大值={np.max(latest_change):.4f}, 最小值={np.min(latest_change):.4f}")
-            
             # 2. 如果变化数据全为0，返回默认值
             change_sum = np.sum(np.abs(latest_change))
-            print(f"🔍 [探针] 变化数据绝对值总和: {change_sum:.4f}")
             if change_sum < 0.01:
                 print("⚠️ [探针] 变化数据几乎全为0，返回默认值")
                 result = self._get_default_energy()
                 print(f"   返回默认值: absorption={result['absorption_energy']}, distribution={result['distribution_energy']}")
                 return result
-            
             # 3. 计算博弈能量场
             energy_result = self._calculate_energy_field(latest_change, price_grid, reference_price, close_price)
-            
             # 4. 如果能量场结果无效，返回默认值
             if energy_result.get('absorption_energy', 0) == 0 and energy_result.get('distribution_energy', 0) == 0:
-                print("⚠️ [探针] 能量场计算结果为0")
+                pass
             else:
                 print(f"✅ [探针] 能量场计算结果: absorption={energy_result['absorption_energy']:.4f}, distribution={energy_result['distribution_energy']:.4f}")
-            
             # 5. 判断虚假派发（只有在有成交量数据时才判断）
             fake_distribution = False
             if volume_history is not None and len(volume_history) > 5:
@@ -1063,14 +1051,9 @@ class GameEnergyCalculator:
             else:
                 # 没有成交量数据时，基于价格变化判断
                 fake_distribution = self._detect_fake_distribution_advanced(latest_change, price_grid, reference_price, close_price)
-            
             energy_result['fake_distribution_flag'] = fake_distribution
-            print(f"🔍 [探针] 虚假派发标志: {fake_distribution}")
-            
             # 6. 修正能量值（确保不为0）
             energy_result = self._ensure_nonzero_energy(energy_result)
-            print(f"🔍 [探针] 修正后: absorption={energy_result['absorption_energy']:.4f}, distribution={energy_result['distribution_energy']:.4f}")
-            
             return energy_result
         except Exception as e:
             print(f"❌ [探针] 能量场计算异常: {e}")
@@ -1084,43 +1067,26 @@ class GameEnergyCalculator:
                                      current_price: float, close_price: float,
                                      stock_code: str = "", trade_date: str = "") -> Dict[str, Any]:
         """调试版的能量场计算 - 使用收盘价作为参考"""
-        print(f"🔍 [探针-能量场] {stock_code} {trade_date} 开始计算能量场")
-        print(f"   当前价格={current_price:.2f}, 收盘价格={close_price:.2f}")
-        
         # 使用收盘价作为参考价格
         reference_price = close_price if close_price > 0 else current_price
-        print(f"   使用参考价格={reference_price:.2f}")
-        
         if len(changes) == 0 or len(price_grid) == 0 or reference_price <= 0:
             print(f"❌ [探针-能量场] {stock_code} {trade_date} 输入无效")
             return self._get_default_energy()
-        
         try:
             # 1. 计算价格相对位置（相对于参考价格）
             price_rel = (price_grid - reference_price) / reference_price
-            
             # 2. 分析价格分布
             price_min, price_max = np.min(price_grid), np.max(price_grid)
-            print(f"   价格网格范围: {price_min:.2f} - {price_max:.2f}")
-            print(f"   参考价格位置: {reference_price:.2f} (相对位置: {(reference_price - price_min)/(price_max - price_min):.2%})")
-            
             # 3. 传统逻辑计算
             absorption_mask = (price_rel < -0.05) & (changes > 0)
             distribution_mask = (price_rel > 0.05) & (changes < 0)
-            
             absorption_changes = changes[absorption_mask]
             distribution_changes = changes[distribution_mask]
-            
             absorption_energy_old = np.sum(absorption_changes) * 2.0 if len(absorption_changes) > 0 else 0
             distribution_energy_old = np.sum(np.abs(distribution_changes)) * 1.5 if len(distribution_changes) > 0 else 0
-            
-            print(f"🔍 [探针-能量场] {stock_code} {trade_date} 传统逻辑 - 吸筹: 数量={np.sum(absorption_mask)}, 总变化={np.sum(absorption_changes):.4f}, 能量={absorption_energy_old:.4f}")
-            print(f"🔍 [探针-能量场] {stock_code} {trade_date} 传统逻辑 - 派发: 数量={np.sum(distribution_mask)}, 总变化={np.sum(np.abs(distribution_changes)):.4f}, 能量={distribution_energy_old:.4f}")
-            
             # 4. 修正的高级能量计算
             absorption_advanced = 0.0
             distribution_advanced = 0.0
-            
             # 4.1 重新定义区域（基于A股博弈特性优化权重）
             # A股特性：当前价附近（±5%）是主战场，权重最高
             zones = [
@@ -1131,28 +1097,20 @@ class GameEnergyCalculator:
                 ('above', 0.05, 0.15, 1.0),             # 阻力区：中等权重
                 ('deep_above', 0.15, np.inf, 0.7)       # 深度获利区：影响力较小
             ]
-            
             for zone_name, low, high, weight in zones:
                 zone_mask = (price_rel >= low) & (price_rel < high)
                 zone_count = np.sum(zone_mask)
-                
                 if zone_count == 0:
                     continue
-                    
                 zone_changes = changes[zone_mask]
                 zone_prices = price_grid[zone_mask]
-                
                 # 计算该区域的详细变化
                 increase_sum = np.sum(zone_changes[zone_changes > 0])
                 decrease_sum = np.sum(np.abs(zone_changes[zone_changes < 0]))
                 net_change = np.sum(zone_changes)
                 abs_change = np.sum(np.abs(zone_changes))
-                
                 # 计算该区域的平均价格位置
                 avg_price_rel = np.mean((zone_prices - reference_price) / reference_price) if len(zone_prices) > 0 else 0
-                
-                print(f"   区域 {zone_name}: 格子数={zone_count}, 平均相对位置={avg_price_rel:.2%}, 净变化={net_change:.4f}, 总变化={abs_change:.4f}, 增加={increase_sum:.4f}, 减少={decrease_sum:.4f}")
-                
                 # 根据区域类型和变化方向分配能量
                 if zone_name in ['deep_below', 'below', 'near_below']:
                     # 价格以下区域：增加为吸筹，减少为派发
@@ -1174,22 +1132,15 @@ class GameEnergyCalculator:
                         # 减少多于增加，可能是换手或洗盘
                         distribution_advanced += increase_sum * weight * 0.6
                         absorption_advanced += decrease_sum * weight * 0.9
-            
-            print(f"🔍 [探针-能量场] {stock_code} {trade_date} 高级逻辑 - 吸筹能量: {absorption_advanced:.4f}")
-            print(f"🔍 [探针-能量场] {stock_code} {trade_date} 高级逻辑 - 派发能量: {distribution_advanced:.4f}")
-            
             # 5. 使用高级逻辑的结果
             absorption_energy = absorption_advanced
             distribution_energy = distribution_advanced
-            
             # 6. 计算其他能量指标（基于参考价格）
             game_intensity, breakout_potential, energy_concentration = self._calculate_energy_indicators(
                 changes, price_grid, reference_price, stock_code, trade_date
             )
-            
             # 7. 关键博弈区域
             key_battle_zones = self._identify_key_battle_zones(changes, price_grid, reference_price, stock_code, trade_date)
-            
             result = {
                 'absorption_energy': min(100, max(0.01, absorption_energy)),  # 最小0.01
                 'distribution_energy': min(100, max(0.01, distribution_energy)),
@@ -1201,11 +1152,6 @@ class GameEnergyCalculator:
                 'reference_price': reference_price,  # 记录使用的参考价格
                 'original_current_price': current_price,  # 记录原始当前价格
             }
-            
-            print(f"🔍 [探针-能量场] {stock_code} {trade_date} 最终结果: absorption={result['absorption_energy']:.4f}, "
-                  f"distribution={result['distribution_energy']:.4f}, "
-                  f"net_flow={result['net_energy_flow']:.4f}")
-            
             return result
         except Exception as e:
             print(f"❌ [探针-能量场] {stock_code} {trade_date} 计算异常: {e}")
@@ -1213,229 +1159,43 @@ class GameEnergyCalculator:
             traceback.print_exc()
             return self._get_default_energy()
 
-    def _get_position_weight(self, zone_name: str) -> float:
-        """获取不同价格位置的权重（A股特性）"""
-        weights = {
-            'deep_below': 0.3,    # 深度套牢区，影响力较小
-            'below': 0.8,         # 支撑区，权重较高
-            'near_below': 1.2,    # 当前价下方，主力博弈区
-            'near_above': 1.0,    # 当前价上方，短线博弈区
-            'above': 0.9,         # 阻力区，权重中等
-            'deep_above': 0.4     # 深度获利区，影响力较小
-        }
-        return weights.get(zone_name, 1.0)
-
-    def _calculate_game_intensity_advanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> float:
-        """高级博弈强度计算"""
-        if len(changes) == 0:
-            return 0.0
-        # 1. 计算变化的标准差（波动程度）
-        change_std = np.std(changes) if len(changes) > 1 else 0.0
-        # 2. 计算正负变化交替的频率（对抗激烈程度）
-        sign_changes = np.diff(np.sign(changes))
-        battle_frequency = np.sum(sign_changes != 0) / len(sign_changes) if len(sign_changes) > 0 else 0.0
-        # 3. 当前价附近的变化集中度
-        near_mask = np.abs((price_grid - current_price) / current_price) < 0.08
-        near_intensity = np.sum(np.abs(changes[near_mask])) if np.any(near_mask) else 0.0
-        near_intensity_normalized = near_intensity / np.sum(np.abs(changes)) if np.sum(np.abs(changes)) > 0 else 0.0
-        # 4. 综合博弈强度
-        intensity = (change_std * 0.3 + battle_frequency * 0.3 + near_intensity_normalized * 0.4)
-        return min(1.0, intensity * 2)
-
-    def _calculate_breakout_potential_advanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> float:
-        """高级突破势能计算"""
-        if len(changes) == 0:
-            return 0.0
-        # 1. 上方吸收能量
-        above_mask = price_grid > current_price
-        absorption_above = np.sum(changes[above_mask & (changes > 0)])
-        # 2. 下方支撑能量
-        below_mask = price_grid < current_price
-        absorption_below = np.sum(changes[below_mask & (changes > 0)])
-        distribution_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
-        # 3. 支撑强度（下方吸收 > 派发）
-        support_strength = absorption_below / (distribution_below + 1e-10) if distribution_below > 0 else 2.0
-        # 4. 突破压力（上方派发能量）
-        distribution_above = np.sum(np.abs(changes[above_mask & (changes < 0)]))
-        # 5. 计算突破势能
-        # 公式：上方吸收 * 支撑强度 / (上方派发 + 1)
-        if distribution_above > 0:
-            breakout = absorption_above * support_strength / distribution_above * 30
-        else:
-            breakout = absorption_above * support_strength * 40
-        return min(100, max(0, breakout))
-
-    def _calculate_energy_concentration_advanced(self, changes: np.ndarray, price_grid: np.ndarray) -> float:
-        """高级能量集中度计算"""
-        if len(changes) == 0:
-            return 0.5
-        # 1. 计算变化分布的信息熵
-        abs_changes = np.abs(changes)
-        total_energy = np.sum(abs_changes)
-        if total_energy == 0:
-            return 0.5
-        # 概率分布
-        probs = abs_changes / total_energy
-        # 避免log(0)
-        probs = probs[probs > 0]
-        if len(probs) == 0:
-            return 0.5
-        # 计算熵
-        entropy_val = -np.sum(probs * np.log(probs))
-        max_entropy = np.log(len(probs))
-        # 集中度 = 1 - 归一化熵
-        concentration = 1.0 - (entropy_val / max_entropy)
-        return min(1.0, max(0.0, concentration))
-
-    def _identify_key_battle_zones_enhanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> List[Dict]:
-        """增强版关键博弈区域识别 - 避免返回空数组"""
-        battle_zones = []
-        try:
-            # 方法1：寻找最大的变化区域
-            if len(changes) > 10:
-                # 找出变化最大的前5个点
-                abs_changes = np.abs(changes)
-                top_indices = np.argsort(abs_changes)[-5:]  # 最大的5个
-                for idx in top_indices:
-                    if abs_changes[idx] > 0.3:  # 只考虑变化大于0.3%的
-                        price = price_grid[idx]
-                        change = changes[idx]
-                        battle_zones.append({
-                            'price': float(price),
-                            'battle_intensity': float(abs_changes[idx]),
-                            'type': 'absorption' if change > 0 else 'distribution',
-                            'position': 'below_current' if price < current_price else 'above_current',
-                            'distance_to_current': float((price - current_price) / current_price),
-                        })
-            # 方法2：如果方法1没有找到，寻找连续变化区域
-            if len(battle_zones) < 3 and len(changes) > 5:
-                # 寻找连续的正变化或负变化区域
-                for i in range(2, len(changes)-2):
-                    window = changes[i-2:i+3]
-                    if np.all(window > 0.1) or np.all(window < -0.1):
-                        battle_zones.append({
-                            'price': float(price_grid[i]),
-                            'battle_intensity': float(np.mean(np.abs(window))),
-                            'type': 'absorption' if changes[i] > 0 else 'distribution',
-                            'position': 'below_current' if price_grid[i] < current_price else 'above_current',
-                            'distance_to_current': float((price_grid[i] - current_price) / current_price),
-                        })
-                        if len(battle_zones) >= 5:
-                            break
-            # 方法3：如果还是没有找到，至少返回一个当前价附近的显著变化
-            if len(battle_zones) == 0 and len(changes) > 0:
-                # 找到当前价附近的变化
-                price_rel = np.abs((price_grid - current_price) / current_price)
-                near_indices = np.where(price_rel < 0.1)[0]
-                if len(near_indices) > 0:
-                    near_changes = changes[near_indices]
-                    max_idx = near_indices[np.argmax(np.abs(near_changes))]
-                    if np.abs(changes[max_idx]) > 0.1:
-                        battle_zones.append({
-                            'price': float(price_grid[max_idx]),
-                            'battle_intensity': float(np.abs(changes[max_idx])),
-                            'type': 'absorption' if changes[max_idx] > 0 else 'distribution',
-                            'position': 'below_current' if price_grid[max_idx] < current_price else 'above_current',
-                            'distance_to_current': float((price_grid[max_idx] - current_price) / current_price),
-                        })
-            # 按强度排序
-            battle_zones.sort(key=lambda x: x['battle_intensity'], reverse=True)
-            # 限制数量
-            battle_zones = battle_zones[:5]
-            return battle_zones
-        except Exception as e:
-            print(f"❌ [关键区域识别] 异常: {e}")
-            return []
-
     def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, 
                                          current_price: float, close_price: float) -> bool:
         """高级虚假派发检测 - 基于A股特性"""
         try:
             # 1. 价格位置分析
             price_rel = (price_grid - current_price) / current_price
-            
             # 2. 当前价附近的筹码变化
             near_mask = np.abs(price_rel) < 0.08
             near_net = np.sum(changes[near_mask])
-            
             # 3. 上方派发 vs 下方吸收
             above_mask = price_rel > 0.08
             below_mask = price_rel < -0.08
-            
             above_distrib = np.sum(np.abs(changes[above_mask & (changes < 0)]))
             below_accum = np.sum(changes[below_mask & (changes > 0)])
-            
             # 4. A股虚假派发特征：
             #    a) 上方派发量大但下方吸收更强
             #    b) 当前价附近有净吸收
             #    c) 价格处于上升趋势中
-            
             if (below_accum > above_distrib * 1.5 and  # 下方吸收远大于上方派发
                 near_net > 0 and                       # 当前价附近净增加
                 above_distrib > 0.5):                  # 上方有一定派发
                 return True
-            
             # 5. 另一种情况：缩量调整
             # 如果价格在均线上方但出现派发信号，可能是正常回调
             if (np.mean(changes[above_mask]) < -0.3 and  # 上方平均减少
                 np.mean(changes[below_mask]) > 0.2 and   # 下方平均增加
                 above_distrib < 2.0):                    # 派发量不大
                 return True
-            
             return False
         except Exception as e:
             print(f"⚠️ [高级虚假派发检测] 异常: {e}")
             return False
 
-    def _calculate_breakout_potential_simple(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> float:
-        """简化版突破势能计算"""
-        try:
-            if len(changes) == 0:
-                return 0.0
-            # 寻找当前价以上的吸收能量
-            above_mask = price_grid > current_price
-            absorption_above = np.sum(changes[above_mask & (changes > 0)])
-            # 寻找当前价以下的吸收能量
-            below_mask = price_grid < current_price
-            absorption_below = np.sum(changes[below_mask & (changes > 0)])
-            # 突破势能 = 上方的吸收能量 / (下方的吸收能量 + 1e-10)
-            if absorption_below > 0:
-                breakout_potential = absorption_above / absorption_below * 50
-            else:
-                breakout_potential = absorption_above * 20
-            return min(100, max(0, breakout_potential))
-        except Exception as e:
-            print(f"⚠️ [突破势能] 计算异常: {e}")
-            return 0.0
-
-    def _calculate_energy_concentration_simple(self, changes: np.ndarray) -> float:
-        """简化版能量集中度计算"""
-        try:
-            if len(changes) == 0:
-                return 0.5
-            abs_changes = np.abs(changes)
-            total_energy = np.sum(abs_changes)
-            if total_energy == 0:
-                return 0.5
-            # 计算top 20%的变化占比
-            sorted_indices = np.argsort(abs_changes)[::-1]
-            top_count = max(1, int(len(changes) * 0.2))
-            top_energy = np.sum(abs_changes[sorted_indices[:top_count]])
-            concentration = top_energy / total_energy
-            return min(1.0, concentration)
-        except Exception as e:
-            print(f"⚠️ [能量集中度] 计算异常: {e}")
-            return 0.5
-
     def _ensure_nonzero_energy(self, energy_result: Dict[str, Any]) -> Dict[str, Any]:
         """确保能量场结果不为零"""
-        print(f"🔍 [探针-修正] 开始修正能量场零值")
-        print(f"   原始值: absorption={energy_result.get('absorption_energy', 0)}, "
-              f"distribution={energy_result.get('distribution_energy', 0)}")
-        
         absorption = energy_result.get('absorption_energy', 0)
         distribution = energy_result.get('distribution_energy', 0)
-        
         # 如果吸收和派发能量都为0，设置一个小值
         if absorption == 0 and distribution == 0:
             import random
@@ -1444,20 +1204,15 @@ class GameEnergyCalculator:
             # 但是为了后续计算，给一个非常小的值
             new_absorption = random.uniform(0.01, 0.1)  # 非常小的值，接近0
             new_distribution = random.uniform(0.01, 0.1)
-            
             energy_result['absorption_energy'] = new_absorption
             energy_result['distribution_energy'] = new_distribution
             energy_result['net_energy_flow'] = new_absorption - new_distribution
-            
             # 其他字段也设置较小的值
             energy_result['game_intensity'] = max(0.01, energy_result.get('game_intensity', 0.01))
             energy_result['breakout_potential'] = max(0.1, energy_result.get('breakout_potential', 0.1))
             energy_result['energy_concentration'] = max(0.1, energy_result.get('energy_concentration', 0.1))
-            
-            print(f"   修正为: absorption={new_absorption:.4f}, distribution={new_distribution:.4f}")
         else:
             print(f"   无需修正，能量值不为0")
-        
         return energy_result
 
     def _detect_fake_distribution(self, changes: np.ndarray, price_grid: np.ndarray, 
@@ -1480,27 +1235,7 @@ class GameEnergyCalculator:
                 # 没有成交量数据时，仅基于筹码变化判断
                 return True
         return False
-    
-    def _find_resistance_zones(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> List[Dict]:
-        """寻找阻力区域"""
-        resistance_zones = []
-        # 寻找连续的筹码减少区域
-        decreasing_mask = changes < -0.3
-        if np.sum(decreasing_mask) == 0:
-            return resistance_zones
-        # 聚类识别阻力带
-        from scipy.signal import find_peaks
-        negative_changes = -changes  # 将减少转为峰值
-        peaks, _ = find_peaks(negative_changes, height=0.5, distance=5)
-        for peak_idx in peaks:
-            if price_grid[peak_idx] > current_price * 1.02:
-                resistance_zones.append({
-                    'price': float(price_grid[peak_idx]),
-                    'resistance_strength': float(negative_changes[peak_idx]),
-                    'distance_to_current': float((price_grid[peak_idx] - current_price) / current_price),
-                })
-        return sorted(resistance_zones, key=lambda x: x['resistance_strength'], reverse=True)
-    
+
     def _calculate_breakout_potential(self, resistance_zones: List[Dict], absorption_energy: float) -> float:
         """计算突破势能"""
         if not resistance_zones:
@@ -1530,8 +1265,6 @@ class GameEnergyCalculator:
     def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, 
                                          current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
         """调试版的能量指标计算 - 优化突破势能"""
-        print(f"🔍 [探针-指标] {stock_code} {trade_date} 开始计算能量指标")
-        
         # 1. 计算能量集中度（先计算，因为后面会用到）
         abs_changes = np.abs(changes)
         total_energy = np.sum(abs_changes)
@@ -1542,23 +1275,15 @@ class GameEnergyCalculator:
             top_count = max(1, int(len(changes) * 0.2))
             top_energy = np.sum(abs_changes[sorted_indices[:top_count]])
             energy_concentration = top_energy / total_energy
-            print(f"🔍 [探针-指标] {stock_code} {trade_date} 能量集中度: 总能量={total_energy:.4f}, 前20%能量={top_energy:.4f}, "
-                  f"集中度={energy_concentration:.4f}")
-        else:
-            print(f"🔍 [探针-指标] {stock_code} {trade_date} 能量集中度: 总能量为0")
-        
         # 2. 博弈强度（活跃区域比例）
         active_threshold = 0.2  # 变化绝对值大于0.2%的区域
         active_mask = np.abs(changes) > active_threshold
         active_count = np.sum(active_mask)
         total_count = len(changes)
         game_intensity = active_count / total_count * 2.0 if total_count > 0 else 0
-        print(f"🔍 [探针-指标] {stock_code} {trade_date} 博弈强度: 活跃区域={active_count}/{total_count}, 强度={game_intensity:.4f}")
-        
         # 3. 优化突破势能计算（A股特性）
         above_mask = price_grid > current_price
         below_mask = price_grid < current_price
-        
         # 上方吸收（价格以上筹码增加）
         absorption_above = np.sum(changes[above_mask & (changes > 0)])
         # 上方派发（价格以上筹码减少）
@@ -1567,27 +1292,18 @@ class GameEnergyCalculator:
         absorption_below = np.sum(changes[below_mask & (changes > 0)])
         # 下方派发（价格以下筹码减少）
         distribution_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
-        
-        print(f"🔍 [探针-指标] {stock_code} {trade_date} 突破势能计算:")
-        print(f"    上方吸收={absorption_above:.4f}, 上方派发={distribution_above:.4f}")
-        print(f"    下方吸收={absorption_below:.4f}, 下方派发={distribution_below:.4f}")
-        
         # 突破势能计算优化：
         # 1. 下方支撑强度 = 下方吸收 / (下方派发 + 1e-10)
         # 2. 上方突破压力 = 上方派发 / (上方吸收 + 1e-10)
         # 3. 净突破能量 = (吸收_above - 派发_above) * 支撑强度 * 系数
-        
         if distribution_below > 0:
             support_strength = absorption_below / distribution_below
         else:
             support_strength = absorption_below * 2 + 1  # 无派发时支撑更强
-        
         # 限制支撑强度范围
         support_strength = min(3.0, max(0.1, support_strength))
-        
         # 计算净上方能量
         net_above = absorption_above - distribution_above
-        
         # 突破势能 = 净上方能量 * 支撑强度 * 放大系数
         # A股特性：突破需要较强的能量
         if net_above > 0:
@@ -1595,41 +1311,31 @@ class GameEnergyCalculator:
         else:
             # 上方净减少，突破可能性低
             breakout_potential = max(0, net_above) * 5
-        
         # 能量集中度加成：能量越集中，突破越容易
         if energy_concentration > 0.8:
             breakout_potential *= (1 + energy_concentration)
-        
-        print(f"🔍 [探针-指标] {stock_code} {trade_date} 突破势能结果: {breakout_potential:.4f} "
-              f"(支撑强度={support_strength:.2f}, 净上方能量={net_above:.4f}, 集中度加成={energy_concentration:.2f})")
-        
         return game_intensity, breakout_potential, energy_concentration
 
     def _identify_key_battle_zones(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> List[Dict]:
         """调试版的关键博弈区域识别"""
         print(f"🔍 [探针-关键区域] {stock_code} {trade_date} 开始识别关键博弈区域")
-        
         battle_zones = []
         min_intensity = 0.5  # 最小强度阈值
-        
         try:
             # 寻找显著变化区域
             for i in range(len(changes)):
                 change = changes[i]
                 price = price_grid[i]
-                
                 if abs(change) > min_intensity:
                     # 检查附近是否有相反的变化（对抗）
                     start_idx = max(0, i-2)
                     end_idx = min(len(changes), i+3)
                     neighborhood = changes[start_idx:end_idx]
-                    
                     # 计算对抗强度
                     opponent_changes = [c for c in neighborhood if c * change < 0]  # 符号相反
                     if opponent_changes:
                         opponent_avg = np.mean(np.abs(opponent_changes))
                         battle_intensity = abs(change) + opponent_avg * 0.5
-                        
                         if battle_intensity > min_intensity * 1.5:
                             battle_zones.append({
                                 'price': float(price),
@@ -1638,13 +1344,9 @@ class GameEnergyCalculator:
                                 'position': 'below_current' if price < current_price else 'above_current',
                                 'distance_to_current': float((price - current_price) / current_price),
                             })
-            
-            print(f"🔍 [探针-关键区域] {stock_code} {trade_date} 找到 {len(battle_zones)} 个关键区域")
-            
             # 按强度排序并限制数量
             battle_zones.sort(key=lambda x: x['battle_intensity'], reverse=True)
             return battle_zones[:5]
-            
         except Exception as e:
             print(f"❌ [探针-关键区域] {stock_code} {trade_date} 识别异常: {e}")
             return []
@@ -1663,7 +1365,6 @@ class GameEnergyCalculator:
             'energy_concentration': 0.0,
             'fake_distribution_flag': False,
         }
-        print(f"🔍 [探针-默认] 返回默认能量场: {result}")
         return result
 
 
