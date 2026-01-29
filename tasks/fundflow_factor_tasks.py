@@ -173,6 +173,9 @@ def get_trade_dates_for_stock(stock_code: str, start_date: date,incremental: boo
         # 获取交易所代码
         exchange = get_exchange_by_stock_code(stock_code)
         # 获取最新的交易日
+        print(f"获取股票 {stock_code} 的最新交易日")
+        print(f"当前时间: {timezone.now().date()}")
+        print(f"exchange: {exchange}")
         latest_trade_date = TradeCalendar.get_latest_trade_date(
             reference_date=timezone.now().date(),
             exchange=exchange
