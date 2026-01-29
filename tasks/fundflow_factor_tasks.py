@@ -422,7 +422,7 @@ def get_daily_basic_data(stock_code: str, trade_date: date) -> Optional[Dict]:
 
 def get_1min_data(stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
     """获取1分钟数据"""
-    stock_time_trade_dao = StockTimeTradeDAO(cache_manager=CacheManager())
+    stock_time_trade_dao = StockTimeTradeDAO(CacheManager())
     try:
         df = stock_time_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date)
         if df is None:
