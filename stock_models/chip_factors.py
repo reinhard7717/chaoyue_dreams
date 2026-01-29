@@ -600,7 +600,6 @@ class ChipFactorBase(models.Model):
             'chip_turnover_intensity': 0.5,  # 中性值
         }
 
-
 # 深交所主板筹码因子分表
 class ChipFactorSZ(ChipFactorBase):
     class Meta:
@@ -826,6 +825,20 @@ class ChipHoldingMatrixBase(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time} 动态分析"
 
+    def save(self, *args, **kwargs):
+        """
+        重写save方法，自动将所有FloatField字段四舍五入保留3位小数
+        """
+        for field in self._meta.fields:
+            if isinstance(field, models.FloatField):
+                val = getattr(self, field.name)
+                if val is not None:
+                    try:
+                        setattr(self, field.name, round(float(val), 3))
+                    except (ValueError, TypeError):
+                        pass
+        super().save(*args, **kwargs)
+
     def to_factor_dict(self) -> Dict[str, Any]:
         """
         转换为筹码因子字典
@@ -944,7 +957,6 @@ class ChipHoldingMatrixBase(models.Model):
                 else:
                     # 空数组设为None，避免存储空JSON数组
                     self.key_battle_zones = None
-                    print(f"ℹ️ [保存] key_battle_zones为空，设置为None")
             # =======================================================
             # 4. 保存其他动态分析结果
             # =======================================================
@@ -986,7 +998,6 @@ class ChipHoldingMatrixBase(models.Model):
             self.used_percent_data = True
             # 保存所有字段
             self.save()
-            print(f"✅ [保存完成] {self.stock.stock_code} {self.trade_time} 动态分析已保存")
             return True
         except Exception as e:
             print(f"❌ [保存动态分析] 失败: {e}")
