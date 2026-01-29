@@ -534,6 +534,7 @@ def update_fundflow_factors_daily(self):
     """
     每日更新任务：更新最新交易日的资金流向因子
     """
+    stock_basic_dao = StockBasicInfoDao()
     try:
         # 获取最新的交易日
         latest_trade_date = TradeCalendar.get_latest_trade_date(
