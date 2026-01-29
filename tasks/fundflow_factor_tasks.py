@@ -87,7 +87,7 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
     计算单只股票的资金流向因子
     Args:
         stock_code: 股票代码
-        start_date_str: 开始计算日期 (YYYY-MM-DD格式)
+        start_date_str: 开始计算日期 (YYYY-MM-DD格式 或 YYYYMMDD格式)
         incremental: 是否为增量模式
     """
     try:
@@ -95,7 +95,21 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
         # 1. 确定计算开始日期
         start_date = None
         if start_date_str:
-            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            try:
+                # 兼容 YYYY-MM-DD 和 YYYYMMDD 格式
+                if '-' in start_date_str:
+                    start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                else:
+                    start_date = datetime.strptime(start_date_str, '%Y%m%d').date()
+            except ValueError:
+                error_msg = f"日期格式错误: {start_date_str}，请使用 YYYY-MM-DD 或 YYYYMMDD 格式"
+                logger.error(error_msg)
+                return {
+                    'status': 'failed',
+                    'message': error_msg,
+                    'stock_code': stock_code
+                }
+
         # 2. 获取资金流向因子模型
         factor_model = get_fundflow_factor_model_by_code(stock_code)
         # 3. 获取该股票的交易日历
