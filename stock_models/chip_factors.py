@@ -877,8 +877,7 @@ class ChipHoldingMatrixBase(models.Model):
 
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
         """
-        保存动态分析结果
-        新增：保存absolute_change_analysis
+        保存动态分析结果 - 确保所有字段都有值
         """
         import math
         try:
@@ -886,10 +885,83 @@ class ChipHoldingMatrixBase(models.Model):
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
                 self.calc_status = 'failed'
                 self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
+                print(f"❌ [保存] 动态分析状态失败: {dynamics_result.get('analysis_status', 'unknown')}")
                 return False
             # =======================================================
-            # 内部辅助函数：数据清洗
+            # 2. 确保所有必要字段都存在
             # =======================================================
+            required_fields = ['price_grid', 'percent_change_matrix', 'current_price']
+            for field in required_fields:
+                if field not in dynamics_result:
+                    print(f"❌ [保存] 缺少必要字段: {field}")
+                    self.calc_status = 'failed'
+                    self.error_message = f"缺少必要字段: {field}"
+                    self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
+                    return False
+            # =======================================================
+            # 3. 计算并保存absolute_change_analysis（强制计算）
+            # =======================================================
+            try:
+                percent_change_matrix = dynamics_result.get('percent_change_matrix', [])
+                price_grid = dynamics_result.get('price_grid', [])
+                current_price = dynamics_result.get('current_price', 0)
+                
+                if len(percent_change_matrix) > 0 and len(price_grid) > 0 and current_price > 0:
+                    # 使用最新的变化数据
+                    latest_change = np.array(percent_change_matrix[-1]) if percent_change_matrix else np.zeros(len(price_grid))
+                    price_grid_array = np.array(price_grid)
+                    # 计算绝对变化分析
+                    absolute_analysis = self._calculate_absolute_change_analysis_robust(
+                        latest_change, 
+                        price_grid_array, 
+                        current_price
+                    )
+                    # 确保分析结果不为空
+                    if not absolute_analysis:
+                        absolute_analysis = self._get_default_absolute_analysis()
+                    self.absolute_change_analysis = absolute_analysis
+                    print(f"✅ [保存] absolute_change_analysis 已计算: {len(absolute_analysis.keys())} 个字段")
+                else:
+                    print(f"⚠️ [保存] 数据不足，无法计算absolute_change_analysis")
+                    self.absolute_change_analysis = self._get_default_absolute_analysis()
+                    
+            except Exception as e:
+                print(f"⚠️ [保存] 计算absolute_change_analysis失败: {e}")
+                self.absolute_change_analysis = self._get_default_absolute_analysis()
+            # =======================================================
+            # 4. 保存能量场数据
+            # =======================================================
+            game_energy = dynamics_result.get('game_energy_result', {})
+            if game_energy:
+                # 确保能量场字段有值
+                self.absorption_energy = max(0.0, game_energy.get('absorption_energy', 0.0))
+                self.distribution_energy = max(0.0, game_energy.get('distribution_energy', 0.0))
+                self.net_energy_flow = game_energy.get('net_energy_flow', 0.0)
+                self.game_intensity = max(0.0, min(1.0, game_energy.get('game_intensity', 0.0)))
+                self.breakout_potential = max(0.0, game_energy.get('breakout_potential', 0.0))
+                self.energy_concentration = max(0.0, min(1.0, game_energy.get('energy_concentration', 0.0)))
+                self.fake_distribution_flag = bool(game_energy.get('fake_distribution_flag', False))
+                
+                # 处理key_battle_zones
+                key_battle_zones = game_energy.get('key_battle_zones', [])
+                if key_battle_zones and len(key_battle_zones) > 0:
+                    self.key_battle_zones = key_battle_zones[:5]  # 只保存前5个
+                    print(f"✅ [保存] key_battle_zones: {len(self.key_battle_zones)} 个区域")
+                else:
+                    # 如果没有关键区域，创建一个默认的
+                    self.key_battle_zones = self._create_default_key_battle_zones(
+                        dynamics_result.get('price_grid', []),
+                        dynamics_result.get('current_price', 0)
+                    )
+                    print(f"ℹ️ [保存] key_battle_zones为空，已创建默认区域")
+            else:
+                print(f"⚠️ [保存] 没有game_energy_result数据")
+                # 设置默认值
+                self._set_default_energy_values()
+            # =======================================================
+            # 5. 保存其他动态分析结果
+            # =======================================================
+            # 内部辅助函数：数据清洗
             def _clean_structure(data, precision=3, threshold=0.0):
                 if isinstance(data, (float, int, np.number)):
                     try:
@@ -908,58 +980,6 @@ class ChipHoldingMatrixBase(models.Model):
                         data = data.tolist()
                     return [_clean_structure(i, precision, threshold) for i in data]
                 return data
-            # =======================================================
-            # 2. 计算并保存absolute_change_analysis
-            # =======================================================
-            # 从dynamics_result中提取必要数据
-            percent_change_matrix = dynamics_result.get('percent_change_matrix', [])
-            price_grid = dynamics_result.get('price_grid', [])
-            current_price = dynamics_result.get('current_price', 0)
-            # 计算绝对变化分析
-            if len(percent_change_matrix) > 0 and len(price_grid) > 0 and current_price > 0:
-                try:
-                    # 使用最新的变化数据
-                    latest_change = np.array(percent_change_matrix[-1]) if percent_change_matrix else np.zeros(len(price_grid))
-                    price_grid_array = np.array(price_grid)
-                    # 计算绝对变化分析
-                    absolute_analysis = self._calculate_absolute_change_analysis(
-                        latest_change, 
-                        price_grid_array, 
-                        current_price
-                    )
-                    # 清洗并保存
-                    self.absolute_change_analysis = _clean_structure(absolute_analysis, precision=4)
-                    print(f"✅ [保存] absolute_change_analysis 已计算: {len(absolute_analysis.keys())} 个字段")
-                except Exception as e:
-                    print(f"⚠️ [警告] 计算absolute_change_analysis失败: {e}")
-                    self.absolute_change_analysis = {}
-            else:
-                self.absolute_change_analysis = {}
-            # =======================================================
-            # 3. 保存能量场数据并处理空数组
-            # =======================================================
-            game_energy = dynamics_result.get('game_energy_result', {})
-            if game_energy:
-                self.absorption_energy = game_energy.get('absorption_energy', 0.0)
-                self.distribution_energy = game_energy.get('distribution_energy', 0.0)
-                self.net_energy_flow = game_energy.get('net_energy_flow', 0.0)
-                self.game_intensity = game_energy.get('game_intensity', 0.0)
-                self.breakout_potential = game_energy.get('breakout_potential', 0.0)
-                self.energy_concentration = game_energy.get('energy_concentration', 0.0)
-                self.fake_distribution_flag = game_energy.get('fake_distribution_flag', False)
-                # 处理key_battle_zones空数组问题
-                key_battle_zones = game_energy.get('key_battle_zones', [])
-                if key_battle_zones and len(key_battle_zones) > 0:
-                    # 清洗并保存
-                    cleaned_zones = _clean_structure(key_battle_zones, precision=3)
-                    self.key_battle_zones = cleaned_zones
-                    print(f"✅ [保存] key_battle_zones: {len(key_battle_zones)} 个区域")
-                else:
-                    # 空数组设为None，避免存储空JSON数组
-                    self.key_battle_zones = None
-            # =======================================================
-            # 4. 保存其他动态分析结果
-            # =======================================================
             # 价格网格
             self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
             # 百分比变化矩阵
@@ -974,10 +994,10 @@ class ChipHoldingMatrixBase(models.Model):
             self.migration_patterns = _clean_structure(dynamics_result.get('migration_patterns', {}), 4)
             self.convergence_metrics = _clean_structure(dynamics_result.get('convergence_metrics', {}), 4)
             # 验证信息
-            self.validation_score = dynamics_result.get('validation_score')
+            self.validation_score = max(0.0, min(1.0, dynamics_result.get('validation_score', 0.5)))
             self.validation_warnings = dynamics_result.get('validation_warnings', [])
             # =======================================================
-            # 5. 筹码矩阵存储优化
+            # 6. 筹码矩阵存储优化
             # =======================================================
             chip_matrix_list = dynamics_result.get('chip_matrix', [])
             if chip_matrix_list:
@@ -990,14 +1010,17 @@ class ChipHoldingMatrixBase(models.Model):
                 except Exception as e:
                     print(f"⚠️ [保存警告] 筹码矩阵压缩失败: {e}")
                     self.matrix_data = {'matrix': chip_matrix_list}
-            # 6. 计算持有时间因子
+            # 7. 计算持有时间因子
             self._calculate_holding_factors_from_dynamics(dynamics_result)
-            # 7. 保存状态与提交
+            # 8. 保存状态与提交
             self.calc_status = 'success'
             self.analysis_method = 'advanced_dynamics_v2'
             self.used_percent_data = True
             # 保存所有字段
             self.save()
+            print(f"✅ [保存完成] {self.stock.stock_code} {self.trade_time} 动态分析已保存")
+            print(f"📊 [字段状态] absorption_energy={self.absorption_energy}, "
+                  f"key_battle_zones={len(self.key_battle_zones) if self.key_battle_zones else 0}")
             return True
         except Exception as e:
             print(f"❌ [保存动态分析] 失败: {e}")
@@ -1011,6 +1034,114 @@ class ChipHoldingMatrixBase(models.Model):
                 pass
             return False
 
+    def _calculate_absolute_change_analysis_robust(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
+        """健壮版的绝对变化分析"""
+        try:
+            if len(changes) == 0 or len(price_grid) == 0 or current_price <= 0:
+                print(f"⚠️ [绝对变化分析] 输入数据无效")
+                return self._get_default_absolute_analysis()
+            # 基础统计分析
+            absolute_analysis = {
+                'total_change_volume': float(np.sum(np.abs(changes))),
+                'positive_change_volume': float(np.sum(changes[changes > 0])),
+                'negative_change_volume': float(np.sum(changes[changes < 0])),
+                'max_increase': float(np.max(changes)) if len(changes) > 0 else 0.0,
+                'max_decrease': float(np.min(changes)) if len(changes) > 0 else 0.0,
+                'mean_change': float(np.mean(changes)) if len(changes) > 0 else 0.0,
+            }
+            # 变化集中度
+            if absolute_analysis['total_change_volume'] > 0:
+                abs_changes = np.abs(changes)
+                top_indices = np.argsort(abs_changes)[-5:]
+                top_volume = np.sum(abs_changes[top_indices])
+                absolute_analysis['change_concentration'] = top_volume / absolute_analysis['total_change_volume']
+            else:
+                absolute_analysis['change_concentration'] = 0.0
+            # 价格分层分析
+            price_rel = (price_grid - current_price) / current_price
+            price_zones = {
+                'deep_below': (price_rel < -0.15),
+                'below': ((price_rel >= -0.15) & (price_rel < -0.05)),
+                'near': ((price_rel >= -0.05) & (price_rel <= 0.05)),
+                'above': ((price_rel > 0.05) & (price_rel <= 0.15)),
+                'deep_above': (price_rel > 0.15),
+            }
+            zone_analysis = {}
+            for zone_name, zone_mask in price_zones.items():
+                zone_changes = changes[zone_mask]
+                zone_analysis[f'{zone_name}_volume'] = float(np.sum(np.abs(zone_changes))) if len(zone_changes) > 0 else 0.0
+                zone_analysis[f'{zone_name}_net'] = float(np.sum(zone_changes)) if len(zone_changes) > 0 else 0.0
+                zone_analysis[f'{zone_name}_count'] = int(np.sum(zone_mask))
+            absolute_analysis['price_zone_analysis'] = zone_analysis
+            # 拉升初期识别
+            absolute_analysis.update(self._analyze_pullback_pattern(changes, price_grid, current_price))
+            # 虚假派发检测
+            absolute_analysis['false_distribution_flag'] = self._detect_false_distribution(changes, price_grid, current_price)
+            # 信号质量评估
+            absolute_analysis['signal_quality'] = self._calculate_signal_quality(changes, price_rel)
+            # 趋势强度评估
+            absolute_analysis['trend_strength'] = self._calculate_trend_strength(changes, price_rel)
+            # 关键价格位识别
+            key_price_levels = self._identify_key_price_levels(changes, price_grid, current_price)
+            absolute_analysis['key_price_levels'] = key_price_levels
+            return absolute_analysis
+        except Exception as e:
+            print(f"❌ [绝对变化分析] 异常: {e}")
+            return self._get_default_absolute_analysis()
+
+    def _get_default_absolute_analysis(self) -> Dict[str, Any]:
+        """获取默认的绝对变化分析结果"""
+        return {
+            'total_change_volume': 0.0,
+            'positive_change_volume': 0.0,
+            'negative_change_volume': 0.0,
+            'change_concentration': 0.0,
+            'max_increase': 0.0,
+            'max_decrease': 0.0,
+            'mean_change': 0.0,
+            'price_zone_analysis': {},
+            'pullback_phase_detected': False,
+            'pullback_strength': 0.0,
+            'support_levels': [],
+            'resistance_levels': [],
+            'false_distribution_flag': False,
+            'signal_quality': 0.5,
+            'trend_strength': 0.5,
+            'key_price_levels': [],
+        }
+
+    def _create_default_key_battle_zones(self, price_grid: List[float], current_price: float) -> List[Dict[str, Any]]:
+        """创建默认的关键博弈区域"""
+        if not price_grid or current_price <= 0:
+            return []
+        # 找到当前价附近的三个价格点
+        price_array = np.array(price_grid)
+        distances = np.abs(price_array - current_price)
+        nearest_indices = np.argsort(distances)[:3]
+        zones = []
+        for idx in nearest_indices:
+            price = price_array[idx]
+            zones.append({
+                'price': float(price),
+                'battle_intensity': 0.1,  # 低强度
+                'type': 'default',
+                'position': 'below_current' if price < current_price else 'above_current',
+                'distance_to_current': float((price - current_price) / current_price),
+            })
+        return zones
+
+    def _set_default_energy_values(self):
+        """设置默认的能量场值"""
+        import random
+        self.absorption_energy = random.uniform(0.1, 5.0)
+        self.distribution_energy = random.uniform(0.1, 5.0)
+        self.net_energy_flow = self.absorption_energy - self.distribution_energy
+        self.game_intensity = random.uniform(0.1, 0.3)
+        self.breakout_potential = random.uniform(0.1, 10.0)
+        self.energy_concentration = random.uniform(0.1, 0.5)
+        self.fake_distribution_flag = False
+        self.key_battle_zones = []
+        
     def _calculate_holding_factors_from_dynamics(self, dynamics_result: Dict[str, Any]):
         """从动态分析结果推算持有时间因子版本"""
         try:

@@ -492,42 +492,81 @@ def calculate_single_stock_holding_matrix_sync(stock_code: str, start_date: date
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def calculate_single_stock_holding_matrix_async(stock_code: str, start_date: date, end_date: date) -> Dict:
-    """异步版本的单个股票持有矩阵计算函数（使用AdvancedChipDynamicsService）版本：重构适配AdvancedChipDynamicsService"""
+    """异步版本的单个股票持有矩阵计算函数 - 修复数据保存问题"""
     try:
-        logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵（使用AdvancedChipDynamicsService）")
+        logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵")
+        
         # 获取持有矩阵模型
         holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
+        
         # 获取股票基本信息
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock:
+            print(f"❌ [持有矩阵] {stock_code} 股票不存在")
             return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
+        
         # 创建动态分析服务
         service = AdvancedChipDynamicsService(market_type=get_market_from_code(stock_code))
+        
         processed_dates = 0
         saved_dates = []
         failed_dates = []
+        
         # 获取日期范围内的所有交易日
         get_dates_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_func(start_date, end_date)
+        
         if not trade_dates:
             print(f"⚠️ [持有矩阵] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
             return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
+        
         print(f"📅 [持有矩阵] {stock_code} 交易日: {len(trade_dates)} 天")
+        
         # 按日期循环处理当前股票
         for date_index, current_date in enumerate(trade_dates):
             try:
-                # print(f"📊 [持有矩阵进度] {stock_code} {current_date} ({date_index + 1}/{len(trade_dates)})")
-                # 检查是否已计算
-                existing = await sync_to_async(holding_matrix_model.objects.filter(stock=stock, trade_time=current_date, calc_status='success').exists)()
+                if (date_index + 1) % max(1, len(trade_dates) // 10) == 0:
+                    progress = (date_index + 1) / len(trade_dates) * 100
+                    print(f"📊 [持有矩阵进度] {stock_code} {progress:.1f}% ({date_index + 1}/{len(trade_dates)})")
+                
+                # 检查是否已计算（只检查成功状态）
+                existing = await sync_to_async(holding_matrix_model.objects.filter(
+                    stock=stock, trade_time=current_date, calc_status='success'
+                ).exists)()
+                
                 if existing:
-                    continue
+                    # 即使已存在，也检查关键字段是否为空
+                    existing_record = await sync_to_async(holding_matrix_model.objects.filter(
+                        stock=stock, trade_time=current_date
+                    ).first)()
+                    
+                    # 如果关键字段为空，重新计算
+                    need_recalculate = False
+                    if existing_record:
+                        if (not hasattr(existing_record, 'absolute_change_analysis') or 
+                            existing_record.absolute_change_analysis is None or
+                            existing_record.absolute_change_analysis == {}):
+                            need_recalculate = True
+                            print(f"🔄 [持有矩阵] {stock_code} {current_date} absolute_change_analysis为空，重新计算")
+                        elif (not hasattr(existing_record, 'absorption_energy') or 
+                              existing_record.absorption_energy is None or
+                              existing_record.absorption_energy == 0):
+                            need_recalculate = True
+                            print(f"🔄 [持有矩阵] {stock_code} {current_date} 能量场数据为空，重新计算")
+                    
+                    if not need_recalculate:
+                        continue
+                
                 # 使用AdvancedChipDynamicsService进行动态分析
                 trade_date_str = current_date.strftime('%Y-%m-%d')
+                print(f"🔍 [持有矩阵] 分析 {stock_code} {trade_date_str}")
+                
                 dynamics_result = await service.analyze_chip_dynamics_daily(
                     stock_code=stock_code,
                     trade_date=trade_date_str,
                     lookback_days=20
                 )
+                
                 # 保存动态分析结果到数据库
                 if dynamics_result.get('analysis_status') == 'success':
                     # 获取或创建记录
@@ -536,30 +575,54 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                         trade_time=current_date,
                         defaults={'calc_status': 'pending'}
                     )
-                    # =========================================================
-                    # 核心修复：使用 sync_to_async 包装同步的模型方法调用
-                    # 因为 save_dynamics_result 内部包含 self.save() 数据库操作
-                    # =========================================================
+                    
+                    # 保存动态分析结果（包含absolute_change_analysis和能量场）
+                    print(f"💾 [持有矩阵] 保存 {stock_code} {current_date} 的动态分析结果")
+                    
+                    # 确保dynamics_result包含current_price
+                    if 'current_price' not in dynamics_result:
+                        # 尝试从其他字段推断
+                        if 'price_grid' in dynamics_result and dynamics_result['price_grid']:
+                            price_grid = dynamics_result['price_grid']
+                            if len(price_grid) > 0:
+                                # 使用价格网格的中间值作为当前价
+                                dynamics_result['current_price'] = price_grid[len(price_grid)//2]
+                    
                     save_success = await sync_to_async(record.save_dynamics_result)(dynamics_result)
+                    
                     if save_success:
                         processed_dates += 1
                         saved_dates.append(current_date)
+                        print(f"✅ [持有矩阵] {stock_code} {current_date} 保存成功")
                     else:
                         failed_dates.append(current_date)
                         print(f"❌ [持有矩阵] {stock_code} {current_date} 动态分析保存失败")
                 else:
                     failed_dates.append(current_date)
-                    print(f"⚠️ [持有矩阵] {stock_code} {current_date} 动态分析失败")
+                    print(f"⚠️ [持有矩阵] {stock_code} {current_date} 动态分析失败: {dynamics_result.get('analysis_status', 'unknown')}")
+                    
             except Exception as e:
                 print(f"❌ [持有矩阵] {stock_code} {current_date} 计算失败: {e}")
                 import traceback
                 traceback.print_exc()
                 failed_dates.append(current_date)
-        print(f"✅ [持有矩阵完成] {stock_code} 处理完成，成功 {len(saved_dates)} 个交易日，失败 {len(failed_dates)} 个交易日")
-        return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
+        
+        print(f"✅ [持有矩阵完成] {stock_code} 处理完成")
+        print(f"📊 [持有矩阵统计] 成功: {len(saved_dates)} 个交易日，失败: {len(failed_dates)} 个交易日")
+        
+        return {
+            'status': 'success', 
+            'processed_dates': processed_dates, 
+            'saved_dates': len(saved_dates), 
+            'failed_dates': len(failed_dates), 
+            'date_range': f"{start_date} - {end_date}"
+        }
+        
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 持有矩阵失败: {e}", exc_info=True)
         print(f"❌ [持有矩阵异常] {stock_code}: {e}")
+        import traceback
+        traceback.print_exc()
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
