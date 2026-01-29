@@ -958,7 +958,6 @@ class GameEnergyCalculator:
             if energy_result.get('absorption_energy', 0) == 0 and energy_result.get('distribution_energy', 0) == 0:
                 print("⚠️ [能量场] 能量场计算结果无效")
                 # 但仍然返回计算结果，因为可能是有数据但值很小
-                
             # 5. 判断虚假派发（只有在有成交量数据时才判断）
             fake_distribution = False
             if volume_history is not None and len(volume_history) > 5:
@@ -966,13 +965,9 @@ class GameEnergyCalculator:
             else:
                 # 没有成交量数据时，基于价格变化判断
                 fake_distribution = self._detect_fake_distribution_simple(latest_change, price_grid, current_price)
-                
             energy_result['fake_distribution_flag'] = fake_distribution
             # 6. 修正能量值（确保不为0）
             energy_result = self._ensure_nonzero_energy(energy_result)
-            print(f"✅ [能量场] 计算完成: 吸收={energy_result['absorption_energy']:.2f}, "
-                  f"派发={energy_result['distribution_energy']:.2f}, "
-                  f"关键区域={len(energy_result.get('key_battle_zones', []))}")
             return energy_result
         except Exception as e:
             print(f"❌ [能量场] 计算异常: {e}")
@@ -1029,7 +1024,6 @@ class GameEnergyCalculator:
                     if abs_changes[idx] > 0.3:  # 只考虑变化大于0.3%的
                         price = price_grid[idx]
                         change = changes[idx]
-                        
                         battle_zones.append({
                             'price': float(price),
                             'battle_intensity': float(abs_changes[idx]),

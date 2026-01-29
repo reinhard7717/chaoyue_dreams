@@ -144,7 +144,6 @@ def schedule_chip_factor_calculation(
     """
     try:
         logger.info(f"开始调度筹码因子计算任务（模式: {calculation_mode}）")
-        
         # 解析日期
         if start_date_str:
             start_date = parse_date(start_date_str)
@@ -156,7 +155,6 @@ def schedule_chip_factor_calculation(
             end_date = get_last_trade_date()
             
         logger.info(f"日期范围: {start_date} 到 {end_date}")
-        
         # 获取股票列表
         if stock_codes is None:
             cache_manager = CacheManager()
@@ -171,7 +169,6 @@ def schedule_chip_factor_calculation(
                 loop.close()
                 
         logger.info(f"需要计算的股票数量: {len(stock_codes)}")
-        
         # 根据计算模式调度
         if calculation_mode == 'comprehensive':
             # 综合计算：持有矩阵 -> 能量场 -> 筹码因子
@@ -495,51 +492,40 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
     """异步版本的单个股票持有矩阵计算函数 - 修复数据保存问题"""
     try:
         logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵")
-        
         # 获取持有矩阵模型
         holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
-        
         # 获取股票基本信息
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock:
             print(f"❌ [持有矩阵] {stock_code} 股票不存在")
             return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
-        
         # 创建动态分析服务
         service = AdvancedChipDynamicsService(market_type=get_market_from_code(stock_code))
-        
         processed_dates = 0
         saved_dates = []
         failed_dates = []
-        
         # 获取日期范围内的所有交易日
         get_dates_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_func(start_date, end_date)
-        
         if not trade_dates:
             print(f"⚠️ [持有矩阵] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
             return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
-        
         print(f"📅 [持有矩阵] {stock_code} 交易日: {len(trade_dates)} 天")
-        
         # 按日期循环处理当前股票
         for date_index, current_date in enumerate(trade_dates):
             try:
                 if (date_index + 1) % max(1, len(trade_dates) // 10) == 0:
                     progress = (date_index + 1) / len(trade_dates) * 100
                     print(f"📊 [持有矩阵进度] {stock_code} {progress:.1f}% ({date_index + 1}/{len(trade_dates)})")
-                
                 # 检查是否已计算（只检查成功状态）
                 existing = await sync_to_async(holding_matrix_model.objects.filter(
                     stock=stock, trade_time=current_date, calc_status='success'
                 ).exists)()
-                
                 if existing:
                     # 即使已存在，也检查关键字段是否为空
                     existing_record = await sync_to_async(holding_matrix_model.objects.filter(
                         stock=stock, trade_time=current_date
                     ).first)()
-                    
                     # 如果关键字段为空，重新计算
                     need_recalculate = False
                     if existing_record:
@@ -553,20 +539,16 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                               existing_record.absorption_energy == 0):
                             need_recalculate = True
                             print(f"🔄 [持有矩阵] {stock_code} {current_date} 能量场数据为空，重新计算")
-                    
                     if not need_recalculate:
                         continue
-                
                 # 使用AdvancedChipDynamicsService进行动态分析
                 trade_date_str = current_date.strftime('%Y-%m-%d')
                 print(f"🔍 [持有矩阵] 分析 {stock_code} {trade_date_str}")
-                
                 dynamics_result = await service.analyze_chip_dynamics_daily(
                     stock_code=stock_code,
                     trade_date=trade_date_str,
                     lookback_days=20
                 )
-                
                 # 保存动态分析结果到数据库
                 if dynamics_result.get('analysis_status') == 'success':
                     # 获取或创建记录
@@ -575,10 +557,8 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                         trade_time=current_date,
                         defaults={'calc_status': 'pending'}
                     )
-                    
                     # 保存动态分析结果（包含absolute_change_analysis和能量场）
                     print(f"💾 [持有矩阵] 保存 {stock_code} {current_date} 的动态分析结果")
-                    
                     # 确保dynamics_result包含current_price
                     if 'current_price' not in dynamics_result:
                         # 尝试从其他字段推断
@@ -587,13 +567,10 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                             if len(price_grid) > 0:
                                 # 使用价格网格的中间值作为当前价
                                 dynamics_result['current_price'] = price_grid[len(price_grid)//2]
-                    
                     save_success = await sync_to_async(record.save_dynamics_result)(dynamics_result)
-                    
                     if save_success:
                         processed_dates += 1
                         saved_dates.append(current_date)
-                        print(f"✅ [持有矩阵] {stock_code} {current_date} 保存成功")
                     else:
                         failed_dates.append(current_date)
                         print(f"❌ [持有矩阵] {stock_code} {current_date} 动态分析保存失败")
@@ -606,10 +583,8 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                 import traceback
                 traceback.print_exc()
                 failed_dates.append(current_date)
-        
         print(f"✅ [持有矩阵完成] {stock_code} 处理完成")
         print(f"📊 [持有矩阵统计] 成功: {len(saved_dates)} 个交易日，失败: {len(failed_dates)} 个交易日")
-        
         return {
             'status': 'success', 
             'processed_dates': processed_dates, 
@@ -1417,11 +1392,9 @@ def schedule_energy_field_analysis(self, start_date_str: str, end_date_str: str)
     try:
         start_date = parse_date(start_date_str)
         end_date = parse_date(end_date_str)
-        
         # 获取全市场股票
         cache_manager = CacheManager()
         stock_dao = StockBasicInfoDao(cache_manager)
-        
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -1429,24 +1402,19 @@ def schedule_energy_field_analysis(self, start_date_str: str, end_date_str: str)
             stock_codes = [stock.stock_code for stock in stock_list]
         finally:
             loop.close()
-        
         # 分批调度
         batch_size = ChipTaskConfig.BATCH_SIZE_BULK
         total_batches = (len(stock_codes) + batch_size - 1) // batch_size
-        
         task_ids = []
         for i in range(0, len(stock_codes), batch_size):
             batch_codes = stock_codes[i:i + batch_size]
-            
             task = calculate_energy_field_batch.delay(
                 stock_codes=batch_codes,
                 start_date=start_date_str,
                 end_date=end_date_str
             )
             task_ids.append(task.id)
-            
             print(f"📤 [能量场调度] 批次 {i//batch_size + 1}/{total_batches}: {len(batch_codes)} 只股票")
-        
         return {
             'status': 'scheduled',
             'task_count': len(task_ids),
@@ -1465,26 +1433,20 @@ def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, 
     try:
         start_date_obj = parse_date(start_date)
         end_date_obj = parse_date(end_date)
-        
         results = {'total': len(stock_codes), 'success': 0, 'failed': 0, 'details': []}
-        
         # 创建事件循环用于异步调用
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
         try:
             for idx, stock_code in enumerate(stock_codes):
                 try:
                     print(f"🔴 [能量场计算] 处理 {idx+1}/{len(stock_codes)}: {stock_code}")
-                    
                     # 同步方式获取交易日列表
                     trade_dates = TradeCalendar.get_trade_dates_between(start_date_obj, end_date_obj)
-                    
                     # 同步方式处理每个日期
                     date_results = loop.run_until_complete(
                         process_energy_field_for_stock(stock_code, trade_dates)
                     )
-                    
                     processed_dates = date_results['processed_dates']
                     if processed_dates > 0:
                         results['success'] += 1
@@ -1512,7 +1474,6 @@ def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, 
                     
         finally:
             loop.close()
-        
         return results
         
     except Exception as e:
@@ -1534,15 +1495,12 @@ async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date
                 trade_date=trade_date.strftime('%Y-%m-%d'),
                 lookback_days=20
             )
-            
             if dynamics_result.get('analysis_status') == 'success':
                 # 更新持有矩阵记录的能量场字段
                 HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
-                
                 # 获取股票
                 from stock_models.stock_basic import StockInfo
                 stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
-                
                 if stock:
                     # 获取或创建记录
                     record, created = await sync_to_async(HoldingMatrixModel.objects.get_or_create)(
@@ -1550,7 +1508,6 @@ async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date
                         trade_time=trade_date,
                         defaults={'calc_status': 'pending'}
                     )
-                    
                     # 只更新能量场相关字段，不覆盖其他计算
                     game_energy = dynamics_result.get('game_energy_result', {})
                     if game_energy:
@@ -1600,11 +1557,9 @@ def schedule_comprehensive_calculation(
     # 为每个市场的股票创建链式任务
     for market, codes in market_groups.items():
         print(f"📊 [市场分组] {market}: {len(codes)} 只股票")
-        
         # 分批处理
         for i in range(0, len(codes), ChipTaskConfig.BATCH_SIZE_BULK):
             batch_codes = codes[i:i + ChipTaskConfig.BATCH_SIZE_BULK]
-            
             # 创建链式任务：持有矩阵 -> 能量场 -> 筹码因子
             task_chain = chain(
                 calculate_holding_matrix_batch.s(
@@ -1625,7 +1580,6 @@ def schedule_comprehensive_calculation(
                     market=market
                 )
             )
-            
             # 执行链式任务
             chain_result = task_chain.delay()
             total_tasks += 1
@@ -1636,9 +1590,7 @@ def schedule_comprehensive_calculation(
                 'stock_count': len(batch_codes),
                 'stocks': batch_codes[:3] if len(batch_codes) > 3 else batch_codes
             })
-            
             print(f"📤 [链式任务] 创建任务 {chain_result.id}: {market}市场 {len(batch_codes)} 只股票")
-            
             # 每创建10个任务休息一下，避免队列过载
             if total_tasks % 10 == 0:
                 print(f"⏳ [任务创建] 已创建 {total_tasks} 个链式任务...")
@@ -1678,14 +1630,12 @@ def schedule_energy_only_calculation(
         # 分批处理
         for i in range(0, len(codes), ChipTaskConfig.BATCH_SIZE_BULK):
             batch_codes = codes[i:i + ChipTaskConfig.BATCH_SIZE_BULK]
-            
             # 创建能量场计算任务
             task = calculate_energy_field_batch.delay(
                 stock_codes=batch_codes,
                 start_date=start_date.strftime('%Y%m%d'),
                 end_date=end_date.strftime('%Y%m%d')
             )
-            
             total_tasks += 1
             print(f"📤 [能量场任务] 创建任务 {task.id}: {market}市场 {len(batch_codes)} 只股票")
     
