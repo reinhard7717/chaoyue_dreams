@@ -543,7 +543,6 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                         continue
                 # 使用AdvancedChipDynamicsService进行动态分析
                 trade_date_str = current_date.strftime('%Y-%m-%d')
-                print(f"🔍 [持有矩阵] 分析 {stock_code} {trade_date_str}")
                 dynamics_result = await service.analyze_chip_dynamics_daily(
                     stock_code=stock_code,
                     trade_date=trade_date_str,
@@ -557,8 +556,6 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                         trade_time=current_date,
                         defaults={'calc_status': 'pending'}
                     )
-                    # 保存动态分析结果（包含absolute_change_analysis和能量场）
-                    print(f"💾 [持有矩阵] 保存 {stock_code} {current_date} 的动态分析结果")
                     # 确保dynamics_result包含current_price
                     if 'current_price' not in dynamics_result:
                         # 尝试从其他字段推断
