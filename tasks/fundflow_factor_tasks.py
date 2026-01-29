@@ -109,7 +109,6 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
                     'message': error_msg,
                     'stock_code': stock_code
                 }
-
         # 2. 获取资金流向因子模型
         factor_model = get_fundflow_factor_model_by_code(stock_code)
         # 3. 获取该股票的交易日历
@@ -170,26 +169,13 @@ def get_trade_dates_for_stock(stock_code: str, start_date: date, incremental: bo
         需要计算的交易日列表
     """
     try:
-        # 获取交易所代码
-        exchange = get_exchange_by_stock_code(stock_code)
-        # 获取最新的交易日
-        print(f"获取股票 {stock_code} 的最新交易日")
-        print(f"当前时间: {timezone.now().date()}")
-        print(f"exchange: {exchange}")
-        
         # 修改：使用 get_latest_n_trade_dates 获取包含今天的最新交易日 (lte)
         # 原来的 get_latest_trade_date 使用 lt，会导致无法获取当天的交易日
-        latest_dates = TradeCalendar.get_latest_n_trade_dates(
-            n=1,
-            reference_date=timezone.now().date(),
-            exchange=exchange
-        )
+        latest_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=timezone.now().date())
         latest_trade_date = latest_dates[0] if latest_dates else None
-
         if not latest_trade_date:
             logger.warning(f"无法获取股票 {stock_code} 的最新交易日")
             return []
-            
         # 确定实际开始日期
         if incremental and start_date is None:
             # 增量模式：从已有因子数据的最新日期开始
@@ -198,37 +184,26 @@ def get_trade_dates_for_stock(stock_code: str, start_date: date, incremental: bo
             ).order_by('-trade_time').first()
             if latest_factor:
                 # 从已有因子的下一个交易日开始
-                calc_start_date = TradeCalendar.get_next_trade_date(
-                    reference_date=latest_factor.trade_time,
-                    exchange=exchange
-                )
+                calc_start_date = TradeCalendar.get_next_trade_date(reference_date=latest_factor.trade_time)
             else:
                 # 没有因子数据，从最早的资金流向数据开始
                 calc_start_date = get_earliest_flow_date(stock_code)
         else:
             # 指定日期模式
             calc_start_date = start_date or get_earliest_flow_date(stock_code)
-            
         if not calc_start_date:
             logger.warning(f"无法确定股票 {stock_code} 的计算开始日期")
             return []
-            
         # 确保开始日期不晚于最新交易日
         if calc_start_date > latest_trade_date:
             print(f"股票 {stock_code} 开始日期 {calc_start_date} 晚于最新交易日 {latest_trade_date}")
             return []
-            
         # 获取开始日期到最新交易日之间的所有交易日
-        all_trade_dates = TradeCalendar.get_trade_dates_between(
-            start_date=calc_start_date,
-            end_date=latest_trade_date,
-            exchange=exchange
-        )
+        all_trade_dates = TradeCalendar.get_trade_dates_between(start_date=calc_start_date,end_date=latest_trade_date)
         
         if not all_trade_dates:
             print(f"股票 {stock_code} 在 {calc_start_date} 到 {latest_trade_date} 之间没有交易日")
             return []
-            
         # 修改：如果是增量模式且天数较少，不进行采样，确保计算所有缺失日期
         # 原来的 [::50] 采样会导致增量更新时漏掉最近的日期（如果 gap < 50 且 index != 0）
         if incremental and len(all_trade_dates) < 50:
@@ -236,25 +211,12 @@ def get_trade_dates_for_stock(stock_code: str, start_date: date, incremental: bo
         else:
             # 每隔50个交易日取一个（节省计算资源，适用于全量历史计算）
             sampled_dates = all_trade_dates[::50]
-            
         logger.debug(f"股票 {stock_code} 原始交易日: {len(all_trade_dates)}，"
                     f"采样后: {len(sampled_dates)}")
         return sampled_dates
     except Exception as e:
         logger.error(f"获取股票 {stock_code} 交易日失败: {e}", exc_info=True)
         return []
-
-def get_exchange_by_stock_code(stock_code: str) -> str:
-    """根据股票代码获取交易所代码"""
-    if stock_code.endswith('.SH'):
-        return 'SSE'
-    elif stock_code.endswith('.SZ'):
-        return 'SZSE'
-    elif stock_code.endswith('.BJ'):
-        return 'BJSE'  # 注意：需要根据实际交易日历模型调整
-    else:
-        # 默认返回上交所
-        return 'SSE'
 
 def get_earliest_flow_date(stock_code: str) -> Optional[date]:
     """获取最早的资金流向数据日期"""
@@ -362,14 +324,8 @@ def get_historical_flow_data(stock_code: str, end_date: date, days: int = 30) ->
         历史资金流向数据列表（按日期升序）
     """
     try:
-        # 获取交易所代码
-        exchange = get_exchange_by_stock_code(stock_code)
         # 获取结束日期之前的N个交易日
-        trade_dates = TradeCalendar.get_latest_n_trade_dates(
-            n=days,
-            reference_date=end_date,
-            exchange=exchange
-        )
+        trade_dates = TradeCalendar.get_latest_n_trade_dates(n=days,reference_date=end_date)
         if not trade_dates:
             return []
         # 获取股票信息
@@ -584,17 +540,11 @@ def update_fundflow_factors_daily(self):
     try:
         # 获取最新的交易日
         # 修改：使用 get_latest_n_trade_dates 确保包含当天
-        latest_dates = TradeCalendar.get_latest_n_trade_dates(
-            n=1,
-            reference_date=timezone.now().date(),
-            exchange='SSE'  # 默认使用上交所
-        )
+        latest_dates = TradeCalendar.get_latest_n_trade_dates(n=1,reference_date=timezone.now().date())
         latest_trade_date = latest_dates[0] if latest_dates else None
-
         if not latest_trade_date:
             logger.warning("无法获取最新交易日")
             return {'status': 'failed', 'message': '无法获取最新交易日'}
-            
         print(f"开始更新 {latest_trade_date} 的资金流向因子")
         # 获取所有有效的股票代码
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
@@ -660,16 +610,10 @@ def test_fundflow_factor_calculation(self, stock_code: str = '000001.SZ', test_d
         else:
             # 使用最近的一个交易日
             # 修改：使用 get_latest_n_trade_dates 确保包含当天
-            latest_dates = TradeCalendar.get_latest_n_trade_dates(
-                n=1,
-                reference_date=timezone.now().date(),
-                exchange=get_exchange_by_stock_code(stock_code)
-            )
+            latest_dates = TradeCalendar.get_latest_n_trade_dates(n=1,reference_date=timezone.now().date())
             test_date = latest_dates[0] if latest_dates else None
-
         if not test_date:
             return {'status': 'failed', 'message': '无法获取测试日期'}
-            
         print(f"测试股票 {stock_code} 在 {test_date} 的资金流向因子计算")
         # 获取因子模型
         factor_model = get_fundflow_factor_model_by_code(stock_code)
