@@ -679,12 +679,7 @@ class DirectAccumulationDistributionCalculator:
             'far_from_current_weight': 0.6,  # 远离当前价格权重
         }
     
-    def calculate_direct_ad(self, 
-                           percent_change_matrix: np.ndarray,
-                           chip_matrix: np.ndarray,
-                           price_grid: np.ndarray,
-                           current_price: float,
-                           price_history: pd.DataFrame) -> Dict[str, any]:
+    def calculate_direct_ad(self, percent_change_matrix: np.ndarray,chip_matrix: np.ndarray,price_grid: np.ndarray,current_price: float,price_history: pd.DataFrame) -> Dict[str, any]:
         """
         直接计算吸收/派发（基于绝对变化）
         返回：
@@ -720,83 +715,147 @@ class DirectAccumulationDistributionCalculator:
     
     def _calculate_absolute_ad(self, changes: np.ndarray, price_rel: np.ndarray) -> Dict[str, any]:
         """
-        基于绝对变化直接计算吸收/派发
-        逻辑：真正的吸收发生在价格以下，真正的派发发生在价格以上
+        基于绝对变化的直接计算吸收/派发 - 优化版
+        A股特性考虑：
+        1. 当前价±5%是主力主要活动区间
+        2. 价格以下3-8%是主要吸筹区间
+        3. 价格以上5-12%是主要派发区间
+        4. 需要考虑量价配合（虽无直接成交量，但可通过变化幅度推断）
         """
         # 过滤噪声
         significant_mask = np.abs(changes) > self.params['noise_filter']
-        # 价格位置权重
-        weight = np.where(
-            np.abs(price_rel) < 0.05,
-            self.params['near_current_weight'],
-            self.params['far_from_current_weight']
-        )
-        # 吸收计算（价格以下筹码增加 + 价格以上筹码减少）
-        # 吸收条件：低位增加（价格以下+变化>0） 或 高位减少（价格以上+变化<0）
-        accum_condition = ((price_rel < 0) & (changes > 0)) | ((price_rel > 0) & (changes < 0))
-        accum_mask = accum_condition & significant_mask
-        # 吸收量（加权）
-        accumulation_volume = np.sum(
-            np.abs(changes[accum_mask]) * weight[accum_mask]
-        )
-        # 派发计算（价格以上筹码增加 + 价格以下筹码减少）
-        # 派发条件：高位增加（价格以上+变化>0） 或 低位减少（价格以下+变化<0）
-        distrib_condition = ((price_rel > 0) & (changes > 0)) | ((price_rel < 0) & (changes < 0))
-        distrib_mask = distrib_condition & significant_mask
-        # 派发量（加权）
-        distribution_volume = np.sum(
-            np.abs(changes[distrib_mask]) * weight[distrib_mask]
-        )
+        # A股特色价格区间划分
+        zones = {
+            'deep_below': price_rel < -0.12,      # 深度套牢区（换手率低）
+            'below': (price_rel >= -0.12) & (price_rel < -0.03),  # 主要吸筹区
+            'near_below': (price_rel >= -0.03) & (price_rel < 0), # 当前价下方缓冲区
+            'near_above': (price_rel >= 0) & (price_rel < 0.05),  # 当前价上方缓冲区
+            'above': (price_rel >= 0.05) & (price_rel < 0.12),    # 主要派发区
+            'deep_above': price_rel >= 0.12,                      # 深度获利区
+        }
+        # 不同区间的权重（基于A股博弈特性）
+        zone_weights = {
+            'deep_below': 0.4,   # 深度套牢区，换手率低，影响小
+            'below': 1.3,        # 主要吸筹区，权重最高
+            'near_below': 1.0,   # 当前价下方，中性
+            'near_above': 1.0,   # 当前价上方，中性
+            'above': 1.2,        # 主要派发区，权重高
+            'deep_above': 0.5,   # 深度获利区，通常已锁定
+        }
+        # 初始化结果
+        accumulation_volume = 0.0
+        distribution_volume = 0.0
+        # 按区域统计
+        for zone_name, zone_mask in zones.items():
+            zone_changes = changes[zone_mask & significant_mask]
+            if len(zone_changes) == 0:
+                continue
+            zone_weight = zone_weights[zone_name]
+            # 吸收计算（根据位置和变化方向）
+            if zone_name in ['deep_below', 'below', 'near_below']:
+                # 价格以下区域：增加=吸收，减少=派发
+                zone_accum = np.sum(zone_changes[zone_changes > 0]) * zone_weight
+                zone_distrib = np.sum(np.abs(zone_changes[zone_changes < 0])) * zone_weight * 0.8
+            elif zone_name in ['near_above']:
+                # 当前价上方缓冲区：增加可能是追高或主力护盘
+                # 减少可能是获利回吐或洗盘
+                zone_accum = np.sum(zone_changes[zone_changes > 0]) * zone_weight * 0.6
+                zone_distrib = np.sum(np.abs(zone_changes[zone_changes < 0])) * zone_weight * 0.9
+            else:  # 'above', 'deep_above'
+                # 价格以上区域：增加=派发（主力出货），减少=获利了结
+                zone_accum = np.sum(zone_changes[zone_changes > 0]) * zone_weight * 0.3  # 小概率是吸收
+                zone_distrib = np.sum(np.abs(zone_changes[zone_changes < 0])) * zone_weight
+            accumulation_volume += max(0, zone_accum)
+            distribution_volume += max(0, zone_distrib)
+        # 添加趋势修正因子
+        # 如果整体变化向上，可能处于上涨趋势，吸收应给予更高权重
+        overall_trend = np.sum(changes[significant_mask])
+        if overall_trend > 0:
+            # 上涨趋势中，吸收信号更强
+            accumulation_volume *= 1.2
+            # 派发可能是洗盘或换手
+            distribution_volume *= 0.8
+        elif overall_trend < 0:
+            # 下跌趋势中，派发信号更强
+            accumulation_volume *= 0.8
+            distribution_volume *= 1.2
         # 净吸收率
         total_volume = accumulation_volume + distribution_volume + 1e-10
         net_ad_ratio = (accumulation_volume - distribution_volume) / total_volume
+        # A股特色：涨停板附近特殊处理
+        # 如果当前价格在涨停附近（假设涨停为10%），高位派发可能是涨停板出货
+        # 这里简化处理：如果变化集中在上方区域，可能需要注意
         return {
             'accumulation_volume': float(accumulation_volume),
             'distribution_volume': float(distribution_volume),
             'net_ad_ratio': float(net_ad_ratio),
-            'accumulation_quality': 0.5,  # 待计算
+            'accumulation_quality': 0.5,
             'distribution_quality': 0.5,
             'false_distribution_flag': False,
             'breakout_acceleration': 1.0,
         }
-    
-    def _correct_pullback_ad(self, ad_result: Dict[str, any], 
-                           price_history: pd.DataFrame, 
-                           current_price: float) -> Dict[str, any]:
+
+    def _correct_pullback_ad(self, ad_result: Dict[str, any], price_history: pd.DataFrame, current_price: float) -> Dict[str, any]:
         """
-        拉升初期纠偏：识别虚假派发
-        现象：突破初期出现获利回吐，表现为派发信号，实为健康换手
+        拉升初期纠偏：考虑A股特色
+        A股特色：
+        1. 涨停后的回调多为洗盘
+        2. 连阳后的首阴可能是换手
+        3. 重要均线支撑处的派发多为假派发
         """
         if len(price_history) < 10:
             return ad_result
-        # 判断是否处于拉升初期
-        recent_prices = price_history['close'].values[-10:]
-        recent_high = np.max(recent_prices)
-        recent_low = np.min(recent_prices)
-        # 突破判断：当前价格接近近期高点
-        is_breakout = current_price > recent_high * 0.98
-        # 回撤判断：近期有上涨但当前有小幅回调
-        prev_close = price_history['close'].iloc[-2] if len(price_history) > 1 else current_price
-        is_pullback = (current_price < recent_high * 0.98) and (current_price > prev_close * 0.97)
-        # 虚假派发识别
-        if is_breakout or is_pullback:
-            # 拉升初期的"派发"可能是获利了结，不一定是主力派发
-            correction_factor = self.params['pullback_fake_distribution']
+        # 判断是否涨停
+        is_limit_up = False
+        if not price_history.empty:
+            today_pct_change = price_history['pct_change'].iloc[-1] if 'pct_change' in price_history.columns else 0
+            # A股涨停阈值（主板10%，创业板/科创板20%）
+            limit_up_threshold = 9.8  # 接近涨停
+            is_limit_up = today_pct_change >= limit_up_threshold
+        # 判断是否连阳
+        is_continuous_up = False
+        if len(price_history) >= 5:
+            recent_closes = price_history['close'].values[-5:]
+            recent_up_days = sum([1 for i in range(1, len(recent_closes)) 
+                                 if recent_closes[i] > recent_closes[i-1]])
+            is_continuous_up = recent_up_days >= 4  # 5天4阳
+        # 判断是否在重要均线位置
+        # 这里简化：检查是否在近期均价附近
+        is_near_ma = False
+        if len(price_history) >= 20:
+            ma20 = price_history['close'].rolling(20).mean().iloc[-1]
+            ma_distance = abs((current_price - ma20) / ma20)
+            is_near_ma = ma_distance < 0.03  # 距离MA20在3%以内
+        # 虚假派发识别条件
+        false_distribution_conditions = []
+        # 条件1：涨停后出现派发信号
+        if is_limit_up and ad_result['distribution_volume'] > ad_result['accumulation_volume']:
+            false_distribution_conditions.append('涨停后派发')
+        # 条件2：连阳后首日调整
+        if is_continuous_up and ad_result['distribution_volume'] > 0:
+            # 检查是否为上涨趋势中的正常回调
+            prev_close = price_history['close'].iloc[-2] if len(price_history) > 1 else current_price
+            if current_price > prev_close * 0.97:  # 跌幅小于3%
+                false_distribution_conditions.append('连阳后回调')
+        # 条件3：重要均线支撑处的派发
+        if is_near_ma and ad_result['distribution_volume'] > ad_result['accumulation_volume']:
+            # 均线支撑处，派发多为洗盘
+            false_distribution_conditions.append('均线处派发')
+        # 如果满足任意虚假派发条件
+        if false_distribution_conditions:
+            correction_factor = min(0.5, len(false_distribution_conditions) * 0.15)
             corrected_distribution = ad_result['distribution_volume'] * (1 - correction_factor)
-            # 突破加速调整
-            if is_breakout and ad_result['net_ad_ratio'] > 0:
-                ad_result['breakout_acceleration'] = self.params['breakout_distribution_accel']
+            
             ad_result.update({
                 'distribution_volume': corrected_distribution,
                 'false_distribution_flag': True,
-                'accumulation_quality': min(1.0, ad_result['accumulation_quality'] * 1.2),
+                'accumulation_quality': min(1.0, ad_result['accumulation_quality'] * 1.3),
+                'breakout_acceleration': 1.5 if is_limit_up else 1.2,
+                'false_distribution_reason': false_distribution_conditions,
             })
         return ad_result
-    
-    def _calculate_ad_quality(self, ad_result: Dict[str, any],
-                            chip_matrix: np.ndarray,
-                            price_grid: np.ndarray,
-                            current_price: float) -> Dict[str, any]:
+
+    def _calculate_ad_quality(self, ad_result: Dict[str, any],chip_matrix: np.ndarray,price_grid: np.ndarray,current_price: float) -> Dict[str, any]:
         """
         计算吸收/派发质量
         高质量吸收：集中 + 持续 + 价格以下
@@ -829,9 +888,7 @@ class DirectAccumulationDistributionCalculator:
         })
         return ad_result
     
-    def _analyze_price_levels(self, changes: np.ndarray, 
-                            price_grid: np.ndarray, 
-                            current_price: float) -> Dict[str, List]:
+    def _analyze_price_levels(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, List]:
         """
         分价格层级分析吸收/派发
         """
@@ -883,9 +940,7 @@ class DirectAccumulationDistributionCalculator:
         concentration = np.sum(sorted_chips[:top_20]) / 100.0
         return float(concentration)
     
-    def _calculate_price_position_factor(self, chip_matrix: np.ndarray,
-                                       price_grid: np.ndarray,
-                                       current_price: float) -> Dict[str, float]:
+    def _calculate_price_position_factor(self, chip_matrix: np.ndarray,price_grid: np.ndarray,current_price: float) -> Dict[str, float]:
         """计算价格位置因子"""
         if chip_matrix.shape[0] < 2:
             return {'accumulation_factor': 1.0, 'distribution_factor': 1.0}
@@ -976,40 +1031,158 @@ class GameEnergyCalculator:
             return self._get_default_energy()
 
     def _calculate_energy_field(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
-        """计算能量场核心逻辑 - 修复空数组问题"""
+        """优化版能量场计算 - 考虑A股博弈特性"""
         try:
-            # 确保输入有效
             if len(changes) == 0 or len(price_grid) == 0 or current_price <= 0:
                 return self._get_default_energy()
-            # 计算价格相对位置
+            # 1. 动态阈值调整（基于变化幅度）
+            max_abs_change = np.max(np.abs(changes)) if len(changes) > 0 else 1.0
+            dynamic_threshold = max(0.2, min(1.0, max_abs_change * 2))  # 自适应阈值
+            # 2. 价格分层计算能量（更精细的分区）
             price_rel = (price_grid - current_price) / current_price
-            # 吸收能量计算
-            absorption_mask = (price_rel < -0.05) & (changes > 0)
-            absorption_energy = np.sum(changes[absorption_mask]) * 2.0 if np.sum(absorption_mask) > 0 else 0
-            # 派发能量计算
-            distribution_mask = (price_rel > 0.05) & (changes > 0)
-            distribution_energy = np.sum(changes[distribution_mask]) * 1.5 if np.sum(distribution_mask) > 0 else 0
-            # 博弈强度计算
-            active_zones = np.where(np.abs(changes) > 0.1)[0]
-            game_intensity = len(active_zones) / len(price_grid) * 1.5 if len(price_grid) > 0 else 0
-            # 突破势能计算
-            breakout_potential = self._calculate_breakout_potential_simple(changes, price_grid, current_price)
-            # 能量集中度
-            energy_concentration = self._calculate_energy_concentration_simple(changes)
-            # 关键博弈区域识别
+            # 区域定义（A股特性：当前价±10%是主战场）
+            zones = {
+                'deep_below': (-np.inf, -0.15),      # 深度套牢区
+                'below': (-0.15, -0.05),            # 轻度套牢/支撑区
+                'near_below': (-0.05, 0.0),         # 当前价下方缓冲区
+                'near_above': (0.0, 0.05),          # 当前价上方缓冲区
+                'above': (0.05, 0.15),              # 轻度获利/阻力区
+                'deep_above': (0.15, np.inf)        # 深度获利区
+            }
+            # 3. 分区域计算能量
+            absorption_energy = 0.0
+            distribution_energy = 0.0
+            for zone_name, (low, high) in zones.items():
+                zone_mask = (price_rel > low) & (price_rel <= high)
+                if not np.any(zone_mask):
+                    continue
+                zone_changes = changes[zone_mask]
+                zone_prices = price_grid[zone_mask]
+                # 计算区域内的净变化
+                zone_net = np.sum(zone_changes)
+                zone_abs = np.sum(np.abs(zone_changes))
+                # 根据位置计算权重（A股特性：不同位置能量权重不同）
+                position_weight = self._get_position_weight(zone_name)
+                # 吸收能量：低位净增加或高位净减少（换手）
+                if zone_net > 0:
+                    # 在价格以下区域增加 = 主动吸筹
+                    if low < 0:
+                        absorption_energy += zone_net * position_weight * 1.2
+                    # 在价格以上区域增加但伴随高位减少 = 换手行为
+                    elif zone_name == 'near_above' and zone_abs > dynamic_threshold:
+                        absorption_energy += zone_net * position_weight * 0.6  # 部分算作换手能量
+                # 派发能量：高位净增加或低位净减少
+                if zone_net < 0:
+                    # 在价格以上区域减少 = 获利回吐/派发
+                    if high > 0:
+                        distribution_energy += abs(zone_net) * position_weight * 1.0
+                    # 在价格以下区域减少 = 止损或换手
+                    elif zone_name == 'near_below':
+                        distribution_energy += abs(zone_net) * position_weight * 0.4
+            # 4. 博弈强度计算（考虑对抗激烈程度）
+            # 找出变化最大的对抗区域（连续的正负变化交替）
+            game_intensity = self._calculate_game_intensity_advanced(changes, price_grid, current_price)
+            # 5. 突破势能（考虑筹码集中度和当前价位置）
+            breakout_potential = self._calculate_breakout_potential_advanced(changes, price_grid, current_price)
+            # 6. 能量集中度（主力行为识别）
+            energy_concentration = self._calculate_energy_concentration_advanced(changes, price_grid)
+            # 7. 关键博弈区域
             key_battle_zones = self._identify_key_battle_zones_enhanced(changes, price_grid, current_price)
+            # 8. 确保最小能量值（避免为0）
+            min_energy = 0.5  # 最小能量阈值
+            absorption_energy = max(min_energy, absorption_energy)
+            distribution_energy = max(min_energy, distribution_energy)
+            # 净能量流（考虑相对大小）
+            if absorption_energy + distribution_energy > 0:
+                net_energy_flow = (absorption_energy - distribution_energy) / (absorption_energy + distribution_energy) * 50
+            else:
+                net_energy_flow = 0.0
             return {
-                'absorption_energy': min(100, max(0, absorption_energy)),
-                'distribution_energy': min(100, max(0, distribution_energy)),
-                'net_energy_flow': absorption_energy - distribution_energy,
-                'game_intensity': min(1.0, max(0, game_intensity)),
+                'absorption_energy': min(100, absorption_energy),
+                'distribution_energy': min(100, distribution_energy),
+                'net_energy_flow': net_energy_flow,
+                'game_intensity': min(1.0, game_intensity),
                 'key_battle_zones': key_battle_zones,
                 'breakout_potential': min(100, breakout_potential),
-                'energy_concentration': min(1.0, max(0, energy_concentration)),
+                'energy_concentration': min(1.0, energy_concentration),
             }
         except Exception as e:
             print(f"❌ [能量场核心] 计算异常: {e}")
             return self._get_default_energy()
+
+    def _get_position_weight(self, zone_name: str) -> float:
+        """获取不同价格位置的权重（A股特性）"""
+        weights = {
+            'deep_below': 0.3,    # 深度套牢区，影响力较小
+            'below': 0.8,         # 支撑区，权重较高
+            'near_below': 1.2,    # 当前价下方，主力博弈区
+            'near_above': 1.0,    # 当前价上方，短线博弈区
+            'above': 0.9,         # 阻力区，权重中等
+            'deep_above': 0.4     # 深度获利区，影响力较小
+        }
+        return weights.get(zone_name, 1.0)
+
+    def _calculate_game_intensity_advanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> float:
+        """高级博弈强度计算"""
+        if len(changes) == 0:
+            return 0.0
+        # 1. 计算变化的标准差（波动程度）
+        change_std = np.std(changes) if len(changes) > 1 else 0.0
+        # 2. 计算正负变化交替的频率（对抗激烈程度）
+        sign_changes = np.diff(np.sign(changes))
+        battle_frequency = np.sum(sign_changes != 0) / len(sign_changes) if len(sign_changes) > 0 else 0.0
+        # 3. 当前价附近的变化集中度
+        near_mask = np.abs((price_grid - current_price) / current_price) < 0.08
+        near_intensity = np.sum(np.abs(changes[near_mask])) if np.any(near_mask) else 0.0
+        near_intensity_normalized = near_intensity / np.sum(np.abs(changes)) if np.sum(np.abs(changes)) > 0 else 0.0
+        # 4. 综合博弈强度
+        intensity = (change_std * 0.3 + battle_frequency * 0.3 + near_intensity_normalized * 0.4)
+        return min(1.0, intensity * 2)
+
+    def _calculate_breakout_potential_advanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> float:
+        """高级突破势能计算"""
+        if len(changes) == 0:
+            return 0.0
+        # 1. 上方吸收能量
+        above_mask = price_grid > current_price
+        absorption_above = np.sum(changes[above_mask & (changes > 0)])
+        # 2. 下方支撑能量
+        below_mask = price_grid < current_price
+        absorption_below = np.sum(changes[below_mask & (changes > 0)])
+        distribution_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
+        # 3. 支撑强度（下方吸收 > 派发）
+        support_strength = absorption_below / (distribution_below + 1e-10) if distribution_below > 0 else 2.0
+        # 4. 突破压力（上方派发能量）
+        distribution_above = np.sum(np.abs(changes[above_mask & (changes < 0)]))
+        # 5. 计算突破势能
+        # 公式：上方吸收 * 支撑强度 / (上方派发 + 1)
+        if distribution_above > 0:
+            breakout = absorption_above * support_strength / distribution_above * 30
+        else:
+            breakout = absorption_above * support_strength * 40
+        return min(100, max(0, breakout))
+
+    def _calculate_energy_concentration_advanced(self, changes: np.ndarray, price_grid: np.ndarray) -> float:
+        """高级能量集中度计算"""
+        if len(changes) == 0:
+            return 0.5
+        # 1. 计算变化分布的信息熵
+        abs_changes = np.abs(changes)
+        total_energy = np.sum(abs_changes)
+        if total_energy == 0:
+            return 0.5
+        # 概率分布
+        probs = abs_changes / total_energy
+        # 避免log(0)
+        probs = probs[probs > 0]
+        if len(probs) == 0:
+            return 0.5
+        # 计算熵
+        entropy_val = -np.sum(probs * np.log(probs))
+        max_entropy = np.log(len(probs))
+        # 集中度 = 1 - 归一化熵
+        concentration = 1.0 - (entropy_val / max_entropy)
+        return min(1.0, max(0.0, concentration))
 
     def _identify_key_battle_zones_enhanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> List[Dict]:
         """增强版关键博弈区域识别 - 避免返回空数组"""
