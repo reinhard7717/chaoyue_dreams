@@ -43,14 +43,25 @@ def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batc
     stock_basic_dao = StockBasicInfoDao(CacheManager())
     try:
         # 获取所有有效的股票代码
+        # 注意：get_stock_list 返回的是 StockInfo 对象列表
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
+        if not all_stocks:
+            logger.warning("未获取到任何股票信息，无法调度计算任务")
+            return {
+                'status': 'warning',
+                'message': '未获取到股票列表',
+                'total_stocks': 0
+            }
         total_stocks = len(all_stocks)
         print(f"开始调度资金流向因子计算，共 {total_stocks} 只股票")
         # 分批处理股票
         for i in range(0, total_stocks, batch_size):
             batch_stocks = list(all_stocks[i:i+batch_size])
             # 为每只股票创建独立计算任务
-            for stock_code in batch_stocks:
+            for stock_info in batch_stocks:
+                # 修正：从 StockInfo 对象中获取 stock_code 字符串
+                # 之前的代码直接使用了 stock_info 对象作为 stock_code 参数，导致序列化问题或参数错误
+                stock_code = stock_info.stock_code
                 # 异步执行单个股票的计算任务
                 calculate_fundflow_factors_for_stock.delay(
                     stock_code=stock_code,
@@ -58,7 +69,8 @@ def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batc
                     incremental=incremental
                 )
             print(f"已调度第 {i//batch_size + 1} 批股票，共 {len(batch_stocks)} 只")
-            time.sleep(1)  # 避免消息队列过载
+            # 减少休眠时间，提高调度效率，但保留少量休眠以防消息队列瞬时过载
+            time.sleep(0.1)
         print(f"资金流向因子计算调度完成，共调度 {total_stocks} 只股票")
         return {
             'status': 'success',
