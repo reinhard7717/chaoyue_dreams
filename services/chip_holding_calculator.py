@@ -1048,7 +1048,7 @@ class GameEnergyCalculator:
                 return result
             
             # 3. 计算博弈能量场
-            energy_result = self._calculate_energy_field(latest_change, price_grid, reference_price)
+            energy_result = self._calculate_energy_field(latest_change, price_grid, reference_price, close_price)
             
             # 4. 如果能量场结果无效，返回默认值
             if energy_result.get('absorption_energy', 0) == 0 and energy_result.get('distribution_energy', 0) == 0:
