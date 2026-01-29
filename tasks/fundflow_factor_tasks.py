@@ -545,9 +545,7 @@ def update_fundflow_factors_daily(self):
             return {'status': 'failed', 'message': '无法获取最新交易日'}
         logger.info(f"开始更新 {latest_trade_date} 的资金流向因子")
         # 获取所有有效的股票代码
-        all_stocks = StockInfo.objects.filter(
-            is_active=True
-        ).values_list('stock_code', flat=True)
+        all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         total_stocks = len(all_stocks)
         logger.info(f"需要更新 {total_stocks} 只股票的资金流向因子")
         # 批量处理股票
