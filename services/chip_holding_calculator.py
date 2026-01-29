@@ -102,6 +102,7 @@ class AdvancedChipDynamicsService:
                 price_grid
             )
             # 10. 计算博弈能量场
+            print(f"🔍 [探针-开始] 计算博弈能量场: {stock_code} - {trade_date}")
             game_energy_result = self._calculate_game_energy(
                 percent_change_matrix,
                 price_grid,
