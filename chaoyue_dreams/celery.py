@@ -30,6 +30,7 @@ app.conf.update(
         'tasks.tushare.stock_realtime_tasks',
         'tasks.stock_analysis_tasks',
         'tasks.chip_factor_tasks',
+        'tasks.fundflow_factor_tasks',
         'tasks.tushare.fund_flow_tasks',
         'tasks.tushare.index_tasks',
         'tasks.tushare.train_transformer_tasks',
