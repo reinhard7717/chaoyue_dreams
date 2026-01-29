@@ -1157,7 +1157,6 @@ def schedule_single_stock_comprehensive_calculation(
         end_date=end_date_str
     )
     task_ids.append(holding_task.id)
-    print(f"股票 {stock_code} 综合计算已调度，任务ID列表: {task_ids}")
     return task_ids
 
 # ========== 监控和状态检查任务 ==========

@@ -108,7 +108,6 @@ class AdvancedChipDynamicsService:
                 chip_data['current_price'],
                 chip_data['price_history']  # 需要包含成交量数据
             )
-            
             # 11. 计算直接吸收/派发（用于交叉验证）
             direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(
                 percent_change_matrix,
@@ -132,7 +131,6 @@ class AdvancedChipDynamicsService:
             if current_price > price_grid.max() or current_price < price_grid.min():
                 validation_warnings.append("当前价格超出网格范围")
                 validation_score *= 0.9
-
             result = {
                 'stock_code': stock_code,
                 'trade_date': trade_date,
@@ -503,7 +501,6 @@ class AdvancedChipDynamicsService:
         volume_history = None
         if not price_history.empty and 'vol' in price_history.columns:
             volume_history = price_history['vol'].astype(float).fillna(0.0)
-        
         # 计算能量场
         energy_result = self.game_energy_calculator.calculate_game_energy(
             percent_change_matrix,
@@ -511,7 +508,6 @@ class AdvancedChipDynamicsService:
             current_price,
             volume_history
         )
-        
         return energy_result
 
     # ============== 数据获取方法 ==============
@@ -691,7 +687,6 @@ class DirectAccumulationDistributionCalculator:
                            price_history: pd.DataFrame) -> Dict[str, any]:
         """
         直接计算吸收/派发（基于绝对变化）
-        
         返回：
         {
             'accumulation_volume': float,    # 吸收量（%）
@@ -706,28 +701,21 @@ class DirectAccumulationDistributionCalculator:
         """
         if percent_change_matrix.shape[0] == 0:
             return self._get_default_ad_result()
-        
         # 1. 获取最近一天的变化
         latest_change = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
-        
         # 2. 计算价格相对位置
         price_rel = (price_grid - current_price) / current_price
-        
         # 3. 基于绝对变化的直接计算
         result = self._calculate_absolute_ad(latest_change, price_rel)
-        
         # 4. 拉升初期纠偏计算
         if not price_history.empty and len(price_history) >= 5:
             result = self._correct_pullback_ad(result, price_history, current_price)
-        
         # 5. 计算质量评分
         result = self._calculate_ad_quality(result, chip_matrix, price_grid, current_price)
-        
         # 6. 添加层级分析
         result['price_level_ad'] = self._analyze_price_levels(
             latest_change, price_grid, current_price
         )
-        
         return result
     
     def _calculate_absolute_ad(self, changes: np.ndarray, price_rel: np.ndarray) -> Dict[str, any]:
@@ -737,38 +725,31 @@ class DirectAccumulationDistributionCalculator:
         """
         # 过滤噪声
         significant_mask = np.abs(changes) > self.params['noise_filter']
-        
         # 价格位置权重
         weight = np.where(
             np.abs(price_rel) < 0.05,
             self.params['near_current_weight'],
             self.params['far_from_current_weight']
         )
-        
         # 吸收计算（价格以下筹码增加 + 价格以上筹码减少）
         # 吸收条件：低位增加（价格以下+变化>0） 或 高位减少（价格以上+变化<0）
         accum_condition = ((price_rel < 0) & (changes > 0)) | ((price_rel > 0) & (changes < 0))
         accum_mask = accum_condition & significant_mask
-        
         # 吸收量（加权）
         accumulation_volume = np.sum(
             np.abs(changes[accum_mask]) * weight[accum_mask]
         )
-        
         # 派发计算（价格以上筹码增加 + 价格以下筹码减少）
         # 派发条件：高位增加（价格以上+变化>0） 或 低位减少（价格以下+变化<0）
         distrib_condition = ((price_rel > 0) & (changes > 0)) | ((price_rel < 0) & (changes < 0))
         distrib_mask = distrib_condition & significant_mask
-        
         # 派发量（加权）
         distribution_volume = np.sum(
             np.abs(changes[distrib_mask]) * weight[distrib_mask]
         )
-        
         # 净吸收率
         total_volume = accumulation_volume + distribution_volume + 1e-10
         net_ad_ratio = (accumulation_volume - distribution_volume) / total_volume
-        
         return {
             'accumulation_volume': float(accumulation_volume),
             'distribution_volume': float(distribution_volume),
@@ -788,35 +769,28 @@ class DirectAccumulationDistributionCalculator:
         """
         if len(price_history) < 10:
             return ad_result
-        
         # 判断是否处于拉升初期
         recent_prices = price_history['close'].values[-10:]
         recent_high = np.max(recent_prices)
         recent_low = np.min(recent_prices)
-        
         # 突破判断：当前价格接近近期高点
         is_breakout = current_price > recent_high * 0.98
-        
         # 回撤判断：近期有上涨但当前有小幅回调
         prev_close = price_history['close'].iloc[-2] if len(price_history) > 1 else current_price
         is_pullback = (current_price < recent_high * 0.98) and (current_price > prev_close * 0.97)
-        
         # 虚假派发识别
         if is_breakout or is_pullback:
             # 拉升初期的"派发"可能是获利了结，不一定是主力派发
             correction_factor = self.params['pullback_fake_distribution']
             corrected_distribution = ad_result['distribution_volume'] * (1 - correction_factor)
-            
             # 突破加速调整
             if is_breakout and ad_result['net_ad_ratio'] > 0:
                 ad_result['breakout_acceleration'] = self.params['breakout_distribution_accel']
-            
             ad_result.update({
                 'distribution_volume': corrected_distribution,
                 'false_distribution_flag': True,
                 'accumulation_quality': min(1.0, ad_result['accumulation_quality'] * 1.2),
             })
-        
         return ad_result
     
     def _calculate_ad_quality(self, ad_result: Dict[str, any],
@@ -830,37 +804,29 @@ class DirectAccumulationDistributionCalculator:
         """
         if chip_matrix.shape[0] < 2:
             return ad_result
-        
         current_chips = chip_matrix[-1]
         prev_chips = chip_matrix[-2] if chip_matrix.shape[0] > 1 else current_chips
-        
         # 计算筹码集中度变化
         concentration_current = self._calculate_concentration(current_chips)
         concentration_prev = self._calculate_concentration(prev_chips)
         concentration_change = concentration_current - concentration_prev
-        
         # 吸收质量：集中度增加为高质量吸收
         accum_quality = 0.5 + concentration_change * 2
         accum_quality = max(0.1, min(1.0, accum_quality))
-        
         # 派发质量：分散性派发为真实派发
         # 如果派发导致筹码更分散，说明是散户行为或主力出货
         distrib_quality = 0.5 - concentration_change
         distrib_quality = max(0.1, min(1.0, distrib_quality))
-        
         # 价格位置调整
         price_position_factor = self._calculate_price_position_factor(
             chip_matrix, price_grid, current_price
         )
-        
         accum_quality *= price_position_factor['accumulation_factor']
         distrib_quality *= price_position_factor['distribution_factor']
-        
         ad_result.update({
             'accumulation_quality': float(accum_quality),
             'distribution_quality': float(distrib_quality),
         })
-        
         return ad_result
     
     def _analyze_price_levels(self, changes: np.ndarray, 
@@ -870,7 +836,6 @@ class DirectAccumulationDistributionCalculator:
         分价格层级分析吸收/派发
         """
         price_rel = (price_grid - current_price) / current_price
-        
         levels = {
             'deep_below': {'range': (-np.inf, -0.15), 'accum': 0, 'distrib': 0},
             'below': {'range': (-0.15, -0.05), 'accum': 0, 'distrib': 0},
@@ -878,11 +843,9 @@ class DirectAccumulationDistributionCalculator:
             'above': {'range': (0.05, 0.15), 'accum': 0, 'distrib': 0},
             'deep_above': {'range': (0.15, np.inf), 'accum': 0, 'distrib': 0},
         }
-        
         for i, price in enumerate(price_grid):
             rel = price_rel[i]
             change = changes[i]
-            
             for level_name, level_info in levels.items():
                 low, high = level_info['range']
                 if low < rel <= high:
@@ -899,7 +862,6 @@ class DirectAccumulationDistributionCalculator:
                         else:
                             level_info['accum'] += abs(change)
                     break
-        
         # 转换为百分比
         result = {}
         for level_name, level_info in levels.items():
@@ -910,18 +872,15 @@ class DirectAccumulationDistributionCalculator:
                     'distribution_ratio': level_info['distrib'] / total,
                     'total_change': total,
                 }
-        
         return result
     
     def _calculate_concentration(self, chip_dist: np.ndarray) -> float:
         """计算筹码集中度"""
         if len(chip_dist) == 0:
             return 0.5
-        
         sorted_chips = np.sort(chip_dist)[::-1]
         top_20 = int(len(chip_dist) * 0.2)
         concentration = np.sum(sorted_chips[:top_20]) / 100.0
-        
         return float(concentration)
     
     def _calculate_price_position_factor(self, chip_matrix: np.ndarray,
@@ -930,24 +889,18 @@ class DirectAccumulationDistributionCalculator:
         """计算价格位置因子"""
         if chip_matrix.shape[0] < 2:
             return {'accumulation_factor': 1.0, 'distribution_factor': 1.0}
-        
         current_chips = chip_matrix[-1]
         prev_chips = chip_matrix[-2] if chip_matrix.shape[0] > 1 else current_chips
-        
         # 计算价格以下筹码变化
         below_mask = price_grid < current_price
         below_change = np.sum(current_chips[below_mask]) - np.sum(prev_chips[below_mask])
-        
         # 计算价格以上筹码变化
         above_mask = price_grid > current_price
         above_change = np.sum(current_chips[above_mask]) - np.sum(prev_chips[above_mask])
-        
         # 吸收因子：低位筹码增加时质量高
         accum_factor = 1.0 + below_change * 0.1
-        
         # 派发因子：高位筹码增加时质量高
         distrib_factor = 1.0 + above_change * 0.1
-        
         return {
             'accumulation_factor': max(0.5, min(2.0, accum_factor)),
             'distribution_factor': max(0.5, min(2.0, distrib_factor)),
@@ -989,7 +942,6 @@ class GameEnergyCalculator:
                             volume_history: pd.Series = None) -> Dict[str, Any]:
         """
         计算博弈能量场
-        
         返回：
         {
             'absorption_energy': float,      # 吸收能量(0-100)
@@ -1004,22 +956,17 @@ class GameEnergyCalculator:
         """
         if percent_change_matrix.shape[0] == 0:
             return self._get_default_energy()
-        
         # 1. 获取最近一天的变化
         latest_change = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
-        
         # 2. 计算博弈能量场
         energy_result = self._calculate_energy_field(latest_change, price_grid, current_price)
-        
         # 3. 判断虚假派发
         fake_distribution = self._detect_fake_distribution(latest_change, price_grid, current_price, volume_history)
         energy_result['fake_distribution_flag'] = fake_distribution
-        
         # 如果是虚假派发，修正分布能量
         if fake_distribution:
             energy_result['distribution_energy'] *= self.params['fake_distribution_discount']
             energy_result['net_energy_flow'] = energy_result['absorption_energy'] - energy_result['distribution_energy']
-        
         return energy_result
     
     def _calculate_energy_field(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
@@ -1028,29 +975,22 @@ class GameEnergyCalculator:
         price_rel = (price_grid - current_price) / current_price
         # 使用Sigmoid函数增强关键区域的敏感性
         price_weight = 1 / (1 + np.exp(-12 * np.abs(price_rel)))
-        
         # 吸收能量计算（真正的主力行为）
         absorption_mask = (price_rel < -0.05) & (changes > self.params['absorption_threshold'])
         absorption_energy = np.sum(changes[absorption_mask] * price_weight[absorption_mask]) * 2.0
-        
         # 派发能量计算
         distribution_mask = (price_rel > 0.05) & (changes > self.params['distribution_threshold'])
         distribution_energy = np.sum(changes[distribution_mask] * price_weight[distribution_mask]) * 1.5
-        
         # 博弈强度计算（能量对抗密度）
         active_zones = np.where(np.abs(changes) > 0.2)[0]
         game_intensity = len(active_zones) / len(price_grid) * self.params['game_intensity_weight']
-        
         # 突破势能计算
         resistance_zones = self._find_resistance_zones(changes, price_grid, current_price)
         breakout_potential = self._calculate_breakout_potential(resistance_zones, absorption_energy)
-        
         # 能量集中度
         energy_concentration = self._calculate_energy_concentration(changes, absorption_energy, distribution_energy)
-        
         # 关键博弈区域识别
         key_battle_zones = self._identify_key_battle_zones(changes, price_grid, current_price)
-        
         return {
             'absorption_energy': min(100, max(0, absorption_energy)),
             'distribution_energy': min(100, max(0, distribution_energy)),
@@ -1067,10 +1007,8 @@ class GameEnergyCalculator:
         # 条件1：中高位筹码减少但高位未明显增加
         mid_high_mask = (price_grid > current_price) & (price_grid <= current_price * 1.05)
         high_mask = price_grid > current_price * 1.05
-        
         mid_decrease = np.sum(-changes[mid_high_mask & (changes < 0)])
         high_increase = np.sum(changes[high_mask & (changes > 0)])
-        
         if mid_decrease > 0.4 and high_increase < 0.2:
             # 进一步检查成交量特征
             if volume_history is not None and len(volume_history) >= 5:
@@ -1082,23 +1020,19 @@ class GameEnergyCalculator:
             else:
                 # 没有成交量数据时，仅基于筹码变化判断
                 return True
-        
         return False
     
     def _find_resistance_zones(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> List[Dict]:
         """寻找阻力区域"""
         resistance_zones = []
-        
         # 寻找连续的筹码减少区域
         decreasing_mask = changes < -0.3
         if np.sum(decreasing_mask) == 0:
             return resistance_zones
-        
         # 聚类识别阻力带
         from scipy.signal import find_peaks
         negative_changes = -changes  # 将减少转为峰值
         peaks, _ = find_peaks(negative_changes, height=0.5, distance=5)
-        
         for peak_idx in peaks:
             if price_grid[peak_idx] > current_price * 1.02:
                 resistance_zones.append({
@@ -1106,65 +1040,102 @@ class GameEnergyCalculator:
                     'resistance_strength': float(negative_changes[peak_idx]),
                     'distance_to_current': float((price_grid[peak_idx] - current_price) / current_price),
                 })
-        
         return sorted(resistance_zones, key=lambda x: x['resistance_strength'], reverse=True)
     
     def _calculate_breakout_potential(self, resistance_zones: List[Dict], absorption_energy: float) -> float:
         """计算突破势能"""
         if not resistance_zones:
             return 0.0
-        
         strongest_resistance = max([zone['resistance_strength'] for zone in resistance_zones])
         avg_distance = np.mean([zone['distance_to_current'] for zone in resistance_zones])
-        
         if strongest_resistance > 0:
             base_potential = absorption_energy / strongest_resistance * 10
             distance_factor = 1 / (avg_distance + 0.1)
             return base_potential * distance_factor
-        
         return 0.0
     
     def _calculate_energy_concentration(self, changes: np.ndarray, absorption: float, distribution: float) -> float:
         """计算能量集中度"""
         total_energy = absorption + distribution + 1e-10
-        
         # 计算变化的标准差（衡量能量的分散程度）
         significant_changes = changes[np.abs(changes) > 0.1]
         if len(significant_changes) == 0:
             return 0.0
-        
         change_std = np.std(significant_changes)
         max_std = np.max(np.abs(significant_changes)) * 0.5
-        
         concentration = 1.0 - min(1.0, change_std / max_std)
-        
         # 吸收能量占比越高，集中度越高
         absorption_ratio = absorption / total_energy
         return concentration * (0.5 + absorption_ratio * 0.5)
     
     def _identify_key_battle_zones(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> List[Dict]:
-        """识别关键博弈区域"""
+        """
+        识别关键博弈区域 - 优化版本
+        提高识别阈值，避免返回空数组
+        """
         battle_zones = []
-        
-        for i in range(1, len(changes)-1):
-            prev_change = changes[i-1]
-            curr_change = changes[i]
-            next_change = changes[i+1]
-            
-            # 博弈特征：一个价格格大量增加，相邻格大量减少
-            if (curr_change > 0.5 and prev_change < -0.3) or (curr_change < -0.5 and next_change > 0.3):
-                battle_intensity = abs(curr_change) + max(abs(prev_change), abs(next_change))
-                
-                battle_zones.append({
-                    'price': float(price_grid[i]),
-                    'battle_intensity': float(battle_intensity),
-                    'type': 'absorption' if curr_change > 0 else 'distribution',
-                    'position': 'below_current' if price_grid[i] < current_price else 'above_current',
-                    'distance_to_current': float((price_grid[i] - current_price) / current_price),
-                })
-        
-        return sorted(battle_zones, key=lambda x: x['battle_intensity'], reverse=True)
-    
+        try:
+            # 设置更高的阈值，只识别显著的对抗区域
+            min_change_threshold = 0.8  # 提高阈值到0.8%
+            min_intensity_threshold = 1.2  # 最低对抗强度
+            # 只处理有显著变化的价格格
+            significant_changes = np.abs(changes) > 0.3
+            if np.sum(significant_changes) < 3:  # 如果没有足够显著的变化
+                return []  # 返回空数组，会在保存时转为None
+            for i in range(1, len(changes)-1):
+                prev_change = changes[i-1]
+                curr_change = changes[i]
+                next_change = changes[i+1]
+                # 提高博弈识别标准
+                is_battle = False
+                battle_intensity = 0.0
+                # 情况1：当前格大幅增加，前格大幅减少
+                if curr_change > min_change_threshold and prev_change < -min_change_threshold * 0.8:
+                    battle_intensity = abs(curr_change) + abs(prev_change)
+                    is_battle = True
+                # 情况2：当前格大幅减少，后格大幅增加
+                elif curr_change < -min_change_threshold and next_change > min_change_threshold * 0.8:
+                    battle_intensity = abs(curr_change) + abs(next_change)
+                    is_battle = True
+                # 情况3：连续的对抗模式
+                elif (prev_change > min_change_threshold * 0.6 and 
+                      curr_change < -min_change_threshold * 0.6 and 
+                      next_change > min_change_threshold * 0.6):
+                    battle_intensity = abs(prev_change) + abs(curr_change) + abs(next_change)
+                    is_battle = True
+                if is_battle and battle_intensity >= min_intensity_threshold:
+                    # 计算距离当前价格的位置权重
+                    distance_to_current = abs((price_grid[i] - current_price) / current_price)
+                    # 距离越近，权重越高
+                    distance_weight = 1.0 / (1.0 + distance_to_current * 5)
+                    # 综合强度
+                    weighted_intensity = battle_intensity * distance_weight
+                    # 确定类型
+                    if curr_change > 0:
+                        battle_type = 'absorption_vs_distribution'  # 吸收对抗派发
+                    else:
+                        battle_type = 'distribution_vs_absorption'  # 派发对抗吸收
+                    battle_zones.append({
+                        'price': float(price_grid[i]),
+                        'battle_intensity': float(weighted_intensity),
+                        'raw_intensity': float(battle_intensity),
+                        'type': battle_type,
+                        'current_change': float(curr_change),
+                        'adjacent_change': float(prev_change if curr_change > 0 else next_change),
+                        'position': 'below_current' if price_grid[i] < current_price else 'above_current',
+                        'distance_to_current': float((price_grid[i] - current_price) / current_price),
+                        'distance_weight': float(distance_weight),
+                    })
+            # 按强度排序
+            battle_zones.sort(key=lambda x: x['battle_intensity'], reverse=True)
+            # 如果强度太低，返回空数组
+            if battle_zones and battle_zones[0]['battle_intensity'] < 1.5:
+                return []
+            return battle_zones
+        except Exception as e:
+            print(f"关键博弈区域识别异常: {e}")
+            return []
+
     def _get_default_energy(self) -> Dict[str, Any]:
         return {
             'absorption_energy': 0.0,

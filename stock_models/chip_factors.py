@@ -433,7 +433,6 @@ class ChipFactorBase(models.Model):
             resistance = pressure_metrics.get('resistance_strength', 0.3)
             factors['support_resistance_ratio'] = support / resistance if resistance > 0 else 1.0
             return factors
-            
         except Exception as e:
             print(f"❌ 计算聚散度失败: {e}")
             return cls._get_default_convergence_factors()
@@ -501,7 +500,6 @@ class ChipFactorBase(models.Model):
             self._calculate_trend_score(chip_dynamics_result)
             self.calc_status = 'success'
             return True
-            
         except Exception as e:
             print(f"❌ 更新因子失败: {e}")
             self.calc_status = 'failed'
@@ -867,88 +865,66 @@ class ChipHoldingMatrixBase(models.Model):
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
         """
         保存动态分析结果
-        优化说明：
-        1. 数据清洗：递归降低浮点数精度（3-4位），过滤极小噪声值（<0.05%），强制处理NaN/Inf非法值。
-        2. 存储优化：对筹码矩阵进行JSON去空格+zlib压缩存储。
-        3. 异常处理：增强了数据类型转换的鲁棒性。
+        新增：保存absolute_change_analysis
         """
-        import math  # 引入math模块用于检查NaN/Inf
+        import math
         try:
             # 1. 基础状态检查
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
                 self.calc_status = 'failed'
-                # 仅更新状态字段，避免覆盖其他有用信息
                 self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
                 return False
             # =======================================================
-            # 内部辅助函数：纯Python递归清洗 (Robust & Optimized)
+            # 内部辅助函数：数据清洗
             # =======================================================
             def _clean_structure(data, precision=3, threshold=0.0):
-                """递归清洗数据：降低精度，过滤噪声，处理numpy类型，处理NaN/Inf"""
-                # 处理浮点数和整数（包括 numpy 类型）
                 if isinstance(data, (float, int, np.number)):
                     try:
                         val = float(data)
-                        # 核心修复：检查并处理 MySQL 不支持的 NaN 和 Inf
                         if math.isnan(val) or math.isinf(val):
                             return 0.0
-                        # 绝对值小于阈值置0，利用稀疏性
                         if abs(val) < threshold: return 0.0
-                        # 0.0 不需处理
                         if val == 0.0: return 0.0
                         return round(val, precision)
                     except Exception:
                         return 0.0
-                # 递归处理字典
                 elif isinstance(data, dict):
                     return {k: _clean_structure(v, precision, threshold) for k, v in data.items()}
-                # 递归处理列表/元组/数组
                 elif isinstance(data, (list, tuple, np.ndarray)):
                     if isinstance(data, np.ndarray):
                         data = data.tolist()
                     return [_clean_structure(i, precision, threshold) for i in data]
-                # 其他类型直接返回
                 return data
             # =======================================================
-            # 2. 核心数据清洗与赋值
+            # 2. 计算并保存absolute_change_analysis
             # =======================================================
-            # 价格网格 (保留3位精度)
-            self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
-            # 百分比变化矩阵 (保留3位精度，过滤 < 0.05 的噪声)
-            raw_change = dynamics_result.get('percent_change_matrix', [])
-            self.percent_change_matrix = _clean_structure(raw_change, precision=3, threshold=0.05) if raw_change else []
-            # 信号与模式 (保留3位精度)
-            self.absolute_change_signals = _clean_structure(dynamics_result.get('absolute_change_signals', {}), 3)
-            self.behavior_patterns = _clean_structure(dynamics_result.get('behavior_patterns', {}), 3)
-            # 指标类 (保留4位精度)
-            # concentration_metrics 容易出现 NaN (如 skew/kurtosis)，此处清洗至关重要
-            self.concentration_metrics = _clean_structure(dynamics_result.get('concentration_metrics', {}), 4)
-            self.pressure_metrics = _clean_structure(dynamics_result.get('pressure_metrics', {}), 4)
-            self.migration_patterns = _clean_structure(dynamics_result.get('migration_patterns', {}), 4)
-            self.convergence_metrics = _clean_structure(dynamics_result.get('convergence_metrics', {}), 4)
-            # 验证信息
-            self.validation_score = dynamics_result.get('validation_score')
-            self.validation_warnings = dynamics_result.get('validation_warnings')
-            # =======================================================
-            # 3. 筹码矩阵存储优化
-            # =======================================================
-            chip_matrix_list = dynamics_result.get('chip_matrix', [])
-            if chip_matrix_list:
+            # 从dynamics_result中提取必要数据
+            percent_change_matrix = dynamics_result.get('percent_change_matrix', [])
+            price_grid = dynamics_result.get('price_grid', [])
+            current_price = dynamics_result.get('current_price', 0)
+            # 计算绝对变化分析
+            if len(percent_change_matrix) > 0 and len(price_grid) > 0 and current_price > 0:
                 try:
-                    # 清洗：保留3位小数，小于0.001的置为0
-                    cleaned_matrix = _clean_structure(chip_matrix_list, precision=3, threshold=0.001)
-                    # 方案A：存明文 (清洗后体积已大幅减小)
-                    self.matrix_data = {'matrix': cleaned_matrix}
-                    # 方案B：存压缩二进制 (zlib压缩JSON字符串，效率优于pickle)
-                    import zlib
-                    # separators=(',', ':') 去除 JSON 中的空格，进一步减小体积
-                    json_str = json.dumps(cleaned_matrix, separators=(',', ':'))
-                    self.compressed_matrix = zlib.compress(json_str.encode('utf-8'))
+                    # 使用最新的变化数据
+                    latest_change = np.array(percent_change_matrix[-1]) if percent_change_matrix else np.zeros(len(price_grid))
+                    price_grid_array = np.array(price_grid)
+                    # 计算绝对变化分析
+                    absolute_analysis = self._calculate_absolute_change_analysis(
+                        latest_change, 
+                        price_grid_array, 
+                        current_price
+                    )
+                    # 清洗并保存
+                    self.absolute_change_analysis = _clean_structure(absolute_analysis, precision=4)
+                    print(f"✅ [保存] absolute_change_analysis 已计算: {len(absolute_analysis.keys())} 个字段")
                 except Exception as e:
-                    # 降级方案：存原始数据
-                    print(f"⚠️ [保存警告] 筹码矩阵压缩失败: {e}")
-                    self.matrix_data = {'matrix': chip_matrix_list}
-            # 新增：保存博弈能量场因子
+                    print(f"⚠️ [警告] 计算absolute_change_analysis失败: {e}")
+                    self.absolute_change_analysis = {}
+            else:
+                self.absolute_change_analysis = {}
+            # =======================================================
+            # 3. 保存能量场数据并处理空数组
+            # =======================================================
             game_energy = dynamics_result.get('game_energy_result', {})
             if game_energy:
                 self.absorption_energy = game_energy.get('absorption_energy', 0.0)
@@ -958,26 +934,72 @@ class ChipHoldingMatrixBase(models.Model):
                 self.breakout_potential = game_energy.get('breakout_potential', 0.0)
                 self.energy_concentration = game_energy.get('energy_concentration', 0.0)
                 self.fake_distribution_flag = game_energy.get('fake_distribution_flag', False)
-                self.key_battle_zones = game_energy.get('key_battle_zones', [])
-            # 新增：保存直接吸收/派发结果（用于交叉验证）
-            direct_ad = dynamics_result.get('direct_ad_result', {})
-            if direct_ad:
-                # 可选：将直接AD结果也保存到JSON字段中
-                self.direct_ad_data = direct_ad
-            # 5. 保存状态与提交
+                # 处理key_battle_zones空数组问题
+                key_battle_zones = game_energy.get('key_battle_zones', [])
+                if key_battle_zones and len(key_battle_zones) > 0:
+                    # 清洗并保存
+                    cleaned_zones = _clean_structure(key_battle_zones, precision=3)
+                    self.key_battle_zones = cleaned_zones
+                    print(f"✅ [保存] key_battle_zones: {len(key_battle_zones)} 个区域")
+                else:
+                    # 空数组设为None，避免存储空JSON数组
+                    self.key_battle_zones = None
+                    print(f"ℹ️ [保存] key_battle_zones为空，设置为None")
+            # =======================================================
+            # 4. 保存其他动态分析结果
+            # =======================================================
+            # 价格网格
+            self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
+            # 百分比变化矩阵
+            raw_change = dynamics_result.get('percent_change_matrix', [])
+            self.percent_change_matrix = _clean_structure(raw_change, precision=3, threshold=0.05) if raw_change else []
+            # 信号与模式
+            self.absolute_change_signals = _clean_structure(dynamics_result.get('absolute_change_signals', {}), 3)
+            self.behavior_patterns = _clean_structure(dynamics_result.get('behavior_patterns', {}), 3)
+            # 指标类
+            self.concentration_metrics = _clean_structure(dynamics_result.get('concentration_metrics', {}), 4)
+            self.pressure_metrics = _clean_structure(dynamics_result.get('pressure_metrics', {}), 4)
+            self.migration_patterns = _clean_structure(dynamics_result.get('migration_patterns', {}), 4)
+            self.convergence_metrics = _clean_structure(dynamics_result.get('convergence_metrics', {}), 4)
+            # 验证信息
+            self.validation_score = dynamics_result.get('validation_score')
+            self.validation_warnings = dynamics_result.get('validation_warnings', [])
+            # =======================================================
+            # 5. 筹码矩阵存储优化
+            # =======================================================
+            chip_matrix_list = dynamics_result.get('chip_matrix', [])
+            if chip_matrix_list:
+                try:
+                    cleaned_matrix = _clean_structure(chip_matrix_list, precision=3, threshold=0.001)
+                    self.matrix_data = {'matrix': cleaned_matrix}
+                    import zlib, json
+                    json_str = json.dumps(cleaned_matrix, separators=(',', ':'))
+                    self.compressed_matrix = zlib.compress(json_str.encode('utf-8'))
+                except Exception as e:
+                    print(f"⚠️ [保存警告] 筹码矩阵压缩失败: {e}")
+                    self.matrix_data = {'matrix': chip_matrix_list}
+            # 6. 计算持有时间因子
+            self._calculate_holding_factors_from_dynamics(dynamics_result)
+            # 7. 保存状态与提交
             self.calc_status = 'success'
-            self.analysis_method = 'advanced_dynamics'
+            self.analysis_method = 'advanced_dynamics_v2'
             self.used_percent_data = True
+            # 保存所有字段
             self.save()
+            print(f"✅ [保存完成] {self.stock.stock_code} {self.trade_time} 动态分析已保存")
             return True
         except Exception as e:
             print(f"❌ [保存动态分析] 失败: {e}")
+            import traceback
+            traceback.print_exc()
             self.calc_status = 'failed'
             self.error_message = str(e)
-            try: self.save(update_fields=['calc_status', 'error_message'])
-            except: pass
+            try: 
+                self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
+            except: 
+                pass
             return False
-        
+
     def _calculate_holding_factors_from_dynamics(self, dynamics_result: Dict[str, Any]):
         """从动态分析结果推算持有时间因子版本"""
         try:
@@ -1048,6 +1070,65 @@ class ChipHoldingMatrixBase(models.Model):
             self.long_term_ratio = 0.5
             self.avg_holding_days = 100.0
 
+    def _calculate_absolute_change_analysis(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
+        """
+        基于绝对值变化的纠偏分析
+        核心逻辑：识别拉升初期的"虚假派发"
+        """
+        try:
+            if len(changes) == 0 or len(price_grid) == 0 or current_price <= 0:
+                return {}
+            # 1. 绝对变化统计分析
+            absolute_analysis = {
+                'total_change_volume': float(np.sum(np.abs(changes))),
+                'positive_change_volume': float(np.sum(changes[changes > 0])),
+                'negative_change_volume': float(np.sum(changes[changes < 0])),
+                'change_concentration': self._calculate_change_concentration(changes),
+                'max_increase': float(np.max(changes)) if len(changes) > 0 else 0.0,
+                'max_decrease': float(np.min(changes)) if len(changes) > 0 else 0.0,
+                'mean_change': float(np.mean(changes)) if len(changes) > 0 else 0.0,
+                'std_change': float(np.std(changes)) if len(changes) > 0 else 0.0,
+            }
+            # 2. 价格分层分析
+            price_rel = (price_grid - current_price) / current_price
+            # 定义价格区间
+            price_zones = {
+                'deep_below': (price_rel < -0.15),
+                'below': ((price_rel >= -0.15) & (price_rel < -0.05)),
+                'near': ((price_rel >= -0.05) & (price_rel <= 0.05)),
+                'above': ((price_rel > 0.05) & (price_rel <= 0.15)),
+                'deep_above': (price_rel > 0.15),
+            }
+            zone_analysis = {}
+            for zone_name, zone_mask in price_zones.items():
+                zone_changes = changes[zone_mask]
+                if len(zone_changes) > 0:
+                    zone_analysis[f'{zone_name}_volume'] = float(np.sum(np.abs(zone_changes)))
+                    zone_analysis[f'{zone_name}_net'] = float(np.sum(zone_changes))
+                    zone_analysis[f'{zone_name}_count'] = int(np.sum(zone_mask))
+                else:
+                    zone_analysis[f'{zone_name}_volume'] = 0.0
+                    zone_analysis[f'{zone_name}_net'] = 0.0
+                    zone_analysis[f'{zone_name}_count'] = 0
+            absolute_analysis['price_zone_analysis'] = zone_analysis
+            # 3. 拉升初期识别
+            pullback_analysis = self._analyze_pullback_pattern(changes, price_grid, current_price)
+            absolute_analysis.update(pullback_analysis)
+            # 4. 虚假派发检测
+            false_distribution = self._detect_false_distribution(changes, price_grid, current_price)
+            absolute_analysis['false_distribution_flag'] = false_distribution
+            # 5. 信号质量评估
+            absolute_analysis['signal_quality'] = self._calculate_signal_quality(changes, price_rel)
+            # 6. 趋势强度评估
+            absolute_analysis['trend_strength'] = self._calculate_trend_strength(changes, price_rel)
+            # 7. 关键价格位识别
+            key_price_levels = self._identify_key_price_levels(changes, price_grid, current_price)
+            absolute_analysis['key_price_levels'] = key_price_levels
+            return absolute_analysis
+        except Exception as e:
+            print(f"绝对变化分析失败: {e}")
+            return {}
+
     def _calculate_change_concentration(self, changes: np.ndarray) -> float:
         """计算变化集中度（越高表示主力行为越明显）"""
         if len(changes) == 0:
@@ -1060,49 +1141,168 @@ class ChipHoldingMatrixBase(models.Model):
         top_indices = np.argsort(abs_changes)[-5:]
         top_volume = np.sum(abs_changes[top_indices])
         return top_volume / total_volume
-    
+
     def _analyze_pullback_pattern(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
         """分析拉升初期模式"""
         analysis = {
             'pullback_phase_detected': False,
             'pullback_strength': 0.0,
             'support_levels': [],
+            'resistance_levels': [],
         }
-        # 寻找当前价以下的筹码增加区域（支撑形成）
-        below_current = price_grid < current_price * 0.99
-        accumulation_below = np.sum(changes[below_current & (changes > 0)])
-        # 寻找当前价以上的筹码减少区域（获利回吐）
-        above_current = price_grid > current_price * 1.01
-        distribution_above = np.sum(-changes[above_current & (changes < 0)])
-        # 拉升初期特征：低位支撑形成 + 高位获利回吐
-        if accumulation_below > 0.5 and distribution_above > 0.3:
-            analysis['pullback_phase_detected'] = True
-            analysis['pullback_strength'] = min(1.0, (accumulation_below + distribution_above) / 2.0)
-            # 识别支撑位
-            support_mask = below_current & (changes > 0.3)
-            support_indices = np.where(support_mask)[0]
-            for idx in support_indices[:3]:  # 取前3个支撑位
-                analysis['support_levels'].append({
-                    'price': float(price_grid[idx]),
-                    'strength': float(changes[idx]),
-                    'distance_to_current': float((current_price - price_grid[idx]) / current_price),
-                })
+        try:
+            # 寻找当前价以下的筹码增加区域（支撑形成）
+            below_current = price_grid < current_price * 0.99
+            accumulation_below = np.sum(changes[below_current & (changes > 0)])
+            # 寻找当前价以上的筹码减少区域（获利回吐）
+            above_current = price_grid > current_price * 1.01
+            distribution_above = np.sum(-changes[above_current & (changes < 0)])
+            # 寻找当前价以下的筹码减少区域（止损或换手）
+            distribution_below = np.sum(-changes[below_current & (changes < 0)])
+            # 寻找当前价以上的筹码增加区域（追高或派发）
+            accumulation_above = np.sum(changes[above_current & (changes > 0)])
+            # 拉升初期特征：低位支撑形成 + 高位获利回吐
+            if accumulation_below > 0.5 and distribution_above > 0.3:
+                analysis['pullback_phase_detected'] = True
+                analysis['pullback_strength'] = min(1.0, (accumulation_below + distribution_above) / 2.0)
+                # 识别支撑位（低位筹码大幅增加）
+                support_mask = below_current & (changes > 0.3)
+                support_indices = np.where(support_mask)[0]
+                for idx in support_indices[:3]:  # 取前3个支撑位
+                    analysis['support_levels'].append({
+                        'price': float(price_grid[idx]),
+                        'strength': float(changes[idx]),
+                        'distance_to_current': float((current_price - price_grid[idx]) / current_price),
+                        'type': 'support'
+                    })
+                # 识别阻力位（高位筹码大幅减少）
+                resistance_mask = above_current & (changes < -0.3)
+                resistance_indices = np.where(resistance_mask)[0]
+                for idx in resistance_indices[:3]:  # 取前3个阻力位
+                    analysis['resistance_levels'].append({
+                        'price': float(price_grid[idx]),
+                        'strength': float(-changes[idx]),
+                        'distance_to_current': float((price_grid[idx] - current_price) / current_price),
+                        'type': 'resistance'
+                    })
+            # 统计信息
+            analysis['accumulation_below'] = float(accumulation_below)
+            analysis['distribution_above'] = float(distribution_above)
+            analysis['distribution_below'] = float(distribution_below)
+            analysis['accumulation_above'] = float(accumulation_above)
+        except Exception as e:
+            print(f"拉升初期分析失败: {e}")
         return analysis
-    
+
     def _detect_false_distribution(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> bool:
         """检测虚假派发（获利回吐 vs 真实派发）"""
-        # 真实派发特征：高位筹码大幅增加 + 低位筹码减少
-        high_price_mask = price_grid > current_price * 1.05
-        low_price_mask = price_grid < current_price * 0.95
-        high_increase = np.sum(changes[high_price_mask & (changes > 0)])
-        low_decrease = np.sum(-changes[low_price_mask & (changes < 0)])
-        # 获利回吐特征：中高位筹码减少，但低位形成支撑
-        mid_high_mask = (price_grid > current_price) & (price_grid <= current_price * 1.05)
-        mid_decrease = np.sum(-changes[mid_high_mask & (changes < 0)])
-        # 虚假派发判断：中高位减少但高位未明显增加，且低位有支撑
-        if mid_decrease > 0.4 and high_increase < 0.2:
-            return True
-        return False
+        try:
+            # 真实派发特征：高位筹码大幅增加 + 低位筹码减少
+            high_price_mask = price_grid > current_price * 1.05
+            low_price_mask = price_grid < current_price * 0.95
+            high_increase = np.sum(changes[high_price_mask & (changes > 0)])
+            low_decrease = np.sum(-changes[low_price_mask & (changes < 0)])
+            # 获利回吐特征：中高位筹码减少，但低位形成支撑
+            mid_high_mask = (price_grid > current_price) & (price_grid <= current_price * 1.05)
+            mid_decrease = np.sum(-changes[mid_high_mask & (changes < 0)])
+            # 虚假派发判断：中高位减少但高位未明显增加，且低位有支撑
+            if mid_decrease > 0.4 and high_increase < 0.2:
+                return True
+            # 另一种情况：低位有显著吸收，高位减少可能是洗盘
+            if low_decrease < 0.2 and high_increase < 0.3 and mid_decrease > 0.5:
+                return True
+            return False
+        except Exception as e:
+            print(f"虚假派发检测失败: {e}")
+            return False
+
+    def _calculate_signal_quality(self, changes: np.ndarray, price_rel: np.ndarray) -> float:
+        """计算信号质量"""
+        try:
+            # 1. 变化集中度
+            concentration_score = self._calculate_change_concentration(changes)
+            # 2. 价格分布合理性（筹码变化是否在合理价格区间）
+            # 合理的筹码变化应该集中在当前价附近
+            near_mask = np.abs(price_rel) < 0.1
+            near_volume = np.sum(np.abs(changes[near_mask]))
+            total_volume = np.sum(np.abs(changes))
+            if total_volume > 0:
+                distribution_score = near_volume / total_volume
+            else:
+                distribution_score = 0.0
+            # 3. 噪声水平（小变化的占比）
+            noise_mask = np.abs(changes) < 0.1
+            noise_ratio = np.sum(noise_mask) / len(changes) if len(changes) > 0 else 1.0
+            noise_score = 1.0 - noise_ratio
+            # 综合质量评分
+            quality_score = 0.4 * concentration_score + 0.3 * distribution_score + 0.3 * noise_score
+            return min(1.0, max(0.0, quality_score))
+        except Exception as e:
+            print(f"信号质量计算失败: {e}")
+            return 0.5
+
+    def _calculate_trend_strength(self, changes: np.ndarray, price_rel: np.ndarray) -> float:
+        """计算趋势强度"""
+        try:
+            # 1. 净流向强度
+            net_flow = np.sum(changes)
+            total_volume = np.sum(np.abs(changes))
+            if total_volume > 0:
+                flow_strength = abs(net_flow) / total_volume
+            else:
+                flow_strength = 0.0
+            # 2. 价格一致性（上涨趋势中，低位应减少，高位应增加）
+            below_mask = price_rel < -0.05
+            above_mask = price_rel > 0.05
+            below_flow = np.sum(changes[below_mask])
+            above_flow = np.sum(changes[above_mask])
+            # 上涨趋势：低位减少，高位增加
+            if below_flow < 0 and above_flow > 0:
+                consistency_score = 0.7 + 0.3 * min(abs(below_flow), above_flow) / max(abs(below_flow), above_flow)
+            # 下跌趋势：低位增加，高位减少
+            elif below_flow > 0 and above_flow < 0:
+                consistency_score = 0.7 + 0.3 * min(below_flow, abs(above_flow)) / max(below_flow, abs(above_flow))
+            else:
+                consistency_score = 0.3
+            # 3. 变化幅度
+            amplitude_score = min(1.0, total_volume / 20.0)  # 经验值
+            # 综合趋势强度
+            trend_strength = 0.3 * flow_strength + 0.4 * consistency_score + 0.3 * amplitude_score
+            return min(1.0, max(0.0, trend_strength))
+        except Exception as e:
+            print(f"趋势强度计算失败: {e}")
+            return 0.5
+
+    def _identify_key_price_levels(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> List[Dict[str, Any]]:
+        """识别关键价格位"""
+        key_levels = []
+        try:
+            # 1. 寻找显著变化点（变化绝对值大于阈值）
+            threshold = 0.5  # 50%的变化阈值
+            significant_mask = np.abs(changes) > threshold
+            if np.sum(significant_mask) > 0:
+                significant_indices = np.where(significant_mask)[0]
+                for idx in significant_indices:
+                    price = price_grid[idx]
+                    change = changes[idx]
+                    price_rel = (price - current_price) / current_price
+                    level_type = 'absorption' if change > 0 else 'distribution'
+                    position = 'below_current' if price < current_price else 'above_current'
+                    key_levels.append({
+                        'price': float(price),
+                        'change': float(change),
+                        'abs_change': float(abs(change)),
+                        'type': level_type,
+                        'position': position,
+                        'distance_to_current': float(price_rel),
+                        'strength': min(1.0, abs(change) / 2.0)  # 归一化到0-1
+                    })
+            # 2. 按强度排序，取前10个
+            key_levels.sort(key=lambda x: x['abs_change'], reverse=True)
+            key_levels = key_levels[:10]
+        except Exception as e:
+            print(f"关键价格位识别失败: {e}")
+        return key_levels
 
     def _calculate_key_battle_intensity(self) -> float:
         """计算关键博弈区域的总强度"""
