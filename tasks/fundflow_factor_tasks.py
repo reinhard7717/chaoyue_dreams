@@ -389,7 +389,7 @@ def get_current_flow_data(stock_code: str, trade_date: date) -> Optional[Dict]:
 
 def get_daily_basic_data(stock_code: str, trade_date: date) -> Optional[Dict]:
     """获取每日基本信息"""
-    stock_time_trade_dao = StockTimeTradeDAO(cache_manager=CacheManager())
+    stock_time_trade_dao = StockTimeTradeDAO(CacheManager())
     try:
         # 查询日线数据
         daily_data = stock_time_trade_dao.get_daily_data(stock_code, trade_date)
