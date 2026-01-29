@@ -273,11 +273,16 @@ def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_mode
 def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model) -> bool:
     """
     计算单个日期的资金流向因子
+    修改思路：
+    1. stock_basic_dao.get_stock_by_code 是异步方法，直接调用返回协程对象。
+    2. 使用 async_to_sync 将其转换为同步调用，确保获取到 StockInfo 实例。
+    3. 这样可以避免后续访问 stock_info.stock_code 时出现 'coroutine' object has no attribute 'stock_code' 错误。
     """
     stock_basic_dao = StockBasicInfoDao(CacheManager())
     try:
         # 1. 获取股票基本信息
-        stock_info = stock_basic_dao.get_stock_by_code(stock_code)
+        # 修正：DAO方法是异步的，需使用 async_to_sync 转换
+        stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
         if not stock_info:
             logger.warning(f"股票 {stock_code} 不存在")
             return False

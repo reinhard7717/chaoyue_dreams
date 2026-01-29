@@ -1338,20 +1338,26 @@ class StockTimeTradeDAO(BaseDAO):
         stock_daily_basic_list = StockDailyBasic.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
         return stock_daily_basic_list
 
-    async def get_stock_daily_basic_by_date(self, stock_code: str, trade_date: date) -> None:
+    async def get_stock_daily_basic_by_date(self, stock_code: str, trade_date: date) -> Optional[StockDailyBasic]:
         """
         获取股票的日线基本信息
+        修改思路：
+        1. 移除导致 AttributeError 的 self.cache_key.today_basic_info 调用。
+        2. 修正数据库查询字段：stock_code -> stock__stock_code, trade_date -> trade_time。
+        3. 使用 Django 5 的异步 ORM 方法 afirst() 替代同步的 filter().first()，避免阻塞事件循环。
         """
-        # 从Redis缓存中获取数据
-        cache_key = self.cache_key.today_basic_info(stock_code)
-        data_dicts = await self.cache_get.stock_day_basic_info_by_limit(cache_key, self.cache_limit)
-        stock_daily_basic_list = []
-        if data_dicts:
-            for data_dict in data_dicts:
-                stock_daily_basic_list.append(StockDailyBasic(**data_dict))
-        # 从数据库中获取数据
-        stock_daily_basic_list = StockDailyBasic.objects.filter(stock_code=stock_code, trade_date=trade_date).first()
-        return stock_daily_basic_list
+        try:
+            # 直接从数据库查询，确保数据的准确性
+            # 使用 afirst() 进行高效异步查询
+            stock_daily_basic = await StockDailyBasic.objects.filter(
+                stock__stock_code=stock_code, 
+                trade_time=trade_date
+            ).afirst()
+            return stock_daily_basic
+        except Exception as e:
+            logger.error(f"获取股票 {stock_code} 在 {trade_date} 的日线基本信息失败: {e}")
+            return None
+
     #  =============== A股筹码及胜率 ===============
     # 每日筹码及胜率
     async def save_all_cyq_perf_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
