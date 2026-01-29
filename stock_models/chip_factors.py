@@ -557,49 +557,6 @@ class ChipFactorBase(models.Model):
             self.trend_confirmation_score = 0.5
             self.reversal_warning_score = 0.0
 
-    # ========== 筹码因子基类 - 增强版 ==========
-    @classmethod
-    def _calculate_turnover_intensity(cls, factors: Dict[str, float]) -> float:
-        """
-        计算筹码换手强度指数（替代avg_holding_days）
-        逻辑：高吸收低派发 = 筹码沉淀（持有时间延长）
-              低吸收高派发 = 筹码换手（持有时间缩短）
-        """
-        accum_volume = factors.get('direct_accumulation_volume', 0)
-        distrib_volume = factors.get('direct_distribution_volume', 0)
-        accum_quality = factors.get('accumulation_quality_score', 0.5)
-        distrib_quality = factors.get('distribution_quality_score', 0.5)
-        # 净吸收强度
-        net_accum = (accum_volume * accum_quality) - (distrib_volume * distrib_quality)
-        # 总换手量
-        total_turnover = accum_volume + distrib_volume + 1e-10
-        # 换手强度：净吸收为负表示高换手（持有时间短），为正表示低换手（持有时间长）
-        turnover_intensity = 1.0 - (net_accum / (total_turnover * 2))
-        # 归一化到0-1
-        return max(0.0, min(1.0, turnover_intensity))
-    
-    @classmethod
-    def _extract_level_ratio(cls, level_data: Dict, level_name: str, ad_type: str) -> float:
-        """提取层级比例"""
-        if level_name in level_data:
-            return level_data[level_name].get(f'{ad_type}_ratio', 0.0)
-        return 0.0
-    
-    @classmethod
-    def _get_default_ad_factors(cls) -> Dict[str, float]:
-        return {
-            'direct_accumulation_volume': 0.0,
-            'direct_distribution_volume': 0.0,
-            'net_accumulation_ratio': 0.0,
-            'accumulation_quality_score': 0.5,
-            'distribution_quality_score': 0.5,
-            'false_distribution_flag': 0.0,
-            'breakout_acceleration': 1.0,
-            'near_price_accum_ratio': 0.0,
-            'deep_above_distrib_ratio': 0.0,
-            'chip_turnover_intensity': 0.5,  # 中性值
-        }
-
 # 深交所主板筹码因子分表
 class ChipFactorSZ(ChipFactorBase):
     class Meta:
@@ -887,7 +844,6 @@ class ChipHoldingMatrixBase(models.Model):
                 self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
                 print(f"❌ [保存] 动态分析状态失败: {dynamics_result.get('analysis_status', 'unknown')}")
                 return False
-            
             # =======================================================
             # 2. 确保所有必要字段都存在
             # =======================================================
@@ -899,7 +855,6 @@ class ChipHoldingMatrixBase(models.Model):
                     self.error_message = f"缺少必要字段: {field}"
                     self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
                     return False
-            
             # =======================================================
             # 3. 内部辅助函数：数据清洗（保留3位小数）
             # =======================================================
@@ -924,7 +879,6 @@ class ChipHoldingMatrixBase(models.Model):
                         data = data.tolist()
                     return [_clean_structure(i, precision, threshold) for i in data]
                 return data
-            
             # =======================================================
             # 4. 计算并保存absolute_change_analysis（强制计算，保留3位小数）
             # =======================================================
@@ -932,33 +886,27 @@ class ChipHoldingMatrixBase(models.Model):
                 percent_change_matrix = dynamics_result.get('percent_change_matrix', [])
                 price_grid = dynamics_result.get('price_grid', [])
                 current_price = dynamics_result.get('current_price', 0)
-                
                 if len(percent_change_matrix) > 0 and len(price_grid) > 0 and current_price > 0:
                     # 使用最新的变化数据
                     latest_change = np.array(percent_change_matrix[-1]) if percent_change_matrix else np.zeros(len(price_grid))
                     price_grid_array = np.array(price_grid)
-                    
                     # 计算绝对变化分析
                     absolute_analysis = self._calculate_absolute_change_analysis_robust(
                         latest_change, 
                         price_grid_array, 
                         current_price
                     )
-                    
                     # 确保分析结果不为空，并清洗为3位小数
                     if not absolute_analysis:
                         absolute_analysis = self._get_default_absolute_analysis()
-                    
                     # 清洗absolute_change_analysis中的所有浮点数，保留3位小数
                     self.absolute_change_analysis = _clean_structure(absolute_analysis, precision=3)
                 else:
                     print(f"⚠️ [保存] 数据不足，无法计算absolute_change_analysis")
                     self.absolute_change_analysis = _clean_structure(self._get_default_absolute_analysis(), precision=3)
-                    
             except Exception as e:
                 print(f"⚠️ [保存] 计算absolute_change_analysis失败: {e}")
                 self.absolute_change_analysis = _clean_structure(self._get_default_absolute_analysis(), precision=3)
-            
             # =======================================================
             # 5. 保存能量场数据
             # =======================================================
@@ -972,7 +920,6 @@ class ChipHoldingMatrixBase(models.Model):
                 self.breakout_potential = round(max(0.0, game_energy.get('breakout_potential', 0.0)), 3)
                 self.energy_concentration = round(max(0.0, min(1.0, game_energy.get('energy_concentration', 0.0))), 3)
                 self.fake_distribution_flag = bool(game_energy.get('fake_distribution_flag', False))
-                
                 # 处理key_battle_zones，清洗为3位小数
                 key_battle_zones = game_energy.get('key_battle_zones', [])
                 if key_battle_zones and len(key_battle_zones) > 0:
@@ -986,36 +933,29 @@ class ChipHoldingMatrixBase(models.Model):
                         dynamics_result.get('current_price', 0)
                     )
                     self.key_battle_zones = _clean_structure(default_zones, precision=3)
-                    print(f"ℹ️ [保存] key_battle_zones为空，已创建默认区域")
             else:
                 print(f"⚠️ [保存] 没有game_energy_result数据")
                 # 设置默认值，并保留3位小数
                 self._set_default_energy_values()
-            
             # =======================================================
             # 6. 保存其他动态分析结果（使用清洗函数）
             # =======================================================
             # 价格网格
             self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
-            
             # 百分比变化矩阵
             raw_change = dynamics_result.get('percent_change_matrix', [])
             self.percent_change_matrix = _clean_structure(raw_change, precision=3, threshold=0.05) if raw_change else []
-            
             # 信号与模式
             self.absolute_change_signals = _clean_structure(dynamics_result.get('absolute_change_signals', {}), precision=3)
             self.behavior_patterns = _clean_structure(dynamics_result.get('behavior_patterns', {}), precision=3)
-            
             # 指标类
             self.concentration_metrics = _clean_structure(dynamics_result.get('concentration_metrics', {}), precision=4)
             self.pressure_metrics = _clean_structure(dynamics_result.get('pressure_metrics', {}), precision=4)
             self.migration_patterns = _clean_structure(dynamics_result.get('migration_patterns', {}), precision=4)
             self.convergence_metrics = _clean_structure(dynamics_result.get('convergence_metrics', {}), precision=4)
-            
             # 验证信息
             self.validation_score = round(max(0.0, min(1.0, dynamics_result.get('validation_score', 0.5))), 3)
             self.validation_warnings = _clean_structure(dynamics_result.get('validation_warnings', []), precision=3)
-            
             # =======================================================
             # 7. 筹码矩阵存储优化
             # =======================================================
@@ -1024,26 +964,21 @@ class ChipHoldingMatrixBase(models.Model):
                 try:
                     cleaned_matrix = _clean_structure(chip_matrix_list, precision=3, threshold=0.001)
                     self.matrix_data = {'matrix': cleaned_matrix}
-                    
                     import zlib, json
                     json_str = json.dumps(cleaned_matrix, separators=(',', ':'))
                     self.compressed_matrix = zlib.compress(json_str.encode('utf-8'))
                 except Exception as e:
                     print(f"⚠️ [保存警告] 筹码矩阵压缩失败: {e}")
                     self.matrix_data = {'matrix': chip_matrix_list}
-            
             # 8. 计算持有时间因子
             self._calculate_holding_factors_from_dynamics(dynamics_result)
-            
             # 9. 保存状态与提交
             self.calc_status = 'success'
             self.analysis_method = 'advanced_dynamics_v2'
             self.used_percent_data = True
-            
             # 保存所有字段
             self.save()
             return True
-            
         except Exception as e:
             print(f"❌ [保存动态分析] 失败: {e}")
             import traceback
@@ -1136,12 +1071,10 @@ class ChipHoldingMatrixBase(models.Model):
         """创建默认的关键博弈区域，确保浮点数保留3位小数"""
         if not price_grid or current_price <= 0:
             return []
-        
         # 找到当前价附近的三个价格点
         price_array = np.array(price_grid)
         distances = np.abs(price_array - current_price)
         nearest_indices = np.argsort(distances)[:3]
-        
         zones = []
         for idx in nearest_indices:
             price = price_array[idx]
@@ -1489,27 +1422,7 @@ class ChipHoldingMatrixBase(models.Model):
             return 0.3  # 虚假信号，质量较低
         else:
             return 0.5 + concentration_score * 0.5
-    
-    def _calculate_trend_score(self) -> float:
-        """基于能量场的趋势评分"""
-        # 基础评分：净能量流向
-        if self.net_energy_flow > 10:
-            direction_score = min(1.0, self.net_energy_flow / 50.0)
-        elif self.net_energy_flow < -10:
-            direction_score = -min(1.0, abs(self.net_energy_flow) / 50.0)
-        else:
-            direction_score = 0.0
-        # 能量集中度决定趋势可靠性
-        reliability_score = self.energy_concentration
-        # 博弈强度决定趋势持续性
-        sustainability_score = min(1.0, self.game_intensity * 1.5)
-        # 综合评分
-        trend_score = (direction_score + 1) / 2 * 0.4 + reliability_score * 0.3 + sustainability_score * 0.3
-        # 虚假派发修正：如果是虚假派发，实际趋势可能比显示的要强
-        if self.fake_distribution_flag:
-            trend_score = min(1.0, trend_score * 1.2)
-        return round(trend_score, 3)
-    
+
     def _calculate_breakout_probability(self) -> float:
         """基于能量场的突破概率"""
         if self.breakout_potential < 20:
@@ -1524,58 +1437,6 @@ class ChipHoldingMatrixBase(models.Model):
         flow_bonus = min(0.2, max(0, self.net_energy_flow / 100))
         total_prob = base_prob + concentration_bonus + intensity_bonus + flow_bonus
         return round(min(1.0, total_prob), 3)
-
-    def get_holding_matrix(self) -> np.ndarray:
-        """
-        获取持有时间矩阵（兼容方法）
-        """
-        try:
-            if self.compressed_matrix:
-                matrix_bytes = base64.b64decode(self.compressed_matrix)
-                return pickle.loads(matrix_bytes)
-            elif self.matrix_data:
-                return np.array(self.matrix_data.get('matrix', []))
-            return np.array([])
-        except Exception as e:
-            print(f"加载持有矩阵失败: {e}")
-            return np.array([])
-    
-    def get_percent_change_matrix(self) -> np.ndarray:
-        """获取百分比变化矩阵"""
-        try:
-            if self.percent_change_matrix:
-                return np.array(self.percent_change_matrix)
-            return np.array([])
-        except Exception as e:
-            print(f"加载百分比变化矩阵失败: {e}")
-            return np.array([])
-    
-    def get_signals_summary(self) -> Dict[str, Any]:
-        """获取信号摘要"""
-        summary = {
-            'accumulation_detected': False,
-            'distribution_detected': False,
-            'main_force_activity': 0.0,
-            'signal_quality': 0.0,
-            'net_migration': 0.0,
-            'convergence_score': 0.5
-        }
-        try:
-            if self.behavior_patterns:
-                accumulation = self.behavior_patterns.get('accumulation', {})
-                distribution = self.behavior_patterns.get('distribution', {})
-                summary['accumulation_detected'] = accumulation.get('detected', False)
-                summary['distribution_detected'] = distribution.get('detected', False)
-                summary['main_force_activity'] = self.behavior_patterns.get('main_force_activity', 0.0)
-            if self.absolute_change_signals:
-                summary['signal_quality'] = self.absolute_change_signals.get('signal_quality', 0.0)
-            if self.migration_patterns:
-                summary['net_migration'] = self.migration_patterns.get('net_migration_direction', 0.0)
-            if self.convergence_metrics:
-                summary['convergence_score'] = self.convergence_metrics.get('comprehensive_convergence', 0.5)
-        except Exception as e:
-            print(f"获取信号摘要失败: {e}")
-        return summary
 
 # 分表模型
 class ChipHoldingMatrix_SZ(ChipHoldingMatrixBase):

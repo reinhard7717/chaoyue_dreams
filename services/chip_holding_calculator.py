@@ -1039,11 +1039,6 @@ class GameEnergyCalculator:
                 return result
             # 3. 计算博弈能量场
             energy_result = self._calculate_energy_field(latest_change, price_grid, reference_price, close_price)
-            # 4. 如果能量场结果无效，返回默认值
-            if energy_result.get('absorption_energy', 0) == 0 and energy_result.get('distribution_energy', 0) == 0:
-                pass
-            else:
-                print(f"✅ [探针] 能量场计算结果: absorption={energy_result['absorption_energy']:.4f}, distribution={energy_result['distribution_energy']:.4f}")
             # 5. 判断虚假派发（只有在有成交量数据时才判断）
             fake_distribution = False
             if volume_history is not None and len(volume_history) > 5:
@@ -1211,8 +1206,6 @@ class GameEnergyCalculator:
             energy_result['game_intensity'] = max(0.01, energy_result.get('game_intensity', 0.01))
             energy_result['breakout_potential'] = max(0.1, energy_result.get('breakout_potential', 0.1))
             energy_result['energy_concentration'] = max(0.1, energy_result.get('energy_concentration', 0.1))
-        else:
-            print(f"   无需修正，能量值不为0")
         return energy_result
 
     def _detect_fake_distribution(self, changes: np.ndarray, price_grid: np.ndarray, 
@@ -1318,7 +1311,6 @@ class GameEnergyCalculator:
 
     def _identify_key_battle_zones(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> List[Dict]:
         """调试版的关键博弈区域识别"""
-        print(f"🔍 [探针-关键区域] {stock_code} {trade_date} 开始识别关键博弈区域")
         battle_zones = []
         min_intensity = 0.5  # 最小强度阈值
         try:
