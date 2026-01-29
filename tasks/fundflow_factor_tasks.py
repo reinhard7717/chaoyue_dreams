@@ -392,28 +392,42 @@ def get_daily_basic_data(stock_code: str, trade_date: date) -> Optional[Dict]:
     stock_time_trade_dao = StockTimeTradeDAO(CacheManager())
     try:
         # 查询日线数据
-        daily_data = stock_time_trade_dao.get_daily_data_by_date(stock_code, trade_date)
-        if daily_data:
-            # 转换为字典格式
+        # 修正1: DAO方法是异步的，需使用 async_to_sync 转换
+        # 修正2: 原 get_daily_data_by_date 方法在DAO中存在 bug (NameError)，改用 get_stocks_daily_data 获取完整模型对象
+        daily_data_list = async_to_sync(stock_time_trade_dao.get_stocks_daily_data)([stock_code], trade_date)
+        
+        if daily_data_list:
+            daily_obj = daily_data_list[0]
+            def safe_float(val):
+                if val is not None:
+                    try:
+                        return float(val)
+                    except (ValueError, TypeError):
+                        return None
+                return None
             basic_dict = {
-                'close': float(daily_data.close) if daily_data.close else None,
-                'amount': float(daily_data.amount) if daily_data.amount else None,
-                'vol': float(daily_data.vol) if daily_data.vol else None,
-                'turnover_rate': float(daily_data.turnover_rate) if daily_data.turnover_rate else None,
-                # 可以根据需要添加更多字段
+                'close': safe_float(daily_obj.close),
+                'amount': safe_float(daily_obj.amount),
+                'vol': safe_float(daily_obj.vol),
+                # turnover_rate 可能在 daily 表也可能在 basic 表
+                'turnover_rate': safe_float(getattr(daily_obj, 'turnover_rate', None)),
             }
             # 尝试获取StockDailyBasic数据
-            basic_model = stock_time_trade_dao.get_stock_daily_basic_by_date(stock_code, trade_date)
+            # 修正: DAO方法是异步的，需使用 async_to_sync 转换
+            basic_model = async_to_sync(stock_time_trade_dao.get_stock_daily_basic_by_date)(stock_code, trade_date)
             if basic_model:
                 basic_dict.update({
-                    'turnover_rate_f': float(basic_model.turnover_rate_f) if basic_model.turnover_rate_f else None,
-                    'volume_ratio': float(basic_model.volume_ratio) if basic_model.volume_ratio else None,
-                    'pe': float(basic_model.pe) if basic_model.pe else None,
-                    'pe_ttm': float(basic_model.pe_ttm) if basic_model.pe_ttm else None,
-                    'pb': float(basic_model.pb) if basic_model.pb else None,
-                    'total_mv': float(basic_model.total_mv) if basic_model.total_mv else None,
-                    'circ_mv': float(basic_model.circ_mv) if basic_model.circ_mv else None,
+                    'turnover_rate_f': safe_float(basic_model.turnover_rate_f),
+                    'volume_ratio': safe_float(basic_model.volume_ratio),
+                    'pe': safe_float(basic_model.pe),
+                    'pe_ttm': safe_float(basic_model.pe_ttm),
+                    'pb': safe_float(basic_model.pb),
+                    'total_mv': safe_float(basic_model.total_mv),
+                    'circ_mv': safe_float(basic_model.circ_mv),
                 })
+                # 如果 daily 数据中没有 turnover_rate，尝试从 basic 数据中获取
+                if basic_dict['turnover_rate'] is None:
+                    basic_dict['turnover_rate'] = safe_float(getattr(basic_model, 'turnover_rate', None))
             return basic_dict
         return None
     except Exception as e:
@@ -424,7 +438,8 @@ def get_1min_data(stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
     """获取1分钟数据"""
     stock_time_trade_dao = StockTimeTradeDAO(CacheManager())
     try:
-        df = stock_time_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date)
+        # 修正: DAO方法是异步的，需使用 async_to_sync 转换
+        df = async_to_sync(stock_time_trade_dao.get_1_min_kline_time_by_day)(stock_code, trade_date)
         if df is None:
             return None
         return df
