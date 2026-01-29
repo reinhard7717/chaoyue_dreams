@@ -1527,11 +1527,27 @@ class GameEnergyCalculator:
         absorption_ratio = absorption / total_energy
         return concentration * (0.5 + absorption_ratio * 0.5)
     
-    def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
-        """调试版的能量指标计算"""
+    def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, 
+                                         current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
+        """调试版的能量指标计算 - 优化突破势能"""
         print(f"🔍 [探针-指标] {stock_code} {trade_date} 开始计算能量指标")
         
-        # 1. 博弈强度（活跃区域比例）
+        # 1. 计算能量集中度（先计算，因为后面会用到）
+        abs_changes = np.abs(changes)
+        total_energy = np.sum(abs_changes)
+        energy_concentration = 0.0
+        if total_energy > 0:
+            # 计算top 20%的变化占比
+            sorted_indices = np.argsort(abs_changes)[::-1]
+            top_count = max(1, int(len(changes) * 0.2))
+            top_energy = np.sum(abs_changes[sorted_indices[:top_count]])
+            energy_concentration = top_energy / total_energy
+            print(f"🔍 [探针-指标] {stock_code} {trade_date} 能量集中度: 总能量={total_energy:.4f}, 前20%能量={top_energy:.4f}, "
+                  f"集中度={energy_concentration:.4f}")
+        else:
+            print(f"🔍 [探针-指标] {stock_code} {trade_date} 能量集中度: 总能量为0")
+        
+        # 2. 博弈强度（活跃区域比例）
         active_threshold = 0.2  # 变化绝对值大于0.2%的区域
         active_mask = np.abs(changes) > active_threshold
         active_count = np.sum(active_mask)
@@ -1539,7 +1555,7 @@ class GameEnergyCalculator:
         game_intensity = active_count / total_count * 2.0 if total_count > 0 else 0
         print(f"🔍 [探针-指标] {stock_code} {trade_date} 博弈强度: 活跃区域={active_count}/{total_count}, 强度={game_intensity:.4f}")
         
-        # 2. 优化突破势能计算（A股特性）
+        # 3. 优化突破势能计算（A股特性）
         above_mask = price_grid > current_price
         below_mask = price_grid < current_price
         
@@ -1585,22 +1601,7 @@ class GameEnergyCalculator:
             breakout_potential *= (1 + energy_concentration)
         
         print(f"🔍 [探针-指标] {stock_code} {trade_date} 突破势能结果: {breakout_potential:.4f} "
-              f"(支撑强度={support_strength:.2f}, 净上方能量={net_above:.4f})")
-        
-        # 3. 能量集中度
-        abs_changes = np.abs(changes)
-        total_energy = np.sum(abs_changes)
-        if total_energy > 0:
-            # 计算top 20%的变化占比
-            sorted_indices = np.argsort(abs_changes)[::-1]
-            top_count = max(1, int(len(changes) * 0.2))
-            top_energy = np.sum(abs_changes[sorted_indices[:top_count]])
-            energy_concentration = top_energy / total_energy
-        else:
-            energy_concentration = 0
-        
-        print(f"🔍 [探针-指标] {stock_code} {trade_date} 能量集中度: 总能量={total_energy:.4f}, 前20%能量={top_energy:.4f}, "
-              f"集中度={energy_concentration:.4f}")
+              f"(支撑强度={support_strength:.2f}, 净上方能量={net_above:.4f}, 集中度加成={energy_concentration:.2f})")
         
         return game_intensity, breakout_potential, energy_concentration
 
