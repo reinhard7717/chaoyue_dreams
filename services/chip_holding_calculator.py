@@ -825,7 +825,7 @@ class DirectAccumulationDistributionCalculator:
         # 判断是否连阳
         is_continuous_up = False
         if len(price_history) >= 5:
-            recent_closes = price_history['close'].values[-5:]
+            recent_closes = price_history['close_qfq'].values[-5:]
             recent_up_days = sum([1 for i in range(1, len(recent_closes)) 
                                  if recent_closes[i] > recent_closes[i-1]])
             is_continuous_up = recent_up_days >= 4  # 5天4阳
@@ -833,7 +833,7 @@ class DirectAccumulationDistributionCalculator:
         # 这里简化：检查是否在近期均价附近
         is_near_ma = False
         if len(price_history) >= 20:
-            ma20 = price_history['close'].rolling(20).mean().iloc[-1]
+            ma20 = price_history['close_qfq'].rolling(20).mean().iloc[-1]
             ma_distance = abs((current_price - ma20) / ma20)
             is_near_ma = ma_distance < 0.03  # 距离MA20在3%以内
         # 虚假派发识别条件
@@ -844,7 +844,7 @@ class DirectAccumulationDistributionCalculator:
         # 条件2：连阳后首日调整
         if is_continuous_up and ad_result['distribution_volume'] > 0:
             # 检查是否为上涨趋势中的正常回调
-            prev_close = price_history['close'].iloc[-2] if len(price_history) > 1 else current_price
+            prev_close = price_history['close_qfq'].iloc[-2] if len(price_history) > 1 else current_price
             if current_price > prev_close * 0.97:  # 跌幅小于3%
                 false_distribution_conditions.append('连阳后回调')
         # 条件3：重要均线支撑处的派发
