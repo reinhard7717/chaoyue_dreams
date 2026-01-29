@@ -329,8 +329,8 @@ class AdvancedChipDynamicsService:
         mask_resistance = (price_grid > current_price) & (price_grid <= current_price * 1.05)
         metrics['resistance_strength'] = np.sum(current_chip_dist[mask_resistance]) / total_percent
         if not price_history.empty and len(price_history) >= 10:
-            recent_low = float(price_history['low'].min())
-            recent_high = float(price_history['high'].max())
+            recent_low = float(price_history['low_qfq'].min())
+            recent_high = float(price_history['high_qfq'].max())
             mask_released = (price_grid >= recent_high * 1.05) | (price_grid <= recent_low * 0.95)
             metrics['pressure_release'] = np.sum(current_chip_dist[mask_released]) / total_percent
         else:
