@@ -34,9 +34,9 @@ class AdvancedChipDynamicsService:
         # 中国A股特定参数
         # 修正：降低阈值以适应 200 格的价格粒度 (平均每格仅 0.5%)
         self.params = {
-            'significant_change_threshold': 0.5,  # 显著变化阈值（%）原 2.0
-            'noise_threshold': 0.1,              # 噪声阈值（%）原 1.0
-            'institution_min_change': 1.0,       # 机构行为最小变化（%）原 5.0
+            'significant_change_threshold': 1,  # 显著变化阈值（%）原 2.0
+            'noise_threshold': 0.2,              # 噪声阈值（%）原 1.0
+            'institution_min_change': 2.0,       # 机构行为最小变化（%）原 5.0
             'main_force_concentration': 0.3,     # 主力控盘集中度阈值
             'retail_scatter_threshold': 0.7,     # 散户分散阈值
             'accumulation_days': 5,              # 吸筹天数判定
@@ -981,13 +981,14 @@ class GameEnergyCalculator:
     
     def __init__(self, market_type='A'):
         self.market_type = market_type
+        # 修改参数：降低阈值，让更多变化被计入
         self.params = {
-            'absorption_threshold': 0.3,     # 吸收阈值(%)
-            'distribution_threshold': 0.3,   # 派发阈值(%)
-            'energy_decay_rate': 0.85,       # 能量衰减率(日)
-            'game_intensity_weight': 1.5,    # 博弈强度权重
-            'breakout_acceleration': 2.0,    # 突破加速因子
-            'fake_distribution_discount': 0.6,  # 虚假派发折扣
+            'absorption_threshold': 0.1,      # 降低到0.1%（原0.3）
+            'distribution_threshold': 0.1,    # 降低到0.1%（原0.3）
+            'energy_decay_rate': 0.85,
+            'game_intensity_weight': 1.5,
+            'breakout_acceleration': 2.0,
+            'fake_distribution_discount': 0.6,
         }
     
     def calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, volume_history: pd.Series = None) -> Dict[str, Any]:
