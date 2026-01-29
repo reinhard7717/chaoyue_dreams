@@ -1,17 +1,14 @@
 # tasks\chip_factor_tasks.py
 from chaoyue_dreams.celery import app as celery_app
 from django.apps import apps
-from celery.result import AsyncResult
-from django.utils import timezone
-from django.db import transaction
-from django.db.models import Q
+from celery import group, chain, chord
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, date
 import asyncio
 from asgiref.sync import sync_to_async, async_to_sync
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.chip_holding_calculator import AdvancedChipDynamicsService
 import time
