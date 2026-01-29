@@ -40,7 +40,7 @@ def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batc
         batch_size: 每批处理的股票数量
         incremental: 是否为增量模式（默认True）
     """
-    stock_basic_dao = StockBasicInfoDao()
+    stock_basic_dao = StockBasicInfoDao(CacheManager)
     try:
         # 获取所有有效的股票代码
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
@@ -534,7 +534,7 @@ def update_fundflow_factors_daily(self):
     """
     每日更新任务：更新最新交易日的资金流向因子
     """
-    stock_basic_dao = StockBasicInfoDao()
+    stock_basic_dao = StockBasicInfoDao(CacheManager)
     try:
         # 获取最新的交易日
         latest_trade_date = TradeCalendar.get_latest_trade_date(
