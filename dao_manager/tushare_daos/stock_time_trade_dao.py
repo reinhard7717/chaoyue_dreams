@@ -161,6 +161,31 @@ class StockTimeTradeDAO(BaseDAO):
             logger.error(f"[DAO] 获取 {stock_code} 日线数据范围查询时发生错误: {e}", exc_info=True)
             return pd.DataFrame()
 
+    async def get_daily_data_by_date(self, stock_code: str, trade_date: str) -> pd.DataFrame:
+        """
+        【V1.1 - 字段补全版】
+        """
+        # print(f"[DAO] StockTimeTradeDAO.get_daily_data: 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的数据...")
+        try:
+            model_class = get_daily_data_model_by_code(stock_code)
+            start_dt = datetime.strptime(start_date, '%Y%m%d').date()
+            end_dt = datetime.strptime(end_date, '%Y%m%d').date()
+            queryset = model_class.objects.filter(stock__stock_code=stock_code, trade_time=trade_date).first()
+            # [修正] 在 .values() 中增加 'open_qfq' 字段
+            data_list = [item async for item in queryset.values('trade_time', 'open_qfq', 'close_qfq', 'high_qfq', 'low_qfq')]
+            if not data_list:
+                logger.warning(f"[DAO] 未能在 {model_class.__name__} 表中找到 {stock_code} 在 {start_date}-{end_date} 期间的日线数据。")
+                return pd.DataFrame()
+            df = pd.DataFrame(data_list)
+            # [修正] 增加对 'open_qfq' 的重命名
+            df.rename(columns={'open_qfq': 'open', 'close_qfq': 'close', 'high_qfq': 'high', 'low_qfq': 'low'}, inplace=True)
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df.set_index('trade_time', inplace=True)
+            return df
+        except Exception as e:
+            logger.error(f"[DAO] 获取 {stock_code} 日线数据范围查询时发生错误: {e}", exc_info=True)
+            return pd.DataFrame()
+
     async def get_latest_daily_quote(self, stock_code: str) -> Optional[Dict]:
         """
         【V1.0 - 新增】

@@ -392,7 +392,7 @@ def get_daily_basic_data(stock_code: str, trade_date: date) -> Optional[Dict]:
     stock_time_trade_dao = StockTimeTradeDAO(CacheManager())
     try:
         # 查询日线数据
-        daily_data = stock_time_trade_dao.get_daily_data(stock_code, trade_date)
+        daily_data = stock_time_trade_dao.get_daily_data_by_date(stock_code, trade_date)
         if daily_data:
             # 转换为字典格式
             basic_dict = {
