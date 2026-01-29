@@ -69,7 +69,7 @@ def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batc
         logger.error(f"调度资金流向因子计算失败: {e}", exc_info=True)
         raise self.retry(exc=e)
 
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=30)
+@celery_app.task(bind=True, name='tasks.fundflow_factor_tasks.calculate_fundflow_factors_for_stock', queue="calculator")
 def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: str = None, incremental: bool = True):
     """
     计算单只股票的资金流向因子
@@ -106,8 +106,7 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
             batch_start = batch_idx * batch_size
             batch_end = min((batch_idx + 1) * batch_size, len(trade_dates))
             batch_dates = trade_dates[batch_start:batch_end]
-            print(f"计算股票 {stock_code} 第 {batch_idx+1}/{total_batches} 批，"
-                       f"共 {len(batch_dates)} 个交易日")
+            print(f"计算股票 {stock_code} 第 {batch_idx+1}/{total_batches} 批，共 {len(batch_dates)} 个交易日")
             # 计算本批日期的因子
             batch_calculated, batch_failed = calculate_factor_batch(
                 stock_code, batch_dates, factor_model
