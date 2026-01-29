@@ -32,7 +32,7 @@ from stock_models.time_trade import StockDailyBasic
 logger = logging.getLogger(__name__)
 
 @celery_app.task(bind=True, name='tasks.fundflow_factor_tasks.schedule_fundflow_factors_calculation', queue="calculator")
-def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batch_size: int = 100, incremental: bool = True):
+def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batch_size: int = 10, incremental: bool = True):
     """
     调度任务：调度所有股票的资金流向因子计算
     Args:
@@ -45,7 +45,7 @@ def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batc
         # 获取所有有效的股票代码
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         total_stocks = len(all_stocks)
-        logger.info(f"开始调度资金流向因子计算，共 {total_stocks} 只股票")
+        print(f"开始调度资金流向因子计算，共 {total_stocks} 只股票")
         # 分批处理股票
         for i in range(0, total_stocks, batch_size):
             batch_stocks = list(all_stocks[i:i+batch_size])
@@ -57,9 +57,9 @@ def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batc
                     start_date_str=start_date_str,
                     incremental=incremental
                 )
-            logger.info(f"已调度第 {i//batch_size + 1} 批股票，共 {len(batch_stocks)} 只")
+            print(f"已调度第 {i//batch_size + 1} 批股票，共 {len(batch_stocks)} 只")
             time.sleep(1)  # 避免消息队列过载
-        logger.info(f"资金流向因子计算调度完成，共调度 {total_stocks} 只股票")
+        print(f"资金流向因子计算调度完成，共调度 {total_stocks} 只股票")
         return {
             'status': 'success',
             'message': f'已调度 {total_stocks} 只股票的计算任务',
@@ -79,7 +79,7 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
         incremental: 是否为增量模式
     """
     try:
-        logger.info(f"开始计算股票 {stock_code} 的资金流向因子")
+        print(f"开始计算股票 {stock_code} 的资金流向因子")
         # 1. 确定计算开始日期
         start_date = None
         if start_date_str:
@@ -89,14 +89,14 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
         # 3. 获取该股票的交易日历
         trade_dates = get_trade_dates_for_stock(stock_code, start_date, incremental, factor_model)
         if not trade_dates:
-            logger.info(f"股票 {stock_code} 无需计算资金流向因子")
+            print(f"股票 {stock_code} 无需计算资金流向因子")
             return {
                 'status': 'success',
                 'message': f'股票 {stock_code} 无需计算',
                 'stock_code': stock_code,
                 'calculated_dates': 0
             }
-        logger.info(f"股票 {stock_code} 需要计算 {len(trade_dates)} 个交易日的因子")
+        print(f"股票 {stock_code} 需要计算 {len(trade_dates)} 个交易日的因子")
         # 4. 分批计算（每50个交易日一批）
         batch_size = 50
         total_batches = (len(trade_dates) + batch_size - 1) // batch_size
@@ -106,7 +106,7 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
             batch_start = batch_idx * batch_size
             batch_end = min((batch_idx + 1) * batch_size, len(trade_dates))
             batch_dates = trade_dates[batch_start:batch_end]
-            logger.info(f"计算股票 {stock_code} 第 {batch_idx+1}/{total_batches} 批，"
+            print(f"计算股票 {stock_code} 第 {batch_idx+1}/{total_batches} 批，"
                        f"共 {len(batch_dates)} 个交易日")
             # 计算本批日期的因子
             batch_calculated, batch_failed = calculate_factor_batch(
@@ -127,7 +127,7 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
         if failed_dates:
             logger.warning(f"股票 {stock_code} 计算完成，但有 {len(failed_dates)} 个交易日失败")
         else:
-            logger.info(f"股票 {stock_code} 计算完成，共计算 {calculated_count} 个交易日")
+            print(f"股票 {stock_code} 计算完成，共计算 {calculated_count} 个交易日")
         return result
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 资金流向因子失败: {e}", exc_info=True)
@@ -178,7 +178,7 @@ def get_trade_dates_for_stock(stock_code: str, start_date: date,incremental: boo
             return []
         # 确保开始日期不晚于最新交易日
         if calc_start_date > latest_trade_date:
-            logger.info(f"股票 {stock_code} 开始日期 {calc_start_date} 晚于最新交易日 {latest_trade_date}")
+            print(f"股票 {stock_code} 开始日期 {calc_start_date} 晚于最新交易日 {latest_trade_date}")
             return []
         # 获取开始日期到最新交易日之间的所有交易日
         all_trade_dates = TradeCalendar.get_trade_dates_between(
@@ -187,7 +187,7 @@ def get_trade_dates_for_stock(stock_code: str, start_date: date,incremental: boo
             exchange=exchange
         )
         if not all_trade_dates:
-            logger.info(f"股票 {stock_code} 在 {calc_start_date} 到 {latest_trade_date} 之间没有交易日")
+            print(f"股票 {stock_code} 在 {calc_start_date} 到 {latest_trade_date} 之间没有交易日")
             return []
         # 每隔50个交易日取一个（节省计算资源）
         sampled_dates = all_trade_dates[::50]
@@ -544,11 +544,11 @@ def update_fundflow_factors_daily(self):
         if not latest_trade_date:
             logger.warning("无法获取最新交易日")
             return {'status': 'failed', 'message': '无法获取最新交易日'}
-        logger.info(f"开始更新 {latest_trade_date} 的资金流向因子")
+        print(f"开始更新 {latest_trade_date} 的资金流向因子")
         # 获取所有有效的股票代码
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         total_stocks = len(all_stocks)
-        logger.info(f"需要更新 {total_stocks} 只股票的资金流向因子")
+        print(f"需要更新 {total_stocks} 只股票的资金流向因子")
         # 批量处理股票
         batch_size = 50
         successful = 0
@@ -578,7 +578,7 @@ def update_fundflow_factors_daily(self):
                 except Exception as e:
                     logger.error(f"更新股票 {stock_code} 资金流向因子失败: {e}")
                     failed.append(stock_code)
-            logger.info(f"已更新第 {i//batch_size + 1} 批股票，成功: {successful}, 失败: {len(failed)}")
+            print(f"已更新第 {i//batch_size + 1} 批股票，成功: {successful}, 失败: {len(failed)}")
             time.sleep(0.5)  # 避免过载
         result = {
             'status': 'success',
@@ -589,7 +589,7 @@ def update_fundflow_factors_daily(self):
             'failed': len(failed),
             'failed_stocks': failed if failed else None
         }
-        logger.info(f"每日资金流向因子更新完成: {result}")
+        print(f"每日资金流向因子更新完成: {result}")
         return result
     except Exception as e:
         logger.error(f"每日更新资金流向因子失败: {e}", exc_info=True)
@@ -614,7 +614,7 @@ def test_fundflow_factor_calculation(stock_code: str = '000001.SZ', test_date_st
             )
         if not test_date:
             return {'status': 'failed', 'message': '无法获取测试日期'}
-        logger.info(f"测试股票 {stock_code} 在 {test_date} 的资金流向因子计算")
+        print(f"测试股票 {stock_code} 在 {test_date} 的资金流向因子计算")
         # 获取因子模型
         factor_model = get_fundflow_factor_model_by_code(stock_code)
         # 计算因子
