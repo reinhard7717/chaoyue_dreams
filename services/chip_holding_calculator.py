@@ -102,12 +102,13 @@ class AdvancedChipDynamicsService:
                 price_grid
             )
             # 10. 计算博弈能量场
-            print(f"🔍 [探针-开始] 计算博弈能量场: {stock_code} - {trade_date}")
             game_energy_result = self._calculate_game_energy(
                 percent_change_matrix,
                 price_grid,
                 chip_data['current_price'],
-                chip_data['price_history']  # 需要包含成交量数据
+                chip_data['price_history'],  # 需要包含成交量数据
+                stock_code,
+                trade_date
             )
             # 11. 计算直接吸收/派发（用于交叉验证）
             direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(
@@ -496,7 +497,12 @@ class AdvancedChipDynamicsService:
             metrics['divergence_strength'] = min(1.0, abs(net_change_direction) / 100.0)
         return metrics
 
-    def _calculate_game_energy(self, percent_change_matrix: np.ndarray,price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, Any]:
+    def _calculate_game_energy(self, percent_change_matrix: np.ndarray,
+                             price_grid: np.ndarray,
+                             current_price: float,
+                             price_history: pd.DataFrame,
+                             stock_code: str = "",
+                             trade_date: str = "") -> Dict[str, Any]:
         """计算博弈能量场"""
         # 提取成交量历史
         volume_history = None
@@ -507,7 +513,9 @@ class AdvancedChipDynamicsService:
             percent_change_matrix,
             price_grid,
             current_price,
-            volume_history
+            volume_history,
+            stock_code,
+            trade_date
         )
         return energy_result
 
@@ -992,11 +1000,16 @@ class GameEnergyCalculator:
             'fake_distribution_discount': 0.6,
         }
     
-    def calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, volume_history: pd.Series = None) -> Dict[str, Any]:
+    def calculate_game_energy(self, percent_change_matrix: np.ndarray,
+                            price_grid: np.ndarray,
+                            current_price: float,
+                            volume_history: pd.Series = None,
+                            stock_code: str = "",
+                            trade_date: str = "") -> Dict[str, Any]:
         """
         计算博弈能量场 - 修复空数据问题
         """
-        print(f"🔍 [探针-开始] 计算博弈能量场")
+        print(f"🔍 [探针-开始] 计算博弈能量场 股票：{stock_code} 日期：{trade_date}")
         print(f"   输入数据: 变化矩阵形状={percent_change_matrix.shape}, 价格网格长度={len(price_grid)}, 当前价={current_price}")
         
         if percent_change_matrix.shape[0] == 0 or len(price_grid) == 0 or current_price <= 0:
