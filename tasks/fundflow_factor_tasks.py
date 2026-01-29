@@ -25,6 +25,7 @@ from utils.model_helpers import (
 )
 from services.fundflow_calculator import FundFlowFactorCalculator, CalculationContext
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from utils.cache_manager import CacheManager
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockDailyBasic
@@ -273,9 +274,10 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
     """
     计算单个日期的资金流向因子
     """
+    stock_basic_dao = StockBasicInfoDao(CacheManager())
     try:
         # 1. 获取股票基本信息
-        stock_info = StockInfo.objects.filter(stock_code=stock_code).first()
+        stock_info = stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
             logger.warning(f"股票 {stock_code} 不存在")
             return False
@@ -387,18 +389,10 @@ def get_current_flow_data(stock_code: str, trade_date: date) -> Optional[Dict]:
 
 def get_daily_basic_data(stock_code: str, trade_date: date) -> Optional[Dict]:
     """获取每日基本信息"""
+    stock_time_trade_dao = StockTimeTradeDAO(cache_manager=CacheManager())
     try:
-        # 获取对应的日线数据模型
-        daily_model = get_daily_data_model_by_code(stock_code)
-        # 获取股票信息
-        stock_info = StockInfo.objects.filter(stock_code=stock_code).first()
-        if not stock_info:
-            return None
         # 查询日线数据
-        daily_data = daily_model.objects.filter(
-            stock=stock_info,
-            trade_date=trade_date
-        ).first()
+        daily_data = stock_time_trade_dao.get_daily_data(stock_code, trade_date)
         if daily_data:
             # 转换为字典格式
             basic_dict = {
@@ -409,10 +403,7 @@ def get_daily_basic_data(stock_code: str, trade_date: date) -> Optional[Dict]:
                 # 可以根据需要添加更多字段
             }
             # 尝试获取StockDailyBasic数据
-            basic_model = StockDailyBasic.objects.filter(
-                stock=stock_info,
-                trade_time=trade_date
-            ).first()
+            basic_model = stock_time_trade_dao.get_stock_daily_basic_by_date(stock_code, trade_date)
             if basic_model:
                 basic_dict.update({
                     'turnover_rate_f': float(basic_model.turnover_rate_f) if basic_model.turnover_rate_f else None,
@@ -431,10 +422,12 @@ def get_daily_basic_data(stock_code: str, trade_date: date) -> Optional[Dict]:
 
 def get_1min_data(stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
     """获取1分钟数据"""
+    stock_time_trade_dao = StockTimeTradeDAO(cache_manager=CacheManager())
     try:
-        # 这里可以使用已有的StockTimeTradeDAO获取1分钟数据
-        # 暂时返回None，后续可以根据需要实现
-        return None
+        df = stock_time_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date)
+        if df is None:
+            return None
+        return df
     except Exception as e:
         logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的1分钟数据失败: {e}")
         return None
