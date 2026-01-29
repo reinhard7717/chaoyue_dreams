@@ -1062,7 +1062,7 @@ class GameEnergyCalculator:
                 fake_distribution = self._detect_fake_distribution(latest_change, price_grid, reference_price, volume_history)
             else:
                 # 没有成交量数据时，基于价格变化判断
-                fake_distribution = self._detect_fake_distribution_advanced(latest_change, price_grid, reference_price)
+                fake_distribution = self._detect_fake_distribution_advanced(latest_change, price_grid, reference_price, close_price)
             
             energy_result['fake_distribution_flag'] = fake_distribution
             print(f"🔍 [探针] 虚假派发标志: {fake_distribution}")
