@@ -168,8 +168,6 @@ class StockTimeTradeDAO(BaseDAO):
         # print(f"[DAO] StockTimeTradeDAO.get_daily_data: 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的数据...")
         try:
             model_class = get_daily_data_model_by_code(stock_code)
-            start_dt = datetime.strptime(start_date, '%Y%m%d').date()
-            end_dt = datetime.strptime(end_date, '%Y%m%d').date()
             queryset = model_class.objects.filter(stock__stock_code=stock_code, trade_time=trade_date).first()
             # [修正] 在 .values() 中增加 'open_qfq' 字段
             data_list = [item async for item in queryset.values('trade_time', 'open_qfq', 'close_qfq', 'high_qfq', 'low_qfq')]
