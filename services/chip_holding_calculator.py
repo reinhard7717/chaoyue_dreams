@@ -1182,12 +1182,12 @@ class GameEnergyCalculator:
             distribution_energy = distribution_advanced
             
             # 6. 计算其他能量指标（基于参考价格）
-            game_intensity, breakout_potential, energy_concentration = self._calculate_energy_indicators_debug(
+            game_intensity, breakout_potential, energy_concentration = self._calculate_energy_indicators(
                 changes, price_grid, reference_price, stock_code, trade_date
             )
             
             # 7. 关键博弈区域
-            key_battle_zones = self._identify_key_battle_zones_debug(changes, price_grid, reference_price, stock_code, trade_date)
+            key_battle_zones = self._identify_key_battle_zones(changes, price_grid, reference_price, stock_code, trade_date)
             
             result = {
                 'absorption_energy': min(100, max(0.01, absorption_energy)),  # 最小0.01
