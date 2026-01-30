@@ -17,26 +17,27 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_chip_entropy(price_percent_dict: Dict[float, float]) -> float:
         """
-        计算筹码分布熵值
+        计算筹码分布熵值 - 向量化优化版 v1.1
         公式: -∑(p_i * ln(p_i))
-        Args:
-            price_percent_dict: 价格-占比字典 {price: percent}
-        Returns:
-            float: 熵值
+        修改思路：使用Numpy向量化替代Python循环，提升计算效率。
         """
         try:
-            # 确保占比和为1
-            total = sum(price_percent_dict.values())
+            if not price_percent_dict:
+                return 0.0
+            # 转换为numpy数组
+            percents = np.array(list(price_percent_dict.values()))
+            total = np.sum(percents)
             if total <= 0:
                 return 0.0
             # 归一化
-            normalized_percents = {p: v/total for p, v in price_percent_dict.items()}
-            # 计算熵值
-            entropy = 0.0
-            for percent in normalized_percents.values():
-                if percent > 0:
-                    entropy -= percent * np.log(percent)
-            return entropy
+            normalized_percents = percents / total
+            # 过滤掉0值以避免log(0)
+            valid_percents = normalized_percents[normalized_percents > 0]
+            if len(valid_percents) == 0:
+                return 0.0
+            # 向量化计算熵值
+            entropy = -np.sum(valid_percents * np.log(valid_percents))
+            return float(entropy)
         except Exception as e:
             logger.error(f"计算筹码熵值失败: {e}")
             return 0.0
@@ -44,37 +45,41 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_chip_skewness_kurtosis(price_percent_dict: Dict[float, float]) -> Tuple[float, float, float, float]:
         """
-        计算筹码分布的均值、标准差、偏度和峰度
-        Args:
-            price_percent_dict: 价格-占比字典
-        Returns:
-            Tuple[mean, std, skewness, kurtosis]
+        计算筹码分布的均值、标准差、偏度和峰度 - Numpy优化版 v1.1
+        修改思路：
+        1. 转换为Numpy数组。
+        2. 复用去均值后的差异数组，减少重复的幂运算。
+        3. 增加鲁棒性检查。
         """
         try:
             if not price_percent_dict:
                 return 0.0, 0.0, 0.0, 0.0
-            # 转换为数组
-            prices = list(price_percent_dict.keys())
-            percents = list(price_percent_dict.values())
-            # 归一化
-            total = sum(percents)
+            # 转换为numpy数组
+            prices = np.array(list(price_percent_dict.keys()))
+            percents = np.array(list(price_percent_dict.values()))
+            # 归一化权重
+            total = np.sum(percents)
             if total <= 0:
                 return 0.0, 0.0, 0.0, 0.0
-            weights = np.array(percents) / total
+            weights = percents / total
             # 计算加权均值
             mean = np.average(prices, weights=weights)
-            # 计算加权方差
-            variance = np.average((prices - mean) ** 2, weights=weights)
+            # 计算去均值差异
+            diff = prices - mean
+            # 计算加权方差 (二阶矩)
+            variance = np.average(diff * diff, weights=weights)
             std = np.sqrt(variance) if variance > 0 else 0.0
-            # 计算偏度（三阶矩）
             if std > 0:
-                skewness = np.average(((prices - mean) / std) ** 3, weights=weights)
+                # 标准化差异
+                z_scores = diff / std
+                # 预计算平方
+                z_sq = z_scores * z_scores
+                # 计算偏度 (三阶矩)
+                skewness = np.average(z_sq * z_scores, weights=weights)
+                # 计算峰度 (四阶矩) - Fisher定义 (减3)
+                kurtosis = np.average(z_sq * z_sq, weights=weights) - 3
             else:
                 skewness = 0.0
-            # 计算峰度（四阶矩）
-            if std > 0:
-                kurtosis = np.average(((prices - mean) / std) ** 4, weights=weights) - 3
-            else:
                 kurtosis = 0.0
             return float(mean), float(std), float(skewness), float(kurtosis)
         except Exception as e:
@@ -84,25 +89,21 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_profit_ratio(chip_data: pd.DataFrame, current_price: float) -> float:
         """
-        计算获利比例（价格低于当前价的比例）
-        Args:
-            chip_data: 筹码分布DataFrame，包含'price'和'percent'列
-            current_price: 当前价格
-        Returns:
-            float: 获利比例
+        计算获利比例 - Numpy优化版 v1.1
+        修改思路：提取底层numpy数组进行布尔索引，避免pandas overhead。
         """
         try:
             if chip_data.empty or current_price <= 0:
                 return 0.0
-            # 筛选低于当前价的部分
-            profit_chips = chip_data[chip_data['price'] <= current_price]
-            if profit_chips.empty:
-                return 0.0
-            # 计算获利比例
-            total_percent = chip_data['percent'].sum()
+            # 提取numpy数组
+            prices = chip_data['price'].values
+            percents = chip_data['percent'].values
+            # Numpy布尔索引
+            mask = prices <= current_price
+            profit_percent = np.sum(percents[mask])
+            total_percent = np.sum(percents)
             if total_percent <= 0:
                 return 0.0
-            profit_percent = profit_chips['percent'].sum()
             return float(profit_percent / total_percent)
         except Exception as e:
             logger.error(f"计算获利比例失败: {e}")
@@ -210,18 +211,16 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_moving_averages(prices: pd.Series, windows: List[int] = [5, 21, 34, 55]) -> Dict:
         """
-        计算移动平均线
-        Args:
-            prices: 价格序列
-            windows: 均线周期列表
-        Returns:
-            Dict: 各周期均线值
+        计算移动平均线 - 算法优化版 v1.1
+        修改思路：仅计算最后窗口长度的数据均值，避免全序列rolling计算，复杂度从O(N)降为O(1)。
         """
         try:
             ma_values = {}
+            n = len(prices)
             for window in windows:
-                if len(prices) >= window:
-                    ma_values[f'ma{window}'] = prices.rolling(window=window).mean().iloc[-1]
+                if n >= window:
+                    # 仅取最后window个数据计算均值
+                    ma_values[f'ma{window}'] = prices.iloc[-window:].mean()
                 else:
                     ma_values[f'ma{window}'] = None
             return ma_values
@@ -230,36 +229,40 @@ class ChipFactorCalculator:
             return {}
 
     @staticmethod
-    def detect_peaks(chip_dist: pd.DataFrame, min_height: float = 1.0, 
-                     min_distance: float = 0.02) -> Tuple[List[float], List[float]]:
+    def detect_peaks(chip_dist: pd.DataFrame, min_height: float = 1.0, min_distance: float = 0.02) -> Tuple[List[float], List[float]]:
         """
-        检测筹码峰
-        Args:
-            chip_dist: 筹码分布DataFrame，包含'price'和'percent'列
-            min_height: 最小峰值高度（占比%）
-            min_distance: 最小峰间距离（相对于价格区间）
-        Returns:
-            Tuple: (峰价格列表, 峰高度列表)
+        检测筹码峰 - Numpy索引优化版 v1.1
+        修改思路：
+        1. 提取底层Numpy数组。
+        2. 使用Numpy数组索引替代Pandas iloc索引，提升获取峰值数据的速度。
         """
         try:
             if chip_dist.empty or len(chip_dist) < 3:
                 return [], []
+            # 提取Numpy数组
+            prices = chip_dist['price'].values
+            percents = chip_dist['percent'].values
             # 平滑处理筹码分布
-            percent_smooth = savgol_filter(chip_dist['percent'].values, 
-                                          window_length=min(7, len(chip_dist)),
-                                          polyorder=2)
+            window_length = min(7, len(percents))
+            if window_length % 2 == 0: window_length -= 1 # savgol要求窗口为奇数
+            if window_length < 3:
+                percent_smooth = percents
+            else:
+                percent_smooth = savgol_filter(percents, window_length=window_length, polyorder=2)
             # 计算最小距离（价格点数量）
-            price_range = chip_dist['price'].max() - chip_dist['price'].min()
-            min_dist_points = int(len(chip_dist) * min_distance)
+            price_range = np.max(prices) - np.min(prices)
+            min_dist_points = int(len(prices) * min_distance)
             # 寻找峰值
-            peaks_idx, properties = find_peaks(
+            peaks_idx, _ = find_peaks(
                 percent_smooth, 
                 height=min_height,
                 distance=max(2, min_dist_points)
             )
-            # 获取峰价格和高度
-            peak_prices = chip_dist.iloc[peaks_idx]['price'].tolist()
-            peak_heights = chip_dist.iloc[peaks_idx]['percent'].tolist()
+            if len(peaks_idx) == 0:
+                return [], []
+            # 使用Numpy索引直接获取数据，避免iloc开销
+            peak_prices = prices[peaks_idx].tolist()
+            peak_heights = percents[peaks_idx].tolist()
             return peak_prices, peak_heights
         except Exception as e:
             logger.error(f"检测筹码峰失败: {e}")
@@ -306,7 +309,6 @@ class ChipFactorCalculator:
             if len(peak_prices) >= 2:
                 peak_span = max(peak_prices) - min(peak_prices)
                 analysis['peak_distance_ratio'] = peak_span / price_span if price_span > 0 else 0.0
-            
             # 峰间集中度（前两大峰占比之和）
             # 修改：原逻辑 sum(top2)/sum(all) 在双峰时恒为1。
             # 现改为直接计算前两大峰的高度之和，反映峰的绝对强度。
@@ -315,7 +317,6 @@ class ChipFactorCalculator:
                 analysis['peak_concentration'] = sum(sorted_heights[:2])
             else:
                 analysis['peak_concentration'] = 0.0
-                
             # 双峰/多峰判断
             if analysis['peak_count'] == 2:
                 analysis['is_double_peak'] = True
@@ -327,30 +328,33 @@ class ChipFactorCalculator:
             return analysis
 
     @staticmethod
-    def calculate_chip_flow(current_chip: pd.DataFrame, prev_chip: pd.DataFrame, 
-                           current_price: float) -> Tuple[int, float]:
+    def calculate_chip_flow(current_chip: pd.DataFrame, prev_chip: pd.DataFrame, current_price: float) -> Tuple[int, float]:
         """
-        计算筹码流动方向和强度
-        Args:
-            current_chip: 当前筹码分布
-            prev_chip: 前一日筹码分布
-            current_price: 当前价格
-        Returns:
-            Tuple: (流动方向, 流动强度)
+        计算筹码流动方向和强度 - Numpy优化版 v1.1
+        修改思路：
+        1. 移除内部函数定义。
+        2. 使用Numpy数组和向量化计算重心，避免Pandas Series操作。
         """
         try:
             if prev_chip.empty or current_chip.empty:
                 return 0, 0.0
-            # 计算筹码重心（加权平均价）
-            def chip_center_of_gravity(chip_df):
-                total = chip_df['percent'].sum()
-                if total <= 0:
-                    return 0.0
-                return np.sum(chip_df['price'] * chip_df['percent']) / total
-            prev_center = chip_center_of_gravity(prev_chip)
-            curr_center = chip_center_of_gravity(current_chip)
+            # 提取Numpy数组
+            curr_prices = current_chip['price'].values
+            curr_percents = current_chip['percent'].values
+            prev_prices = prev_chip['price'].values
+            prev_percents = prev_chip['percent'].values
+            # 计算重心 (加权平均价)
+            def get_center(prices, percents):
+                total = np.sum(percents)
+                if total <= 0: return 0.0
+                return np.sum(prices * percents) / total
+            prev_center = get_center(prev_prices, prev_percents)
+            curr_center = get_center(curr_prices, curr_percents)
             # 计算筹码流动强度
-            flow_intensity = abs(curr_center - prev_center) / max(prev_center, 1e-6)
+            if prev_center <= 1e-6:
+                flow_intensity = 0.0
+            else:
+                flow_intensity = abs(curr_center - prev_center) / prev_center
             # 判断流动方向
             if flow_intensity < 0.001:  # 阈值
                 flow_direction = 0  # 横盘整理
@@ -358,7 +362,7 @@ class ChipFactorCalculator:
                 flow_direction = 1  # 向上流动
             else:
                 flow_direction = -1  # 向下流动
-            return flow_direction, flow_intensity
+            return flow_direction, float(flow_intensity)
         except Exception as e:
             logger.error(f"计算筹码流动失败: {e}")
             return 0, 0.0
@@ -367,32 +371,30 @@ class ChipFactorCalculator:
     def calculate_convergence_divergence(chip_dist: pd.DataFrame, cost_50pct: float,
                                         price_range: Tuple[float, float]) -> Tuple[float, float]:
         """
-        计算筹码聚集度和发散度
-        Args:
-            chip_dist: 筹码分布
-            cost_50pct: 50分位成本
-            price_range: 价格区间
-        Returns:
-            Tuple: (聚集度, 发散度)
+        计算筹码聚集度和发散度 - Numpy优化版 v1.1
+        修改思路：使用Numpy数组操作替代Pandas过滤。
         """
         try:
             min_price, max_price = price_range
             price_span = max_price - min_price
             if price_span <= 0 or chip_dist.empty:
                 return 0.0, 0.0
+            # 提取numpy数组
+            prices = chip_dist['price'].values
+            percents = chip_dist['percent'].values
+            total_percent = np.sum(percents)
             # 聚集度：50分位附近筹码占比
-            # 定义聚集区间为 cost_50pct ± 5%
-            if cost_50pct > 0:
+            if cost_50pct > 0 and total_percent > 0:
                 convergence_range = cost_50pct * 0.05  # 5%区间
-                convergence_mask = (chip_dist['price'] >= cost_50pct - convergence_range) & \
-                                  (chip_dist['price'] <= cost_50pct + convergence_range)
-                convergence_ratio = chip_dist.loc[convergence_mask, 'percent'].sum() / \
-                                   chip_dist['percent'].sum()
+                # Numpy布尔索引
+                mask = (prices >= cost_50pct - convergence_range) & \
+                       (prices <= cost_50pct + convergence_range)
+                convergence_ratio = np.sum(percents[mask]) / total_percent
             else:
                 convergence_ratio = 0.0
             # 发散度：整个价格区间的筹码分布宽度
             divergence_ratio = price_span / (max_price + min_price) * 0.5
-            return convergence_ratio, divergence_ratio
+            return float(convergence_ratio), float(divergence_ratio)
         except Exception as e:
             logger.error(f"计算聚集发散度失败: {e}")
             return 0.0, 0.0
@@ -627,17 +629,10 @@ class ChipFactorCalculator:
         return analysis
 
     @staticmethod
-    def calculate_chip_migration(chip_current: pd.DataFrame, chip_previous: pd.DataFrame,window_days: int = 5) -> Dict:
+    def calculate_chip_migration(chip_current: pd.DataFrame, chip_previous: pd.DataFrame, window_days: int = 5) -> Dict:
         """
-        计算筹码迁移情况
-        关键指标：
-        1. 聚集度变化 = 当前集中度 / 前期集中度 - 1
-        2. 发散度变化 = 当前发散度 / 前期发散度 - 1
-        3. 重心移动速度 = (当前重心 - 前期重心) / 时间窗口
-        4. 筹码转移矩阵：
-           - 低价区 → 高价区转移比例
-           - 高价区 → 低价区转移比例
-           - 中间区筹码稳定性
+        计算筹码迁移情况 - Numpy优化版 v1.1
+        修改思路：将DataFrame转换为Numpy数组后复用，减少重复的Pandas索引开销。
         """
         migration = {
             'convergence_change': 0.0,
@@ -647,45 +642,49 @@ class ChipFactorCalculator:
             'high_to_low_ratio': 0.0,
             'stability_ratio': 0.0
         }
-        # 计算筹码重心
-        def chip_center(df):
-            if df.empty:
-                return 0.0
-            total = df['percent'].sum()
-            return np.sum(df['price'] * df['percent']) / total if total > 0 else 0.0
-        current_center = chip_center(chip_current)
-        previous_center = chip_center(chip_previous)
-        migration['center_speed'] = (current_center - previous_center) / window_days
-        # 计算价格三分位
-        price_min = min(chip_current['price'].min(), chip_previous['price'].min())
-        price_max = max(chip_current['price'].max(), chip_previous['price'].max())
-        price_range = price_max - price_min
-        if price_range > 0:
-            # 定义低、中、高区域
-            low_bound = price_min + price_range * 0.33
-            high_bound = price_min + price_range * 0.67
-            # 计算转移比例
-            def region_percent(df, lower, upper):
-                mask = (df['price'] >= lower) & (df['price'] <= upper)
-                return df.loc[mask, 'percent'].sum() if not df.empty else 0.0
-            # 前一日的区域筹码
-            prev_low = region_percent(chip_previous, price_min, low_bound)
-            prev_mid = region_percent(chip_previous, low_bound, high_bound)
-            prev_high = region_percent(chip_previous, high_bound, price_max)
-            # 当前日的区域筹码
-            curr_low = region_percent(chip_current, price_min, low_bound)
-            curr_mid = region_percent(chip_current, low_bound, high_bound)
-            curr_high = region_percent(chip_current, high_bound, price_max)
-            # 转移比例（简化计算）
-            total = prev_low + prev_mid + prev_high
-            if total > 0:
-                # 低价区筹码流向
-                migration['low_to_high_ratio'] = max(0, (prev_low - curr_low) / total)
-                # 高价区筹码流向
-                migration['high_to_low_ratio'] = max(0, (prev_high - curr_high) / total)
-                # 中间区稳定性
-                migration['stability_ratio'] = min(curr_mid, prev_mid) / max(curr_mid, prev_mid)
-        return migration
+        try:
+            if chip_current.empty or chip_previous.empty:
+                return migration
+            # 预处理为Numpy数组
+            curr_prices = chip_current['price'].values
+            curr_percents = chip_current['percent'].values
+            prev_prices = chip_previous['price'].values
+            prev_percents = chip_previous['percent'].values
+            # 计算筹码重心
+            def np_chip_center(prices, percents):
+                total = np.sum(percents)
+                return np.sum(prices * percents) / total if total > 0 else 0.0
+            current_center = np_chip_center(curr_prices, curr_percents)
+            previous_center = np_chip_center(prev_prices, prev_percents)
+            migration['center_speed'] = (current_center - previous_center) / window_days
+            # 计算价格三分位
+            price_min = min(np.min(curr_prices), np.min(prev_prices))
+            price_max = max(np.max(curr_prices), np.max(prev_prices))
+            price_range = price_max - price_min
+            if price_range > 0:
+                low_bound = price_min + price_range * 0.33
+                high_bound = price_min + price_range * 0.
+                # 辅助函数：计算区间占比
+                def np_region_percent(prices, percents, lower, upper):
+                    mask = (prices >= lower) & (prices <= upper)
+                    return np.sum(percents[mask])
+                # 前一日区域筹码
+                prev_low = np_region_percent(prev_prices, prev_percents, price_min, low_bound)
+                prev_mid = np_region_percent(prev_prices, prev_percents, low_bound, high_bound)
+                prev_high = np_region_percent(prev_prices, prev_percents, high_bound, price_max)
+                # 当前日区域筹码
+                curr_low = np_region_percent(curr_prices, curr_percents, price_min, low_bound)
+                curr_mid = np_region_percent(curr_prices, curr_percents, low_bound, high_bound)
+                curr_high = np_region_percent(curr_prices, curr_percents, high_bound, price_max)
+                total = prev_low + prev_mid + prev_high
+                if total > 0:
+                    migration['low_to_high_ratio'] = max(0, (prev_low - curr_low) / total)
+                    migration['high_to_low_ratio'] = max(0, (prev_high - curr_high) / total)
+                    migration['stability_ratio'] = min(curr_mid, prev_mid) / max(curr_mid, prev_mid) if max(curr_mid, prev_mid) > 0 else 0.0
+            return migration
+        except Exception as e:
+            logger.error(f"计算筹码迁移失败: {e}")
+            return migration
 
     @staticmethod
     def calculate_ma_arrangement(ma_values: Dict[str, float]) -> int:
@@ -716,28 +715,23 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_peak_migration(chip_centers_5d: List[float]) -> float:
         """
-        计算筹码峰迁移速度（5日）
-        Args:
-            chip_centers_5d: 最近5日的筹码重心列表
-        Returns:
-            float: 迁移速度（价格变动/时间）
+        计算筹码峰迁移速度（5日） - 算法优化版 v1.1
+        修改思路：使用 np.polyfit 替代 scipy.stats.linregress，避免计算不必要的统计量（如p-value），提升速度。
         """
         try:
             if len(chip_centers_5d) < 2:
                 return 0.0
-            # 计算线性回归斜率
-            x = np.arange(len(chip_centers_5d))
             y = np.array(chip_centers_5d)
+            x = np.arange(len(y))
             # 去除NaN值
             mask = ~np.isnan(y)
             if np.sum(mask) < 2:
                 return 0.0
             x_clean = x[mask]
             y_clean = y[mask]
-            if len(x_clean) < 2:
-                return 0.0
-            slope, _, _, _, _ = linregress(x_clean, y_clean)
-            # 标准化为每日迁移速度
+            # 使用一次多项式拟合（线性回归）计算斜率
+            # deg=1 返回 [slope, intercept]
+            slope = np.polyfit(x_clean, y_clean, 1)[0]
             return float(slope)
         except Exception as e:
             logger.error(f"计算筹码峰迁移速度失败: {e}")
@@ -774,22 +768,22 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_volatility(prices: pd.Series, window: int = 20) -> float:
         """
-        计算价格波动率
-        Args:
-            prices: 价格序列
-            window: 计算窗口
-        Returns:
-            float: 波动率（收益率标准差）
+        计算价格波动率 - 算法优化版 v1.1
+        修改思路：仅计算最后窗口长度的数据标准差，避免全序列rolling计算。
         """
         try:
             if len(prices) < window:
                 return 0.0
-            # 计算收益率
-            returns = prices.pct_change().dropna()
+            # 仅取最后 window+1 个数据计算收益率，确保有 window 个收益率数据
+            # pct_change 会导致第一个数据变为 NaN，所以需要多取一个
+            subset = prices.iloc[-(window + 1):]
+            returns = subset.pct_change().dropna()
             if len(returns) < window:
-                return 0.0
-            # 计算波动率（年化）
-            volatility = returns.rolling(window=window).std().iloc[-1]
+                # 如果数据不足（例如有停牌导致NaN），尝试取更多数据或直接计算现有数据的std
+                if len(returns) < 2: return 0.0
+                volatility = returns.std()
+            else:
+                volatility = returns.std()
             # 年化波动率（假设252个交易日）
             annualized_vol = volatility * np.sqrt(252)
             return float(annualized_vol)
@@ -800,27 +794,32 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
         """
-        计算RSI指标
-        Args:
-            prices: 价格序列
-            period: RSI周期
-        Returns:
-            float: RSI值
+        计算RSI指标 - 算法优化版 v1.1
+        修改思路：仅使用尾部数据计算RSI，避免全序列计算。
+        注意：标准RSI使用EMA平滑，需要较长历史数据。此处保持原逻辑（SMA），仅优化计算范围。
         """
         try:
+            # 只需要最后 period + 1 个数据来计算最近的一个 RSI 值
             if len(prices) < period + 1:
-                return 50.0  # 默认中性值
-            # 计算价格变化
-            delta = prices.diff()
+                return 50.0
+            # 取尾部数据
+            subset = prices.iloc[-(period + 1):]
+            delta = subset.diff().dropna()
+            if delta.empty:
+                return 50.0
             # 分离上涨和下跌
-            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-            # 计算RSI
-            rs = gain / loss
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            # 计算平均涨跌幅 (SMA)
+            avg_gain = gain.mean()
+            avg_loss = loss.mean()
+            if avg_loss == 0:
+                return 100.0
+            if avg_gain == 0:
+                return 0.0
+            rs = avg_gain / avg_loss
             rsi = 100 - (100 / (1 + rs))
-            # 获取最后一个有效值
-            last_rsi = rsi.dropna().iloc[-1] if not rsi.dropna().empty else 50.0
-            return float(last_rsi)
+            return float(rsi)
         except Exception as e:
             logger.error(f"计算RSI失败: {e}")
             return 50.0
@@ -1127,53 +1126,49 @@ class ChipFactorCalculator:
         return factors
 
     @staticmethod
-    def calculate_layered_flow_factors(chip_dist_current: pd.DataFrame,chip_dist_previous: pd.DataFrame,cost_15pct: float,cost_85pct: float) -> Dict[str, float]:
+    def calculate_layered_flow_factors(chip_dist_current: pd.DataFrame, chip_dist_previous: pd.DataFrame, cost_15pct: float, cost_85pct: float) -> Dict[str, float]:
         """
-        计算分层筹码流动因子
-        Returns:
-            Dict: 包含分层流动数据
+        计算分层筹码流动因子 - Numpy优化版 v1.1
+        修改思路：使用Numpy数组操作替代Pandas过滤。
         """
         factors = {}
         try:
             if chip_dist_current.empty or chip_dist_previous.empty:
                 return factors
-            # 定义价格区间
-            price_min = chip_dist_current['price'].min()
-            price_max = chip_dist_current['price'].max()
-            # 划分区间
-            low_mask_current = chip_dist_current['price'] <= cost_15pct
-            middle_mask_current = (chip_dist_current['price'] > cost_15pct) & \
-                                 (chip_dist_current['price'] <= cost_85pct)
-            high_mask_current = chip_dist_current['price'] > cost_85pct
-            low_mask_prev = chip_dist_previous['price'] <= cost_15pct
-            middle_mask_prev = (chip_dist_previous['price'] > cost_15pct) & \
-                              (chip_dist_previous['price'] <= cost_85pct)
-            high_mask_prev = chip_dist_previous['price'] > cost_85pct
-            # 计算各区间筹码占比变化
-            def get_zone_percent(df, mask):
-                return df.loc[mask, 'percent'].sum() if not df.empty else 0
-            low_current = get_zone_percent(chip_dist_current, low_mask_current)
-            middle_current = get_zone_percent(chip_dist_current, middle_mask_current)
-            high_current = get_zone_percent(chip_dist_current, high_mask_current)
-            low_prev = get_zone_percent(chip_dist_previous, low_mask_prev)
-            middle_prev = get_zone_percent(chip_dist_previous, middle_mask_prev)
-            high_prev = get_zone_percent(chip_dist_previous, high_mask_prev)
+            # 提取Numpy数组
+            curr_prices = chip_dist_current['price'].values
+            curr_percents = chip_dist_current['percent'].values
+            prev_prices = chip_dist_previous['price'].values
+            prev_percents = chip_dist_previous['percent'].values
+            # 辅助函数：计算区间占比
+            def np_get_zone_percent(prices, percents, lower_mask, upper_mask=None):
+                if upper_mask is not None:
+                    mask = lower_mask & upper_mask
+                else:
+                    mask = lower_mask
+                return np.sum(percents[mask])
+            # 当前分布
+            low_current = np_get_zone_percent(curr_prices, curr_percents, curr_prices <= cost_15pct)
+            middle_current = np_get_zone_percent(curr_prices, curr_percents, curr_prices > cost_15pct, curr_prices <= cost_85pct)
+            high_current = np_get_zone_percent(curr_prices, curr_percents, curr_prices > cost_85pct)
+            # 前期分布
+            low_prev = np_get_zone_percent(prev_prices, prev_percents, prev_prices <= cost_15pct)
+            middle_prev = np_get_zone_percent(prev_prices, prev_percents, prev_prices > cost_15pct, prev_prices <= cost_85pct)
+            high_prev = np_get_zone_percent(prev_prices, prev_percents, prev_prices > cost_85pct)
             # 计算净变动
-            factors['low_zone_chip_flow'] = low_current - low_prev
-            factors['middle_zone_chip_flow'] = middle_current - middle_prev
-            factors['high_zone_chip_flow'] = high_current - high_prev
-            # 计算主力控盘度（简化版）
-            total_change = abs(factors['low_zone_chip_flow']) + \
-                          abs(factors['middle_zone_chip_flow']) + \
-                          abs(factors['high_zone_chip_flow'])
+            factors['low_zone_chip_flow'] = float(low_current - low_prev)
+            factors['middle_zone_chip_flow'] = float(middle_current - middle_prev)
+            factors['high_zone_chip_flow'] = float(high_current - high_prev)
+            # 计算主力控盘度
+            abs_low = abs(factors['low_zone_chip_flow'])
+            abs_mid = abs(factors['middle_zone_chip_flow'])
+            abs_high = abs(factors['high_zone_chip_flow'])
+            total_change = abs_low + abs_mid + abs_high
             if total_change > 0:
-                # 主力控盘度 = 最大区间变动 / 总变动
-                max_change = max(abs(factors['low_zone_chip_flow']),
-                               abs(factors['middle_zone_chip_flow']),
-                               abs(factors['high_zone_chip_flow']))
-                factors['main_force_control_ratio'] = max_change / total_change
+                max_change = max(abs_low, abs_mid, abs_high)
+                factors['main_force_control_ratio'] = float(max_change / total_change)
             else:
-                factors['main_force_control_ratio'] = 0
+                factors['main_force_control_ratio'] = 0.0
             return factors
         except Exception as e:
             logger.error(f"计算分层流动因子失败: {e}")
@@ -1182,35 +1177,27 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_main_cost_range_ratio(chip_dist_data: pd.DataFrame, cost_50pct: float) -> float:
         """
-        基于筹码分布数据计算主力成本区间锁定比例 (main_cost_range_ratio)
-        逻辑: 计算筹码成本在成本中位数(cost_50pct)上下5%区间内的筹码占比
-        修改说明：
-        1. 将统计区间从 ±10% 缩小为 ±5% (0.95-1.05)，以解决原指标数值普遍趋近于1、缺乏区分度的问题。
-        2. 异常情况默认返回值由 0.5 改为 0.0，避免误导。
+        计算主力成本区间锁定比例 - Numpy优化版 v1.1
+        修改思路：使用Numpy数组操作替代Pandas过滤。
         """
         try:
             if chip_dist_data.empty or cost_50pct <= 0:
                 return 0.0
-            
-            # 调整为 ±5% 区间，提高指标区分度
+            # 提取Numpy数组
+            prices = chip_dist_data['price'].values
+            percents = chip_dist_data['percent'].values
+            # 调整为 ±5% 区间
             lower_bound = cost_50pct * 0.95
             upper_bound = cost_50pct * 1.05
-            
-            # 筛选在主力成本区间的筹码
-            main_mask = (chip_dist_data['price'] >= lower_bound) & (chip_dist_data['price'] <= upper_bound)
-            
-            if not main_mask.any():
+            # Numpy布尔索引
+            mask = (prices >= lower_bound) & (prices <= upper_bound)
+            if not np.any(mask):
                 return 0.0
-                
-            main_chip_sum = chip_dist_data.loc[main_mask, 'percent'].sum()
-            total_chip_sum = chip_dist_data['percent'].sum()
-            
+            main_chip_sum = np.sum(percents[mask])
+            total_chip_sum = np.sum(percents)
             if total_chip_sum <= 0:
                 return 0.0
-                
             ratio = main_chip_sum / total_chip_sum
-            
-            # 确保比例在0-1之间
             return float(min(max(ratio, 0.0), 1.0))
             
         except Exception as e:
@@ -1220,42 +1207,44 @@ class ChipFactorCalculator:
     @staticmethod
     def calculate_high_position_lock_ratio_90(chip_dist_data: pd.DataFrame, current_price: float) -> float:
         """
-        基于筹码分布数据计算90%分位以上高位筹码沉淀比例 (high_position_lock_ratio_90)
-        逻辑: 计算价格高于“当前价格90%分位”的筹码占比，用于反映高位套牢盘。
-             如果当前价格很低，则计算价格高于“筹码分布价格90%分位”的筹码占比。
-        注意：请确保文件中只保留这一个定义，删除文件末尾重复的定义。
+        计算90%分位以上高位筹码沉淀比例 - Numpy优化版 v1.1
+        修改思路：使用Numpy数组操作替代Pandas排序和累加。
         """
         try:
             if chip_dist_data.empty or current_price <= 0:
-                print(f"⚠️ [calculate_high_position_lock_ratio_90] 输入数据无效，返回默认值0.0")
                 return 0.0
+            # 提取Numpy数组
+            prices = chip_dist_data['price'].values
+            percents = chip_dist_data['percent'].values
             # 方法1: 基于当前价格计算90%分位阈值
-            price_threshold_1 = current_price * 1.0  # 当前价格的100%作为阈值（即高于当前价的筹码）
+            price_threshold_1 = current_price * 1.0
             # 方法2: 基于筹码分布自身计算90%价格分位
-            sorted_chips = chip_dist_data.sort_values('price')
-            cum_pct = sorted_chips['percent'].cumsum()
-            # 找到累计占比达到90%的价格点
-            if (cum_pct >= 0.9).any():
-                idx_90 = (cum_pct >= 0.9).idxmax()
-                price_threshold_2 = sorted_chips.loc[idx_90, 'price']
+            # 使用 argsort 获取排序索引
+            sort_idx = np.argsort(prices)
+            sorted_prices = prices[sort_idx]
+            sorted_percents = percents[sort_idx]
+            cum_pct = np.cumsum(sorted_percents)
+            # 找到累计占比达到90%的位置
+            # searchsorted 返回第一个满足条件的索引
+            idx_90 = np.searchsorted(cum_pct, 0.9)
+            if idx_90 < len(sorted_prices):
+                price_threshold_2 = sorted_prices[idx_90]
             else:
-                price_threshold_2 = sorted_chips['price'].max()
-            # 使用两者中较高的作为阈值，更严格反映“高位”
+                price_threshold_2 = sorted_prices[-1]
+            # 使用两者中较高的作为阈值
             price_threshold = max(price_threshold_1, price_threshold_2)
             # 计算高于阈值的筹码占比
-            high_mask = chip_dist_data['price'] >= price_threshold
-            if not high_mask.any():
-                print(f"⚠️ [calculate_high_position_lock_ratio_90] 无筹码高于阈值{price_threshold:.2f}，返回0")
+            high_mask = prices >= price_threshold
+            if not np.any(high_mask):
                 return 0.0
-            high_chip_sum = chip_dist_data.loc[high_mask, 'percent'].sum()
-            total_chip_sum = chip_dist_data['percent'].sum()
+            high_chip_sum = np.sum(percents[high_mask])
+            total_chip_sum = np.sum(percents)
             if total_chip_sum <= 0:
                 return 0.0
             ratio = high_chip_sum / total_chip_sum
-            print(f"📊 [calculate_high_position_lock_ratio_90] 计算完成: {ratio:.4f} (阈值: {price_threshold:.2f}, 当前价: {current_price:.2f})")
             return float(ratio)
         except Exception as e:
-            print(f"❌ [calculate_high_position_lock_ratio_90] 计算失败: {e}，返回默认值0.0")
+            logger.error(f"计算高位筹码沉淀比例失败: {e}")
             return 0.0
 
 
