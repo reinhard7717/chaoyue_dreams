@@ -496,94 +496,119 @@ def get_1min_data(stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
         logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的1分钟数据失败: {e}")
         return None
 
-def save_factor_to_db(stock_info: StockInfo, trade_date: date, 
-                     metrics: Dict, factor_model):
+def save_factor_to_db(stock_info: StockInfo, trade_date: date, metrics: Dict, factor_model):
     """
     保存因子到数据库
-    版本: V1.1
-    说明: 补全缺失的结构分析指标字段映射 (flow_peak_value, days_since_last_peak, flow_support_level, flow_resistance_level)。
+    版本: V1.3
+    说明: 
+    1. 增加死锁 (Deadlock) 重试机制，解决高并发下的 MySQL 1213 错误。
+    2. 引入指数退避策略，缓解数据库锁竞争。
     """
-    try:
-        with transaction.atomic():
-            # 创建或更新因子记录
-            factor_obj, created = factor_model.objects.update_or_create(
-                stock=stock_info,
-                trade_time=trade_date,
-                defaults={
-                    # 绝对量级指标
-                    'total_net_amount_3d': _safe_decimal(metrics.get('total_net_amount_3d')),
-                    'total_net_amount_5d': _safe_decimal(metrics.get('total_net_amount_5d')),
-                    'total_net_amount_10d': _safe_decimal(metrics.get('total_net_amount_10d')),
-                    'total_net_amount_20d': _safe_decimal(metrics.get('total_net_amount_20d')),
-                    'avg_daily_net_5d': _safe_decimal(metrics.get('avg_daily_net_5d')),
-                    'avg_daily_net_10d': _safe_decimal(metrics.get('avg_daily_net_10d')),
-                    'avg_daily_net_20d': _safe_decimal(metrics.get('avg_daily_net_20d')),
-                    'total_volume_5d': _safe_decimal(metrics.get('total_volume_5d')),
-                    'total_volume_10d': _safe_decimal(metrics.get('total_volume_10d')),
-                    # 相对强度指标
-                    'net_amount_ratio': _safe_decimal(metrics.get('net_amount_ratio')),
-                    'net_amount_ratio_ma5': _safe_decimal(metrics.get('net_amount_ratio_ma5')),
-                    'net_amount_ratio_ma10': _safe_decimal(metrics.get('net_amount_ratio_ma10')),
-                    'flow_intensity': _safe_decimal(metrics.get('flow_intensity')),
-                    'intensity_level': metrics.get('intensity_level'),
-                    # 主力行为模式识别
-                    'accumulation_score': _safe_decimal(metrics.get('accumulation_score')),
-                    'pushing_score': _safe_decimal(metrics.get('pushing_score')),
-                    'distribution_score': _safe_decimal(metrics.get('distribution_score')),
-                    'shakeout_score': _safe_decimal(metrics.get('shakeout_score')),
-                    'behavior_pattern': metrics.get('behavior_pattern'),
-                    'pattern_confidence': _safe_decimal(metrics.get('pattern_confidence')),
-                    # 资金流向质量评估
-                    'outflow_quality': _safe_decimal(metrics.get('outflow_quality')),
-                    'inflow_persistence': metrics.get('inflow_persistence'),
-                    'large_order_anomaly': metrics.get('large_order_anomaly'),
-                    'anomaly_intensity': _safe_decimal(metrics.get('anomaly_intensity')),
-                    'flow_consistency': _safe_decimal(metrics.get('flow_consistency')),
-                    'flow_stability': _safe_decimal(metrics.get('flow_stability')),
-                    # 多周期资金共振指标
-                    'daily_weekly_sync': _safe_decimal(metrics.get('daily_weekly_sync')),
-                    'daily_monthly_sync': _safe_decimal(metrics.get('daily_monthly_sync')),
-                    'short_mid_sync': _safe_decimal(metrics.get('short_mid_sync')),
-                    'mid_long_sync': _safe_decimal(metrics.get('mid_long_sync')),
-                    # 趋势动量指标
-                    'flow_momentum_5d': _safe_decimal(metrics.get('flow_momentum_5d')),
-                    'flow_momentum_10d': _safe_decimal(metrics.get('flow_momentum_10d')),
-                    'flow_acceleration': _safe_decimal(metrics.get('flow_acceleration')),
-                    'uptrend_strength': _safe_decimal(metrics.get('uptrend_strength')),
-                    'downtrend_strength': _safe_decimal(metrics.get('downtrend_strength')),
-                    # 量价背离指标
-                    'price_flow_divergence': _safe_decimal(metrics.get('price_flow_divergence')),
-                    'divergence_type': metrics.get('divergence_type'),
-                    'divergence_strength': _safe_decimal(metrics.get('divergence_strength')),
-                    # 结构分析指标 (本次修复补全)
-                    'flow_peak_value': _safe_decimal(metrics.get('flow_peak_value')),
-                    'days_since_last_peak': metrics.get('days_since_last_peak'),
-                    'flow_support_level': _safe_decimal(metrics.get('flow_support_level')),
-                    'flow_resistance_level': _safe_decimal(metrics.get('flow_resistance_level')),
-                    # 统计特征指标
-                    'flow_zscore': _safe_decimal(metrics.get('flow_zscore')),
-                    'flow_percentile': _safe_decimal(metrics.get('flow_percentile')),
-                    'flow_volatility_10d': _safe_decimal(metrics.get('flow_volatility_10d')),
-                    'flow_volatility_20d': _safe_decimal(metrics.get('flow_volatility_20d')),
-                    # 预测指标
-                    'expected_flow_next_1d': _safe_decimal(metrics.get('expected_flow_next_1d')),
-                    'flow_forecast_confidence': _safe_decimal(metrics.get('flow_forecast_confidence')),
-                    'uptrend_continuation_prob': _safe_decimal(metrics.get('uptrend_continuation_prob')),
-                    'reversal_prob': _safe_decimal(metrics.get('reversal_prob')),
-                    # 复合综合指标
-                    'comprehensive_score': _safe_decimal(metrics.get('comprehensive_score')),
-                    'trading_signal': metrics.get('trading_signal'),
-                    'signal_strength': _safe_decimal(metrics.get('signal_strength')),
-                    # 原始数据快照
-                    'feature_vector': metrics.get('feature_vector'),
-                }
-            )
-            logger.debug(f"{'创建' if created else '更新'}股票 {stock_info.stock_code} "
-                        f"在 {trade_date} 的资金流向因子")
-            return factor_obj
-    except Exception as e:
-        logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 的资金流向因子失败: {e}")
-        raise
+    from django.db.utils import OperationalError
+    import time
+    
+    max_retries = 5
+    
+    for attempt in range(max_retries):
+        try:
+            with transaction.atomic():
+                # 创建或更新因子记录
+                # update_or_create 内部会使用 select_for_update，容易在高并发下产生死锁
+                factor_obj, created = factor_model.objects.update_or_create(
+                    stock=stock_info,
+                    trade_time=trade_date,
+                    defaults={
+                        # 绝对量级指标
+                        'total_net_amount_3d': _safe_decimal(metrics.get('total_net_amount_3d')),
+                        'total_net_amount_5d': _safe_decimal(metrics.get('total_net_amount_5d')),
+                        'total_net_amount_10d': _safe_decimal(metrics.get('total_net_amount_10d')),
+                        'total_net_amount_20d': _safe_decimal(metrics.get('total_net_amount_20d')),
+                        'avg_daily_net_5d': _safe_decimal(metrics.get('avg_daily_net_5d')),
+                        'avg_daily_net_10d': _safe_decimal(metrics.get('avg_daily_net_10d')),
+                        'avg_daily_net_20d': _safe_decimal(metrics.get('avg_daily_net_20d')),
+                        'total_volume_5d': _safe_decimal(metrics.get('total_volume_5d')),
+                        'total_volume_10d': _safe_decimal(metrics.get('total_volume_10d')),
+                        # 相对强度指标
+                        'net_amount_ratio': _safe_decimal(metrics.get('net_amount_ratio')),
+                        'net_amount_ratio_ma5': _safe_decimal(metrics.get('net_amount_ratio_ma5')),
+                        'net_amount_ratio_ma10': _safe_decimal(metrics.get('net_amount_ratio_ma10')),
+                        'flow_intensity': _safe_decimal(metrics.get('flow_intensity')),
+                        'intensity_level': metrics.get('intensity_level'),
+                        # 主力行为模式识别
+                        'accumulation_score': _safe_decimal(metrics.get('accumulation_score')),
+                        'pushing_score': _safe_decimal(metrics.get('pushing_score')),
+                        'distribution_score': _safe_decimal(metrics.get('distribution_score')),
+                        'shakeout_score': _safe_decimal(metrics.get('shakeout_score')),
+                        'behavior_pattern': metrics.get('behavior_pattern'),
+                        'pattern_confidence': _safe_decimal(metrics.get('pattern_confidence')),
+                        # 资金流向质量评估
+                        'outflow_quality': _safe_decimal(metrics.get('outflow_quality')),
+                        'inflow_persistence': metrics.get('inflow_persistence'),
+                        'large_order_anomaly': metrics.get('large_order_anomaly'),
+                        'anomaly_intensity': _safe_decimal(metrics.get('anomaly_intensity')),
+                        'flow_consistency': _safe_decimal(metrics.get('flow_consistency')),
+                        'flow_stability': _safe_decimal(metrics.get('flow_stability')),
+                        # 多周期资金共振指标
+                        'daily_weekly_sync': _safe_decimal(metrics.get('daily_weekly_sync')),
+                        'daily_monthly_sync': _safe_decimal(metrics.get('daily_monthly_sync')),
+                        'short_mid_sync': _safe_decimal(metrics.get('short_mid_sync')),
+                        'mid_long_sync': _safe_decimal(metrics.get('mid_long_sync')),
+                        # 趋势动量指标
+                        'flow_momentum_5d': _safe_decimal(metrics.get('flow_momentum_5d')),
+                        'flow_momentum_10d': _safe_decimal(metrics.get('flow_momentum_10d')),
+                        'flow_acceleration': _safe_decimal(metrics.get('flow_acceleration')),
+                        'uptrend_strength': _safe_decimal(metrics.get('uptrend_strength')),
+                        'downtrend_strength': _safe_decimal(metrics.get('downtrend_strength')),
+                        # 量价背离指标
+                        'price_flow_divergence': _safe_decimal(metrics.get('price_flow_divergence')),
+                        'divergence_type': metrics.get('divergence_type'),
+                        'divergence_strength': _safe_decimal(metrics.get('divergence_strength')),
+                        # 结构分析指标
+                        'flow_peak_value': _safe_decimal(metrics.get('flow_peak_value')),
+                        'days_since_last_peak': metrics.get('days_since_last_peak'),
+                        'flow_support_level': _safe_decimal(metrics.get('flow_support_level')),
+                        'flow_resistance_level': _safe_decimal(metrics.get('flow_resistance_level')),
+                        # 统计特征指标
+                        'flow_zscore': _safe_decimal(metrics.get('flow_zscore')),
+                        'flow_percentile': _safe_decimal(metrics.get('flow_percentile')),
+                        'flow_volatility_10d': _safe_decimal(metrics.get('flow_volatility_10d')),
+                        'flow_volatility_20d': _safe_decimal(metrics.get('flow_volatility_20d')),
+                        # 预测指标
+                        'expected_flow_next_1d': _safe_decimal(metrics.get('expected_flow_next_1d')),
+                        'flow_forecast_confidence': _safe_decimal(metrics.get('flow_forecast_confidence')),
+                        'uptrend_continuation_prob': _safe_decimal(metrics.get('uptrend_continuation_prob')),
+                        'reversal_prob': _safe_decimal(metrics.get('reversal_prob')),
+                        # 复合综合指标
+                        'comprehensive_score': _safe_decimal(metrics.get('comprehensive_score')),
+                        'trading_signal': metrics.get('trading_signal'),
+                        'signal_strength': _safe_decimal(metrics.get('signal_strength')),
+                        # 原始数据快照
+                        'feature_vector': metrics.get('feature_vector'),
+                    }
+                )
+                logger.debug(f"{'创建' if created else '更新'}股票 {stock_info.stock_code} "
+                            f"在 {trade_date} 的资金流向因子")
+                return factor_obj
+                
+        except OperationalError as e:
+            # 检查是否为死锁错误 (MySQL Error 1213)
+            # e.args 通常为 (code, message)
+            error_code = e.args[0] if e.args else None
+            if error_code == 1213:
+                if attempt < max_retries - 1:
+                    wait_time = 0.2 * (2 ** attempt) # 指数退避: 0.2s, 0.4s, 0.8s, 1.6s
+                    logger.warning(f"保存股票 {stock_info.stock_code} 在 {trade_date} 时发生死锁 (1213)，"
+                                 f"正在重试 ({attempt + 1}/{max_retries})，等待 {wait_time:.2f}s...")
+                    time.sleep(wait_time)
+                    continue
+            
+            # 如果不是死锁或重试耗尽，记录错误并抛出
+            logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 时发生数据库错误: {e}")
+            raise
+            
+        except Exception as e:
+            logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 的资金流向因子失败: {e}")
+            raise
 
 def _safe_decimal(value):
     """安全转换为Decimal"""
