@@ -65,10 +65,9 @@ class FundFlowFactorCalculator:
     def _prepare_data(self):
         """
         预处理数据，计算中间变量
-        版本: V1.3
+        版本: V1.4
         说明: 
-        1. 增加 net_amount_ratio_array 的预提取，直接使用 Task 层计算好的占比数据。
-        2. 保持其他数组的向量化转换。
+        1. 修正 volume_series 的获取逻辑，优先读取 'vol' 字段。
         """
         # 提取历史净流入序列
         self.net_amount_series = [
@@ -77,36 +76,43 @@ class FundFlowFactorCalculator:
         ]
         self.net_amount_array = np.array(self.net_amount_series, dtype=np.float64)
         self.net_amount_pd_series = pd.Series(self.net_amount_array)
-        # [新增] 提取历史净流入占比序列 (优先使用 Task 层计算好的值)
+        
+        # 提取历史净流入占比序列
         self.net_amount_ratio_series = [
             float(data.get('net_amount_ratio', 0) or 0)
             for data in self.context.historical_flow_data
         ]
         self.net_amount_ratio_array = np.array(self.net_amount_ratio_series, dtype=np.float64)
+        
         # 提取历史成交量
         if self.context.volume_data:
             self.volume_series = self.context.volume_data
         else:
+            # [关键修正] 优先读取 'vol'，兼容 'total_volume'
             self.volume_series = [
-                float(data.get('total_volume', 0) or 0) 
+                float(data.get('vol', 0) or data.get('total_volume', 0) or 0) 
                 for data in self.context.historical_flow_data
             ]
         self.volume_array = np.array(self.volume_series, dtype=np.float64)
+            
         # 提取历史成交额序列
         self.daily_amount_series = [
             float(data.get('amount', 0) or 0) if data.get('amount') is not None else 0.0
             for data in self.context.historical_flow_data
         ]
         self.daily_amount_array = np.array(self.daily_amount_series, dtype=np.float64)
+        
         # 提取历史收盘价序列
         self.close_series = [
             float(data.get('close', 0) or 0) if data.get('close') is not None else 0.0
             for data in self.context.historical_flow_data
         ]
         self.close_array = np.array(self.close_series, dtype=np.float64)
+
         # 计算市值
         if self.context.daily_basic_data:
             self.market_cap = float(self.context.daily_basic_data.get('circ_mv', 0) or 0)
+            
         # 准备1分钟数据相关指标
         if self.context.minute_data_1min is not None and not self.context.minute_data_1min.empty:
             self._process_minute_data()
