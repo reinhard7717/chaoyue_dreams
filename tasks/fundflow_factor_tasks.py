@@ -532,7 +532,7 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         return False
 
 def get_historical_flow_data(stock_code: str, end_date: date, 
-                            stock_time_trade_dao: StockTimeTradeDAO, stock_info: StockBasicInfo,
+                            stock_time_trade_dao: StockTimeTradeDAO, stock_info: StockInfo,
                             days: int = 120) -> List[Dict]:
     """
     获取历史资金流向数据
