@@ -500,7 +500,11 @@ def get_1min_data(stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
 
 def save_factor_to_db(stock_info: StockInfo, trade_date: date, 
                      metrics: Dict, factor_model):
-    """保存因子到数据库"""
+    """
+    保存因子到数据库
+    版本: V1.1
+    说明: 补全缺失的结构分析指标字段映射 (flow_peak_value, days_since_last_peak, flow_support_level, flow_resistance_level)。
+    """
     try:
         with transaction.atomic():
             # 创建或更新因子记录
@@ -553,6 +557,11 @@ def save_factor_to_db(stock_info: StockInfo, trade_date: date,
                     'price_flow_divergence': _safe_decimal(metrics.get('price_flow_divergence')),
                     'divergence_type': metrics.get('divergence_type'),
                     'divergence_strength': _safe_decimal(metrics.get('divergence_strength')),
+                    # 结构分析指标 (本次修复补全)
+                    'flow_peak_value': _safe_decimal(metrics.get('flow_peak_value')),
+                    'days_since_last_peak': metrics.get('days_since_last_peak'),
+                    'flow_support_level': _safe_decimal(metrics.get('flow_support_level')),
+                    'flow_resistance_level': _safe_decimal(metrics.get('flow_resistance_level')),
                     # 统计特征指标
                     'flow_zscore': _safe_decimal(metrics.get('flow_zscore')),
                     'flow_percentile': _safe_decimal(metrics.get('flow_percentile')),
@@ -576,7 +585,6 @@ def save_factor_to_db(stock_info: StockInfo, trade_date: date,
             logger.debug(f"{'创建' if created else '更新'}股票 {stock_info.stock_code} "
                         f"在 {trade_date} 的资金流向因子")
             return factor_obj
-            
     except Exception as e:
         logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 的资金流向因子失败: {e}")
         raise
