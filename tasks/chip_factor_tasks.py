@@ -1376,7 +1376,7 @@ def weekly_chip_factor_maintenance(self) -> Dict:
         logger.error(f"每周筹码因子维护失败: {e}")
         return {'status': 'error', 'error': str(e)}
 
-@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_energy_field_analysis')
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_energy_field_analysis',queue=ChipTaskConfig.get_queue_name())
 def schedule_energy_field_analysis(self, start_date_str: str, end_date_str: str) -> Dict:
     """
     专门调度能量场分析任务
@@ -1417,7 +1417,7 @@ def schedule_energy_field_analysis(self, start_date_str: str, end_date_str: str)
         logger.error(f"调度能量场分析失败: {e}")
         raise self.retry(exc=e, countdown=60)
 
-@celery_app.task(bind=True, name='tasks.chip_factor_tasks.calculate_energy_field_batch')
+@celery_app.task(bind=True, name='tasks.chip_factor_tasks.calculate_energy_field_batch',queue=ChipTaskConfig.get_queue_name())
 def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, end_date: str) -> Dict:
     """
     批量计算能量场分析 - 修复异步问题
