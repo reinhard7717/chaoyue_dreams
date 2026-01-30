@@ -805,8 +805,6 @@ class FundFlowFactorCalculator:
                 'net_mf_vol': int(data.get('net_mf_vol', 0) or 0),
             }
             sequence_data.append(day_data)
-        # 序列化存储
-        metrics['flow_sequence_30d'] = json.dumps(sequence_data)
         # 保存特征向量（用于机器学习）
         feature_vector = self._create_feature_vector(metrics)
         metrics['feature_vector'] = feature_vector
@@ -819,7 +817,6 @@ class FundFlowFactorCalculator:
                 'historical_days': len(self.context.historical_flow_data)
             }
         }
-        metrics['calculation_metadata'] = json.dumps(metadata)
     
     def _create_feature_vector(self, metrics: Dict[str, Any]) -> str:
         """创建特征向量"""

@@ -374,22 +374,10 @@ class FundFlowFactorBase(models.Model):
     )
     
     # ==================== 12. 原始数据快照 ====================
-    # 12.1 序列数据（压缩存储）
-    flow_sequence_30d = models.TextField(
-        verbose_name='30日资金流序列', null=True, blank=True,
-        help_text='JSON格式压缩的最近30日资金流向序列'
-    )
-    
     # 12.2 特征向量
     feature_vector = models.TextField(
         verbose_name='特征向量', null=True, blank=True,
         help_text='Base64编码的特征向量，用于机器学习模型'
-    )
-    
-    # 12.3 计算元数据
-    calculation_metadata = models.TextField(
-        verbose_name='计算元数据', null=True, blank=True,
-        help_text='JSON格式的计算过程元数据'
     )
     
     # ==================== 时间戳管理 ====================
@@ -409,17 +397,7 @@ class FundFlowFactorBase(models.Model):
     
     def __str__(self):
         return f"{self.stock.stock_code if self.stock else ''}资金因子({self.trade_time})"
-    
-    def save_flow_sequence(self, sequence_data: List[Dict]):
-        """保存资金流序列数据"""
-        self.flow_sequence_30d = json.dumps(sequence_data, ensure_ascii=False)
-    
-    def load_flow_sequence(self) -> List[Dict]:
-        """加载资金流序列数据"""
-        if self.flow_sequence_30d:
-            return json.loads(self.flow_sequence_30d)
-        return []
-    
+       
     def save_feature_vector(self, vector: np.ndarray):
         """保存特征向量"""
         vector_bytes = pickle.dumps(vector)

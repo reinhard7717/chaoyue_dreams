@@ -577,9 +577,7 @@ def save_factor_to_db(stock_info: StockInfo, trade_date: date,
                     'trading_signal': metrics.get('trading_signal'),
                     'signal_strength': _safe_decimal(metrics.get('signal_strength')),
                     # 原始数据快照
-                    'flow_sequence_30d': metrics.get('flow_sequence_30d'),
                     'feature_vector': metrics.get('feature_vector'),
-                    'calculation_metadata': metrics.get('calculation_metadata'),
                 }
             )
             logger.debug(f"{'创建' if created else '更新'}股票 {stock_info.stock_code} "
