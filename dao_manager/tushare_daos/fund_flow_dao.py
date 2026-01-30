@@ -213,9 +213,6 @@ class FundFlowDao(BaseDAO):
         if start_date and end_date and start_date > end_date:
             logger.error(f"日期范围无效：起始日期 {start_date} 不能晚于结束日期 {end_date}。任务终止。")
             return
-        # 如果是范围查询
-        if start_date and end_date:
-            logger.info(f"接收到范围任务，将对 {start_date} 到 {end_date} 的同花顺资金流数据采用客户端分块策略处理。")
         # 如果是单日查询
         elif trade_date:
             start_date = end_date = trade_date
