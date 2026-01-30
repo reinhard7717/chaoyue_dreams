@@ -679,7 +679,7 @@ class ChipHoldingMatrixBase(models.Model):
         verbose_name='压缩矩阵',
         null=True, blank=True
     )
-    # ========== 新增：博弈能量场因子 ==========
+    # ========== 博弈能量场因子 ==========
     absorption_energy = models.FloatField(
         verbose_name='吸收能量(0-100)',
         null=True, blank=True,
@@ -712,6 +712,70 @@ class ChipHoldingMatrixBase(models.Model):
     
     energy_concentration = models.FloatField(
         verbose_name='能量集中度(0-1)',
+        null=True, blank=True,
+        default=0.0
+    )
+
+    # ========== 核心指标扁平化 (从JSON提取以提升性能) ==========
+    # 1. 集中度相关 (来源: concentration_metrics)
+    concentration_comprehensive = models.FloatField(
+        verbose_name='综合集中度',
+        null=True, blank=True,
+        help_text='综合熵值、峰度和主力控盘度的评分'
+    )
+    concentration_entropy = models.FloatField(
+        verbose_name='熵值集中度',
+        null=True, blank=True
+    )
+    concentration_peak = models.FloatField(
+        verbose_name='峰值集中度',
+        null=True, blank=True
+    )
+
+    # 2. 压力与支撑 (来源: pressure_metrics)
+    pressure_trapped = models.FloatField(
+        verbose_name='套牢盘压力',
+        null=True, blank=True,
+        help_text='当前价上方10%区间的筹码占比'
+    )
+    pressure_profit = models.FloatField(
+        verbose_name='获利盘比例',
+        null=True, blank=True
+    )
+    support_strength = models.FloatField(
+        verbose_name='下方支撑强度',
+        null=True, blank=True,
+        help_text='当前价下方5%区间的筹码占比'
+    )
+    resistance_strength = models.FloatField(
+        verbose_name='上方阻力强度',
+        null=True, blank=True,
+        help_text='当前价上方5%区间的筹码占比'
+    )
+
+    # 3. 聚散度与迁移 (来源: convergence_metrics)
+    convergence_comprehensive = models.FloatField(
+        verbose_name='综合收敛度',
+        null=True, blank=True
+    )
+    convergence_migration = models.FloatField(
+        verbose_name='迁移收敛度',
+        null=True, blank=True
+    )
+
+    # 4. 行为模式强度 (来源: behavior_patterns)
+    behavior_accumulation = models.FloatField(
+        verbose_name='吸筹强度',
+        null=True, blank=True,
+        default=0.0
+    )
+    behavior_distribution = models.FloatField(
+        verbose_name='派发强度',
+        null=True, blank=True,
+        default=0.0
+    )
+    behavior_consolidation = models.FloatField(
+        verbose_name='整理强度',
         null=True, blank=True,
         default=0.0
     )
@@ -808,7 +872,7 @@ class ChipHoldingMatrixBase(models.Model):
     def to_factor_dict(self) -> Dict[str, Any]:
         """
         转换为筹码因子字典
-        重构：移除avg_holding_days，加入能量场因子
+        重构：加入扁平化的核心指标
         """
         # 1. 能量场因子（核心）
         factors = {
@@ -826,6 +890,23 @@ class ChipHoldingMatrixBase(models.Model):
             'trend_score': self._calculate_trend_score(),
             # 突破概率
             'breakout_probability': self._calculate_breakout_probability(),
+            
+            # 扁平化的核心指标 - 集中度
+            'concentration_comprehensive': self.concentration_comprehensive if self.concentration_comprehensive is not None else 0.0,
+            'concentration_entropy': self.concentration_entropy if self.concentration_entropy is not None else 0.0,
+            'concentration_peak': self.concentration_peak if self.concentration_peak is not None else 0.0,
+            
+            # 扁平化的核心指标 - 压力支撑
+            'pressure_trapped': self.pressure_trapped if self.pressure_trapped is not None else 0.0,
+            'pressure_profit': self.pressure_profit if self.pressure_profit is not None else 0.0,
+            'support_strength': self.support_strength if self.support_strength is not None else 0.0,
+            'resistance_strength': self.resistance_strength if self.resistance_strength is not None else 0.0,
+            
+            # 扁平化的核心指标 - 聚散与行为
+            'convergence_comprehensive': self.convergence_comprehensive if self.convergence_comprehensive is not None else 0.0,
+            'convergence_migration': self.convergence_migration if self.convergence_migration is not None else 0.0,
+            'behavior_accumulation': self.behavior_accumulation if self.behavior_accumulation is not None else 0.0,
+            'behavior_distribution': self.behavior_distribution if self.behavior_distribution is not None else 0.0,
         }
         # 2. 保留原有的部分重要因子（可选）
         if hasattr(self, 'short_term_ratio'):
@@ -843,10 +924,10 @@ class ChipHoldingMatrixBase(models.Model):
 
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
         """
-        保存动态分析结果 - 性能优化版 v1.2
+        保存动态分析结果 - 性能优化版 v1.4 (字段扁平化且去冗余)
         修改思路：
-        1. 优化内部 _clean_structure 函数，针对 np.ndarray 进行向量化处理，避免递归循环，大幅提升大数组处理速度。
-        2. 保持原有的数据完整性检查和字段更新逻辑。
+        1. 从 metrics 字典中 pop 出核心标量值，赋值给新增的 FloatField。
+        2. 剩余的字典内容（去除已提取字段）保存到 JSON 字段中，避免数据冗余。
         """
         import math
         try:
@@ -887,17 +968,12 @@ class ChipHoldingMatrixBase(models.Model):
                     except Exception:
                         return 0.0
                 elif isinstance(data, np.ndarray):
-                    # 向量化处理 Numpy 数组，避免递归
                     try:
-                        # 处理 NaN 和 Inf
                         data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
-                        # 阈值过滤
                         if threshold > 0:
                             data = np.where(np.abs(data) < threshold, 0.0, data)
-                        # 四舍五入并转换为列表
                         return np.round(data, precision).tolist()
                     except Exception:
-                        # 如果数组包含非数值类型，回退到列表处理
                         return [_clean_structure(i, precision, threshold) for i in data.tolist()]
                 elif isinstance(data, dict):
                     return {k: _clean_structure(v, precision, threshold) for k, v in data.items()}
@@ -906,7 +982,7 @@ class ChipHoldingMatrixBase(models.Model):
                 return data
 
             # =======================================================
-            # 4. 计算并保存absolute_change_analysis（强制计算，保留3位小数）
+            # 4. 计算并保存absolute_change_analysis
             # =======================================================
             try:
                 percent_change_matrix = dynamics_result.get('percent_change_matrix', [])
@@ -914,25 +990,18 @@ class ChipHoldingMatrixBase(models.Model):
                 current_price = dynamics_result.get('current_price', 0)
                 
                 if len(percent_change_matrix) > 0 and len(price_grid) > 0 and current_price > 0:
-                    # 使用最新的变化数据
                     latest_change = np.array(percent_change_matrix[-1]) if percent_change_matrix else np.zeros(len(price_grid))
                     price_grid_array = np.array(price_grid)
                     
-                    # 计算绝对变化分析
                     absolute_analysis = self._calculate_absolute_change_analysis_robust(
                         latest_change, 
                         price_grid_array, 
                         current_price
                     )
-                    
-                    # 确保分析结果不为空，并清洗为3位小数
                     if not absolute_analysis:
                         absolute_analysis = self._get_default_absolute_analysis()
-                    
-                    # 清洗absolute_change_analysis中的所有浮点数，保留3位小数
                     self.absolute_change_analysis = _clean_structure(absolute_analysis, precision=3)
                 else:
-                    print(f"⚠️ [保存] 数据不足，无法计算absolute_change_analysis")
                     self.absolute_change_analysis = _clean_structure(self._get_default_absolute_analysis(), precision=3)
             except Exception as e:
                 print(f"⚠️ [保存] 计算absolute_change_analysis失败: {e}")
@@ -943,7 +1012,6 @@ class ChipHoldingMatrixBase(models.Model):
             # =======================================================
             game_energy = dynamics_result.get('game_energy_result', {})
             if game_energy:
-                # 确保能量场字段有值，并保留3位小数
                 self.absorption_energy = round(max(0.0, game_energy.get('absorption_energy', 0.0)), 3)
                 self.distribution_energy = round(max(0.0, game_energy.get('distribution_energy', 0.0)), 3)
                 self.net_energy_flow = round(game_energy.get('net_energy_flow', 0.0), 3)
@@ -952,73 +1020,100 @@ class ChipHoldingMatrixBase(models.Model):
                 self.energy_concentration = round(max(0.0, min(1.0, game_energy.get('energy_concentration', 0.0))), 3)
                 self.fake_distribution_flag = bool(game_energy.get('fake_distribution_flag', False))
                 
-                # 处理key_battle_zones，清洗为3位小数
                 key_battle_zones = game_energy.get('key_battle_zones', [])
                 if key_battle_zones and len(key_battle_zones) > 0:
-                    # 清洗key_battle_zones中的所有浮点数，保留3位小数
                     cleaned_zones = _clean_structure(key_battle_zones, precision=3)
-                    self.key_battle_zones = cleaned_zones[:5]  # 只保存前5个
+                    self.key_battle_zones = cleaned_zones[:5]
                 else:
-                    # 如果没有关键区域，创建一个默认的，并清洗为3位小数
                     default_zones = self._create_default_key_battle_zones(
                         dynamics_result.get('price_grid', []),
                         dynamics_result.get('current_price', 0)
                     )
                     self.key_battle_zones = _clean_structure(default_zones, precision=3)
             else:
-                print(f"⚠️ [保存] 没有game_energy_result数据")
-                # 设置默认值，并保留3位小数
                 self._set_default_energy_values()
 
             # =======================================================
-            # 6. 保存其他动态分析结果（使用清洗函数）
+            # 6. 提取核心指标并保存 (扁平化 + 去冗余)
             # =======================================================
-            # 价格网格
+            # 复制字典以避免修改原始数据（如果原始数据后续还需要使用）
+            conc_metrics = dynamics_result.get('concentration_metrics', {}).copy()
+            press_metrics = dynamics_result.get('pressure_metrics', {}).copy()
+            conv_metrics = dynamics_result.get('convergence_metrics', {}).copy()
+            behav_patterns = dynamics_result.get('behavior_patterns', {}).copy()
+
+            # --- 集中度 (提取并移除) ---
+            self.concentration_comprehensive = round(conc_metrics.pop('comprehensive_concentration', 0.0), 3)
+            self.concentration_entropy = round(conc_metrics.pop('entropy_concentration', 0.0), 3)
+            self.concentration_peak = round(conc_metrics.pop('peak_concentration', 0.0), 3)
+            # 保存剩余的 JSON
+            self.concentration_metrics = _clean_structure(conc_metrics, precision=4)
+
+            # --- 压力与支撑 (提取并移除) ---
+            self.pressure_trapped = round(press_metrics.pop('trapped_pressure', 0.0), 3)
+            self.pressure_profit = round(press_metrics.pop('profit_pressure', 0.0), 3)
+            self.support_strength = round(press_metrics.pop('support_strength', 0.0), 3)
+            self.resistance_strength = round(press_metrics.pop('resistance_strength', 0.0), 3)
+            # 保存剩余的 JSON
+            self.pressure_metrics = _clean_structure(press_metrics, precision=4)
+
+            # --- 聚散度 (提取并移除) ---
+            self.convergence_comprehensive = round(conv_metrics.pop('comprehensive_convergence', 0.0), 3)
+            self.convergence_migration = round(conv_metrics.pop('migration_convergence', 0.0), 3)
+            # 保存剩余的 JSON
+            self.convergence_metrics = _clean_structure(conv_metrics, precision=4)
+
+            # --- 行为模式 (提取嵌套的 strength 并移除) ---
+            # 注意：behavior_patterns 是嵌套结构，我们需要进入子字典提取
+            
+            # 吸筹
+            accum_dict = behav_patterns.get('accumulation', {})
+            self.behavior_accumulation = round(accum_dict.pop('strength', 0.0), 3)
+            # 派发
+            dist_dict = behav_patterns.get('distribution', {})
+            self.behavior_distribution = round(dist_dict.pop('strength', 0.0), 3)
+            # 整理
+            cons_dict = behav_patterns.get('consolidation', {})
+            self.behavior_consolidation = round(cons_dict.pop('strength', 0.0), 3)
+            
+            # 保存剩余的 JSON (包含 areas, detected 等复杂结构)
+            self.behavior_patterns = _clean_structure(behav_patterns, precision=3)
+
+            # =======================================================
+            # 7. 保存其他动态分析结果
+            # =======================================================
             self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
             
-            # 百分比变化矩阵
             raw_change = dynamics_result.get('percent_change_matrix', [])
             self.percent_change_matrix = _clean_structure(raw_change, precision=3, threshold=0.05) if raw_change else []
             
-            # 信号与模式
             self.absolute_change_signals = _clean_structure(dynamics_result.get('absolute_change_signals', {}), precision=3)
-            self.behavior_patterns = _clean_structure(dynamics_result.get('behavior_patterns', {}), precision=3)
-            
-            # 指标类
-            self.concentration_metrics = _clean_structure(dynamics_result.get('concentration_metrics', {}), precision=4)
-            self.pressure_metrics = _clean_structure(dynamics_result.get('pressure_metrics', {}), precision=4)
             self.migration_patterns = _clean_structure(dynamics_result.get('migration_patterns', {}), precision=4)
-            self.convergence_metrics = _clean_structure(dynamics_result.get('convergence_metrics', {}), precision=4)
             
-            # 验证信息
             self.validation_score = round(max(0.0, min(1.0, dynamics_result.get('validation_score', 0.5))), 3)
             self.validation_warnings = _clean_structure(dynamics_result.get('validation_warnings', []), precision=3)
 
             # =======================================================
-            # 7. 筹码矩阵存储优化
+            # 8. 筹码矩阵存储优化
             # =======================================================
             chip_matrix_list = dynamics_result.get('chip_matrix', [])
             if chip_matrix_list:
                 try:
                     cleaned_matrix = _clean_structure(chip_matrix_list, precision=3, threshold=0.001)
-                    # 临时存储用于调试或非压缩读取
-                    # self.matrix_data = {'matrix': cleaned_matrix} 
                     import zlib, json
                     json_str = json.dumps(cleaned_matrix, separators=(',', ':'))
                     self.compressed_matrix = zlib.compress(json_str.encode('utf-8'))
                 except Exception as e:
                     print(f"⚠️ [保存警告] 筹码矩阵压缩失败: {e}")
-                    # self.matrix_data = {'matrix': chip_matrix_list}
 
-            # 8. 计算持有时间因子
+            # 9. 计算持有时间因子
             self._calculate_holding_factors_from_dynamics(dynamics_result)
 
-            # 9. 保存状态与提交
+            # 10. 保存状态与提交
             self.calc_status = 'success'
             self.analysis_method = 'advanced_dynamics_v2'
             self.used_percent_data = True
             
-            # 保存所有字段
             self.save()
             return True
 
