@@ -304,8 +304,11 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
 def get_historical_flow_data(stock_code: str, end_date: date, days: int = 120) -> List[Dict]:
     """
     获取历史资金流向数据
-    版本: V1.4
-    说明: 移除调试探针，保留核心逻辑：批量获取历史行情数据并合并。
+    版本: V1.5
+    修改思路:
+    1. 从 DAO 获取 'amount' (成交额) 数据。
+    2. 在合并数据后，计算 'net_amount_ratio' (净流入占比)，以便计算 MA5/MA10 指标。
+    3. 计算公式：(net_mf_amount(万元) * 10000) / (amount(千元) * 1000) * 100% = (net / amount) * 1000。
     """
     try:
         # 获取结束日期之前的N个交易日
@@ -324,7 +327,7 @@ def get_historical_flow_data(stock_code: str, end_date: date, days: int = 120) -
                 historical_data.append(flow_data)
         if not historical_data:
             return []
-        # 2. 批量获取历史行情数据 (Close, PctChange) 并合并
+        # 2. 批量获取历史行情数据 (Close, PctChange, Amount) 并合并
         try:
             sorted_dates = sorted(trade_dates)
             start_date = sorted_dates[0]
@@ -348,13 +351,29 @@ def get_historical_flow_data(stock_code: str, end_date: date, days: int = 120) -
                         continue
                     price_map[d_str] = {
                         'close': float(row['close']) if pd.notnull(row.get('close')) else None,
-                        'pct_change': float(row['pct_change']) if pd.notnull(row.get('pct_change')) else None
+                        'pct_change': float(row['pct_change']) if pd.notnull(row.get('pct_change')) else None,
+                        'amount': float(row['amount']) if pd.notnull(row.get('amount')) else None
                     }
-                # 将价格数据合并到 historical_data 中
+                # 将价格数据合并到 historical_data 中，并计算 net_amount_ratio
                 for item in historical_data:
                     d_str = item['trade_date']
                     if d_str in price_map:
                         item.update(price_map[d_str])
+                        
+                    # 计算 net_amount_ratio
+                    # net_mf_amount 单位: 万元
+                    # amount 单位: 千元 (Tushare标准)
+                    # Ratio(%) = (Net(万) * 10000) / (Amount(千) * 1000) * 100
+                    #          = (Net * 10^6) / (Amount * 10^3)
+                    #          = (Net / Amount) * 1000
+                    net_amt = item.get('net_mf_amount')
+                    total_amt = item.get('amount')
+                    
+                    if net_amt is not None and total_amt and total_amt != 0:
+                        item['net_amount_ratio'] = (net_amt / total_amt) * 1000.0
+                    else:
+                        # 如果没有成交额数据，无法计算占比，设为0
+                        item['net_amount_ratio'] = 0.0
             else:
                 logger.warning(f"股票 {stock_code} 在 {s_str}-{e_str} 期间无日线行情数据")
         except Exception as e:
