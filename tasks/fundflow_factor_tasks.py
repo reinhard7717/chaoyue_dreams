@@ -161,17 +161,11 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
 def get_trade_dates_for_stock(stock_code: str, start_date: date, incremental: bool, factor_model) -> List[date]:
     """
     获取需要计算的交易日列表
-    Args:
-        stock_code: 股票代码
-        start_date: 指定的开始日期
-        incremental: 是否为增量模式
-        factor_model: 资金流向因子模型
-    Returns:
-        需要计算的交易日列表
+    版本: V1.2
+    说明: 移除错误的采样逻辑 [::50]，确保计算指定区间内的所有交易日。
     """
     try:
         # 修改：使用 get_latest_n_trade_dates 获取包含今天的最新交易日 (lte)
-        # 原来的 get_latest_trade_date 使用 lt，会导致无法获取当天的交易日
         latest_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=timezone.now().date())
         latest_trade_date = latest_dates[0] if latest_dates else None
         if not latest_trade_date:
@@ -205,16 +199,11 @@ def get_trade_dates_for_stock(stock_code: str, start_date: date, incremental: bo
         if not all_trade_dates:
             print(f"股票 {stock_code} 在 {calc_start_date} 到 {latest_trade_date} 之间没有交易日")
             return []
-        # 修改：如果是增量模式且天数较少，不进行采样，确保计算所有缺失日期
-        # 原来的 [::50] 采样会导致增量更新时漏掉最近的日期（如果 gap < 50 且 index != 0）
-        if incremental and len(all_trade_dates) < 50:
-            sampled_dates = all_trade_dates
-        else:
-            # 每隔50个交易日取一个（节省计算资源，适用于全量历史计算）
-            sampled_dates = all_trade_dates[::50]
-        logger.debug(f"股票 {stock_code} 原始交易日: {len(all_trade_dates)}，"
-                    f"采样后: {len(sampled_dates)}")
-        return sampled_dates
+            
+        # [修正] 移除采样逻辑，返回所有需要计算的日期
+        # 原代码的 [::50] 会导致只计算极少数日期，不符合连续因子计算的需求
+        logger.debug(f"股票 {stock_code} 需要计算的交易日数量: {len(all_trade_dates)}")
+        return all_trade_dates
     except Exception as e:
         logger.error(f"获取股票 {stock_code} 交易日失败: {e}", exc_info=True)
         return []
