@@ -134,7 +134,10 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def get_daily_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
-        【V1.1 - 字段补全版】
+        【V1.2 - 字段补全版】
+        修改思路：
+        1. 在查询字段中增加 'pct_change'，以支持上层业务计算。
+        2. 保持原有的 open_qfq, close_qfq 等字段。
         """
         # print(f"[DAO] StockTimeTradeDAO.get_daily_data: 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的数据...")
         try:
@@ -146,13 +149,13 @@ class StockTimeTradeDAO(BaseDAO):
                 trade_time__gte=start_dt,
                 trade_time__lte=end_dt
             ).order_by('trade_time')
-            # [修正] 在 .values() 中增加 'open_qfq' 字段
-            data_list = [item async for item in queryset.values('trade_time', 'open_qfq', 'close_qfq', 'high_qfq', 'low_qfq')]
+            # [修正] 在 .values() 中增加 'pct_change' 字段
+            data_list = [item async for item in queryset.values('trade_time', 'open_qfq', 'close_qfq', 'high_qfq', 'low_qfq', 'pct_change')]
             if not data_list:
                 logger.warning(f"[DAO] 未能在 {model_class.__name__} 表中找到 {stock_code} 在 {start_date}-{end_date} 期间的日线数据。")
                 return pd.DataFrame()
             df = pd.DataFrame(data_list)
-            # [修正] 增加对 'open_qfq' 的重命名
+            # [修正] 增加对 'open_qfq' 的重命名，保留 pct_change
             df.rename(columns={'open_qfq': 'open', 'close_qfq': 'close', 'high_qfq': 'high', 'low_qfq': 'low'}, inplace=True)
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df.set_index('trade_time', inplace=True)

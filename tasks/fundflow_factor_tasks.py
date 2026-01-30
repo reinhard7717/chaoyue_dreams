@@ -274,20 +274,18 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
     """
     计算单个日期的资金流向因子
     修改思路：
-    1. stock_basic_dao.get_stock_by_code 是异步方法，直接调用返回协程对象。
-    2. 使用 async_to_sync 将其转换为同步调用，确保获取到 StockInfo 实例。
-    3. 这样可以避免后续访问 stock_info.stock_code 时出现 'coroutine' object has no attribute 'stock_code' 错误。
+    1. 将历史数据获取窗口从30天增加到120天，以支持中长期指标(如mid_long_sync, flow_peak_value)的计算。
+    2. 保持原有的异步转同步调用 stock_basic_dao.get_stock_by_code 的修复。
     """
     stock_basic_dao = StockBasicInfoDao(CacheManager())
     try:
         # 1. 获取股票基本信息
-        # 修正：DAO方法是异步的，需使用 async_to_sync 转换
         stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
         if not stock_info:
             logger.warning(f"股票 {stock_code} 不存在")
             return False
-        # 2. 获取历史资金流向数据（最近30天）
-        historical_flow_data = get_historical_flow_data(stock_code, trade_date, days=30)
+        # 2. 获取历史资金流向数据（修改：从30天增加到120天）
+        historical_flow_data = get_historical_flow_data(stock_code, trade_date, days=75)
         if not historical_flow_data or len(historical_flow_data) < 10:
             logger.warning(f"股票 {stock_code} 在 {trade_date} 的历史数据不足")
             return False
@@ -319,6 +317,79 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 在 {trade_date} 的资金流向因子失败: {e}", exc_info=True)
         return False
+
+def get_historical_flow_data(stock_code: str, end_date: date, days: int = 30) -> List[Dict]:
+    """
+    获取历史资金流向数据
+    修改思路：
+    1. 增加获取历史行情数据（收盘价、涨跌幅）的逻辑。
+    2. 使用 StockTimeTradeDAO 批量获取日线数据，并合并到资金流向数据中。
+    3. 确保 price_flow_divergence 等需要价格数据的指标能正常计算。
+    """
+    try:
+        # 获取结束日期之前的N个交易日
+        trade_dates = TradeCalendar.get_latest_n_trade_dates(n=days, reference_date=end_date)
+        if not trade_dates:
+            return []
+        # 获取股票信息
+        stock_info = StockInfo.objects.filter(stock_code=stock_code).first()
+        if not stock_info:
+            return []
+        
+        historical_data = []
+        # 1. 获取资金流向数据
+        for trade_date in sorted(trade_dates):  # 按日期升序
+            # 获取该日期的资金流向数据
+            flow_data = get_single_date_flow_data(stock_code, trade_date, stock_info)
+            if flow_data:
+                # 添加日期信息
+                flow_data['trade_date'] = trade_date.isoformat()
+                historical_data.append(flow_data)
+        
+        if not historical_data:
+            return []
+
+        # 2. 批量获取历史行情数据 (Close, PctChange) 并合并
+        try:
+            # 确定日期范围
+            sorted_dates = sorted(trade_dates)
+            start_date = sorted_dates[0]
+            real_end_date = sorted_dates[-1]
+            
+            stock_time_trade_dao = StockTimeTradeDAO(CacheManager())
+            # get_daily_data 需要 YYYYMMDD 字符串
+            s_str = start_date.strftime('%Y%m%d')
+            e_str = real_end_date.strftime('%Y%m%d')
+            
+            # 异步转同步调用 DAO 获取日线数据
+            df_price = async_to_sync(stock_time_trade_dao.get_daily_data)(stock_code, s_str, e_str)
+            
+            if not df_price.empty:
+                # 构建价格查找字典，Key为日期字符串 YYYY-MM-DD
+                price_map = {}
+                for idx, row in df_price.iterrows():
+                    # df_price 的索引是 trade_time (Timestamp)
+                    d_str = idx.strftime('%Y-%m-%d')
+                    price_map[d_str] = {
+                        'close': float(row['close']) if pd.notnull(row.get('close')) else None,
+                        'pct_change': float(row['pct_change']) if pd.notnull(row.get('pct_change')) else None
+                    }
+                
+                # 将价格数据合并到 historical_data 中
+                for item in historical_data:
+                    d_str = item['trade_date']
+                    if d_str in price_map:
+                        item.update(price_map[d_str])
+            else:
+                logger.warning(f"股票 {stock_code} 在 {s_str}-{e_str} 期间无日线行情数据")
+
+        except Exception as e:
+            logger.error(f"合并股票 {stock_code} 历史行情数据失败: {e}")
+
+        return historical_data
+    except Exception as e:
+        logger.error(f"获取股票 {stock_code} 历史资金流向数据失败: {e}")
+        return []
 
 def get_historical_flow_data(stock_code: str, end_date: date, days: int = 30) -> List[Dict]:
     """
