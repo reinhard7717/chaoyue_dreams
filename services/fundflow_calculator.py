@@ -77,14 +77,12 @@ class FundFlowFactorCalculator:
         ]
         self.net_amount_array = np.array(self.net_amount_series, dtype=np.float64)
         self.net_amount_pd_series = pd.Series(self.net_amount_array)
-        
         # [新增] 提取历史净流入占比序列 (优先使用 Task 层计算好的值)
         self.net_amount_ratio_series = [
             float(data.get('net_amount_ratio', 0) or 0)
             for data in self.context.historical_flow_data
         ]
         self.net_amount_ratio_array = np.array(self.net_amount_ratio_series, dtype=np.float64)
-        
         # 提取历史成交量
         if self.context.volume_data:
             self.volume_series = self.context.volume_data
@@ -94,25 +92,21 @@ class FundFlowFactorCalculator:
                 for data in self.context.historical_flow_data
             ]
         self.volume_array = np.array(self.volume_series, dtype=np.float64)
-            
         # 提取历史成交额序列
         self.daily_amount_series = [
             float(data.get('amount', 0) or 0) if data.get('amount') is not None else 0.0
             for data in self.context.historical_flow_data
         ]
         self.daily_amount_array = np.array(self.daily_amount_series, dtype=np.float64)
-        
         # 提取历史收盘价序列
         self.close_series = [
             float(data.get('close', 0) or 0) if data.get('close') is not None else 0.0
             for data in self.context.historical_flow_data
         ]
         self.close_array = np.array(self.close_series, dtype=np.float64)
-
         # 计算市值
         if self.context.daily_basic_data:
             self.market_cap = float(self.context.daily_basic_data.get('circ_mv', 0) or 0)
-            
         # 准备1分钟数据相关指标
         if self.context.minute_data_1min is not None and not self.context.minute_data_1min.empty:
             self._process_minute_data()
@@ -159,7 +153,6 @@ class FundFlowFactorCalculator:
             else:
                 metrics[f'total_net_amount_{window}d'] = None
                 metrics[f'avg_daily_net_{window}d'] = None
-                
         # 累计成交量
         n_vol = len(vol_arr)
         for window in [5, 10]:
@@ -169,7 +162,6 @@ class FundFlowFactorCalculator:
                 metrics[f'total_volume_{window}d'] = float(total_vol)
             else:
                 metrics[f'total_volume_{window}d'] = None
-                
         return metrics
 
     # ==================== 2. 相对强度指标计算 ====================
@@ -183,7 +175,6 @@ class FundFlowFactorCalculator:
         """
         metrics = {}
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
-        
         # 1. 当日净流入占比
         if self.context.daily_basic_data:
             daily_amount = float(self.context.daily_basic_data.get('amount', 0) or 0)
@@ -201,19 +192,15 @@ class FundFlowFactorCalculator:
             # 使用历史平均成交额估算
             valid_amounts = self.daily_amount_array[-20:]
             valid_amounts = valid_amounts[valid_amounts > 0]
-            
             if len(valid_amounts) > 0:
                 avg_amount = np.mean(valid_amounts)
                 net_ratio = (current_net / avg_amount * 1000.0)
             else:
                 net_ratio = 0.0
-                
         metrics['net_amount_ratio'] = float(net_ratio)
-        
         # 2. 5日、10日均净流入占比 (使用预处理的 Ratio 数组)
         ratio_arr = self.net_amount_ratio_array
         n = len(ratio_arr)
-        
         for window in [5, 10]:
             if n >= window:
                 recent_ratios = ratio_arr[-window:]
@@ -223,13 +210,11 @@ class FundFlowFactorCalculator:
             else:
                 # 数据不足时返回 None
                 metrics[f'net_amount_ratio_ma{window}'] = None
-                
         # 资金流入强度得分
         intensity_score = self._calculate_flow_intensity(current_net, net_ratio)
         metrics['flow_intensity'] = float(intensity_score)
         # 强度分级
         metrics['intensity_level'] = self._determine_intensity_level(current_net, net_ratio)
-        
         return metrics
 
     def _calculate_flow_intensity(self, net_amount: float, net_ratio: float) -> float:
@@ -498,7 +483,6 @@ class FundFlowFactorCalculator:
         """
         if current_net >= 0:
             return 100.0  # 净流入
-            
         # 获取历史流出数据 (向量化过滤)
         # 取最近20天
         recent_20 = self.net_amount_array[-20:]
@@ -506,7 +490,6 @@ class FundFlowFactorCalculator:
         historical_outflows = np.abs(recent_20[recent_20 < 0])
         if len(historical_outflows) == 0:
             return 50.0
-            
         current_outflow = abs(current_net)
         # 计算百分位 (Rank)
         # 统计小于当前流出量的个数
@@ -563,38 +546,83 @@ class FundFlowFactorCalculator:
     def _calculate_flow_consistency(self) -> float:
         """
         计算分档资金一致性
-        版本: V1.1
-        说明: 使用 NumPy 向量化计算符号一致性。
+        版本: V1.2
+        说明: 
+        1. 修正原逻辑计算的是时间序列一致性（且只有0/50/100）的问题。
+        2. 改为计算当日各分档资金（超大、大、中）的方向一致性。
+        3. 算法：|Sum(Net)| / Sum(Abs(Net)) * 100。
+           反映各路资金是否形成合力。
+        """
+        data = self.context.current_flow_data
+        if not data:
+            return 50.0
+        # 1. 计算各档净流入
+        try:
+            # 确保数据存在且为 float
+            def get_val(key):
+                return float(data.get(key, 0) or 0)
+            net_elg = get_val('buy_elg_amount') - get_val('sell_elg_amount')
+            net_lg = get_val('buy_lg_amount') - get_val('sell_lg_amount')
+            net_md = get_val('buy_md_amount') - get_val('sell_md_amount')
+            # 小单通常是被动资金，计算一致性时主要看主力(ELG, LG)和中单(MD)的合力情况
+            # 这里将 ELG, LG, MD 视为主要市场力量
+            components = [net_elg, net_lg, net_md]
+            # 2. 计算合力程度
+            # 分子：净流入代数和的绝对值 (合力后的大小)
+            # 例如: 10 + 10 + 10 = 30; 10 + 10 - 20 = 0
+            abs_sum_net = abs(sum(components))
+            # 分母：各分量绝对值之和 (总活跃资金量)
+            # 例如: |10| + |10| + |10| = 30; |10| + |10| + |-20| = 40
+            sum_abs_net = sum(abs(x) for x in components)
+            if sum_abs_net == 0:
+                return 50.0
+            # 3. 计算得分 (0-100)
+            # 如果全部同向，分子=分母，得分100
+            # 如果完全抵消，分子=0，得分0
+            # 结果是连续的 float 值
+            consistency_score = (abs_sum_net / sum_abs_net) * 100.0
+            return float(consistency_score)
+        except Exception as e:
+            print(f"计算资金一致性出错: {e}")
+            return 50.0
+
+    def _calculate_flow_stability(self) -> float:
+        """
+        计算资金流稳定性
+        版本: V1.0
+        说明: 基于最近20天净流入的变异系数 (CV) 计算。
         """
         # 使用预处理的 array
         arr = self.net_amount_array
-        if len(arr) < 3:
+        n = len(arr)
+        if n < 5:
             return 50.0
-            
-        # 取最近3天
-        recent = arr[-3:]
-        # 获取符号 (-1, 0, 1)
-        signs = np.sign(recent)
-        # 比较相邻符号是否相等
-        # signs[1:] 与 signs[:-1] 比较
-        # 例如 [1, 1, -1] -> 比较 (1,1) 和 (1,-1) -> [True, False]
-        if len(signs) < 2:
-            return 50.0
-            
-        matches = (signs[1:] == signs[:-1])
-        consistency = np.mean(matches) * 100
-        return float(consistency)
+        # 取最近20天 (如果不足20天则取全部)
+        window = min(n, 20)
+        recent = arr[-window:]
+        # 计算均值和标准差
+        mean_val = np.mean(recent)
+        std_val = np.std(recent)
+        # 如果均值接近0，说明多空博弈非常激烈且平衡，或者没量
+        # 这种情况下稳定性较低
+        if abs(mean_val) < 1e-6:
+            # 如果标准差也很小，说明是死水，稳定性高？
+            # 这里假设没量就是不稳定（容易被少量资金打破）
+            if std_val < 1e-6:
+                return 100.0
+            else:
+                return 20.0
+        # 变异系数 CV = Std / |Mean|
+        # CV 越大，说明波动相对于均值越大，稳定性越差
+        cv = std_val / (abs(mean_val) + 1e-6)
+        # 映射到 0-100
+        # 经验规则：
+        # CV <= 0.5 -> 非常稳定 (得分 75-100)
+        # CV = 1.0 -> 一般 (得分 50)
+        # CV >= 2.0 -> 不稳定 (得分 < 0 -> 截断为0)
+        stability_score = 100.0 - (cv * 50.0)
+        return float(max(0.0, min(100.0, stability_score)))
 
-    def _calculate_flow_stability(self) -> float:
-        """计算资金流稳定性"""
-        if len(self.net_amount_series) < 5:
-            return 50
-        recent_nets = self.net_amount_series[-5:]
-        volatility = np.std(recent_nets) / (abs(np.mean(recent_nets)) + 1e-6)
-        # 波动性越小，稳定性越高
-        stability = max(0, 100 - volatility * 100)
-        return stability
-    
     # ==================== 5. 多周期资金共振指标 ====================
     def calculate_multi_period_sync(self) -> Dict[str, float]:
         """
@@ -731,7 +759,6 @@ class FundFlowFactorCalculator:
                 r_value = 0
             else:
                 r_value = r_matrix[0, 1]
-                
         except Exception:
             return 0.0, 0.0
         # 上升趋势强度

@@ -251,7 +251,12 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
 
 async def _get_historical_flow_data_async(stock_code: str, end_date: date, 
                                         stock_time_trade_dao, days: int = 120) -> List[Dict]:
-    """[Async] 获取历史资金流向数据"""
+    """
+    [Async] 获取历史资金流向数据
+    版本: V1.8
+    修改思路:
+    1. 增加 'vol' 字段的提取和合并，解决成交量指标为0的问题。
+    """
     try:
         # DB 操作
         trade_dates = await sync_to_async(TradeCalendar.get_latest_n_trade_dates)(n=days, reference_date=end_date)
@@ -263,8 +268,7 @@ async def _get_historical_flow_data_async(stock_code: str, end_date: date,
             return []
             
         historical_data = []
-        # 循环获取单日流向数据 (DB 操作)
-        # 优化：这里可以进一步并行化，但为保持逻辑简单暂且串行
+        # 循环获取单日流向数据
         sorted_dates = sorted(trade_dates)
         for trade_date in sorted_dates:
             flow_data = await sync_to_async(get_single_date_flow_data)(stock_code, trade_date, stock_info)
@@ -296,10 +300,13 @@ async def _get_historical_flow_data_async(stock_code: str, end_date: date,
                             d_str = pd.to_datetime(idx).strftime('%Y-%m-%d')
                     except Exception:
                         continue
+                    
+                    # [关键修正] 提取 vol 字段
                     price_map[d_str] = {
                         'close': float(row['close']) if pd.notnull(row.get('close')) else None,
                         'pct_change': float(row['pct_change']) if pd.notnull(row.get('pct_change')) else None,
-                        'amount': float(row['amount']) if pd.notnull(row.get('amount')) else 0.0
+                        'amount': float(row['amount']) if pd.notnull(row.get('amount')) else 0.0,
+                        'vol': float(row['vol']) if pd.notnull(row.get('vol')) else 0.0
                     }
                 
                 for item in historical_data:
