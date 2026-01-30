@@ -273,8 +273,8 @@ def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_mode
 def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model) -> bool:
     """
     计算单个日期的资金流向因子
-    版本: V1.2
-    说明: 增加详细探针，检查历史数据中是否包含价格信息，验证计算结果。
+    版本: V1.3
+    说明: 移除调试探针，保持核心逻辑。
     """
     stock_basic_dao = StockBasicInfoDao(CacheManager())
     try:
@@ -284,15 +284,9 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
             return False
         # 获取历史资金流向数据（120天），用于计算中长期指标
         historical_flow_data = get_historical_flow_data(stock_code, trade_date, days=120)
-        # [探针1] 检查历史数据质量
-        hist_len = len(historical_flow_data) if historical_flow_data else 0
-        has_price = False
-        if hist_len > 0:
-            # 检查第一条数据是否有 close 字段且不为 None
-            has_price = 'close' in historical_flow_data[0] and historical_flow_data[0]['close'] is not None
-        print(f"DEBUG: [Stock {stock_code}] Date: {trade_date}, Hist Data Len: {hist_len}, Has Price Data: {has_price}")
-        if not historical_flow_data or hist_len < 10:
-            logger.warning(f"股票 {stock_code} 在 {trade_date} 的历史数据不足 (Len: {hist_len})")
+        
+        if not historical_flow_data or len(historical_flow_data) < 10:
+            logger.warning(f"股票 {stock_code} 在 {trade_date} 的历史数据不足 (Len: {len(historical_flow_data) if historical_flow_data else 0})")
             return False
         current_flow_data = get_current_flow_data(stock_code, trade_date)
         if not current_flow_data:
@@ -310,10 +304,7 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         )
         calculator = FundFlowFactorCalculator(context)
         all_metrics = calculator.calculate_all_metrics()
-        # [探针2] 检查关键指标的计算结果
-        check_keys = ['price_flow_divergence', 'flow_peak_value', 'days_since_last_peak', 'flow_support_level', 'mid_long_sync']
-        debug_vals = {k: all_metrics.get(k) for k in check_keys}
-        print(f"DEBUG: [Stock {stock_code}] Calculated Metrics Probe: {debug_vals}")
+        
         save_factor_to_db(stock_info, trade_date, all_metrics, factor_model)
         logger.debug(f"成功计算股票 {stock_code} 在 {trade_date} 的资金流向因子")
         return True
@@ -324,11 +315,8 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
 def get_historical_flow_data(stock_code: str, end_date: date, days: int = 120) -> List[Dict]:
     """
     获取历史资金流向数据
-    版本: V1.3
-    说明: 
-    1. 批量获取历史行情数据 (Close, PctChange) 并合并到资金流向数据中。
-    2. 增加索引处理鲁棒性，确保日期匹配成功。
-    3. 增加详细探针输出。
+    版本: V1.4
+    说明: 移除调试探针，保留核心逻辑：批量获取历史行情数据并合并。
     """
     try:
         # 获取结束日期之前的N个交易日
@@ -357,38 +345,27 @@ def get_historical_flow_data(stock_code: str, end_date: date, days: int = 120) -
             e_str = real_end_date.strftime('%Y%m%d')
             # 异步转同步调用 DAO 获取日线数据
             df_price = async_to_sync(stock_time_trade_dao.get_daily_data)(stock_code, s_str, e_str)
-            # [探针3] 检查 DAO 返回的价格数据
-            print(f"DEBUG: [get_historical_flow_data] {stock_code} Price DF Shape: {df_price.shape}, Range: {s_str}-{e_str}")
+            
             if not df_price.empty:
-                print(f"DEBUG: [get_historical_flow_data] Price DF Columns: {df_price.columns.tolist()}")
                 # 构建价格查找字典，Key为日期字符串 YYYY-MM-DD
                 price_map = {}
                 for idx, row in df_price.iterrows():
-                    # 处理索引可能是 Timestamp 或其他类型的情况
                     try:
                         if hasattr(idx, 'strftime'):
                             d_str = idx.strftime('%Y-%m-%d')
                         else:
                             d_str = pd.to_datetime(idx).strftime('%Y-%m-%d')
-                    except Exception as e:
-                        print(f"DEBUG: Date conversion failed for index {idx}: {e}")
+                    except Exception:
                         continue
                     price_map[d_str] = {
                         'close': float(row['close']) if pd.notnull(row.get('close')) else None,
                         'pct_change': float(row['pct_change']) if pd.notnull(row.get('pct_change')) else None
                     }
                 # 将价格数据合并到 historical_data 中
-                merged_count = 0
                 for item in historical_data:
                     d_str = item['trade_date']
                     if d_str in price_map:
                         item.update(price_map[d_str])
-                        merged_count += 1
-                # [探针4] 检查合并结果
-                print(f"DEBUG: [get_historical_flow_data] {stock_code} Merged {merged_count}/{len(historical_data)} records with price.")
-                if len(historical_data) > 0:
-                    # 打印最后一条记录的键，检查是否包含 close
-                    print(f"DEBUG: [get_historical_flow_data] Sample Record Keys: {list(historical_data[-1].keys())}")
             else:
                 logger.warning(f"股票 {stock_code} 在 {s_str}-{e_str} 期间无日线行情数据")
         except Exception as e:
