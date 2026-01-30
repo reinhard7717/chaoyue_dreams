@@ -65,19 +65,26 @@ class FundFlowFactorCalculator:
     def _prepare_data(self):
         """
         预处理数据，计算中间变量
-        版本: V1.2
+        版本: V1.3
         说明: 
-        1. 将核心数据序列直接转换为 numpy.array，供后续向量化计算使用，避免反复转换。
-        2. 确保数组类型为 float 以避免计算精度问题。
+        1. 增加 net_amount_ratio_array 的预提取，直接使用 Task 层计算好的占比数据。
+        2. 保持其他数组的向量化转换。
         """
-        # 提取历史净流入序列 (转换为 numpy array)
+        # 提取历史净流入序列
         self.net_amount_series = [
             float(data.get('net_mf_amount', 0) or 0) 
             for data in self.context.historical_flow_data
         ]
         self.net_amount_array = np.array(self.net_amount_series, dtype=np.float64)
-        # 保留 Pandas Series 供 rolling 计算使用
         self.net_amount_pd_series = pd.Series(self.net_amount_array)
+        
+        # [新增] 提取历史净流入占比序列 (优先使用 Task 层计算好的值)
+        self.net_amount_ratio_series = [
+            float(data.get('net_amount_ratio', 0) or 0)
+            for data in self.context.historical_flow_data
+        ]
+        self.net_amount_ratio_array = np.array(self.net_amount_ratio_series, dtype=np.float64)
+        
         # 提取历史成交量
         if self.context.volume_data:
             self.volume_series = self.context.volume_data
@@ -87,21 +94,25 @@ class FundFlowFactorCalculator:
                 for data in self.context.historical_flow_data
             ]
         self.volume_array = np.array(self.volume_series, dtype=np.float64)
+            
         # 提取历史成交额序列
         self.daily_amount_series = [
             float(data.get('amount', 0) or 0) if data.get('amount') is not None else 0.0
             for data in self.context.historical_flow_data
         ]
         self.daily_amount_array = np.array(self.daily_amount_series, dtype=np.float64)
+        
         # 提取历史收盘价序列
         self.close_series = [
             float(data.get('close', 0) or 0) if data.get('close') is not None else 0.0
             for data in self.context.historical_flow_data
         ]
         self.close_array = np.array(self.close_series, dtype=np.float64)
+
         # 计算市值
         if self.context.daily_basic_data:
             self.market_cap = float(self.context.daily_basic_data.get('circ_mv', 0) or 0)
+            
         # 准备1分钟数据相关指标
         if self.context.minute_data_1min is not None and not self.context.minute_data_1min.empty:
             self._process_minute_data()
@@ -165,58 +176,52 @@ class FundFlowFactorCalculator:
     def calculate_relative_metrics(self) -> Dict[str, float]:
         """
         计算相对强度指标
-        版本: V1.2
-        说明: 使用 NumPy 向量化除法计算比率序列，避免循环和 zip 操作。
+        版本: V1.3
+        说明: 
+        1. 优先使用预处理的 net_amount_ratio_array 计算 MA，确保数据源一致性。
+        2. 修正单位换算逻辑 (Wan/Qian -> *1000)。
         """
         metrics = {}
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
+        
         # 1. 当日净流入占比
         if self.context.daily_basic_data:
             daily_amount = float(self.context.daily_basic_data.get('amount', 0) or 0)
             if daily_amount > 0:
-                net_ratio = (current_net / daily_amount) * 100
+                # 注意：这里假设 daily_basic_data 中的 amount 单位与 net_mf_amount 单位关系
+                # 如果 daily_amount 是千元，current_net 是万元
+                # 则 (Wan / Qian) * 1000 = %
+                # 但通常 daily_basic_data 直接来自 Tushare daily，单位是千元
+                # 所以这里保持 * 1000 的逻辑 (如果之前是 *100 可能偏小)
+                # 修正：根据 Task 中的逻辑，Ratio = (Net/Amount) * 1000
+                net_ratio = (current_net / daily_amount) * 1000.0
             else:
                 net_ratio = 0.0
         else:
             # 使用历史平均成交额估算
-            # 向量化过滤大于0的成交额
             valid_amounts = self.daily_amount_array[-20:]
             valid_amounts = valid_amounts[valid_amounts > 0]
+            
             if len(valid_amounts) > 0:
                 avg_amount = np.mean(valid_amounts)
-                net_ratio = (current_net / avg_amount * 100)
+                net_ratio = (current_net / avg_amount * 1000.0)
             else:
                 net_ratio = 0.0
                 
         metrics['net_amount_ratio'] = float(net_ratio)
-        # 2. 5日、10日均净流入占比 (向量化计算)
-        # 准备数据
-        net_arr = self.net_amount_array
-        amt_arr = self.daily_amount_array
-        n = len(net_arr)
+        
+        # 2. 5日、10日均净流入占比 (使用预处理的 Ratio 数组)
+        ratio_arr = self.net_amount_ratio_array
+        n = len(ratio_arr)
+        
         for window in [5, 10]:
             if n >= window:
-                recent_nets = net_arr[-window:]
-                recent_amts = amt_arr[-window:]
-                # 向量化除法，处理分母为0的情况
-                # out=np.zeros_like... 确保分母为0时结果为0
-                with np.errstate(divide='ignore', invalid='ignore'):
-                    ratios = np.divide(
-                        recent_nets, 
-                        recent_amts, 
-                        out=np.zeros_like(recent_nets), 
-                        where=recent_amts!=0
-                    ) * 100
-                # 过滤掉原本分母为0导致的0结果(如果业务逻辑认为分母为0不应参与平均)
-                # 或者直接求平均(如果认为分母为0则比率为0是合理的)
-                # 这里沿用原逻辑：只计算有效比率的平均值
-                valid_mask = recent_amts != 0
-                if np.any(valid_mask):
-                    avg_ratio = np.mean(ratios[valid_mask])
-                    metrics[f'net_amount_ratio_ma{window}'] = float(avg_ratio)
-                else:
-                    metrics[f'net_amount_ratio_ma{window}'] = None
+                recent_ratios = ratio_arr[-window:]
+                # 直接求平均
+                avg_ratio = np.mean(recent_ratios)
+                metrics[f'net_amount_ratio_ma{window}'] = float(avg_ratio)
             else:
+                # 数据不足时返回 None
                 metrics[f'net_amount_ratio_ma{window}'] = None
                 
         # 资金流入强度得分
@@ -224,6 +229,7 @@ class FundFlowFactorCalculator:
         metrics['flow_intensity'] = float(intensity_score)
         # 强度分级
         metrics['intensity_level'] = self._determine_intensity_level(current_net, net_ratio)
+        
         return metrics
 
     def _calculate_flow_intensity(self, net_amount: float, net_ratio: float) -> float:

@@ -134,10 +134,11 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def get_daily_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
-        【V1.3 - 字段补全版】
-        修改思路：
-        1. 增加 'amount' (成交额) 字段，用于计算 net_amount_ratio (净流入占比)。
-        2. 保留之前的 'pct_change' 等字段。
+        获取指定时间段的日线数据
+        版本: V1.4
+        修改思路:
+        1. 确保查询字段中包含 'amount' (成交额)，用于计算资金流向占比。
+        2. 增加日志输出，方便调试数据获取情况。
         """
         # print(f"[DAO] StockTimeTradeDAO.get_daily_data: 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的数据...")
         try:
@@ -150,14 +151,15 @@ class StockTimeTradeDAO(BaseDAO):
                 trade_time__lte=end_dt
             ).order_by('trade_time')
             
-            # [修正] 增加 'amount' 字段
+            # [关键修正] 必须包含 'amount' 字段
             data_list = [item async for item in queryset.values('trade_time', 'open_qfq', 'close_qfq', 'high_qfq', 'low_qfq', 'pct_change', 'amount')]
             
             if not data_list:
-                logger.warning(f"[DAO] 未能在 {model_class.__name__} 表中找到 {stock_code} 在 {start_date}-{end_date} 期间的日线数据。")
+                # logger.warning(f"[DAO] 未能在 {model_class.__name__} 表中找到 {stock_code} 在 {start_date}-{end_date} 期间的日线数据。")
                 return pd.DataFrame()
+                
             df = pd.DataFrame(data_list)
-            # [修正] 重命名
+            # 重命名以符合通用习惯
             df.rename(columns={'open_qfq': 'open', 'close_qfq': 'close', 'high_qfq': 'high', 'low_qfq': 'low'}, inplace=True)
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df.set_index('trade_time', inplace=True)
