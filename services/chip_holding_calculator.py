@@ -166,45 +166,71 @@ class AdvancedChipDynamicsService:
 
     def _build_normalized_chip_matrix(self, chip_history: List[pd.DataFrame], current_chip: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
-        版本: v2.0
-        说明: 构建归一化筹码矩阵（向量化优化版）
-        优化: 使用np.interp替代scipy.interpolate.interp1d，移除对象构建开销
+        版本: v2.1
+        说明: 构建归一化筹码矩阵（Pandas操作优化版）
+        修改思路: 
+        1. 优化价格范围计算，使用np.concatenate一次性处理。
+        2. 优化DataFrame清洗，使用dropna替代复杂的布尔索引。
+        3. 保持np.interp的高效插值。
         """
         all_chips = chip_history + [current_chip]
+        
+        # 收集所有价格以确定网格范围
         all_prices = []
         for chip_df in all_chips:
             if not chip_df.empty:
-                all_prices.extend(chip_df['price'].values)
+                # 直接获取values，避免Series开销
+                all_prices.append(chip_df['price'].values)
+        
         if not all_prices:
             min_price, max_price = 1.0, 100.0
         else:
-            min_price, max_price = np.min(all_prices), np.max(all_prices)
-            price_range = max_price - min_price
-            min_price = max(0.01, min_price - price_range * 0.15)
-            max_price = max_price + price_range * 0.15
+            # 使用concatenate一次性合并，比extend循环更高效
+            flat_prices = np.concatenate(all_prices)
+            if len(flat_prices) == 0:
+                min_price, max_price = 1.0, 100.0
+            else:
+                min_price, max_price = np.min(flat_prices), np.max(flat_prices)
+                price_range = max_price - min_price
+                min_price = max(0.01, min_price - price_range * 0.15)
+                max_price = max_price + price_range * 0.15
+                
         price_grid = np.linspace(min_price, max_price, self.price_granularity)
         n_days = len(all_chips)
         n_prices = len(price_grid)
         chip_matrix = np.zeros((n_days, n_prices))
         uniform_dist = np.full(n_prices, 100.0 / n_prices)
+        
         for day_idx, chip_df in enumerate(all_chips):
             if chip_df.empty or len(chip_df) < 3:
                 chip_matrix[day_idx, :] = uniform_dist
                 continue
             try:
-                valid_mask = (~chip_df['price'].isna()) & (~chip_df['percent'].isna())
-                df_valid = chip_df[valid_mask].sort_values('price').drop_duplicates('price')
+                # 优化：直接dropna，比布尔索引更快
+                df_valid = chip_df.dropna(subset=['price', 'percent'])
+                if df_valid.empty:
+                    chip_matrix[day_idx, :] = uniform_dist
+                    continue
+                    
+                # 排序和去重
+                df_valid = df_valid.sort_values('price').drop_duplicates('price')
+                
                 if len(df_valid) < 2:
                     chip_matrix[day_idx, :] = uniform_dist
                     continue
+                    
                 x = df_valid['price'].values
                 y = df_valid['percent'].values
+                
                 total_p = np.sum(y)
                 if total_p == 0:
                     chip_matrix[day_idx, :] = uniform_dist
                     continue
+                    
+                # 归一化并插值
                 y_normalized = y * (100.0 / total_p)
                 interpolated = np.interp(price_grid, x, y_normalized, left=0.0, right=0.0)
+                
                 sum_interp = np.sum(interpolated)
                 if sum_interp > 0:
                     chip_matrix[day_idx, :] = interpolated * (100.0 / sum_interp)
@@ -213,6 +239,7 @@ class AdvancedChipDynamicsService:
             except Exception as e:
                 print(f"⚠️ 第{day_idx}天插值失败: {e}")
                 chip_matrix[day_idx, :] = uniform_dist
+                
         return price_grid, chip_matrix
 
     def _calculate_percent_change_matrix(self, chip_matrix: np.ndarray) -> np.ndarray:
@@ -732,76 +759,82 @@ class DirectAccumulationDistributionCalculator:
     
     def _calculate_absolute_ad(self, changes: np.ndarray, price_rel: np.ndarray) -> Dict[str, any]:
         """
-        基于绝对变化的直接计算吸收/派发 - 优化版
-        A股特性考虑：
-        1. 当前价±5%是主力主要活动区间
-        2. 价格以下3-8%是主要吸筹区间
-        3. 价格以上5-12%是主要派发区间
-        4. 需要考虑量价配合（虽无直接成交量，但可通过变化幅度推断）
+        版本: v2.1
+        说明: 基于绝对变化的直接计算吸收/派发（Numpy分箱优化版）
+        修改思路: 
+        1. 使用np.digitize替代多次布尔掩码，将O(K*N)复杂度降为O(N)。
+        2. 使用np.bincount快速聚合各区间的正负变化量。
+        3. 向量化计算各区间的吸收/派发贡献。
         """
         # 过滤噪声
         significant_mask = np.abs(changes) > self.params['noise_filter']
-        # A股特色价格区间划分
-        zones = {
-            'deep_below': price_rel < -0.12,      # 深度套牢区（换手率低）
-            'below': (price_rel >= -0.12) & (price_rel < -0.03),  # 主要吸筹区
-            'near_below': (price_rel >= -0.03) & (price_rel < 0), # 当前价下方缓冲区
-            'near_above': (price_rel >= 0) & (price_rel < 0.05),  # 当前价上方缓冲区
-            'above': (price_rel >= 0.05) & (price_rel < 0.12),    # 主要派发区
-            'deep_above': price_rel >= 0.12,                      # 深度获利区
-        }
-        # 不同区间的权重（基于A股博弈特性）
-        zone_weights = {
-            'deep_below': 0.4,   # 深度套牢区，换手率低，影响小
-            'below': 1.3,        # 主要吸筹区，权重最高
-            'near_below': 1.0,   # 当前价下方，中性
-            'near_above': 1.0,   # 当前价上方，中性
-            'above': 1.2,        # 主要派发区，权重高
-            'deep_above': 0.5,   # 深度获利区，通常已锁定
-        }
-        # 初始化结果
-        accumulation_volume = 0.0
-        distribution_volume = 0.0
-        # 按区域统计
-        for zone_name, zone_mask in zones.items():
-            zone_changes = changes[zone_mask & significant_mask]
-            if len(zone_changes) == 0:
-                continue
-            zone_weight = zone_weights[zone_name]
-            # 吸收计算（根据位置和变化方向）
-            if zone_name in ['deep_below', 'below', 'near_below']:
-                # 价格以下区域：增加=吸收，减少=派发
-                zone_accum = np.sum(zone_changes[zone_changes > 0]) * zone_weight
-                zone_distrib = np.sum(np.abs(zone_changes[zone_changes < 0])) * zone_weight * 0.8
-            elif zone_name in ['near_above']:
-                # 当前价上方缓冲区：增加可能是追高或主力护盘
-                # 减少可能是获利回吐或洗盘
-                zone_accum = np.sum(zone_changes[zone_changes > 0]) * zone_weight * 0.6
-                zone_distrib = np.sum(np.abs(zone_changes[zone_changes < 0])) * zone_weight * 0.9
-            else:  # 'above', 'deep_above'
-                # 价格以上区域：增加=派发（主力出货），减少=获利了结
-                zone_accum = np.sum(zone_changes[zone_changes > 0]) * zone_weight * 0.3  # 小概率是吸收
-                zone_distrib = np.sum(np.abs(zone_changes[zone_changes < 0])) * zone_weight
-            accumulation_volume += max(0, zone_accum)
-            distribution_volume += max(0, zone_distrib)
-        # 添加趋势修正因子
-        # 如果整体变化向上，可能处于上涨趋势，吸收应给予更高权重
-        overall_trend = np.sum(changes[significant_mask])
+        clean_changes = changes[significant_mask]
+        clean_rels = price_rel[significant_mask]
+        
+        if len(clean_changes) == 0:
+            return {
+                'accumulation_volume': 0.0,
+                'distribution_volume': 0.0,
+                'net_ad_ratio': 0.0,
+                'accumulation_quality': 0.5,
+                'distribution_quality': 0.5,
+                'false_distribution_flag': False,
+                'breakout_acceleration': 1.0,
+            }
+
+        # 定义区间边界 [-0.12, -0.03, 0, 0.05, 0.12]
+        # 0: deep_below (< -0.12)
+        # 1: below (-0.12 ~ -0.03)
+        # 2: near_below (-0.03 ~ 0)
+        # 3: near_above (0 ~ 0.05)
+        # 4: above (0.05 ~ 0.12)
+        # 5: deep_above (>= 0.12)
+        bins = np.array([-0.12, -0.03, 0, 0.05, 0.12])
+        indices = np.digitize(clean_rels, bins)
+        
+        # 分离正负变化
+        pos_changes = np.maximum(clean_changes, 0)
+        neg_changes = np.abs(np.minimum(clean_changes, 0))
+        
+        # 聚合各区间的总量 (minlength=6 确保所有区间都有值)
+        pos_sums = np.bincount(indices, weights=pos_changes, minlength=6)
+        neg_sums = np.bincount(indices, weights=neg_changes, minlength=6)
+        
+        # 定义各区间的权重
+        # 索引: 0, 1, 2, 3, 4, 5
+        zone_weights = np.array([0.4, 1.3, 1.0, 1.0, 1.2, 0.5])
+        
+        # 吸收系数 (Accumulation Multipliers)
+        # deep_below(1.0), below(1.0), near_below(1.0), near_above(0.6), above(0.3), deep_above(0.3)
+        accum_mults = np.array([1.0, 1.0, 1.0, 0.6, 0.3, 0.3])
+        
+        # 派发系数 (Distribution Multipliers)
+        # deep_below(0.8), below(0.8), near_below(0.8), near_above(0.9), above(1.0), deep_above(1.0)
+        distrib_mults = np.array([0.8, 0.8, 0.8, 0.9, 1.0, 1.0])
+        
+        # 向量化计算基础吸收/派发量
+        # 逻辑保持一致：
+        # Below区域: Pos -> Accum, Neg -> Distrib
+        # Above区域: Pos -> Accum*0.3, Neg -> Distrib
+        
+        raw_accum = pos_sums * zone_weights * accum_mults
+        raw_distrib = neg_sums * zone_weights * distrib_mults
+        
+        accumulation_volume = np.sum(raw_accum)
+        distribution_volume = np.sum(raw_distrib)
+        
+        # 趋势修正
+        overall_trend = np.sum(clean_changes)
         if overall_trend > 0:
-            # 上涨趋势中，吸收信号更强
             accumulation_volume *= 1.2
-            # 派发可能是洗盘或换手
             distribution_volume *= 0.8
         elif overall_trend < 0:
-            # 下跌趋势中，派发信号更强
             accumulation_volume *= 0.8
             distribution_volume *= 1.2
-        # 净吸收率
+            
         total_volume = accumulation_volume + distribution_volume + 1e-10
         net_ad_ratio = (accumulation_volume - distribution_volume) / total_volume
-        # A股特色：涨停板附近特殊处理
-        # 如果当前价格在涨停附近（假设涨停为10%），高位派发可能是涨停板出货
-        # 这里简化处理：如果变化集中在上方区域，可能需要注意
+        
         return {
             'accumulation_volume': float(accumulation_volume),
             'distribution_volume': float(distribution_volume),
@@ -906,47 +939,59 @@ class DirectAccumulationDistributionCalculator:
     
     def _analyze_price_levels(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, List]:
         """
-        分价格层级分析吸收/派发
+        版本: v2.1
+        说明: 分价格层级分析吸收/派发（向量化优化版）
+        修改思路: 移除对price_grid的Python循环，使用Numpy掩码进行批量计算，大幅提升效率。
         """
         price_rel = (price_grid - current_price) / current_price
         levels = {
-            'deep_below': {'range': (-np.inf, -0.15), 'accum': 0, 'distrib': 0},
-            'below': {'range': (-0.15, -0.05), 'accum': 0, 'distrib': 0},
-            'near': {'range': (-0.05, 0.05), 'accum': 0, 'distrib': 0},
-            'above': {'range': (0.05, 0.15), 'accum': 0, 'distrib': 0},
-            'deep_above': {'range': (0.15, np.inf), 'accum': 0, 'distrib': 0},
+            'deep_below': (-np.inf, -0.15),
+            'below': (-0.15, -0.05),
+            'near': (-0.05, 0.05),
+            'above': (0.05, 0.15),
+            'deep_above': (0.15, np.inf),
         }
-        for i, price in enumerate(price_grid):
-            rel = price_rel[i]
-            change = changes[i]
-            for level_name, level_info in levels.items():
-                low, high = level_info['range']
-                if low < rel <= high:
-                    if change > 0:
-                        # 筹码增加：价格以下为吸收，以上为派发
-                        if rel < 0:
-                            level_info['accum'] += change
-                        else:
-                            level_info['distrib'] += change
-                    elif change < 0:
-                        # 筹码减少：价格以下为派发，以上为吸收
-                        if rel < 0:
-                            level_info['distrib'] += abs(change)
-                        else:
-                            level_info['accum'] += abs(change)
-                    break
-        # 转换为百分比
         result = {}
-        for level_name, level_info in levels.items():
-            total = level_info['accum'] + level_info['distrib']
+        
+        # 预计算掩码
+        accum_mask = changes > 0
+        distrib_mask = changes < 0
+        abs_changes = np.abs(changes)
+        
+        # 价格相对于当前价的位置掩码
+        rel_below = price_rel < 0
+        rel_above = price_rel >= 0
+        
+        for level_name, (low, high) in levels.items():
+            # 区域掩码
+            level_mask = (price_rel > low) & (price_rel <= high)
+            if not np.any(level_mask):
+                continue
+                
+            # 1. 筹码增加 (changes > 0)
+            # 价格 < 当前价: 吸收
+            accum_from_inc = np.sum(changes[level_mask & accum_mask & rel_below])
+            # 价格 >= 当前价: 派发
+            distrib_from_inc = np.sum(changes[level_mask & accum_mask & rel_above])
+            
+            # 2. 筹码减少 (changes < 0)
+            # 价格 < 当前价: 派发 (取绝对值)
+            distrib_from_dec = np.sum(abs_changes[level_mask & distrib_mask & rel_below])
+            # 价格 >= 当前价: 吸收 (取绝对值)
+            accum_from_dec = np.sum(abs_changes[level_mask & distrib_mask & rel_above])
+            
+            total_accum = accum_from_inc + accum_from_dec
+            total_distrib = distrib_from_inc + distrib_from_dec
+            total = total_accum + total_distrib
+            
             if total > 0:
                 result[level_name] = {
-                    'accumulation_ratio': level_info['accum'] / total,
-                    'distribution_ratio': level_info['distrib'] / total,
-                    'total_change': total,
+                    'accumulation_ratio': float(total_accum / total),
+                    'distribution_ratio': float(total_distrib / total),
+                    'total_change': float(total),
                 }
         return result
-    
+
     def _calculate_concentration(self, chip_dist: np.ndarray) -> float:
         """计算筹码集中度"""
         if len(chip_dist) == 0:
@@ -1061,97 +1106,92 @@ class GameEnergyCalculator:
     def _calculate_energy_field(self, changes: np.ndarray, price_grid: np.ndarray, 
                                      current_price: float, close_price: float,
                                      stock_code: str = "", trade_date: str = "") -> Dict[str, Any]:
-        """调试版的能量场计算 - 使用收盘价作为参考"""
-        # 使用收盘价作为参考价格
+        """
+        版本: v2.1
+        说明: 能量场计算（Numpy分箱优化版）
+        修改思路: 
+        1. 使用np.digitize和np.bincount替代循环掩码，提高计算效率。
+        2. 保持原有的A股博弈权重逻辑。
+        """
         reference_price = close_price if close_price > 0 else current_price
         if len(changes) == 0 or len(price_grid) == 0 or reference_price <= 0:
-            print(f"❌ [探针-能量场] {stock_code} {trade_date} 输入无效")
             return self._get_default_energy()
+            
         try:
-            # 1. 计算价格相对位置（相对于参考价格）
             price_rel = (price_grid - reference_price) / reference_price
-            # 2. 分析价格分布
-            price_min, price_max = np.min(price_grid), np.max(price_grid)
-            # 3. 传统逻辑计算
-            absorption_mask = (price_rel < -0.05) & (changes > 0)
-            distribution_mask = (price_rel > 0.05) & (changes < 0)
-            absorption_changes = changes[absorption_mask]
-            distribution_changes = changes[distribution_mask]
-            absorption_energy_old = np.sum(absorption_changes) * 2.0 if len(absorption_changes) > 0 else 0
-            distribution_energy_old = np.sum(np.abs(distribution_changes)) * 1.5 if len(distribution_changes) > 0 else 0
-            # 4. 修正的高级能量计算
+            
+            # 定义区间边界 [-0.15, -0.05, 0, 0.05, 0.15]
+            # 0: deep_below (< -0.15)
+            # 1: below (-0.15 ~ -0.05)
+            # 2: near_below (-0.05 ~ 0)
+            # 3: near_above (0 ~ 0.05)
+            # 4: above (0.05 ~ 0.15)
+            # 5: deep_above (>= 0.15)
+            bins = np.array([-0.15, -0.05, 0, 0.05, 0.15])
+            indices = np.digitize(price_rel, bins)
+            
+            # 分离正负变化
+            pos_changes = np.maximum(changes, 0)
+            neg_changes = np.abs(np.minimum(changes, 0))
+            
+            # 聚合各区间的总量
+            pos_sums = np.bincount(indices, weights=pos_changes, minlength=6)
+            neg_sums = np.bincount(indices, weights=neg_changes, minlength=6)
+            
+            # 区域权重
+            # deep_below(0.6), below(0.9), near_below(1.5), near_above(1.3), above(1.0), deep_above(0.7)
+            weights = np.array([0.6, 0.9, 1.5, 1.3, 1.0, 0.7])
+            
             absorption_advanced = 0.0
             distribution_advanced = 0.0
-            # 4.1 重新定义区域（基于A股博弈特性优化权重）
-            # A股特性：当前价附近（±5%）是主战场，权重最高
-            zones = [
-                ('deep_below', -np.inf, -0.15, 0.6),    # 深度套牢区：换手率低，影响力小
-                ('below', -0.15, -0.05, 0.9),           # 支撑区：有一定影响力
-                ('near_below', -0.05, 0, 1.5),          # 当前价下方主战场：权重最高（1.5）
-                ('near_above', 0, 0.05, 1.3),           # 当前价上方缓冲区：权重较高（1.3）
-                ('above', 0.05, 0.15, 1.0),             # 阻力区：中等权重
-                ('deep_above', 0.15, np.inf, 0.7)       # 深度获利区：影响力较小
-            ]
-            for zone_name, low, high, weight in zones:
-                zone_mask = (price_rel >= low) & (price_rel < high)
-                zone_count = np.sum(zone_mask)
-                if zone_count == 0:
-                    continue
-                zone_changes = changes[zone_mask]
-                zone_prices = price_grid[zone_mask]
-                # 计算该区域的详细变化
-                increase_sum = np.sum(zone_changes[zone_changes > 0])
-                decrease_sum = np.sum(np.abs(zone_changes[zone_changes < 0]))
-                net_change = np.sum(zone_changes)
-                abs_change = np.sum(np.abs(zone_changes))
-                # 计算该区域的平均价格位置
-                avg_price_rel = np.mean((zone_prices - reference_price) / reference_price) if len(zone_prices) > 0 else 0
-                # 根据区域类型和变化方向分配能量
-                if zone_name in ['deep_below', 'below', 'near_below']:
-                    # 价格以下区域：增加为吸筹，减少为派发
-                    absorption_advanced += increase_sum * weight
-                    distribution_advanced += decrease_sum * weight * 0.8
-                elif zone_name in ['near_above', 'above']:
-                    # 价格以上区域：增加为派发，减少为吸筹（获利了结）
-                    distribution_advanced += increase_sum * weight
-                    absorption_advanced += decrease_sum * weight * 0.7
-                else:  # deep_above
-                    # 深度获利区：需要特殊处理
-                    # 这里的增加很可能是派发（主力在历史高位出货）
-                    # 这里的减少很可能是获利了结或洗盘
-                    if increase_sum > decrease_sum:
-                        # 增加多于减少，可能是派发
-                        distribution_advanced += increase_sum * weight * 1.2
-                        absorption_advanced += decrease_sum * weight * 0.4
-                    else:
-                        # 减少多于增加，可能是换手或洗盘
-                        distribution_advanced += increase_sum * weight * 0.6
-                        absorption_advanced += decrease_sum * weight * 0.9
-            # 5. 使用高级逻辑的结果
-            absorption_energy = absorption_advanced
-            distribution_energy = distribution_advanced
-            # 6. 计算其他能量指标（基于参考价格）
+            
+            # 1. 价格以下区域 (Bins 0, 1, 2)
+            # 增加(Pos) -> 吸筹, 减少(Neg) -> 派发 * 0.8
+            for i in range(3):
+                absorption_advanced += pos_sums[i] * weights[i]
+                distribution_advanced += neg_sums[i] * weights[i] * 0.8
+                
+            # 2. 价格以上区域 (Bins 3, 4)
+            # 增加(Pos) -> 派发, 减少(Neg) -> 吸筹 * 0.7
+            for i in range(3, 5):
+                distribution_advanced += pos_sums[i] * weights[i]
+                absorption_advanced += neg_sums[i] * weights[i] * 0.7
+                
+            # 3. 深度获利区 (Bin 5) - 特殊逻辑
+            i = 5
+            w = weights[i]
+            inc_sum = pos_sums[i]
+            dec_sum = neg_sums[i]
+            
+            if inc_sum > dec_sum:
+                # 增加多于减少 -> 派发主导
+                distribution_advanced += inc_sum * w * 1.2
+                absorption_advanced += dec_sum * w * 0.4
+            else:
+                # 减少多于增加 -> 洗盘/换手
+                distribution_advanced += inc_sum * w * 0.6
+                absorption_advanced += dec_sum * w * 0.9
+                
+            # 计算其他指标
             game_intensity, breakout_potential, energy_concentration = self._calculate_energy_indicators(
                 changes, price_grid, reference_price, stock_code, trade_date
             )
-            # 7. 关键博弈区域
+            
             key_battle_zones = self._identify_key_battle_zones(changes, price_grid, reference_price, stock_code, trade_date)
-            result = {
-                'absorption_energy': min(100, max(0.01, absorption_energy)),  # 最小0.01
-                'distribution_energy': min(100, max(0.01, distribution_energy)),
-                'net_energy_flow': absorption_energy - distribution_energy,
+            
+            return {
+                'absorption_energy': min(100, max(0.01, absorption_advanced)),
+                'distribution_energy': min(100, max(0.01, distribution_advanced)),
+                'net_energy_flow': absorption_advanced - distribution_advanced,
                 'game_intensity': min(1.0, max(0, game_intensity)),
                 'key_battle_zones': key_battle_zones,
                 'breakout_potential': min(100, breakout_potential),
                 'energy_concentration': min(1.0, max(0, energy_concentration)),
-                'reference_price': reference_price,  # 记录使用的参考价格
-                'original_current_price': current_price,  # 记录原始当前价格
+                'reference_price': reference_price,
+                'original_current_price': current_price,
             }
-            return result
         except Exception as e:
             print(f"❌ [探针-能量场] {stock_code} {trade_date} 计算异常: {e}")
-            import traceback
-            traceback.print_exc()
             return self._get_default_energy()
 
     def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, 
@@ -1310,32 +1350,44 @@ class GameEnergyCalculator:
         return game_intensity, breakout_potential, energy_concentration
 
     def _identify_key_battle_zones(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> List[Dict]:
-        """调试版的关键博弈区域识别"""
+        """
+        版本: v2.1
+        说明: 关键博弈区域识别（Numpy优化版）
+        修改思路: 优化邻域对抗强度的计算，使用Numpy切片和向量化操作替代列表推导式。
+        """
         battle_zones = []
-        min_intensity = 0.5  # 最小强度阈值
+        min_intensity = 0.5
         try:
-            # 寻找显著变化区域
-            for i in range(len(changes)):
+            # 筛选出显著变化的索引
+            significant_indices = np.where(np.abs(changes) > min_intensity)[0]
+            
+            for i in significant_indices:
                 change = changes[i]
                 price = price_grid[i]
-                if abs(change) > min_intensity:
-                    # 检查附近是否有相反的变化（对抗）
-                    start_idx = max(0, i-2)
-                    end_idx = min(len(changes), i+3)
-                    neighborhood = changes[start_idx:end_idx]
-                    # 计算对抗强度
-                    opponent_changes = [c for c in neighborhood if c * change < 0]  # 符号相反
-                    if opponent_changes:
-                        opponent_avg = np.mean(np.abs(opponent_changes))
-                        battle_intensity = abs(change) + opponent_avg * 0.5
-                        if battle_intensity > min_intensity * 1.5:
-                            battle_zones.append({
-                                'price': float(price),
-                                'battle_intensity': float(battle_intensity),
-                                'type': 'absorption' if change > 0 else 'distribution',
-                                'position': 'below_current' if price < current_price else 'above_current',
-                                'distance_to_current': float((price - current_price) / current_price),
-                            })
+                
+                # 定义邻域范围
+                start_idx = max(0, i - 2)
+                end_idx = min(len(changes), i + 3)
+                neighborhood = changes[start_idx:end_idx]
+                
+                # 向量化计算对抗强度
+                # 寻找符号相反的变化 (乘积 < 0)
+                opponent_mask = (neighborhood * change) < 0
+                
+                if np.any(opponent_mask):
+                    opponent_changes = neighborhood[opponent_mask]
+                    opponent_avg = np.mean(np.abs(opponent_changes))
+                    battle_intensity = abs(change) + opponent_avg * 0.5
+                    
+                    if battle_intensity > min_intensity * 1.5:
+                        battle_zones.append({
+                            'price': float(price),
+                            'battle_intensity': float(battle_intensity),
+                            'type': 'absorption' if change > 0 else 'distribution',
+                            'position': 'below_current' if price < current_price else 'above_current',
+                            'distance_to_current': float((price - current_price) / current_price),
+                        })
+            
             # 按强度排序并限制数量
             battle_zones.sort(key=lambda x: x['battle_intensity'], reverse=True)
             return battle_zones[:5]
