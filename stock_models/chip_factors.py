@@ -630,53 +630,42 @@ class ChipHoldingMatrixBase(models.Model):
         null=True, blank=True,
         default=0.5
     )
-    # ========== 新增：动态分析结果 ==========
-    # 价格网格
+    # ========== 1. 矩阵数据 (二进制压缩存储) ==========
+    # 价格网格 (保留 JSON，作为矩阵的坐标轴，必须可读)
     price_grid = models.JSONField(
         verbose_name='价格网格',
-        null=True, blank=True,
-        help_text='分析使用的价格网格点'
-    )
-    # 百分比变化矩阵
-    percent_change_matrix = models.JSONField(
-        verbose_name='百分比变化矩阵',
-        null=True, blank=True,
-        help_text='筹码百分比变化矩阵'
-    )
-    # 绝对变化信号
-    absolute_change_signals = models.JSONField(
-        verbose_name='绝对变化信号',
-        null=True, blank=True,
-        help_text='基于绝对变化的信号识别结果'
-    )
-    # 集中度指标
-    concentration_metrics = models.JSONField(
-        verbose_name='集中度指标',
         null=True, blank=True
     )
-    # 压力指标
-    pressure_metrics = models.JSONField(
-        verbose_name='压力指标',
-        null=True, blank=True
-    )
-    # 行为模式
-    behavior_patterns = models.JSONField(
-        verbose_name='行为模式',
-        null=True, blank=True
-    )
-    # 迁移模式
-    migration_patterns = models.JSONField(
-        verbose_name='迁移模式',
-        null=True, blank=True
-    )
-    # 聚散度指标
-    convergence_metrics = models.JSONField(
-        verbose_name='聚散度指标',
-        null=True, blank=True
-    )
-    # 压缩矩阵（二进制存储）
+    # 原始筹码矩阵 (已存在)
     compressed_matrix = models.BinaryField(
-        verbose_name='压缩矩阵',
+        verbose_name='压缩筹码矩阵',
+        null=True, blank=True,
+        help_text='zlib压缩的原始筹码分布矩阵'
+    )
+    # 变化矩阵 (替代 percent_change_matrix JSON字段)
+    compressed_change_matrix = models.BinaryField(
+        verbose_name='压缩变化矩阵',
+        null=True, blank=True,
+        help_text='zlib压缩的百分比变化矩阵'
+    )
+    # ========== 2. 综合分析数据 (合并存储) ==========
+    # 图表信号集合 (合并 absolute_change_signals, behavior_patterns, key_battle_zones)
+    chart_signals = models.JSONField(
+        verbose_name='图表信号集合',
+        null=True, blank=True,
+        help_text='包含关键博弈区、形态识别区域、绝对变化信号，用于前端绘图'
+    )
+    
+    # 补充指标集合 (合并 concentration/pressure/convergence 等剩余的次要指标)
+    extra_metrics = models.JSONField(
+        verbose_name='补充指标集合',
+        null=True, blank=True,
+        help_text='存储偏度、峰度、中间过程值等次要指标'
+    )
+
+    # 绝对变化分析详情 (保留用于深度复盘)
+    absolute_change_analysis = models.JSONField(
+        verbose_name='绝对变化分析详情',
         null=True, blank=True
     )
     # ========== 博弈能量场因子 ==========
@@ -778,13 +767,6 @@ class ChipHoldingMatrixBase(models.Model):
         verbose_name='整理强度',
         null=True, blank=True,
         default=0.0
-    )
-    
-    # ========== 关键博弈区域（JSON存储） ==========
-    key_battle_zones = models.JSONField(
-        verbose_name='关键博弈区域',
-        null=True, blank=True,
-        help_text='当前主要的筹码对抗区域'
     )
     
     # ========== 绝对变化分析结果 ==========
@@ -923,93 +905,60 @@ class ChipHoldingMatrixBase(models.Model):
         return factors
 
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
-        """
-        保存动态分析结果 - 性能优化版 v1.4 (字段扁平化且去冗余)
-        修改思路：
-        1. 从 metrics 字典中 pop 出核心标量值，赋值给新增的 FloatField。
-        2. 剩余的字典内容（去除已提取字段）保存到 JSON 字段中，避免数据冗余。
-        """
+        """保存动态分析结果(性能优化版v2.0:矩阵压缩+字段合并+核心指标扁平化)"""
         import math
+        import zlib
+        import json
         try:
-            # 1. 基础状态检查
+            # 1.基础状态检查
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
                 self.calc_status = 'failed'
                 self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
-                print(f"❌ [保存] 动态分析状态失败: {dynamics_result.get('analysis_status', 'unknown')}")
                 return False
-
-            # =======================================================
-            # 2. 确保所有必要字段都存在
-            # =======================================================
+            # 2.确保必要字段存在
             required_fields = ['price_grid', 'percent_change_matrix', 'current_price']
             for field in required_fields:
                 if field not in dynamics_result:
-                    print(f"❌ [保存] 缺少必要字段: {field}")
                     self.calc_status = 'failed'
                     self.error_message = f"缺少必要字段: {field}"
                     self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
                     return False
-
-            # =======================================================
-            # 3. 内部辅助函数：数据清洗（向量化优化）
-            # =======================================================
+            # 3.内部辅助函数:数据清洗(向量化优化)
             def _clean_structure(data, precision=3, threshold=0.0):
-                """递归清洗数据结构中的所有浮点数，保留指定精度 - 向量化优化版"""
                 if isinstance(data, (float, int, np.number)):
                     try:
                         val = float(data)
-                        if math.isnan(val) or math.isinf(val):
-                            return 0.0
-                        if abs(val) < threshold: 
-                            return 0.0
-                        if val == 0.0: 
-                            return 0.0
+                        if math.isnan(val) or math.isinf(val): return 0.0
+                        if abs(val) < threshold: return 0.0
+                        if val == 0.0: return 0.0
                         return round(val, precision)
-                    except Exception:
-                        return 0.0
+                    except Exception: return 0.0
                 elif isinstance(data, np.ndarray):
                     try:
                         data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
-                        if threshold > 0:
-                            data = np.where(np.abs(data) < threshold, 0.0, data)
+                        if threshold > 0: data = np.where(np.abs(data) < threshold, 0.0, data)
                         return np.round(data, precision).tolist()
-                    except Exception:
-                        return [_clean_structure(i, precision, threshold) for i in data.tolist()]
-                elif isinstance(data, dict):
-                    return {k: _clean_structure(v, precision, threshold) for k, v in data.items()}
-                elif isinstance(data, (list, tuple)):
-                    return [_clean_structure(i, precision, threshold) for i in data]
+                    except Exception: return [_clean_structure(i, precision, threshold) for i in data.tolist()]
+                elif isinstance(data, dict): return {k: _clean_structure(v, precision, threshold) for k, v in data.items()}
+                elif isinstance(data, (list, tuple)): return [_clean_structure(i, precision, threshold) for i in data]
                 return data
-
-            # =======================================================
-            # 4. 计算并保存absolute_change_analysis
-            # =======================================================
+            # 4.计算并保存absolute_change_analysis(若缺失则计算)
             try:
                 percent_change_matrix = dynamics_result.get('percent_change_matrix', [])
                 price_grid = dynamics_result.get('price_grid', [])
                 current_price = dynamics_result.get('current_price', 0)
-                
                 if len(percent_change_matrix) > 0 and len(price_grid) > 0 and current_price > 0:
                     latest_change = np.array(percent_change_matrix[-1]) if percent_change_matrix else np.zeros(len(price_grid))
                     price_grid_array = np.array(price_grid)
-                    
-                    absolute_analysis = self._calculate_absolute_change_analysis_robust(
-                        latest_change, 
-                        price_grid_array, 
-                        current_price
-                    )
-                    if not absolute_analysis:
-                        absolute_analysis = self._get_default_absolute_analysis()
+                    absolute_analysis = self._calculate_absolute_change_analysis_robust(latest_change, price_grid_array, current_price)
+                    if not absolute_analysis: absolute_analysis = self._get_default_absolute_analysis()
                     self.absolute_change_analysis = _clean_structure(absolute_analysis, precision=3)
                 else:
                     self.absolute_change_analysis = _clean_structure(self._get_default_absolute_analysis(), precision=3)
             except Exception as e:
                 print(f"⚠️ [保存] 计算absolute_change_analysis失败: {e}")
                 self.absolute_change_analysis = _clean_structure(self._get_default_absolute_analysis(), precision=3)
-
-            # =======================================================
-            # 5. 保存能量场数据
-            # =======================================================
+            # 5.保存能量场数据
             game_energy = dynamics_result.get('game_energy_result', {})
             if game_energy:
                 self.absorption_energy = round(max(0.0, game_energy.get('absorption_energy', 0.0)), 3)
@@ -1019,114 +968,94 @@ class ChipHoldingMatrixBase(models.Model):
                 self.breakout_potential = round(max(0.0, game_energy.get('breakout_potential', 0.0)), 3)
                 self.energy_concentration = round(max(0.0, min(1.0, game_energy.get('energy_concentration', 0.0))), 3)
                 self.fake_distribution_flag = bool(game_energy.get('fake_distribution_flag', False))
-                
                 key_battle_zones = game_energy.get('key_battle_zones', [])
-                if key_battle_zones and len(key_battle_zones) > 0:
-                    cleaned_zones = _clean_structure(key_battle_zones, precision=3)
-                    self.key_battle_zones = cleaned_zones[:5]
-                else:
-                    default_zones = self._create_default_key_battle_zones(
-                        dynamics_result.get('price_grid', []),
-                        dynamics_result.get('current_price', 0)
-                    )
-                    self.key_battle_zones = _clean_structure(default_zones, precision=3)
+                if not key_battle_zones:
+                    default_zones = self._create_default_key_battle_zones(dynamics_result.get('price_grid', []), dynamics_result.get('current_price', 0))
+                    key_battle_zones = default_zones
             else:
                 self._set_default_energy_values()
-
-            # =======================================================
-            # 6. 提取核心指标并保存 (扁平化 + 去冗余)
-            # =======================================================
-            # 复制字典以避免修改原始数据（如果原始数据后续还需要使用）
+                key_battle_zones = []
+            # 6.提取核心指标并扁平化存储(从原始字典中pop出核心值)
             conc_metrics = dynamics_result.get('concentration_metrics', {}).copy()
             press_metrics = dynamics_result.get('pressure_metrics', {}).copy()
             conv_metrics = dynamics_result.get('convergence_metrics', {}).copy()
             behav_patterns = dynamics_result.get('behavior_patterns', {}).copy()
-
-            # --- 集中度 (提取并移除) ---
+            migr_patterns = dynamics_result.get('migration_patterns', {}).copy()
+            # 6.1 集中度扁平化
             self.concentration_comprehensive = round(conc_metrics.pop('comprehensive_concentration', 0.0), 3)
             self.concentration_entropy = round(conc_metrics.pop('entropy_concentration', 0.0), 3)
             self.concentration_peak = round(conc_metrics.pop('peak_concentration', 0.0), 3)
-            # 保存剩余的 JSON
-            self.concentration_metrics = _clean_structure(conc_metrics, precision=4)
-
-            # --- 压力与支撑 (提取并移除) ---
+            # 6.2 压力支撑扁平化
             self.pressure_trapped = round(press_metrics.pop('trapped_pressure', 0.0), 3)
             self.pressure_profit = round(press_metrics.pop('profit_pressure', 0.0), 3)
             self.support_strength = round(press_metrics.pop('support_strength', 0.0), 3)
             self.resistance_strength = round(press_metrics.pop('resistance_strength', 0.0), 3)
-            # 保存剩余的 JSON
-            self.pressure_metrics = _clean_structure(press_metrics, precision=4)
-
-            # --- 聚散度 (提取并移除) ---
+            # 6.3 聚散度扁平化
             self.convergence_comprehensive = round(conv_metrics.pop('comprehensive_convergence', 0.0), 3)
             self.convergence_migration = round(conv_metrics.pop('migration_convergence', 0.0), 3)
-            # 保存剩余的 JSON
-            self.convergence_metrics = _clean_structure(conv_metrics, precision=4)
-
-            # --- 行为模式 (提取嵌套的 strength 并移除) ---
-            # 注意：behavior_patterns 是嵌套结构，我们需要进入子字典提取
-            
-            # 吸筹
-            accum_dict = behav_patterns.get('accumulation', {})
-            self.behavior_accumulation = round(accum_dict.pop('strength', 0.0), 3)
-            # 派发
-            dist_dict = behav_patterns.get('distribution', {})
-            self.behavior_distribution = round(dist_dict.pop('strength', 0.0), 3)
-            # 整理
-            cons_dict = behav_patterns.get('consolidation', {})
-            self.behavior_consolidation = round(cons_dict.pop('strength', 0.0), 3)
-            
-            # 保存剩余的 JSON (包含 areas, detected 等复杂结构)
-            self.behavior_patterns = _clean_structure(behav_patterns, precision=3)
-
-            # =======================================================
-            # 7. 保存其他动态分析结果
-            # =======================================================
-            self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
-            
-            raw_change = dynamics_result.get('percent_change_matrix', [])
-            self.percent_change_matrix = _clean_structure(raw_change, precision=3, threshold=0.05) if raw_change else []
-            
-            self.absolute_change_signals = _clean_structure(dynamics_result.get('absolute_change_signals', {}), precision=3)
-            self.migration_patterns = _clean_structure(dynamics_result.get('migration_patterns', {}), precision=4)
-            
-            self.validation_score = round(max(0.0, min(1.0, dynamics_result.get('validation_score', 0.5))), 3)
-            self.validation_warnings = _clean_structure(dynamics_result.get('validation_warnings', []), precision=3)
-
-            # =======================================================
-            # 8. 筹码矩阵存储优化
-            # =======================================================
+            # 6.4 行为模式扁平化
+            self.behavior_accumulation = round(behav_patterns.get('accumulation', {}).pop('strength', 0.0), 3)
+            self.behavior_distribution = round(behav_patterns.get('distribution', {}).pop('strength', 0.0), 3)
+            self.behavior_consolidation = round(behav_patterns.get('consolidation', {}).pop('strength', 0.0), 3)
+            # 7.矩阵压缩存储(BinaryField)
+            # 7.1 原始筹码矩阵压缩
             chip_matrix_list = dynamics_result.get('chip_matrix', [])
             if chip_matrix_list:
                 try:
-                    cleaned_matrix = _clean_structure(chip_matrix_list, precision=3, threshold=0.001)
-                    import zlib, json
-                    json_str = json.dumps(cleaned_matrix, separators=(',', ':'))
-                    self.compressed_matrix = zlib.compress(json_str.encode('utf-8'))
-                except Exception as e:
-                    print(f"⚠️ [保存警告] 筹码矩阵压缩失败: {e}")
-
-            # 9. 计算持有时间因子
+                    cleaned = _clean_structure(chip_matrix_list, precision=3, threshold=0.001)
+                    self.compressed_matrix = zlib.compress(json.dumps(cleaned, separators=(',', ':')).encode('utf-8'))
+                except Exception as e: print(f"⚠️ 筹码矩阵压缩失败: {e}")
+            # 7.2 变化矩阵压缩(替代原JSON字段)
+            change_matrix_list = dynamics_result.get('percent_change_matrix', [])
+            if change_matrix_list:
+                try:
+                    cleaned = _clean_structure(change_matrix_list, precision=3, threshold=0.05)
+                    self.compressed_change_matrix = zlib.compress(json.dumps(cleaned, separators=(',', ':')).encode('utf-8'))
+                except Exception as e: print(f"⚠️ 变化矩阵压缩失败: {e}")
+            # 8.合并图表信号(Visual Signals)
+            self.chart_signals = _clean_structure({
+                'absolute_signals': dynamics_result.get('absolute_change_signals', {}),
+                'behavior_areas': {
+                    'accumulation': behav_patterns.get('accumulation', {}).get('areas', []),
+                    'distribution': behav_patterns.get('distribution', {}).get('areas', [])
+                },
+                'key_battle_zones': _clean_structure(key_battle_zones[:5], precision=3),
+                'migration_areas': {
+                    'convergence': migr_patterns.get('convergence_migration', {}).get('areas', []),
+                    'divergence': migr_patterns.get('divergence_migration', {}).get('areas', [])
+                }
+            }, precision=3)
+            # 9.合并剩余指标(Extra Metrics)
+            self.extra_metrics = _clean_structure({
+                'concentration': conc_metrics,
+                'pressure': press_metrics,
+                'convergence': conv_metrics,
+                'migration': migr_patterns,
+                'behavior_meta': {
+                    'accumulation_detected': behav_patterns.get('accumulation', {}).get('detected'),
+                    'distribution_detected': behav_patterns.get('distribution', {}).get('detected'),
+                    'main_force_activity': behav_patterns.get('main_force_activity')
+                }
+            }, precision=4)
+            # 10.保存其他独立字段
+            self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
+            self.validation_score = round(max(0.0, min(1.0, dynamics_result.get('validation_score', 0.5))), 3)
+            self.validation_warnings = _clean_structure(dynamics_result.get('validation_warnings', []), precision=3)
+            # 11.计算持有时间因子并保存
             self._calculate_holding_factors_from_dynamics(dynamics_result)
-
-            # 10. 保存状态与提交
             self.calc_status = 'success'
-            self.analysis_method = 'advanced_dynamics_v2'
+            self.analysis_method = 'advanced_dynamics_v2_optimized'
             self.used_percent_data = True
-            
             self.save()
             return True
-
         except Exception as e:
             print(f"❌ [保存动态分析] 失败: {e}")
             import traceback
             traceback.print_exc()
             self.calc_status = 'failed'
             self.error_message = str(e)
-            try: 
-                self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
-            except: 
-                pass
+            try: self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
+            except: pass
             return False
 
     def _calculate_absolute_change_analysis_robust(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
