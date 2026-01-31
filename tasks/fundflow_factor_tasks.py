@@ -104,10 +104,7 @@ async def _process_stock_factors_async(stock_code: str, start_date_str: str = No
     cache_mgr = CacheManager()
     stock_basic_dao = StockBasicInfoDao(cache_mgr)
     stock_time_trade_dao = StockTimeTradeDAO(cache_mgr)
-    
     try:
-        print(f"开始计算股票 {stock_code} 的资金流向因子 (Async)")
-        
         # 1. 确定计算开始日期
         start_date = None
         if start_date_str:
@@ -118,47 +115,36 @@ async def _process_stock_factors_async(stock_code: str, start_date_str: str = No
                     start_date = datetime.strptime(start_date_str, '%Y%m%d').date()
             except ValueError:
                 return {'status': 'failed', 'message': f"日期格式错误: {start_date_str}"}
-
         # 2. 获取模型和交易日历 (涉及 DB 操作，需 sync_to_async)
         factor_model = await sync_to_async(get_fundflow_factor_model_by_code)(stock_code)
-        
         # 获取交易日历
         trade_dates = await sync_to_async(get_trade_dates_for_stock)(
             stock_code, start_date, incremental, factor_model
         )
-        
         if not trade_dates:
             return {
                 'status': 'success', 
                 'message': f'股票 {stock_code} 无需计算',
                 'calculated_dates': 0
             }
-
-        print(f"股票 {stock_code} 需要计算 {len(trade_dates)} 个交易日的因子")
-
         # 3. 分批计算
         batch_size = 50
         total_batches = (len(trade_dates) + batch_size - 1) // batch_size
         calculated_count = 0
         failed_dates = []
-
         for batch_idx in range(total_batches):
             batch_start = batch_idx * batch_size
             batch_end = min((batch_idx + 1) * batch_size, len(trade_dates))
             batch_dates = trade_dates[batch_start:batch_end]
-            
             # 调用异步批量计算
             batch_calculated, batch_failed = await _calculate_factor_batch_async(
                 stock_code, batch_dates, factor_model,
                 stock_basic_dao, stock_time_trade_dao
             )
-            
             calculated_count += batch_calculated
             failed_dates.extend(batch_failed)
-            
             # 异步休眠
             await asyncio.sleep(0.5)
-
         result = {
             'status': 'success',
             'message': f'股票 {stock_code} 计算完成',
@@ -166,12 +152,10 @@ async def _process_stock_factors_async(stock_code: str, start_date_str: str = No
             'calculated_dates': calculated_count,
             'failed_dates': failed_dates if failed_dates else None
         }
-        
         if failed_dates:
             logger.warning(f"股票 {stock_code} 计算完成，但有 {len(failed_dates)} 个交易日失败")
         else:
             print(f"股票 {stock_code} 计算完成，共计算 {calculated_count} 个交易日")
-            
         return result
         
     finally:
@@ -179,8 +163,7 @@ async def _process_stock_factors_async(stock_code: str, start_date_str: str = No
         if hasattr(cache_mgr, 'close'):
             await cache_mgr.close()
 
-async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date], factor_model,
-                                      stock_basic_dao, stock_time_trade_dao) -> Tuple[int, List[date]]:
+async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date], factor_model, stock_basic_dao, stock_time_trade_dao) -> Tuple[int, List[date]]:
     """[Async] 批量计算"""
     calculated = 0
     failed_dates = []
@@ -199,34 +182,27 @@ async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date]
             failed_dates.append(trade_date)
     return calculated, failed_dates
 
-async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model,
-                                            stock_basic_dao, stock_time_trade_dao) -> bool:
+async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao) -> bool:
     """[Async] 计算单个日期因子"""
     try:
         # 异步获取股票信息
         stock_info = await stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_info:
             return False
-            
         # 异步获取历史数据
         historical_flow_data = await _get_historical_flow_data_async(
             stock_code, trade_date, stock_time_trade_dao, days=120
         )
-        
         if not historical_flow_data or len(historical_flow_data) < 10:
             return False
-            
         # 获取当日资金流向 (涉及 DB，需 sync_to_async)
         current_flow_data = await sync_to_async(get_current_flow_data)(stock_code, trade_date)
         if not current_flow_data:
             return False
-            
         # 异步获取日线基本数据
         daily_basic_data = await _get_daily_basic_data_async(stock_code, trade_date, stock_time_trade_dao)
-        
         # 异步获取分钟数据
         minute_data = await _get_1min_data_async(stock_code, trade_date, stock_time_trade_dao)
-        
         # 构建上下文 (同步操作)
         context = CalculationContext(
             stock_code=stock_code,
@@ -236,14 +212,11 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
             daily_basic_data=daily_basic_data,
             minute_data_1min=minute_data
         )
-        
         # 执行计算 (CPU 密集型，直接运行)
         calculator = FundFlowFactorCalculator(context)
         all_metrics = calculator.calculate_all_metrics()
-        
         # 保存结果 (DB 操作，需 sync_to_async)
         await sync_to_async(save_factor_to_db)(stock_info, trade_date, all_metrics, factor_model)
-        
         return True
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 在 {trade_date} 的资金流向因子失败: {e}", exc_info=True)
@@ -262,11 +235,9 @@ async def _get_historical_flow_data_async(stock_code: str, end_date: date,
         trade_dates = await sync_to_async(TradeCalendar.get_latest_n_trade_dates)(n=days, reference_date=end_date)
         if not trade_dates:
             return []
-            
         stock_info = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock_info:
             return []
-            
         historical_data = []
         # 循环获取单日流向数据
         sorted_dates = sorted(trade_dates)
@@ -276,20 +247,16 @@ async def _get_historical_flow_data_async(stock_code: str, end_date: date,
                 flow_data['trade_date'] = trade_date.isoformat()
                 flow_data['net_amount_ratio'] = 0.0
                 historical_data.append(flow_data)
-                
         if not historical_data:
             return []
-            
         # 异步获取历史行情
         try:
             start_date = sorted_dates[0]
             real_end_date = sorted_dates[-1]
             s_str = start_date.strftime('%Y%m%d')
             e_str = real_end_date.strftime('%Y%m%d')
-            
             # 直接 await DAO 方法
             df_price = await stock_time_trade_dao.get_daily_data(stock_code, s_str, e_str)
-            
             if not df_price.empty:
                 price_map = {}
                 for idx, row in df_price.iterrows():
@@ -300,7 +267,6 @@ async def _get_historical_flow_data_async(stock_code: str, end_date: date,
                             d_str = pd.to_datetime(idx).strftime('%Y-%m-%d')
                     except Exception:
                         continue
-                    
                     # [关键修正] 提取 vol 字段
                     price_map[d_str] = {
                         'close': float(row['close']) if pd.notnull(row.get('close')) else None,
@@ -308,12 +274,10 @@ async def _get_historical_flow_data_async(stock_code: str, end_date: date,
                         'amount': float(row['amount']) if pd.notnull(row.get('amount')) else 0.0,
                         'vol': float(row['vol']) if pd.notnull(row.get('vol')) else 0.0
                     }
-                
                 for item in historical_data:
                     d_str = item['trade_date']
                     if d_str in price_map:
                         item.update(price_map[d_str])
-                    
                     net_amt = item.get('net_mf_amount')
                     total_amt = item.get('amount')
                     if net_amt is not None and total_amt and total_amt != 0:
@@ -323,7 +287,6 @@ async def _get_historical_flow_data_async(stock_code: str, end_date: date,
                         
         except Exception as e:
             logger.error(f"合并股票 {stock_code} 历史行情数据失败: {e}", exc_info=True)
-            
         return historical_data
     except Exception as e:
         logger.error(f"获取股票 {stock_code} 历史资金流向数据失败: {e}")
@@ -335,7 +298,6 @@ async def _get_daily_basic_data_async(stock_code: str, trade_date: date,
     try:
         # 直接 await DAO 方法
         daily_data_list = await stock_time_trade_dao.get_stocks_daily_data([stock_code], trade_date)
-        
         if daily_data_list:
             daily_obj = daily_data_list[0]
             def safe_float(val):
@@ -351,7 +313,6 @@ async def _get_daily_basic_data_async(stock_code: str, trade_date: date,
                 'vol': safe_float(daily_obj.vol),
                 'turnover_rate': safe_float(getattr(daily_obj, 'turnover_rate', None)),
             }
-            
             basic_model = await stock_time_trade_dao.get_stock_daily_basic_by_date(stock_code, trade_date)
             if basic_model:
                 basic_dict.update({
@@ -421,7 +382,6 @@ def get_trade_dates_for_stock(stock_code: str, start_date: date, incremental: bo
         if not all_trade_dates:
             print(f"股票 {stock_code} 在 {calc_start_date} 到 {latest_trade_date} 之间没有交易日")
             return []
-            
         # [修正] 移除采样逻辑，返回所有需要计算的日期
         # 原代码的 [::50] 会导致只计算极少数日期，不符合连续因子计算的需求
         logger.debug(f"股票 {stock_code} 需要计算的交易日数量: {len(all_trade_dates)}")
@@ -471,7 +431,7 @@ def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_mode
     failed_dates = []
     for trade_date in trade_dates:
         try:
-            # [修改] 传递 DAO 实例
+            # 传递 DAO 实例
             success = calculate_single_date_factor(
                 stock_code, trade_date, factor_model,
                 stock_basic_dao=stock_basic_dao,
@@ -497,13 +457,12 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
     2. 将 stock_time_trade_dao 传递给数据获取函数。
     """
     try:
-        # [修改] 使用传入的 stock_basic_dao
+        # 使用传入的 stock_basic_dao
         stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
         if not stock_info:
             logger.warning(f"股票 {stock_code} 不存在")
             return False
-            
-        # [修改] 传递 stock_time_trade_dao
+        # 传递 stock_time_trade_dao
         historical_flow_data = get_historical_flow_data(
             stock_code, trade_date, 
             stock_time_trade_dao=stock_time_trade_dao, stock_info=stock_info,
@@ -512,13 +471,11 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         if not historical_flow_data or len(historical_flow_data) < 10:
             logger.warning(f"股票 {stock_code} 在 {trade_date} 的历史数据不足 (Len: {len(historical_flow_data) if historical_flow_data else 0})")
             return False
-            
         current_flow_data = get_current_flow_data(stock_code, trade_date)
         if not current_flow_data:
             logger.warning(f"股票 {stock_code} 在 {trade_date} 的资金流向数据缺失")
             return False
-            
-        # [修改] 传递 stock_time_trade_dao
+        # 传递 stock_time_trade_dao
         daily_basic_data = get_daily_basic_data(stock_code, trade_date, stock_time_trade_dao)
         minute_data = get_1min_data(stock_code, trade_date, stock_time_trade_dao)
         context = CalculationContext(
@@ -555,7 +512,6 @@ def get_historical_flow_data(stock_code: str, end_date: date,
             return []
         if not stock_info:
             return []
-            
         historical_data = []
         # 1. 获取资金流向数据
         for trade_date in sorted(trade_dates):
@@ -564,16 +520,14 @@ def get_historical_flow_data(stock_code: str, end_date: date,
                 flow_data['trade_date'] = trade_date.isoformat()
                 flow_data['net_amount_ratio'] = 0.0
                 historical_data.append(flow_data)
-                
         if not historical_data:
             return []
-            
         # 2. 批量获取历史行情数据 (Close, PctChange, Amount) 并合并
         try:
             sorted_dates = sorted(trade_dates)
             start_date = sorted_dates[0]
             real_end_date = sorted_dates[-1]
-            # [修改] 使用传入的 stock_time_trade_dao
+            # 使用传入的 stock_time_trade_dao
             s_str = start_date.strftime('%Y%m%d')
             e_str = real_end_date.strftime('%Y%m%d')
             # 异步转同步调用 DAO 获取日线数据
@@ -608,10 +562,8 @@ def get_historical_flow_data(stock_code: str, end_date: date,
                         item['net_amount_ratio'] = 0.0
             else:
                 logger.warning(f"股票 {stock_code} 在 {s_str}-{e_str} 期间无日线行情数据，无法计算净流入占比")
-                
         except Exception as e:
             logger.error(f"合并股票 {stock_code} 历史行情数据失败: {e}", exc_info=True)
-            
         return historical_data
     except Exception as e:
         logger.error(f"获取股票 {stock_code} 历史资金流向数据失败: {e}")
@@ -665,7 +617,7 @@ def get_daily_basic_data(stock_code: str, trade_date: date,
     说明: 接收 stock_time_trade_dao 参数，复用 Redis 连接。
     """
     try:
-        # [修改] 使用传入的 stock_time_trade_dao
+        # 使用传入的 stock_time_trade_dao
         daily_data_list = async_to_sync(stock_time_trade_dao.get_stocks_daily_data)([stock_code], trade_date)
         if daily_data_list:
             daily_obj = daily_data_list[0]
@@ -710,7 +662,7 @@ def get_1min_data(stock_code: str, trade_date: date,
     说明: 接收 stock_time_trade_dao 参数，复用 Redis 连接。
     """
     try:
-        # [修改] 使用传入的 stock_time_trade_dao
+        # 使用传入的 stock_time_trade_dao
         df = async_to_sync(stock_time_trade_dao.get_1_min_kline_time_by_day)(stock_code, trade_date)
         if df is None:
             return None
@@ -810,7 +762,6 @@ def save_factor_to_db(stock_info: StockInfo, trade_date: date, metrics: Dict, fa
                 logger.debug(f"{'创建' if created else '更新'}股票 {stock_info.stock_code} "
                             f"在 {trade_date} 的资金流向因子")
                 return factor_obj
-                
         except OperationalError as e:
             # 检查是否为死锁错误 (MySQL Error 1213)
             # e.args 通常为 (code, message)
@@ -825,7 +776,6 @@ def save_factor_to_db(stock_info: StockInfo, trade_date: date, metrics: Dict, fa
             # 如果不是死锁或重试耗尽，记录错误并抛出
             logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 时发生数据库错误: {e}")
             raise
-            
         except Exception as e:
             logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 的资金流向因子失败: {e}")
             raise
@@ -855,20 +805,16 @@ async def _update_fundflow_factors_daily_async():
     cache_mgr = CacheManager()
     stock_basic_dao = StockBasicInfoDao(cache_mgr)
     stock_time_trade_dao = StockTimeTradeDAO(cache_mgr)
-    
     try:
         latest_dates = await sync_to_async(TradeCalendar.get_latest_n_trade_dates)(n=1, reference_date=timezone.now().date())
         latest_trade_date = latest_dates[0] if latest_dates else None
         if not latest_trade_date:
             return {'status': 'failed', 'message': '无法获取最新交易日'}
-            
         all_stocks = await stock_basic_dao.get_stock_list()
         total_stocks = len(all_stocks)
-        
         batch_size = 50
         successful = 0
         failed = []
-        
         for i in range(0, total_stocks, batch_size):
             batch_stocks = list(all_stocks[i:i+batch_size])
             for stock_code in batch_stocks:
@@ -878,11 +824,9 @@ async def _update_fundflow_factors_daily_async():
                         stock__stock_code=stock_code,
                         trade_time=latest_trade_date
                     ).exists)()
-                    
                     if existing:
                         successful += 1
                         continue
-                        
                     success = await _calculate_single_date_factor_async(
                         stock_code, latest_trade_date, factor_model,
                         stock_basic_dao, stock_time_trade_dao
@@ -893,9 +837,7 @@ async def _update_fundflow_factors_daily_async():
                         failed.append(stock_code)
                 except Exception as e:
                     failed.append(stock_code)
-            
             await asyncio.sleep(0.5)
-            
         return {
             'status': 'success',
             'date': latest_trade_date.isoformat(),
@@ -916,24 +858,19 @@ async def _test_fundflow_factor_calculation_async(stock_code: str, test_date_str
     cache_mgr = CacheManager()
     stock_basic_dao = StockBasicInfoDao(cache_mgr)
     stock_time_trade_dao = StockTimeTradeDAO(cache_mgr)
-    
     try:
         if test_date_str:
             test_date = datetime.strptime(test_date_str, '%Y-%m-%d').date()
         else:
             latest_dates = await sync_to_async(TradeCalendar.get_latest_n_trade_dates)(n=1, reference_date=timezone.now().date())
             test_date = latest_dates[0] if latest_dates else None
-            
         if not test_date:
             return {'status': 'failed', 'message': '无法获取测试日期'}
-            
         factor_model = await sync_to_async(get_fundflow_factor_model_by_code)(stock_code)
-        
         success = await _calculate_single_date_factor_async(
             stock_code, test_date, factor_model,
             stock_basic_dao, stock_time_trade_dao
         )
-        
         return {
             'status': 'success' if success else 'failed',
             'stock_code': stock_code,

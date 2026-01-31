@@ -167,7 +167,6 @@ def schedule_chip_factor_calculation(
                 stock_codes = [stock.stock_code for stock in stock_list]
             finally:
                 loop.close()
-                
         logger.info(f"需要计算的股票数量: {len(stock_codes)}")
         # 根据计算模式调度
         if calculation_mode == 'comprehensive':
@@ -308,7 +307,6 @@ def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, 
                 # 每完成5只股票打印一次进度
                 if (stock_index + 1) % 5 == 0:
                     print(f"📊 [进度报告] 已完成 {stock_index + 1}/{len(stock_codes)} 只股票")
-                    print(f"📊 [进度报告] 成功: {results['success']}, 失败: {results['failed']}")
             except Exception as e:
                 results['failed'] += 1
                 print(f"❌ [股票异常] {stock_code} 处理异常: {e}")
@@ -340,7 +338,6 @@ def calculate_single_stock_chip_factors_sync(stock_code: str, start_date: date, 
             start_time = time.time()
             result = loop.run_until_complete(calculate_single_stock_chip_factors_async(stock_code, start_date, end_date))
             elapsed_time = time.time() - start_time
-            print(f"⏱️ [单股耗时] {stock_code} 处理耗时: {elapsed_time:.2f}秒")
             return result
         finally:
             loop.close()
@@ -376,7 +373,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             print(f"❌ [单股错误] {stock_code} 股票不存在")
             return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
         # 获取历史价格数据用于计算MA
-        print(f"📊 [单股数据] 获取历史价格数据...")
         historical_df = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
         if historical_df.empty:
             print(f"❌ [单股错误] {stock_code} 历史价格数据不足")
@@ -460,7 +456,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             except Exception as e:
                 logger.warning(f"股票 {stock_code} 日期 {current_date} 计算失败: {e}")
                 failed_dates.append(current_date)
-                
         # 打印最终结果
         print(f"✅ [单股完成] {stock_code} 处理完成")
         print(f"📊 [单股统计] 成功: {len(saved_dates)} 天, 失败: {len(failed_dates)} 天")
@@ -666,7 +661,6 @@ async def get_historical_prices_for_stock(stock_code: str, end_date: date, days:
                 # 如果没有基本面数据，补充 turnover_rate 列为 0
                 df_price['turnover_rate'] = 0.0
                 return df_price
-                
         except LookupError:
             logger.error("无法找到 StockDailyBasic 模型")
             df_price['turnover_rate'] = 0.0
@@ -820,7 +814,6 @@ async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
                 for field in key_fields:
                     if hasattr(record, field):
                         value = getattr(record, field)
-                        print(f"🔍 [验证字段] {field}: {value}")
                         result[f'field_{field}'] = value
                         
         else:
@@ -1525,12 +1518,7 @@ async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date
     return {'processed_dates': processed_dates}
 
 # ========== 工具函数 ==========
-def schedule_comprehensive_calculation(
-    stock_codes: List[str], 
-    start_date: date, 
-    end_date: date, 
-    batch_mode: bool = True
-) -> Dict:
+def schedule_comprehensive_calculation(stock_codes: List[str], start_date: date, end_date: date, batch_mode: bool = True) -> Dict:
     """
     综合计算V3：持有矩阵 -> 能量场 -> 筹码因子
     """
