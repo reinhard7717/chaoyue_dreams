@@ -198,7 +198,7 @@ class IndicatorService:
         # 局部导入，避免循环依赖
         from asgiref.sync import sync_to_async
         try:
-            from core.models import TradeCalendar
+            from stock_models.index import TradeCalendar
         except ImportError:
             logger.warning("无法导入 TradeCalendar，将仅依赖 limit 获取数据。")
             TradeCalendar = None
