@@ -240,40 +240,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 CMF (周期 {period}) 时发生未知异常: {e}", exc_info=True)
             return None
-    async def calculate_dma(self, df: pd.DataFrame, smooth_factor_series: pd.Series, close_col: str = 'close') -> Optional[pd.DataFrame]:
-        """
-        【V1.0】计算 DMA (动态移动平均线)。
-        - 核心逻辑: DMA 的平滑因子是一个动态变化的 Series，而不是固定的周期。
-        - 数学公式: DMA = (CLOSE * smooth_factor + REF(DMA,1) * (1 - smooth_factor))
-        """
-        if df is None or df.empty or close_col not in df.columns:
-            logger.warning(f"计算 DMA 失败：输入 DataFrame 为空或缺少 '{close_col}' 列。")
-            return None
-        if smooth_factor_series is None or smooth_factor_series.empty:
-            logger.warning(f"计算 DMA 失败：平滑因子 Series 为空。")
-            return None
-        # 确保 smooth_factor_series 的索引与 df 对齐
-        smooth_factor_series = smooth_factor_series.reindex(df.index, fill_value=0).clip(0, 1) # 平滑因子应在 [0, 1] 之间
-        try:
-            def _sync_dma():
-                dma_series = pd.Series(np.nan, index=df.index)
-                # 初始值
-                dma_series.iloc[0] = df[close_col].iloc[0]
-                for i in range(1, len(df)):
-                    sf = smooth_factor_series.iloc[i]
-                    if pd.isna(sf) or sf == 0: # 如果平滑因子为0，则DMA保持不变
-                        dma_series.iloc[i] = dma_series.iloc[i-1]
-                    else:
-                        dma_series.iloc[i] = df[close_col].iloc[i] * sf + dma_series.iloc[i-1] * (1 - sf)
-                return dma_series
-            dma_series = await asyncio.to_thread(_sync_dma)
-            if dma_series is None or dma_series.empty:
-                logger.warning(f"DMA 计算结果为空。")
-                return None
-            return pd.DataFrame({'DMA': dma_series}, index=df.index)
-        except Exception as e:
-            logger.error(f"计算 DMA (close_col={close_col}) 出错: {e}", exc_info=True)
-            return None
     async def calculate_atan_ma_angle(self, df: pd.DataFrame, ma_col_base: str, timeframe_key: str) -> Optional[pd.DataFrame]:
         """
         【V1.1】计算均线的角度 (ATAN)。

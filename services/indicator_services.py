@@ -1012,7 +1012,6 @@ class IndicatorService:
             'uo': self.calculator.calculate_uo, 'vwap': self.calculator.calculate_vwap, 'atr': self.calculator.calculate_atr,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
-            'dma': self.calculator.calculate_dma,
             'atan_ma_angle': self.calculator.calculate_atan_ma_angle,
             'ma_velocity_acceleration': self.calculator.calculate_ma_velocity_acceleration,
             'zigzag': self.calculator.calculate_zigzag,
