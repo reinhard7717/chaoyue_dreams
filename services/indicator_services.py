@@ -190,32 +190,67 @@ class IndicatorService:
 
     async def _get_ohlcv_data(self, stock_code: str, time_level: Union['TimeLevel', str], needed_bars: int, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        【V118.12 · 原始列名输出版】
+        【V118.13 · 交易日历增强版】
         异步获取足够用于计算的原始历史数据 DataFrame。
-        此函数仅负责从 DAO 获取并执行最通用的列名标准化，不进行任何特定于场景的数据准备。
+        - 核心升级: 引入 TradeCalendar 计算精确的 start_date，解决仅依赖 limit 可能导致的数据长度不足问题。
         - 确保返回的 DataFrame 列名不带任何时间级别后缀，只包含原始的 OHLCV 列名。
         """
-        # 预处理 time_level 字符串，移除 'min' 后缀，以匹配 DAO 层的模型查找逻辑
+        # 局部导入，避免循环依赖
+        from asgiref.sync import sync_to_async
+        try:
+            from core.models import TradeCalendar
+        except ImportError:
+            logger.warning("无法导入 TradeCalendar，将仅依赖 limit 获取数据。")
+            TradeCalendar = None
+        # 预处理 time_level 字符串，移除 'min' 后缀
         processed_time_level = str(time_level).lower()
         if processed_time_level.endswith('min'):
             processed_time_level = processed_time_level.replace('min', '')
-        # ▼▼▼【代码修改 V117.28】: 确保获取实时数据 ▼▼▼
-        # 如果 trade_time 未提供（例如在实时触发的场景），则使用当前时间作为查询终点。
-        # 这确保了DAO层能够获取到截至目前的最新数据，包括当天的盘中K线。
+            
+        start_date = None
+        if TradeCalendar:
+            try:
+                # 确定参考日期
+                if trade_time:
+                    ref_date = pd.to_datetime(trade_time).date()
+                else:
+                    ref_date = datetime.date.today()
+                # 计算所需的交易日偏移量
+                offset_days = needed_bars
+                if processed_time_level.isdigit():
+                    # 分钟线：将 bar 数转换为天数
+                    # 假设每天 240 分钟交易时间
+                    minutes_per_bar = int(processed_time_level)
+                    bars_per_day = 240 / minutes_per_bar
+                    # 向上取整并增加缓冲，确保覆盖足够的天数
+                    offset_days = int(needed_bars / bars_per_day * 1.2) + 5
+                else:
+                    # 日/周/月线：直接作为天数（周/月线已在调用前转换为日线需求）
+                    # 增加少量缓冲以应对边界情况
+                    offset_days = int(needed_bars * 1.05) + 5
+                # 使用 TradeCalendar 获取 N 个交易日前的日期
+                # 默认使用 SSE 日历，A股通常一致
+                start_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(ref_date, -offset_days)
+                # logger.debug(f"[{stock_code}] 根据 TradeCalendar 计算起始日期: {start_date} (偏移 {offset_days} 天)")
+            except Exception as e:
+                logger.warning(f"使用 TradeCalendar 计算起始日期失败: {e}")
+        # 调用 DAO 获取数据，显式传入 start_date
         df = await self.indicator_dao.get_history_ohlcv_df(
             stock_code=stock_code,
             time_level=processed_time_level,
             limit=needed_bars,
-            trade_time=trade_time # 直接传递，不做任何处理
+            trade_time=trade_time,
+            start_date=start_date 
         )
         if df is None or df.empty:
             logger.warning(f"[{stock_code}] 时间级别 {time_level} 无法获取到数据。")
             return None
+            
         # 通用的列名标准化 (确保是原始列名，不带后缀)
         if 'vol' in df.columns and 'volume' not in df.columns:
             df.rename(columns={'vol': 'volume'}, inplace=True)
+            
         # 确保数据有 DatetimeIndex，这是后续所有时间序列操作的基础
-        # 这是从 _fetch_and_prepare_base_data 吸收的优点，但放在这里是合理的，因为它是通用的准备步骤
         if not isinstance(df.index, pd.DatetimeIndex):
             time_col = None
             if 'trade_date' in df.columns: # 适用于日线、周线
@@ -225,10 +260,10 @@ class IndicatorService:
             if time_col:
                 df[time_col] = pd.to_datetime(df[time_col], utc=True)
                 df.set_index(time_col, inplace=True)
-                # print(f"    [底层数据获取] 已将 '{time_col}' 列设置为 DatetimeIndex。")
             else:
                 logger.error(f"[{stock_code}] {time_level} 数据既没有 DatetimeIndex，也没有 'trade_date'/'trade_time' 列。")
                 return None
+                
         logger.debug(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据。")
         return df
 
@@ -334,16 +369,13 @@ class IndicatorService:
         - 智能加权: 根据指标应用的时间框架(D/W/M)，自动对周期进行加权（周线x5，月线x22）。
         """
         max_days_needed = 350 # 默认基准值，确保至少有一定的数据量
-        
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         if not indicators_config:
             return max_days_needed
-
         # 定义需要检查的周期参数键名，覆盖常见指标参数
         period_keys = ['period', 'periods', 'fast', 'slow', 'signal_period', 
                        'long_roc_period', 'short_roc_period', 'wma_period', 
                        'length', 'k', 'd', 'smooth_k', 'tenkan', 'kijun', 'senkou']
-
         def _extract_max_period_from_params(params):
             local_max = 0
             # 检查 params 中的所有可能的周期键
@@ -365,29 +397,23 @@ class IndicatorService:
                         if nums:
                             local_max = max(local_max, max(nums))
             return local_max
-
         for indicator_name, params in indicators_config.items():
             if not isinstance(params, dict) or not params.get('enabled', False):
                 continue
-            
             # 获取顶层 apply_on，如果没有则默认为空
             top_apply_on = params.get('apply_on', [])
-
             # 处理 configs 列表（如果有）或直接使用 params
             configs_to_process = params.get('configs', [params])
-            
             for sub_config in configs_to_process:
                 # 提取该配置下的最大周期
                 p_max = _extract_max_period_from_params(sub_config)
                 if p_max == 0:
                     continue
-                
                 # 检查该配置应用的每个时间框架
                 # 子配置的 apply_on 优先，如果没有则继承外层
                 sub_apply_on = sub_config.get('apply_on', top_apply_on)
                 if not sub_apply_on: 
                     continue
-                
                 for tf in sub_apply_on:
                     tf_str = str(tf).upper()
                     multiplier = 1
@@ -398,7 +424,6 @@ class IndicatorService:
                     elif tf_str == 'D':
                         multiplier = 1
                     # 分钟线通常独立获取，不影响日线请求量，除非有特殊逻辑。
-                    
                     if tf_str in ['D', 'W', 'M']:
                         needed = p_max * multiplier
                         # 额外增加 10% 的缓冲系数，应对节假日导致的重采样损耗
@@ -406,7 +431,6 @@ class IndicatorService:
                         if needed > max_days_needed:
                             max_days_needed = needed
                             # logger.debug(f"    - [军需官] 发现更大需求: 指标 {indicator_name} 在 {tf_str} 周期需要 {p_max}*{multiplier}*1.1={needed} 条日线数据。")
-
         return int(max_days_needed)
 
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
@@ -422,17 +446,14 @@ class IndicatorService:
         for indicator_key, params in config.items():
             if not params.get('enabled', False):
                 continue
-            
             # 检查顶层 apply_on
             top_apply_on = params.get("apply_on", [])
-            
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
                 # 子配置的 apply_on 优先，如果没有则使用顶层
                 current_apply_on = sub_config.get("apply_on", top_apply_on)
                 if timeframe_key not in current_apply_on:
                     continue
-                
                 # 扫描所有可能的周期键
                 for key in period_keys:
                     val = sub_config.get(key)
@@ -868,12 +889,10 @@ class IndicatorService:
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
         if cols_to_ffill:
             df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
-        
         # 将处理完毕的 df_daily_master 更新回 raw_dfs['D']
         # 这一步至关重要，因为后续的重采样(resample)和指标计算都依赖于 raw_dfs['D'] 中
         # 已经重命名为 *_D 且包含补充数据的列。
         raw_dfs['D'] = df_daily_master
-
         # --- 6: 重采样周/月线数据 ---
         if resample_map:
             df_daily = raw_dfs['D']
@@ -1084,15 +1103,6 @@ class IndicatorService:
                         })
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
-                        continue
-                    if indicator_name == 'dma':
-                        smooth_factor_col = sub_config.get('smooth_factor_col')
-                        if smooth_factor_col and smooth_factor_col in df_for_calc.columns:
-                            kwargs.update({'smooth_factor_series': df_for_calc[smooth_factor_col], 'close_col': close_col_tf})
-                            result_df = await method_to_call(**kwargs)
-                            merge_results(result_df, df_for_calc)
-                        else:
-                            logger.warning(f"DMA计算失败：缺少平滑因子列 '{smooth_factor_col}'。")
                         continue
                     if indicator_name == 'atan_ma_angle':
                         ma_col_base = sub_config.get('ma_col')
