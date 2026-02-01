@@ -490,11 +490,12 @@ class IndicatorService:
 
     async def _prepare_base_data_and_indicators(self, stock_code: str, config: dict, trade_time: Optional[str] = None, latest_only: bool = False) -> Dict[str, pd.DataFrame]:
         """
-        【V8.8 · 因子体系重构版】
+        【V8.9 · 修复KeyError版】
         为策略准备数据的统一入口，已切换至 FactorDao 获取新版资金与筹码因子。
         - 核心升级: 替换原有的 AdvancedFundFlow 和 AdvancedChips 调用，转为调用 FactorDao 的 ChipFactor, FundFlowFactor 和 ChipHoldingMatrix。
         - 字段同步: priority_supp_cols 已更新为新版因子模型的所有字段，确保数据合并时优先保留这些高精度指标。
         - 统一命名: 所有日线数据列名统一以 `_D` 结尾。
+        - 修复: 在重采样前更新 raw_dfs['D']，解决 KeyError: "Column(s) ['close_D', ...] do not exist"。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -752,6 +753,12 @@ class IndicatorService:
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
         if cols_to_ffill:
             df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
+        
+        # 将处理完毕的 df_daily_master 更新回 raw_dfs['D']
+        # 这一步至关重要，因为后续的重采样(resample)和指标计算都依赖于 raw_dfs['D'] 中
+        # 已经重命名为 *_D 且包含补充数据的列。
+        raw_dfs['D'] = df_daily_master
+
         # --- 6: 重采样周/月线数据 ---
         if resample_map:
             df_daily = raw_dfs['D']
