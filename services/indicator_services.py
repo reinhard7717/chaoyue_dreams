@@ -329,14 +329,129 @@ class IndicatorService:
 
     def _get_max_lookback_period(self, config: dict) -> int:
         """
-        【军需官】扫描整个策略配置，找出所有指标中要求的最长回溯期。
-        这是一个简化的实现，用于演示核心思想。
+        【军需官 V2.0】智能扫描策略配置，确定最大回溯需求。
+        - 核心升级: 不再使用硬编码值，而是遍历配置中所有指标的周期参数。
+        - 智能加权: 根据指标应用的时间框架(D/W/M)，自动对周期进行加权（周线x5，月线x22）。
         """
-        # print("    - [军需官] 正在扫描全军军火库，确定最大回溯需求...")
-        # 简化实现：
-        calculated_max = 350 # 保守估计，足以满足EMA(55周)等大周期指标
-        # print(f"    - [军需官] 扫描完成，最大回溯需求估算为 {calculated_max} 个日线周期。")
-        return calculated_max
+        max_days_needed = 350 # 默认基准值，确保至少有一定的数据量
+        
+        indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
+        if not indicators_config:
+            return max_days_needed
+
+        # 定义需要检查的周期参数键名，覆盖常见指标参数
+        period_keys = ['period', 'periods', 'fast', 'slow', 'signal_period', 
+                       'long_roc_period', 'short_roc_period', 'wma_period', 
+                       'length', 'k', 'd', 'smooth_k', 'tenkan', 'kijun', 'senkou']
+
+        def _extract_max_period_from_params(params):
+            local_max = 0
+            # 检查 params 中的所有可能的周期键
+            for key in period_keys:
+                val = params.get(key)
+                if val is not None:
+                    if isinstance(val, (int, float)):
+                        local_max = max(local_max, int(val))
+                    elif isinstance(val, list):
+                        # 处理列表或嵌套列表 (如 MACD 的 periods: [[12, 26, 9]])
+                        flat_list = []
+                        for item in val:
+                            if isinstance(item, list):
+                                flat_list.extend(item)
+                            else:
+                                flat_list.append(item)
+                        # 过滤非数字
+                        nums = [x for x in flat_list if isinstance(x, (int, float))]
+                        if nums:
+                            local_max = max(local_max, max(nums))
+            return local_max
+
+        for indicator_name, params in indicators_config.items():
+            if not isinstance(params, dict) or not params.get('enabled', False):
+                continue
+            
+            # 获取顶层 apply_on，如果没有则默认为空
+            top_apply_on = params.get('apply_on', [])
+
+            # 处理 configs 列表（如果有）或直接使用 params
+            configs_to_process = params.get('configs', [params])
+            
+            for sub_config in configs_to_process:
+                # 提取该配置下的最大周期
+                p_max = _extract_max_period_from_params(sub_config)
+                if p_max == 0:
+                    continue
+                
+                # 检查该配置应用的每个时间框架
+                # 子配置的 apply_on 优先，如果没有则继承外层
+                sub_apply_on = sub_config.get('apply_on', top_apply_on)
+                if not sub_apply_on: 
+                    continue
+                
+                for tf in sub_apply_on:
+                    tf_str = str(tf).upper()
+                    multiplier = 1
+                    if tf_str == 'W':
+                        multiplier = 5
+                    elif tf_str == 'M':
+                        multiplier = 22 # 一个月约22个交易日
+                    elif tf_str == 'D':
+                        multiplier = 1
+                    # 分钟线通常独立获取，不影响日线请求量，除非有特殊逻辑。
+                    
+                    if tf_str in ['D', 'W', 'M']:
+                        needed = p_max * multiplier
+                        # 额外增加 10% 的缓冲系数，应对节假日导致的重采样损耗
+                        needed = int(needed * 1.1) 
+                        if needed > max_days_needed:
+                            max_days_needed = needed
+                            # logger.debug(f"    - [军需官] 发现更大需求: 指标 {indicator_name} 在 {tf_str} 周期需要 {p_max}*{multiplier}*1.1={needed} 条日线数据。")
+
+        return int(max_days_needed)
+
+    def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
+        """
+        【V1.1】解析指标配置，获取指定时间周期所需的最大计算周期。
+        - 升级: 支持更多周期参数键名，不仅限于 'periods'，确保能覆盖 MACD, KDJ 等指标。
+        """
+        max_period = 0
+        period_keys = ['period', 'periods', 'fast', 'slow', 'signal_period', 
+                       'long_roc_period', 'short_roc_period', 'wma_period', 
+                       'length', 'k', 'd', 'smooth_k', 'tenkan', 'kijun', 'senkou']
+                       
+        for indicator_key, params in config.items():
+            if not params.get('enabled', False):
+                continue
+            
+            # 检查顶层 apply_on
+            top_apply_on = params.get("apply_on", [])
+            
+            configs_to_process = params.get('configs', [params])
+            for sub_config in configs_to_process:
+                # 子配置的 apply_on 优先，如果没有则使用顶层
+                current_apply_on = sub_config.get("apply_on", top_apply_on)
+                if timeframe_key not in current_apply_on:
+                    continue
+                
+                # 扫描所有可能的周期键
+                for key in period_keys:
+                    val = sub_config.get(key)
+                    if val is not None:
+                        if isinstance(val, (int, float)):
+                            max_period = max(max_period, int(val))
+                        elif isinstance(val, list):
+                            # 扁平化处理
+                            flat_list = []
+                            for item in val:
+                                if isinstance(item, list):
+                                    flat_list.extend(item)
+                                else:
+                                    flat_list.append(item)
+                            nums = [x for x in flat_list if isinstance(x, (int, float))]
+                            if nums:
+                                max_period = max(max_period, max(nums))
+                                
+        return int(max_period * 1.2) if max_period > 0 else 1
 
     async def prepare_data_for_strategy(self, stock_code: str, config: dict, trade_time: Optional[str] = None, latest_only: bool = False) -> Dict[str, pd.DataFrame]:
         # 【第一道工序】准备基础数据和常规指标
@@ -426,7 +541,7 @@ class IndicatorService:
         # 【斜率与加速度计算】
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        self._log_final_data_columns(all_dfs) # 移除调试打印
+        # self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
     async def _process_supplemental_df(self, df_supp: pd.DataFrame, tag: str) -> pd.DataFrame:
@@ -848,27 +963,6 @@ class IndicatorService:
             synthetic_indicators['RSI_13_W'] = rsi
         return synthetic_indicators
 
-    def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
-        """
-        解析指标配置，获取指定时间周期所需的最大计算周期。
-        """
-        max_period = 0
-        for indicator_key, params in config.items():
-            if not params.get('enabled', False) or timeframe_key not in params.get("apply_on", []):
-                continue
-            configs_to_process = params.get('configs', [params])
-            for sub_config in configs_to_process:
-                periods = sub_config.get('periods')
-                if periods is None: continue
-                flat_periods = []
-                if isinstance(periods, list):
-                    for p in periods:
-                        if isinstance(p, list): flat_periods.extend(p)
-                        elif isinstance(p, (int, float)): flat_periods.append(p)
-                elif isinstance(periods, (int, float)): flat_periods.append(periods)
-                if flat_periods: max_period = max(max_period, max(flat_periods))
-        return int(max_period * 1.2) if max_period > 0 else 1
-
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
         【V110.24 · Z-score Numba优化版】根据配置为指定时间周期计算所有技术指标。
@@ -964,7 +1058,7 @@ class IndicatorService:
                     except Exception as e:
                         logger.error(f"计算Z-score时出错: {e}", exc_info=True)
                 continue
-            # 【修改代码块】处理结构与形态指标，它们不需要 periods 循环，直接处理即可
+            # 处理结构与形态指标，它们不需要 periods 循环，直接处理即可
             if indicator_name in ['advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline']:
                 # 这些指标的数据已在 _prepare_base_data_and_indicators 中从DAO获取并合并到df_for_calc中，
                 # 并且已经带有正确的后缀。此处无需再次计算或处理，直接跳过。
