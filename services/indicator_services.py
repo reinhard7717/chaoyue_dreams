@@ -752,15 +752,6 @@ class IndicatorService:
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
         if cols_to_ffill:
             df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
-        # --- 5: 计算基础衍生指标 ---
-        raw_dfs['D'] = df_daily_master
-        if 'D' in raw_dfs and not raw_dfs['D'].empty:
-            temp_dfs = {'D': raw_dfs['D']}
-            temp_dfs = await self.feature_service.calculate_aaa_indicator(temp_dfs)
-            raw_dfs['D'] = temp_dfs['D']
-            temp_dfs = {'D': raw_dfs['D']}
-            temp_dfs = await self.feature_service.calculate_nmfnf(temp_dfs)
-            raw_dfs['D'] = temp_dfs['D']
         # --- 6: 重采样周/月线数据 ---
         if resample_map:
             df_daily = raw_dfs['D']

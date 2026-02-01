@@ -959,36 +959,6 @@ class FeatureEngineeringService:
                 tension_scores.iloc[i] = 0
         return tension_scores
 
-    async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
-        """
-        【V1.0】计算通达信 AAA 指标。
-        - 核心逻辑: AAA:=ABS((2*CLOSE+HIGH+LOW)/4-MA(CLOSE,N))/MA(CLOSE,N); N:=30;
-        - 作为 DMA 的平滑因子。
-        """
-        timeframe = 'D'
-        if timeframe not in all_dfs or all_dfs[timeframe].empty:
-            logger.warning(f"计算 AAA 指标失败：缺少日线数据。")
-            return all_dfs
-        df = all_dfs[timeframe]
-        required_cols = ['close_D', 'high_D', 'low_D']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            logger.warning(f"计算 AAA 指标缺少关键数据: {missing_cols}，模块已跳过！")
-            return all_dfs
-        n_period_for_aaa = 30
-        if len(df) < n_period_for_aaa:
-            logger.warning(f"计算 AAA 指标失败：数据行数 ({len(df)}) 不足以计算周期为 {n_period_for_aaa} 的 MA。")
-            df['AAA_D'] = 0.0
-            all_dfs[timeframe] = df
-            return all_dfs
-        ma_close_n = df['close_D'].rolling(window=n_period_for_aaa, min_periods=1).mean()
-        weighted_price = (2 * df['close_D'] + df['high_D'] + df['low_D']) / 4
-        aaa_series = (weighted_price - ma_close_n).abs() / ma_close_n.replace(0, np.nan)
-        df['AAA_D'] = aaa_series.fillna(0)
-        all_dfs[timeframe] = df
-        logger.info("AAA 指标计算完成。")
-        return all_dfs
-
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.0 · 多因子融合版】根据多因子共振识别盘整期
@@ -1508,39 +1478,6 @@ class FeatureEngineeringService:
                 df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = compression_rate.astype(np.float32)
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
-        return all_dfs
-
-    async def calculate_nmfnf(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
-        """
-        【V1.1 · 细粒度NMFNF升级版】计算标准化主力净流量 (Normalized Main Force Net Flow, NMFNF)。
-        - 核心逻辑: NMFNF = main_force_net_flow_calibrated_D / total_market_value_D。
-        - 新增逻辑: NMFNF_BUY_D = main_force_buy_ofi_D / total_market_value_D。
-        - 新增逻辑: NMFNF_SELL_D = main_force_sell_ofi_D / total_market_value_D。
-        - 目的: 将主力净流量标准化，使其在不同市值和活跃度的股票间可比，并细化买卖方贡献。
-        """
-        timeframe = 'D'
-        if timeframe not in all_dfs or all_dfs[timeframe].empty:
-            logger.warning(f"计算 NMFNF 失败：缺少日线数据。")
-            return all_dfs
-        df = all_dfs[timeframe]
-        required_cols = ['main_force_net_flow_calibrated_D', 'total_market_value_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            logger.warning(f"计算 NMFNF 缺少关键数据: {missing_cols}，模块已跳过！")
-            return all_dfs
-        # 避免除以零，将总市值中的零替换为 NaN，然后整个表达式会变为 NaN，最后fillna(0)
-        total_market_value_safe = df['total_market_value_D'].replace(0, np.nan)
-        # 计算总NMFNF
-        nmfnf_series = df['main_force_net_flow_calibrated_D'] / total_market_value_safe
-        df['NMFNF_D'] = nmfnf_series.fillna(0)
-        # 计算买方NMFNF (NMFNF_BUY_D)
-        nmfnf_buy_series = df['main_force_buy_ofi_D'] / total_market_value_safe
-        df['NMFNF_BUY_D'] = nmfnf_buy_series.fillna(0)
-        # 计算卖方NMFNF (NMFNF_SELL_D)
-        nmfnf_sell_series = df['main_force_sell_ofi_D'] / total_market_value_safe
-        df['NMFNF_SELL_D'] = nmfnf_sell_series.fillna(0)
-        all_dfs[timeframe] = df
-        logger.info("NMFNF 指标计算完成。")
         return all_dfs
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
