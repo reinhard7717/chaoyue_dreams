@@ -83,7 +83,7 @@ class FactorDao:
         return df
 
 # 批量获取筹码因子的函数
-async def get_chip_factors_batch(stock_codes: List[str], trade_date: date) -> Dict[str, Dict]:
+async def get_chip_factors_batch(stock_codes: List[str], trade_date: datetime.date) -> Dict[str, Dict]:
     """
     批量获取筹码因子数据
     Args:
@@ -121,7 +121,7 @@ async def get_chip_factors_batch(stock_codes: List[str], trade_date: date) -> Di
             }
     return result
 
-def get_fundflow_factors_batch(stock_codes: List[str], trade_date: date) -> Dict[str, Dict]:
+def get_fundflow_factors_batch(stock_codes: List[str], trade_date: datetime.date) -> Dict[str, Dict]:
     """
     批量获取资金流向因子数据
     Args:
