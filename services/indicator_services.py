@@ -1032,8 +1032,7 @@ class IndicatorService:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
-            'price_volume_ma_comparison', 'zscore',
-            'fibonacci_levels', 'dma', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag',
+            'price_volume_ma_comparison', 'zscore', 'fibonacci_levels', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag',
             # 【新增代码行】将结构与形态指标的计算放在最后，因为它们通常是直接从DAO获取并标准化后的数据，不需要复杂的依赖
             'advanced_structural_metrics', 'platform_feature', 'trendline_feature', 'multi_timeframe_trendline'
         ]
