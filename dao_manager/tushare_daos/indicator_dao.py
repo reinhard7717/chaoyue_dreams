@@ -122,57 +122,66 @@ class IndicatorDAO(BaseDAO):
         self.industry_dao = IndustryDao(cache_manager_instance)
         self.index_basic_dao = IndexBasicDAO(cache_manager_instance)  # 添加 IndexBasicDAO 的初始化
         self.ta = ta
-    async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
+
+    async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None, start_date: Optional[datetime.date] = None) -> Optional[pd.DataFrame]:
         """
-        【V118.12 分钟线自动聚合修复版】
-        - 核心修复: 当请求非1分钟的分钟级数据（如'60'）且数据库仅有1分钟数据时，自动获取1分钟数据并重采样聚合。
-        - 逻辑调整: 自动放大 limit 查询量，确保聚合后有足够的数据点。
-        - 字段修复: 保持对分钟线模型不查询 'pre_close' 的逻辑。
+        【V118.13 交易日历增强版】
+        - 核心修复: 增加 start_date 参数支持。如果提供了 start_date，则优先使用日期过滤，
+                  并不再强制应用 limit 切片，以确保获取完整时间窗口的数据（包含服务层计算的缓冲）。
+        - 自动聚合: 保持分钟线自动聚合逻辑，且与 start_date 兼容。
         """
         # 1. 解析目标时间级别
         target_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
         
         # 2. 判断是否需要从1分钟数据聚合
-        # 如果是数字且不等于"1"（例如 "60", "30", "15"），或者显式以 "min" 结尾但不是 "1min"
         is_minute_aggregation = False
         aggregation_period = 1
         query_level_str = target_level_str # 默认查询级别等于目标级别
+        
         if (target_level_str.isdigit() and target_level_str != "1") or \
            (target_level_str.endswith("min") and target_level_str != "1min"):
             is_minute_aggregation = True
-            # 提取周期数字，例如 "60" -> 60
             aggregation_period = int(''.join(filter(str.isdigit, target_level_str)))
             query_level_str = "1" # 强制查询1分钟数据源
-            # 放大 limit: 如果需要 100 个 60分钟K线，需要查询 100 * 60 个 1分钟K线
-            # 增加一点 buffer (1.2倍) 防止数据缺失导致聚合后数量不足
-            original_limit = limit
-            limit = int(limit * aggregation_period * 1.2)
-            # 限制最大查询量，防止内存溢出 (例如限制在 50000 条)
-            limit = min(limit, 50000)
+            # 如果没有 start_date，我们需要放大 limit 以确保聚合后数量足够
+            if not start_date:
+                original_limit = limit
+                limit = int(limit * aggregation_period * 1.2)
+                limit = min(limit, 50000)
+            else:
+                # 如果有 start_date，limit 主要用于最后的截取，这里记录原始需求即可
+                original_limit = limit
+
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
             return None
+            
         try:
             ModelClass: Optional[Type[models.Model]] = None
-            # 3. 根据 query_level_str 选择模型 (此时如果是聚合，query_level_str 已经是 "1")
+            # 3. 根据 query_level_str 选择模型
             if query_level_str == "d":
                 ModelClass = get_daily_data_model_by_code(stock_code)
             elif query_level_str == "w": ModelClass = StockWeeklyData
             elif query_level_str == "m": ModelClass = StockMonthlyData
             else:
-                # 这里通常会获取到 Stock1MinData 相关的模型
                 ModelClass = get_minute_data_model_by_code_and_timelevel(stock_code, query_level_str)
+                
             if not ModelClass:
                 logger.error(f"未能为 {stock_code} 在时间级别 {query_level_str} 找到对应的数据库模型。")
                 return None
+                
             model_name = ModelClass._meta.db_table
             qs = ModelClass.objects.filter(stock=stock)
+            # 时间过滤：截止时间
             if trade_time:
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-            # 4. 定义字段 (分钟线不含 pre_close)
+            # 时间过滤：开始时间 (新增)
+            if start_date:
+                qs = qs.filter(trade_time__gte=start_date)
+            # 4. 定义字段
             if query_level_str == "d":
                 fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'pre_close_qfq', 'vol', 'amount']
                 rename_map = {'open_qfq': 'open', 'high_qfq': 'high', 'low_qfq': 'low', 'close_qfq': 'close', 'pre_close_qfq': 'pre_close', 'vol': 'volume'}
@@ -180,28 +189,35 @@ class IndicatorDAO(BaseDAO):
                 fields = ['trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'vol', 'amount']
                 rename_map = {'vol': 'volume'}
             else:
-                # 分钟线 (包括 "1")
                 fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
                 rename_map = {'vol': 'volume'}
-            limited_qs = qs.order_by('-trade_time')[:limit]
+            # 执行查询
+            # 如果提供了 start_date，我们信任该日期范围，不再使用 limit 切片（防止切掉缓冲数据）
+            # 除非数据量异常大（例如超过 50000），作为安全兜底
+            if start_date:
+                limited_qs = qs.order_by('-trade_time')[:50000] 
+            else:
+                limited_qs = qs.order_by('-trade_time')[:limit]
+                
             data_values = await sync_to_async(list)(limited_qs.values(*fields))
             if not data_values:
-                logger.warning(f"数据库未返回任何数据 for {stock_code} {query_level_str} from table {model_name}")
+                # logger.warning(f"数据库未返回任何数据 for {stock_code} {query_level_str}")
                 return None
+                
             df = pd.DataFrame.from_records(data_values)
-            df = df.iloc[::-1].reset_index(drop=True)
+            df = df.iloc[::-1].reset_index(drop=True) # 反转顺序，变为按时间升序
             df.rename(columns=rename_map, inplace=True)
             if 'trade_time' not in df.columns:
-                logger.error(f"查询结果缺少 'trade_time' 列: {stock_code} {query_level_str}")
                 return None
+                
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True, errors='coerce')
             df.dropna(subset=['trade_time'], inplace=True)
             df.set_index('trade_time', inplace=True)
             if df.empty:
                 return None
-            # 5. 【核心新增】执行分钟线聚合
+                
+            # 5. 执行分钟线聚合
             if is_minute_aggregation:
-                # 定义聚合规则
                 agg_dict = {
                     'open': 'first',
                     'high': 'max',
@@ -210,26 +226,31 @@ class IndicatorDAO(BaseDAO):
                     'volume': 'sum',
                     'amount': 'sum'
                 }
-                # A股分钟线通常是 label='right', closed='right' (例如 10:30 的bar代表 10:29:00-10:30:00)
-                # 使用 aggregation_period (例如 60) 进行重采样
                 resample_rule = f"{aggregation_period}min"
-                # 确保只对存在的列进行聚合
                 valid_agg_dict = {k: v for k, v in agg_dict.items() if k in df.columns}
+                
                 df_resampled = df.resample(resample_rule, label='right', closed='right').agg(valid_agg_dict)
-                df_resampled.dropna(inplace=True) # 删除因非交易时间产生的空行
-                # 截取请求的原始数量 (因为我们之前放大了limit)
-                if len(df_resampled) > original_limit:
-                    df = df_resampled.iloc[-original_limit:]
+                df_resampled.dropna(inplace=True)
+                
+                # 如果有 start_date，我们保留所有聚合后的数据（因为它们都在 start_date 之后）
+                # 如果没有 start_date，我们截取请求的 original_limit
+                if not start_date:
+                    if len(df_resampled) > original_limit:
+                        df = df_resampled.iloc[-original_limit:]
+                    else:
+                        df = df_resampled
                 else:
                     df = df_resampled
+                    
                 logger.info(f"[{stock_code}] 已将 1分钟 数据聚合为 {target_level_str}分钟 数据，结果行数: {len(df)}")
+                
             # 6. 最终检查
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
-                missing = [col for col in required_cols if col not in df.columns]
-                logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
+                
             return df
+            
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {target_level_str} 数据失败: {e}", exc_info=True)
             return None
