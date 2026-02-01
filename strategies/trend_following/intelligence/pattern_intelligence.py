@@ -353,7 +353,7 @@ class PatternIntelligence:
             # 轨道一：炮火攻击型
             cond3_artillery_attack = (k3_volume > k2_volume) and (k3_volume > k3_vol_ma5)
             # 轨道二：诡道突破型 (Deceptive Advance)
-            cond3_deceptive_advance = (k3_volume < k2_volume) and ((k3_mf_net_flow > 0) or (k3_dip_absorption > 0.5)) # 修改代码行: 核心升级，将AND改为OR
+            cond3_deceptive_advance = (k3_volume < k2_volume) and ((k3_mf_net_flow > 0) or (k3_dip_absorption > 0.5)) # 核心升级，将AND改为OR
             cond3_volume_ok = cond3_artillery_attack or cond3_deceptive_advance 
             if cond3_price and cond3_close_higher_than_k1 and cond3_volume_ok:
                 duofangpao_score.iloc[i] = 1.0

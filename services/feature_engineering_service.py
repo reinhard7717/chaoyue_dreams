@@ -160,23 +160,24 @@ def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -
     return results
 
 @numba.njit(parallel=True, cache=True)
-def calculate_correction_scores_numba(
+def calculate_correction_scores_v2_numba(
     pct_change: np.ndarray,
     close: np.ndarray,
     volume: np.ndarray,
     vol_ma21: np.ndarray,
-    main_force_flow: np.ndarray,
-    chip_health: np.ndarray,
+    flow_intensity: np.ndarray,
+    chip_stability: np.ndarray,
+    long_term_ratio: np.ndarray,
     correction_min_magnitude: float,
     correction_max_magnitude: float
 ) -> np.ndarray:
-    """向量化计算回调信号评分"""
+    """V2版向量化计算回调信号评分 - 使用新模型字段"""
     n = len(pct_change)
     scores = np.zeros(n, dtype=np.float32)
     is_correction = np.zeros(n, dtype=np.bool_)
     
     # 计算技术指标（向量化）
-    # 5日、10日、20日均线
+    # 均线计算
     ma5 = np.zeros(n, dtype=np.float32)
     ma10 = np.zeros(n, dtype=np.float32)
     ma20 = np.zeros(n, dtype=np.float32)
@@ -194,29 +195,32 @@ def calculate_correction_scores_numba(
         if i >= 3:
             avg_gain_3d[i] = np.mean(pct_change[max(0, i-3):i])
     
-    # 近期波动率（10日）
-    recent_volatility = np.zeros(n, dtype=np.float32)
-    for i in range(n):
-        if i >= 9:
-            recent_volatility[i] = np.mean(np.abs(pct_change[max(0, i-9):i+1]))
-    
-    # 主力资金统计（20日）
-    mf_median = np.zeros(n, dtype=np.float32)
-    mf_std = np.zeros(n, dtype=np.float32)
+    # 资金流统计
+    flow_median = np.zeros(n, dtype=np.float32)
+    flow_std = np.zeros(n, dtype=np.float32)
     for i in range(n):
         if i >= 19:
-            window = main_force_flow[max(0, i-19):i+1]
-            mf_median[i] = np.median(window)
-            mf_std[i] = np.std(window)
+            window = flow_intensity[max(0, i-19):i+1]
+            flow_median[i] = np.median(window)
+            flow_std[i] = np.std(window)
     
-    # 筹码健康统计（20日）
-    chip_median = np.zeros(n, dtype=np.float32)
-    chip_std = np.zeros(n, dtype=np.float32)
+    # 筹码稳定性统计
+    chip_stab_median = np.zeros(n, dtype=np.float32)
+    chip_stab_std = np.zeros(n, dtype=np.float32)
     for i in range(n):
         if i >= 19:
-            window = chip_health[max(0, i-19):i+1]
-            chip_median[i] = np.median(window)
-            chip_std[i] = np.std(window)
+            window = chip_stability[max(0, i-19):i+1]
+            chip_stab_median[i] = np.median(window)
+            chip_stab_std[i] = np.std(window)
+    
+    # 长线筹码比例统计
+    ltr_median = np.zeros(n, dtype=np.float32)
+    ltr_std = np.zeros(n, dtype=np.float32)
+    for i in range(n):
+        if i >= 19:
+            window = long_term_ratio[max(0, i-19):i+1]
+            ltr_median[i] = np.median(window)
+            ltr_std[i] = np.std(window)
     
     # 主循环：计算每个数据点的分数
     for i in range(n):
@@ -224,33 +228,30 @@ def calculate_correction_scores_numba(
         cond1 = (pct_change[i] < 0) and (pct_change[i] >= correction_max_magnitude) and (pct_change[i] <= correction_min_magnitude)
         if not cond1:
             continue
-        
-        # 其他条件
+        # 其他条件（使用新模型字段）
         cond2 = volume[i] > vol_ma21[i] * 0.8 if vol_ma21[i] > 0 else True  # 成交量支持
         cond3 = (close[i] >= ma5[i] * 0.95) and (ma5[i] > ma10[i] * 0.96) if i >= 9 else True  # 趋势支撑
         cond4 = ma5[i] > ma20[i] * 0.96 if i >= 19 else True  # 趋势方向
-        cond5 = abs(pct_change[i]) < recent_volatility[i] * 2.0 if i >= 9 else True  # 回调速度
-        cond6 = avg_gain_3d[i] > 0.01 if i >= 3 else True  # 前期上涨趋势
-        cond7 = close[i] > ma10[i] * 0.97 if i >= 9 else True  # 不破10日线
-        cond8 = volume[i] <= vol_ma21[i] * 1.2 if vol_ma21[i] > 0 else True  # 正常成交量
-        cond9 = main_force_flow[i] > (mf_median[i] - mf_std[i] * 0.8) if i >= 19 else True  # 主力资金条件
-        cond10 = chip_health[i] > (chip_median[i] - chip_std[i] * 0.5) if i >= 19 else True  # 筹码健康条件
-        
-        # 计算分数
+        cond5 = flow_intensity[i] > (flow_median[i] - flow_std[i] * 0.5) if i >= 19 else True  # 资金流条件
+        cond6 = chip_stability[i] > (chip_stab_median[i] - chip_stab_std[i] * 0.3) if i >= 19 else True  # 筹码稳定性条件
+        cond7 = long_term_ratio[i] > (ltr_median[i] - ltr_std[i] * 0.5) if i >= 19 else True  # 长线筹码条件
+        cond8 = avg_gain_3d[i] > 0.01 if i >= 3 else True  # 前期上涨趋势
+        cond9 = close[i] > ma10[i] * 0.97 if i >= 9 else True  # 不破10日线
+        cond10 = volume[i] <= vol_ma21[i] * 1.3 if vol_ma21[i] > 0 else True  # 正常成交量
+        # 计算分数（新权重分配）
         score = 0.0
         score += cond1 * 2.5  # 回调幅度条件最重要
-        score += cond2 * 1.2  # 成交量支持
-        score += cond3 * 1.5  # 趋势支撑
-        score += cond4 * 1.2  # 趋势方向
-        score += cond5 * 1.0  # 回调速度
-        score += cond6 * 1.5  # 前期上涨趋势
-        score += cond7 * 1.2  # 不破10日线
-        score += cond8 * 1.0  # 正常成交量
-        score += cond9 * 1.0  # 主力资金条件
-        score += cond10 * 1.0  # 筹码健康条件
-        
+        score += cond2 * 1.0  # 成交量支持
+        score += cond3 * 1.2  # 趋势支撑
+        score += cond4 * 1.0  # 趋势方向
+        score += cond5 * 1.5  # 资金流条件（新）
+        score += cond6 * 1.3  # 筹码稳定性条件（新）
+        score += cond7 * 1.2  # 长线筹码条件（新）
+        score += cond8 * 1.0  # 前期上涨趋势
+        score += cond9 * 1.0  # 不破10日线
+        score += cond10 * 0.8  # 正常成交量
         scores[i] = score
-        is_correction[i] = score >= 8.5 and cond1
+        is_correction[i] = score >= 8.0 and cond1
     
     return is_correction
 
@@ -337,447 +338,435 @@ class FeatureEngineeringService:
 
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.2 · 向量化加速版】VPA效率指标生产线
-        - 优化: 使用 NumPy 的向量化函数 (np.maximum, np.minimum) 替换 Pandas 的 apply(lambda) 操作。
-        - 性能提升: 将计算下沉至 C 层，大幅提高大规模数据下的计算速度。
+        【V2.0 · 多因子融合版】VPA效率指标生产线重构
+        使用FundFlowFactor、ChipFactorBase、ChipHoldingMatrixBase的先进指标替代废弃的幻方指标
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe]
-        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D']
+        # 关键依赖检查
+        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
         if not all(col in df.columns for col in required_cols):
-            missing = [col for col in required_cols if col not in df.columns]
-            logger.warning(f"VPA效率生产线缺少关键数据: {missing}，模块已跳过！")
+            logger.warning(f"VPA效率生产线缺少基础数据，模块已跳过！")
             return all_dfs
-        # 1. 计算总VPA效率
+        # ==================== 1. 资金流向增强版VPA ====================
+        # 1.1 总VPA效率（保留经典算法）
         volume_ratio = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
         vpa_efficiency = df['pct_change_D'] / volume_ratio.replace(0, np.nan)
         df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
-        # 2. 计算买方VPA效率 (VPA_BUY_EFFICIENCY_D)
-        mf_buy_ofi_ma_21 = df['main_force_buy_ofi_D'].rolling(window=21, min_periods=1).mean()
-        buy_flow_ratio = df['main_force_buy_ofi_D'] / mf_buy_ofi_ma_21.replace(0, np.nan)
-        # 【向量化优化】使用 np.maximum 替代 apply(lambda x: max(0, x))
-        positive_pct_change = np.maximum(df['pct_change_D'].values, 0)
-        buy_vpa_efficiency = positive_pct_change / buy_flow_ratio.replace(0, np.nan)
-        df['VPA_BUY_EFFICIENCY_D'] = buy_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
-        # 3. 计算卖方VPA效率 (VPA_SELL_EFFICIENCY_D)
-        mf_sell_ofi_ma_21 = df['main_force_sell_ofi_D'].rolling(window=21, min_periods=1).mean()
-        sell_flow_ratio = df['main_force_sell_ofi_D'] / mf_sell_ofi_ma_21.replace(0, np.nan)
-        # 【向量化优化】使用 np.minimum 替代 apply(lambda x: min(0, x))
-        negative_pct_change = np.minimum(df['pct_change_D'].values, 0)
-        sell_vpa_efficiency = negative_pct_change / sell_flow_ratio.replace(0, np.nan)
-        df['VPA_SELL_EFFICIENCY_D'] = sell_vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
-        all_dfs[timeframe] = df
-        return all_dfs
-
-    async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """【V4.2 · 形状匹配修正版】元特征计算车间 - 修复数组形状错误"""
-        timeframe = 'D'
-        if timeframe not in all_dfs:
-            return all_dfs
-        df = all_dfs[timeframe]
-        suffix = f"_{timeframe}"
-        params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
-        if not params.get('enabled', False):
-            return all_dfs
-        source_series_configs = [
-            {'col': f'close{suffix}', 'prefix': ''},
-            {'col': f'main_force_buy_ofi{suffix}', 'prefix': 'MF_BUY_OFI_'},
-            {'col': f'bid_side_liquidity{suffix}', 'prefix': 'BID_LIQUIDITY_'}
+        # 1.2 使用资金流向因子替代幻方指标
+        # 检查是否有资金流向因子数据
+        has_fundflow_data = all(col in df.columns for col in [
+            'flow_intensity_D', 'net_amount_ratio_D', 'large_order_anomaly_D'
+        ])
+        if has_fundflow_data:
+            # ==================== 2. 多维度VPA效率计算 ====================
+            # 2.1 主力行为增强VPA
+            # 使用行为模式得分构建多空效率
+            if all(col in df.columns for col in ['accumulation_score_D', 'distribution_score_D']):
+                # 吸筹模式下的买入效率
+                accumulation_weight = df['accumulation_score_D'].fillna(0) / 100.0
+                positive_change_accum = np.maximum(df['pct_change_D'].values, 0)
+                buy_efficiency_accum = positive_change_accum / volume_ratio.replace(0, np.nan)
+                df['VPA_BUY_ACCUM_EFF_D'] = buy_efficiency_accum * accumulation_weight
+                # 派发模式下的卖出效率
+                distribution_weight = df['distribution_score_D'].fillna(0) / 100.0
+                negative_change_dist = np.minimum(df['pct_change_D'].values, 0)
+                sell_efficiency_dist = negative_change_dist / volume_ratio.replace(0, np.nan)
+                df['VPA_SELL_DIST_EFF_D'] = sell_efficiency_dist * distribution_weight
+            # 2.2 大单异动增强VPA
+            if 'large_order_anomaly_D' in df.columns and 'anomaly_intensity_D' in df.columns:
+                anomaly_mask = df['large_order_anomaly_D'] == True
+                anomaly_weight = df['anomaly_intensity_D'].fillna(0) / 100.0
+                # 大单异动期间的VPA效率（更具信号意义）
+                anomaly_vpa = df['VPA_EFFICIENCY_D'].copy()
+                anomaly_vpa = anomaly_vpa * (1 + anomaly_weight)
+                df['VPA_ANOMALY_ENHANCED_D'] = np.where(anomaly_mask, anomaly_vpa, df['VPA_EFFICIENCY_D'])
+            # 2.3 净流入占比调整的VPA
+            if 'net_amount_ratio_D' in df.columns:
+                # 资金流入强度调整的VPA
+                net_ratio_adjustment = df['net_amount_ratio_D'].fillna(0) / 100.0
+                # 正净流入增强买入效率，负净流入增强卖出效率
+                buy_efficiency_adj = np.maximum(df['pct_change_D'].values, 0) / volume_ratio.replace(0, np.nan)
+                sell_efficiency_adj = np.minimum(df['pct_change_D'].values, 0) / volume_ratio.replace(0, np.nan)
+                df['VPA_BUY_NETFLOW_ADJ_D'] = buy_efficiency_adj * (1 + np.maximum(net_ratio_adjustment.values, 0))
+                df['VPA_SELL_NETFLOW_ADJ_D'] = sell_efficiency_adj * (1 + np.abs(np.minimum(net_ratio_adjustment.values, 0)))
+            # 2.4 资金流向稳定性调整VPA
+            if 'flow_stability_D' in df.columns:
+                stability_weight = df['flow_stability_D'].fillna(50) / 100.0
+                # 稳定性越高，VPA信号越可靠
+                df['VPA_STABILITY_WEIGHTED_D'] = df['VPA_EFFICIENCY_D'] * stability_weight
+        # ==================== 3. 筹码结构增强版VPA ====================
+        # 检查是否有筹码因子数据
+        has_chip_data = all(col in df.columns for col in [
+            'chip_concentration_ratio_D', 'winner_rate_D', 'turnover_rate_D'
+        ])
+        if has_chip_data:
+            # 3.1 筹码集中度调整的VPA
+            # 集中度越高，VPA效率信号越强
+            concentration_weight = df['chip_concentration_ratio_D'].fillna(0.5)
+            df['VPA_CONCENTRATION_ADJ_D'] = df['VPA_EFFICIENCY_D'] * concentration_weight
+            # 3.2 获利盘压力调整的VPA
+            if 'profit_pressure_D' in df.columns:
+                # 获利压力越大，上涨需要的成交量越大
+                pressure_adjustment = 1 / (1 + df['profit_pressure_D'].fillna(0).abs())
+                df['VPA_PROFIT_PRESSURE_ADJ_D'] = df['VPA_EFFICIENCY_D'] * pressure_adjustment
+            # 3.3 换手率调整的VPA
+            # 换手率过高可能降低VPA效率信号质量
+            turnover_rate_norm = df['turnover_rate_D'].fillna(0) / 100.0
+            turnover_penalty = 1 / (1 + turnover_rate_norm * 5)  # 换手率过高时惩罚
+            df['VPA_TURNOVER_ADJ_D'] = df['VPA_EFFICIENCY_D'] * turnover_penalty
+            # 3.4 筹码峰动态调整
+            if 'peak_migration_speed_5d' in df.columns:
+                # 筹码峰快速迁移时，VPA效率需要调整
+                migration_speed = df['peak_migration_speed_5d'].fillna(0)
+                migration_factor = 1 / (1 + np.abs(migration_speed) * 0.1)
+                df['VPA_MIGRATION_ADJ_D'] = df['VPA_EFFICIENCY_D'] * migration_factor
+        # ==================== 4. 筹码持有时间矩阵增强版VPA ====================
+        # 检查是否有筹码矩阵数据
+        has_matrix_data = all(col in df.columns for col in [
+            'short_term_ratio_D', 'long_term_ratio_D', 'absorption_energy_D', 'distribution_energy_D'
+        ])
+        if has_matrix_data:
+            # 4.1 短线筹码比例调整
+            # 短线筹码比例高时，VPA效率可能被高估
+            short_term_ratio = df['short_term_ratio_D'].fillna(0.2)
+            short_term_penalty = 1 - short_term_ratio * 0.5  # 短线筹码比例每增加10%，效率降低5%
+            df['VPA_SHORT_TERM_ADJ_D'] = df['VPA_EFFICIENCY_D'] * short_term_penalty
+            # 4.2 长线筹码锁定调整
+            # 长线筹码比例高时，VPA效率更可靠
+            long_term_ratio = df['long_term_ratio_D'].fillna(0.5)
+            long_term_boost = 1 + long_term_ratio * 0.3  # 长线筹码比例每增加10%，效率可信度提高3%
+            df['VPA_LONG_TERM_ADJ_D'] = df['VPA_EFFICIENCY_D'] * long_term_boost
+            # 4.3 博弈能量场调整VPA
+            absorption_energy = df['absorption_energy_D'].fillna(0) / 100.0
+            distribution_energy = df['distribution_energy_D'].fillna(0) / 100.0
+            # 吸收能量增强买入效率，派发能量增强卖出效率
+            buy_efficiency = np.maximum(df['pct_change_D'].values, 0) / volume_ratio.replace(0, np.nan)
+            sell_efficiency = np.minimum(df['pct_change_D'].values, 0) / volume_ratio.replace(0, np.nan)
+            df['VPA_ABSORPTION_ENHANCED_D'] = buy_efficiency * (1 + absorption_energy)
+            df['VPA_DISTRIBUTION_ENHANCED_D'] = sell_efficiency * (1 + distribution_energy)
+            # 4.4 净能量流向调整
+            if 'net_energy_flow' in df.columns:
+                net_energy = df['net_energy_flow_D'].fillna(0) / 100.0
+                df['VPA_NET_ENERGY_ADJ_D'] = df['VPA_EFFICIENCY_D'] * (1 + net_energy * 0.5)
+        # ==================== 5. 复合VPA综合指标 ====================
+        # 5.1 综合VPA评分（融合所有调整因子）
+        vpa_columns = [
+            'VPA_EFFICIENCY_D',
+            'VPA_CONCENTRATION_ADJ_D' if 'VPA_CONCENTRATION_ADJ_D' in df.columns else None,
+            'VPA_STABILITY_WEIGHTED_D' if 'VPA_STABILITY_WEIGHTED_D' in df.columns else None,
+            'VPA_LONG_TERM_ADJ_D' if 'VPA_LONG_TERM_ADJ_D' in df.columns else None,
+            'VPA_NET_ENERGY_ADJ_D' if 'VPA_NET_ENERGY_ADJ_D' in df.columns else None,
         ]
-        for src_config in source_series_configs:
-            source_col = src_config['col']
-            prefix = src_config['prefix']
-            if source_col not in df.columns:
-                logger.warning(f"元特征计算缺少核心列 '{source_col}'，跳过其元特征计算。")
-                continue
-            series_values = df[source_col].values.astype(np.float64)
-            valid_mask = ~np.isnan(series_values)
-            clean_values = series_values[valid_mask]
-            if len(clean_values) == 0:
-                continue
-            # 1. 赫斯特指数
-            hurst_window = params.get('hurst_window', 144)
-            hurst_col = f'{prefix}HURST_{hurst_window}d{suffix}'
-            if hurst_col not in df.columns:
-                try:
-                    if len(clean_values) >= hurst_window:
-                        df[hurst_col] = df[source_col].rolling(window=hurst_window, min_periods=hurst_window).apply(
-                            lambda x: hurst_exponent(x.dropna().values) if len(x.dropna()) >= hurst_window else np.nan, raw=False
-                        )
-                    else:
-                        df[hurst_col] = np.nan
-                except Exception as e:
-                    logger.error(f"赫斯特指数计算失败: {e}")
-                    df[hurst_col] = np.nan
-            # 2. 分形维度
-            fd_window = params.get('fractal_dimension_window', 89)
-            fd_col = f'{prefix}FRACTAL_DIMENSION_{fd_window}d{suffix}'
-            if fd_col not in df.columns:
-                try:
-                    if len(clean_values) >= fd_window:
-                        from numba import njit
-                        @njit(cache=True)
-                        def numba_higuchi_fd_windowed(data, window, k_max):
-                            n = len(data)
-                            result = np.full(n, np.nan, dtype=np.float64)
-                            for i in range(window - 1, n):
-                                window_data = data[i - window + 1:i + 1]
-                                k_values = np.arange(1, k_max + 1)
-                                l_values = np.zeros(len(k_values))
-                                for j, k in enumerate(k_values):
-                                    lk = 0.0
-                                    max_m = (window - 1) // k
-                                    if max_m < 1:
-                                        l_values[j] = 0.0
-                                        continue
-                                    for m in range(max_m):
-                                        idx1 = m * k
-                                        idx2 = (m + 1) * k
-                                        if idx2 < len(window_data):
-                                            lk += abs(window_data[idx2] - window_data[idx1])
-                                    lk = lk * (window - 1) / (max_m * k * k)
-                                    l_values[j] = lk
-                                valid_mask = l_values > 0
-                                if np.sum(valid_mask) < 2:
-                                    result[i] = np.nan
-                                    continue
-                                x = np.log(1.0 / k_values[valid_mask])
-                                y = np.log(l_values[valid_mask])
-                                n_valid = len(x)
-                                sum_x = np.sum(x)
-                                sum_y = np.sum(y)
-                                sum_xy = np.sum(x * y)
-                                sum_x2 = np.sum(x * x)
-                                denom = n_valid * sum_x2 - sum_x * sum_x
-                                if denom == 0:
-                                    result[i] = np.nan
-                                    continue
-                                slope = (n_valid * sum_xy - sum_x * sum_y) / denom
-                                result[i] = slope
-                            return result[window-1:]
-                        k_max = int(np.sqrt(fd_window))
-                        fd_window_data = numba_higuchi_fd_windowed(clean_values, fd_window, k_max)
-                        fd_values = np.full(len(series_values), np.nan, dtype=np.float64)
-                        valid_indices = np.where(valid_mask)[0]
-                        fd_values[valid_indices[fd_window-1:]] = fd_window_data
-                        df[fd_col] = fd_values
-                    else:
-                        df[fd_col] = np.nan
-                except Exception as e:
-                    logger.error(f"分形维度计算失败: {e}")
-                    df[fd_col] = np.nan
-            # 3. 样本熵 (修复形状不匹配)
-            se_window = params.get('sample_entropy_window', 13)
-            se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
-            se_col = f'{prefix}SAMPLE_ENTROPY_{se_window}d{suffix}'
-            if se_col not in df.columns:
-                try:
-                    if len(clean_values) >= se_window + 1:
-                        rolling_std = np.full(len(clean_values), np.nan, dtype=np.float64)
-                        for i in range(se_window - 1, len(clean_values)):
-                            window_data = clean_values[i - se_window + 1:i + 1]
-                            rolling_std[i] = np.std(window_data)
-                        entropy_values = _numba_rolling_sample_entropy(clean_values, se_window, se_tol_ratio, rolling_std)
-                        se_result = np.full(len(series_values), np.nan, dtype=np.float64)
-                        valid_indices = np.where(valid_mask)[0]
-                        se_result[valid_indices[se_window-1:]] = entropy_values[se_window-1:]
-                        df[se_col] = se_result
-                    else:
-                        df[se_col] = np.nan
-                except Exception as e:
-                    logger.error(f"样本熵计算失败: {e}")
-                    df[se_col] = np.nan
-            # 4. NOLDS样本熵
-            nolds_sampen_window = params.get('approximate_entropy_window', 21)
-            nolds_sampen_tol_ratio = params.get('approximate_entropy_tolerance_ratio', 0.2)
-            nolds_sampen_col = f'{prefix}NOLDS_SAMPLE_ENTROPY_{nolds_sampen_window}d{suffix}'
-            if nolds_sampen_col not in df.columns:
-                try:
-                    if len(clean_values) >= nolds_sampen_window:
-                        df[nolds_sampen_col] = await self.calculator.calculate_nolds_sample_entropy(
-                            df=df, period=nolds_sampen_window, column=source_col, tolerance_ratio=nolds_sampen_tol_ratio
-                        )
-                    else:
-                        df[nolds_sampen_col] = np.nan
-                except Exception as e:
-                    logger.error(f"NOLDS样本熵计算失败: {e}")
-                    df[nolds_sampen_col] = np.nan
-            # 5. FFT能量比
-            fft_window = params.get('fft_energy_ratio_window', 34)
-            fft_col = f'{prefix}FFT_ENERGY_RATIO_{fft_window}d{suffix}'
-            if fft_col not in df.columns:
-                try:
-                    if len(clean_values) >= fft_window:
-                        fft_values = np.full(len(series_values), np.nan, dtype=np.float64)
-                        for i in range(fft_window - 1, len(clean_values)):
-                            window_data = clean_values[i - fft_window + 1:i + 1]
-                            fft_result = np.fft.fft(window_data - np.mean(window_data))
-                            freqs = np.fft.fftfreq(fft_window)
-                            power_spectrum = np.abs(fft_result) ** 2
-                            low_freq_mask = np.abs(freqs) <= 0.1
-                            high_freq_mask = np.abs(freqs) > 0.1
-                            low_freq_energy = np.sum(power_spectrum[low_freq_mask])
-                            high_freq_energy = np.sum(power_spectrum[high_freq_mask])
-                            if high_freq_energy == 0:
-                                fft_values[valid_mask][i] = np.nan
-                            else:
-                                fft_values[valid_mask][i] = low_freq_energy / high_freq_energy
-                        df[fft_col] = fft_values
-                    else:
-                        df[fft_col] = np.nan
-                except Exception as e:
-                    logger.error(f"FFT能量比计算失败: {e}")
-                    df[fft_col] = np.nan
-            # 6. 波动率不稳定性
-            vi_window = params.get('volatility_instability_window', 21)
-            vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
-            atr_col = f'ATR_14{suffix}'
-            if atr_col in df.columns and vi_col not in df.columns:
-                try:
-                    atr_values = df[atr_col].values.astype(np.float64)
-                    atr_valid_mask = ~np.isnan(atr_values)
-                    if np.sum(atr_valid_mask) >= vi_window:
-                        vi_values = np.full(len(atr_values), np.nan, dtype=np.float64)
-                        atr_valid_values = atr_values[atr_valid_mask]
-                        for i in range(vi_window - 1, len(atr_valid_values)):
-                            vi_values[np.where(atr_valid_mask)[0][i]] = np.std(atr_valid_values[i - vi_window + 1:i + 1])
-                        df[vi_col] = vi_values
-                    else:
-                        df[vi_col] = np.nan
-                except Exception as e:
-                    df[vi_col] = np.nan
+        vpa_columns = [col for col in vpa_columns if col is not None]
+        if len(vpa_columns) > 1:
+            # 标准化处理
+            vpa_matrix = df[vpa_columns].fillna(0).values
+            # 计算综合评分（等权平均）
+            df['VPA_COMPOSITE_SCORE_D'] = np.mean(vpa_matrix, axis=1)
+            # 5.2 VPA效率分级
+            conditions = [
+                df['VPA_COMPOSITE_SCORE_D'] > 2.0,
+                df['VPA_COMPOSITE_SCORE_D'] > 1.0,
+                df['VPA_COMPOSITE_SCORE_D'] > 0,
+                df['VPA_COMPOSITE_SCORE_D'] > -1.0,
+                df['VPA_COMPOSITE_SCORE_D'] > -2.0,
+            ]
+            choices = [4, 3, 2, 1, 0]  # 4:极高效率, 3:高效率, 2:中等效率, 1:低效率, 0:负效率
+            df['VPA_EFFICIENCY_LEVEL_D'] = np.select(conditions, choices, default=0)
+            # 5.3 VPA背离检测
+            # 价格与VPA效率的背离
+            price_trend = df['pct_change_D'].rolling(window=5, min_periods=3).mean()
+            vpa_trend = df['VPA_COMPOSITE_SCORE_D'].rolling(window=5, min_periods=3).mean()
+            # 看多背离：价格下跌但VPA效率上升
+            bullish_divergence = (price_trend < 0) & (vpa_trend > 0)
+            # 看空背离：价格上涨但VPA效率下降
+            bearish_divergence = (price_trend > 0) & (vpa_trend < 0)
+            df['VPA_BULLISH_DIVERGENCE_D'] = bullish_divergence.astype(int)
+            df['VPA_BEARISH_DIVERGENCE_D'] = bearish_divergence.astype(int)
+            # 5.4 VPA动量指标
+            df['VPA_MOMENTUM_5D'] = df['VPA_COMPOSITE_SCORE_D'].diff(5)
+            df['VPA_MOMENTUM_10D'] = df['VPA_COMPOSITE_SCORE_D'].diff(10)
+        # ==================== 6. 信号质量评估 ====================
+        # 6.1 VPA信号置信度
+        confidence_factors = []
+        if 'flow_stability_D' in df.columns:
+            confidence_factors.append(df['flow_stability_D'].fillna(50) / 100.0)
+        if 'chip_stability_D' in df.columns:
+            confidence_factors.append(df['chip_stability_D'].fillna(0.5))
+        if 'validation_score_D' in df.columns:
+            confidence_factors.append(df['validation_score_D'].fillna(0.5))
+        if confidence_factors:
+            df['VPA_SIGNAL_CONFIDENCE_D'] = np.mean(confidence_factors, axis=0)
+        # 6.2 VPA交易信号生成
+        if 'VPA_COMPOSITE_SCORE_D' in df.columns and 'VPA_MOMENTUM_5D' in df.columns:
+            conditions = [
+                (df['VPA_COMPOSITE_SCORE_D'] > 1.5) & (df['VPA_MOMENTUM_5D'] > 0.1),
+                (df['VPA_COMPOSITE_SCORE_D'] > 0.5) & (df['VPA_MOMENTUM_5D'] > 0),
+                (df['VPA_COMPOSITE_SCORE_D'] < -0.5) & (df['VPA_MOMENTUM_5D'] < 0),
+                (df['VPA_COMPOSITE_SCORE_D'] < -1.5) & (df['VPA_MOMENTUM_5D'] < -0.1),
+            ]
+            choices = [2, 1, -1, -2]  # 2:强买入, 1:买入, -1:卖出, -2:强卖出
+            df['VPA_TRADING_SIGNAL_D'] = np.select(conditions, choices, default=0)
+            # 信号强度
+            df['VPA_SIGNAL_STRENGTH_D'] = np.abs(df['VPA_TRADING_SIGNAL_D'])
+        # 替换缺失值为0
+        vpa_columns_all = [col for col in df.columns if col.startswith('VPA_')]
+        df[vpa_columns_all] = df[vpa_columns_all].fillna(0)
         all_dfs[timeframe] = df
         return all_dfs
-
-    def _vectorized_hurst_exponent(self, data: np.ndarray, window: int) -> float:
-        """向量化赫斯特指数计算"""
-        n = len(data)
-        if n < window:
-            return np.nan
-        lags = np.arange(2, min(20, n // 4))
-        tau = np.zeros_like(lags, dtype=np.float64)
-        for i, lag in enumerate(lags):
-            diffs = np.abs(data[lag:] - data[:-lag])
-            tau[i] = np.mean(diffs)
-        if len(lags) < 2:
-            return np.nan
-        poly = np.polyfit(np.log(lags), np.log(tau), 1)
-        return poly[0]
-
-    def _vectorized_rolling_std(self, data: np.ndarray, window: int) -> np.ndarray:
-        """向量化滚动标准差计算"""
-        n = len(data)
-        if n < window:
-            return np.full(n, np.nan, dtype=np.float64)
-        result = np.full(n, np.nan, dtype=np.float64)
-        # 使用累积和计算滚动标准差
-        cumsum = np.cumsum(data)
-        cumsum_sq = np.cumsum(data ** 2)
-        for i in range(window - 1, n):
-            if i == window - 1:
-                sum_ = cumsum[i]
-                sum_sq = cumsum_sq[i]
-            else:
-                sum_ = cumsum[i] - cumsum[i - window]
-                sum_sq = cumsum_sq[i] - cumsum_sq[i - window]
-            mean = sum_ / window
-            variance = (sum_sq - window * mean ** 2) / (window - 1)
-            result[i] = np.sqrt(variance) if variance > 0 else 0
-        return result[window-1:]
-
-    def _vectorized_fft_energy_ratio(self, data: np.ndarray, window: int) -> float:
-        """向量化FFT能量比计算"""
-        n = len(data)
-        if n < window:
-            return np.nan
-        fft_result = np.fft.fft(data - np.mean(data))
-        freqs = np.fft.fftfreq(n)
-        power_spectrum = np.abs(fft_result) ** 2
-        low_freq_mask = np.abs(freqs) <= 0.1
-        high_freq_mask = np.abs(freqs) > 0.1
-        low_freq_energy = np.sum(power_spectrum[low_freq_mask])
-        high_freq_energy = np.sum(power_spectrum[high_freq_mask])
-        if high_freq_energy == 0:
-            return np.nan
-        return low_freq_energy / high_freq_energy
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """【V5.4 · 向量化优化版】基于市场阶段的多模式识别系统"""
+        """【V6.0 · 多因子融合版】基于市场阶段的多模式识别系统 - 使用新模型字段重构"""
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe].copy()
-        print(f"=== 模式识别引擎(V5.4)开始分析，数据长度: {len(df)} ===")
-        if 'ADX_14_D' not in df.columns:
-            print("错误：缺少ADX数据，无法判断市场阶段")
-            return all_dfs
-        current_adx = df['ADX_14_D'].iloc[-1]
-        market_phase = 'TRENDING' if current_adx > 25 else 'CONSOLIDATING'
-        print(f"市场阶段: {market_phase}, ADX: {current_adx:.1f}")
-        if df['pct_change_D'].max() > 10 or df['pct_change_D'].min() < -10:
+        print(f"=== 模式识别引擎(V6.0 多因子融合版)开始分析，数据长度: {len(df)} ===")
+        # ==================== 1. 市场阶段判断 ====================
+        # 使用资金流稳定性判断市场阶段
+        market_phase = 'CONSOLIDATING'  # 默认
+        if 'flow_stability_D' in df.columns and 'ADX_14_D' in df.columns:
+            # 双重确认市场阶段
+            current_adx = df['ADX_14_D'].iloc[-1]
+            current_flow_stability = df['flow_stability_D'].iloc[-1] if not pd.isna(df['flow_stability_D'].iloc[-1]) else 50
+            # 资金流稳定且ADX>25：趋势市场
+            # 资金流不稳定或ADX<25：震荡市场
+            if current_adx > 25 and current_flow_stability > 60:
+                market_phase = 'TRENDING'
+                print(f"市场阶段: TRENDING (ADX={current_adx:.1f}, 资金流稳定性={current_flow_stability:.1f})")
+            else:
+                market_phase = 'CONSOLIDATING'
+                print(f"市场阶段: CONSOLIDATING (ADX={current_adx:.1f}, 资金流稳定性={current_flow_stability:.1f})")
+        elif 'ADX_14_D' in df.columns:
+            current_adx = df['ADX_14_D'].iloc[-1]
+            market_phase = 'TRENDING' if current_adx > 25 else 'CONSOLIDATING'
+            print(f"市场阶段: {market_phase}, ADX: {current_adx:.1f}")
+        else:
+            print("警告：缺少ADX数据，使用默认震荡市场阶段")
+        # 处理百分比变化数据
+        if 'pct_change_D' in df.columns and (df['pct_change_D'].max() > 10 or df['pct_change_D'].min() < -10):
             df['pct_change_D'] = df['pct_change_D'] / 100.0
+        # ==================== 2. 动态阈值计算 ====================
         rolling_window = min(120, len(df))
         if rolling_window < 30:
             return all_dfs
         dynamic_thresholds = {}
         threshold_config = {}
         if market_phase == 'TRENDING':
+            # 趋势市场：更严格的阈值，侧重趋势延续和回调识别
             threshold_config = {
-                'chip_health_score_D': ('q25', 0.25),
-                'dominant_peak_solidity_D': ('q40', 0.4),
-                'main_force_net_flow_calibrated_D': ('q50', 0.5),
-                'structural_tension_index_D': ('q50', 0.5),
-                'breakout_readiness_score_D': ('q60', 0.6),
-                'platform_conviction_score_D': ('q60', 0.6),
-                'trend_conviction_score_D': ('q60', 0.6),
+                # 筹码健康度替代指标：筹码稳定性 + 资金流稳定性
+                'chip_stability_D': ('q30', 0.3),
+                'flow_stability_D': ('q40', 0.4),
+                # 主力行为替代指标：使用行为模式得分
+                'accumulation_score_D': ('q50', 0.5),
+                'distribution_score_D': ('q30', 0.3),
+                # 资金流强度替代指标
+                'flow_intensity_D': ('q40', 0.4),
+                'net_amount_ratio_D': ('q50', 0.5),
+                # 筹码集中度替代指标
+                'chip_concentration_ratio_D': ('q60', 0.6),
+                'concentration_comprehensive_D': ('q50', 0.5),
+                # 博弈能量场指标
+                'absorption_energy_D': ('q60', 0.6),
+                'distribution_energy_D': ('q30', 0.3),
+                # 基础价格指标
                 'pct_change_D': ('q40', 0.4),
+                # 新增：趋势强度指标
+                'uptrend_strength_D': ('q60', 0.6),
+                'downtrend_strength_D': ('q30', 0.3),
+                # 新增：筹码流动指标
+                'chip_flow_intensity_D': ('q50', 0.5),
+                'long_term_chip_ratio_D': ('q60', 0.6),
             }
         else:
+            # 震荡市场：更宽松的阈值，侧重突破和吸筹识别
             threshold_config = {
-                'chip_health_score_D': ('q30', 0.3),
-                'dominant_peak_solidity_D': ('q30', 0.3),
-                'main_force_net_flow_calibrated_D': ('q60', 0.6),
-                'structural_tension_index_D': ('q30', 0.3),
-                'breakout_readiness_score_D': ('q70', 0.7),
-                'platform_conviction_score_D': ('q70', 0.7),
-                'trend_conviction_score_D': ('q70', 0.7),
+                'chip_stability_D': ('q40', 0.4),
+                'flow_stability_D': ('q30', 0.3),
+                'accumulation_score_D': ('q60', 0.6),
+                'distribution_score_D': ('q40', 0.4),
+                'flow_intensity_D': ('q50', 0.5),
+                'net_amount_ratio_D': ('q60', 0.6),
+                'chip_concentration_ratio_D': ('q70', 0.7),
+                'concentration_comprehensive_D': ('q60', 0.6),
+                'absorption_energy_D': ('q70', 0.7),
+                'distribution_energy_D': ('q40', 0.4),
                 'pct_change_D': ('q60', 0.6),
+                'uptrend_strength_D': ('q70', 0.7),
+                'downtrend_strength_D': ('q40', 0.4),
+                'chip_flow_intensity_D': ('q60', 0.6),
+                'long_term_chip_ratio_D': ('q70', 0.7),
             }
+        # 计算动态阈值
         for col, (method, param) in threshold_config.items():
             if col in df.columns and not df[col].isna().all():
                 try:
                     threshold_series = df[col].rolling(rolling_window, min_periods=20).quantile(param)
                     dynamic_thresholds[col] = threshold_series.fillna(method='ffill')
                 except:
-                    if col == 'chip_health_score_D':
-                        dynamic_thresholds[col] = pd.Series(40, index=df.index)
-                    elif col == 'dominant_peak_solidity_D':
-                        dynamic_thresholds[col] = pd.Series(0.4, index=df.index)
+                    # 设置默认值
+                    if col in ['chip_stability_D', 'flow_stability_D']:
+                        dynamic_thresholds[col] = pd.Series(0.5, index=df.index)
+                    elif col in ['accumulation_score_D', 'distribution_score_D']:
+                        dynamic_thresholds[col] = pd.Series(50, index=df.index)
+                    elif col in ['flow_intensity_D', 'net_amount_ratio_D']:
+                        dynamic_thresholds[col] = pd.Series(0, index=df.index)
+                    elif 'concentration' in col:
+                        dynamic_thresholds[col] = pd.Series(0.5, index=df.index)
+                    elif 'energy' in col:
+                        dynamic_thresholds[col] = pd.Series(50, index=df.index)
                     else:
                         dynamic_thresholds[col] = pd.Series(0, index=df.index)
+        # ==================== 3. 趋势市场信号识别 ====================
         if market_phase == 'TRENDING':
             df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = False
             df['IS_ACCUMULATION_D'] = False
+            # 3.1 趋势延续信号（使用多因子融合）
             trend_continuation_score = pd.Series(0, index=df.index, dtype=float)
+            # 价格动量证据
             if 'pct_change_D' in df.columns:
                 pct_threshold = dynamic_thresholds.get('pct_change_D', pd.Series(0, index=df.index))
                 trend_continuation_score = trend_continuation_score + ((df['pct_change_D'] > pct_threshold) * 2.0).fillna(0)
+            # 成交量证据
             if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns:
                 trend_continuation_score = trend_continuation_score + ((df['volume_D'] > df['VOL_MA_21_D'] * 1.2) * 1.5).fillna(0)
-            if 'main_force_net_flow_calibrated_D' in df.columns:
-                mf_threshold = dynamic_thresholds.get('main_force_net_flow_calibrated_D', pd.Series(0, index=df.index))
-                trend_continuation_score = trend_continuation_score + ((df['main_force_net_flow_calibrated_D'] > mf_threshold) * 1.2).fillna(0)
-            if 'trend_acceleration_score_D' in df.columns:
-                trend_continuation_score = trend_continuation_score + ((df['trend_acceleration_score_D'] > 0) * 1.0).fillna(0)
-            df['IS_TREND_CONTINUATION_D'] = (trend_continuation_score >= 4.0)
+            # 资金流强度证据
+            if 'flow_intensity_D' in df.columns:
+                flow_threshold = dynamic_thresholds.get('flow_intensity_D', pd.Series(0, index=df.index))
+                trend_continuation_score = trend_continuation_score + ((df['flow_intensity_D'] > flow_threshold) * 1.5).fillna(0)
+            # 筹码稳定性证据
+            if 'chip_stability_D' in df.columns:
+                chip_stab_threshold = dynamic_thresholds.get('chip_stability_D', pd.Series(0.5, index=df.index))
+                trend_continuation_score = trend_continuation_score + ((df['chip_stability_D'] > chip_stab_threshold) * 1.2).fillna(0)
+            # 趋势强度证据
+            if 'uptrend_strength_D' in df.columns:
+                uptrend_threshold = dynamic_thresholds.get('uptrend_strength_D', pd.Series(60, index=df.index))
+                trend_continuation_score = trend_continuation_score + ((df['uptrend_strength_D'] > uptrend_threshold) * 1.5).fillna(0)
+            df['IS_TREND_CONTINUATION_D'] = (trend_continuation_score >= 6.0)
+            # 3.2 趋势回调信号（使用多因子识别健康回调）
             if 'pct_change_D' in df.columns:
-                print("=== 回调信号计算（向量化优化） ===")
+                print("=== 回调信号计算（多因子融合版） ===")
                 correction_min_magnitude = -0.008
                 correction_max_magnitude = -0.05
                 print(f"回调幅度允许范围: [{correction_max_magnitude:.4f}, {correction_min_magnitude:.4f}]")
+                # 准备数据 - 使用新模型字段
                 required_cols = ['pct_change_D', 'close_D', 'volume_D', 'VOL_MA_21_D', 
-                               'main_force_net_flow_calibrated_D', 'chip_health_score_D']
+                               'flow_intensity_D', 'chip_stability_D', 'long_term_chip_ratio_D']
                 if all(col in df.columns for col in required_cols):
                     # 准备数据，填充NaN值
                     pct_change = df['pct_change_D'].fillna(0).values.astype(np.float32)
                     close = df['close_D'].fillna(method='ffill').fillna(method='bfill').values.astype(np.float32)
                     volume = df['volume_D'].fillna(0).values.astype(np.float32)
                     vol_ma21 = df['VOL_MA_21_D'].fillna(0).values.astype(np.float32)
-                    main_force_flow = df['main_force_net_flow_calibrated_D'].fillna(0).values.astype(np.float32)
-                    chip_health = df['chip_health_score_D'].fillna(50).values.astype(np.float32)
-                    # 使用numba加速计算
-                    is_correction_numba = calculate_correction_scores_numba(
-                        pct_change, close, volume, vol_ma21, main_force_flow, chip_health,
+                    flow_intensity = df['flow_intensity_D'].fillna(0).values.astype(np.float32)
+                    chip_stability = df['chip_stability_D'].fillna(0.5).values.astype(np.float32)
+                    long_term_ratio = df['long_term_chip_ratio_D'].fillna(0.5).values.astype(np.float32)
+                    
+                    # 使用新版本的numba函数
+                    is_correction_numba = calculate_correction_scores_v2_numba(
+                        pct_change, close, volume, vol_ma21, flow_intensity, 
+                        chip_stability, long_term_ratio,
                         correction_min_magnitude, correction_max_magnitude
                     )
+                    
                     df['IS_TREND_CORRECTION_D'] = pd.Series(is_correction_numba, index=df.index)
+                    
                     # 与趋势延续信号互斥
                     if 'IS_TREND_CONTINUATION_D' in df.columns:
                         df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'] & (~df['IS_TREND_CONTINUATION_D'])
-                    # 探针：检查12-30日的结果
-                    if '2025-12-30' in df.index:
-                        idx = df.index.get_loc('2025-12-30')
-                        print(f"回调信号探针 2025-12-30: {df['IS_TREND_CORRECTION_D'].iloc[idx]}")
+                    
+                    # 探针：检查最近的结果
+                    if len(df) > 5:
+                        last_5 = df.index[-5:]
+                        for idx in last_5:
+                            if idx in df.index:
+                                pos = df.index.get_loc(idx)
+                                print(f"回调信号 {idx}: {df['IS_TREND_CORRECTION_D'].iloc[pos]}")
                 else:
                     df['IS_TREND_CORRECTION_D'] = False
-                # 原始版本回调信号（用于对比）
-                if 'pct_change_D' in df.columns:
-                    cond_small_correction = (df['pct_change_D'] < 0) & \
-                                           (df['pct_change_D'] >= correction_max_magnitude) & \
-                                           (df['pct_change_D'] <= correction_min_magnitude)
-                    cond_volume_support = (df['volume_D'] > df['VOL_MA_21_D'] * 0.8) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(True, index=df.index)
-                    if 'main_force_net_flow_calibrated_D' in df.columns:
-                        mf_median = df['main_force_net_flow_calibrated_D'].rolling(20).median().fillna(method='ffill')
-                        mf_std = df['main_force_net_flow_calibrated_D'].rolling(20).std().fillna(0)
-                        cond_mf_not_outflow = (df['main_force_net_flow_calibrated_D'] > mf_median - mf_std * 0.8)
-                    else:
-                        cond_mf_not_outflow = pd.Series(True, index=df.index)
-                    if 'chip_health_score_D' in df.columns:
-                        chip_median = df['chip_health_score_D'].rolling(20).median().fillna(method='ffill')
-                        chip_std = df['chip_health_score_D'].rolling(20).std().fillna(0)
-                        cond_chip_stable = (df['chip_health_score_D'] > chip_median - chip_std * 0.5)
-                    else:
-                        cond_chip_stable = pd.Series(True, index=df.index)
-                    df['IS_TREND_CORRECTION_RAW_D'] = cond_small_correction & cond_volume_support & cond_mf_not_outflow & cond_chip_stable
+            # 3.3 趋势反转信号（使用多因子识别危险信号）
             if 'pct_change_D' in df.columns:
+                # 价格暴跌证据
                 cond_sharp_drop = df['pct_change_D'] < -0.05
+                # 成交量异常证据
                 cond_volume_spike = (df['volume_D'] > df['VOL_MA_21_D'] * 1.5) if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns else pd.Series(False, index=df.index)
-                if 'main_force_net_flow_calibrated_D' in df.columns:
-                    mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(20).quantile(0.2).fillna(method='ffill')
-                    cond_mf_heavy_outflow = (df['main_force_net_flow_calibrated_D'] < mf_low_quantile)
+                # 资金大幅流出证据
+                if 'net_amount_ratio_D' in df.columns:
+                    net_ratio_low_q = df['net_amount_ratio_D'].rolling(20).quantile(0.2).fillna(method='ffill')
+                    cond_heavy_outflow = (df['net_amount_ratio_D'] < net_ratio_low_q)
                 else:
-                    cond_mf_heavy_outflow = pd.Series(False, index=df.index)
-                if 'chip_health_score_D' in df.columns:
-                    chip_low_quantile = df['chip_health_score_D'].rolling(20).quantile(0.3).fillna(method='ffill')
-                    cond_chip_deteriorate = (df['chip_health_score_D'] < chip_low_quantile)
+                    cond_heavy_outflow = pd.Series(False, index=df.index)
+                # 筹码恶化证据
+                if 'chip_stability_D' in df.columns:
+                    chip_stab_low_q = df['chip_stability_D'].rolling(20).quantile(0.3).fillna(method='ffill')
+                    cond_chip_deteriorate = (df['chip_stability_D'] < chip_stab_low_q)
                 else:
                     cond_chip_deteriorate = pd.Series(False, index=df.index)
-                df['IS_TREND_REVERSAL_D'] = cond_sharp_drop & (cond_volume_spike | cond_mf_heavy_outflow) & cond_chip_deteriorate
+                # 派发模式证据
+                if 'distribution_score_D' in df.columns:
+                    dist_score_threshold = dynamic_thresholds.get('distribution_score_D', pd.Series(30, index=df.index))
+                    cond_distribution_mode = (df['distribution_score_D'] > dist_score_threshold)
+                else:
+                    cond_distribution_mode = pd.Series(False, index=df.index)
+                # 综合反转信号
+                df['IS_TREND_REVERSAL_D'] = cond_sharp_drop & (
+                    cond_volume_spike | cond_heavy_outflow | cond_distribution_mode
+                ) & cond_chip_deteriorate
             print(f"趋势市场信号统计:")
             print(f"  趋势延续信号: {df['IS_TREND_CONTINUATION_D'].sum()}次")
             print(f"  趋势回调信号: {df['IS_TREND_CORRECTION_D'].sum() if 'IS_TREND_CORRECTION_D' in df.columns else 0}次")
             print(f"  趋势反转信号: {df['IS_TREND_REVERSAL_D'].sum() if 'IS_TREND_REVERSAL_D' in df.columns else 0}次")
+        # ==================== 4. 震荡市场信号识别 ====================
         else:
             df['IS_TREND_CONTINUATION_D'] = False
             df['IS_TREND_CORRECTION_D'] = False
             df['IS_TREND_REVERSAL_D'] = False
+            # 4.1 高潜力震荡识别（使用筹码和资金流稳定性）
             chip_stability_evidence = pd.Series(0, index=df.index, dtype=int)
-            if 'chip_health_score_D' in df.columns:
-                chip_thresh = dynamic_thresholds.get('chip_health_score_D', pd.Series(40, index=df.index))
-                chip_stability_evidence = (df['chip_health_score_D'] > chip_thresh).astype(int)
+            if 'chip_stability_D' in df.columns:
+                chip_stab_thresh = dynamic_thresholds.get('chip_stability_D', pd.Series(0.5, index=df.index))
+                chip_stability_evidence = (df['chip_stability_D'] > chip_stab_thresh).astype(int)
+            flow_stability_evidence = pd.Series(0, index=df.index, dtype=int)
+            if 'flow_stability_D' in df.columns:
+                flow_stab_thresh = dynamic_thresholds.get('flow_stability_D', pd.Series(50, index=df.index))
+                flow_stability_evidence = (df['flow_stability_D'] > flow_stab_thresh).astype(int)
             volatility_compression_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'BBW_21_2.0_D' in df.columns:
                 bbw_quantile = df['BBW_21_2.0_D'].rolling(rolling_window, min_periods=20).quantile(0.3).fillna(method='ffill')
                 volatility_compression_evidence = (df['BBW_21_2.0_D'] < bbw_quantile).astype(int)
             fund_flow_balance_evidence = pd.Series(0, index=df.index, dtype=int)
-            if 'main_force_net_flow_calibrated_D' in df.columns:
-                mf_std = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).std().fillna(0)
-                fund_flow_balance_evidence = (abs(df['main_force_net_flow_calibrated_D']) < mf_std * 0.5).astype(int)
-            structure_tension_evidence = pd.Series(0, index=df.index, dtype=int)
-            if 'structural_tension_index_D' in df.columns:
-                st_threshold = dynamic_thresholds.get('structural_tension_index_D', pd.Series(0.3, index=df.index))
-                structure_tension_evidence = (df['structural_tension_index_D'] < st_threshold).astype(int)
-            consolidation_score = (chip_stability_evidence + volatility_compression_evidence + fund_flow_balance_evidence + structure_tension_evidence)
+            if 'net_amount_ratio_D' in df.columns:
+                net_ratio_std = df['net_amount_ratio_D'].rolling(rolling_window, min_periods=20).std().fillna(0)
+                fund_flow_balance_evidence = (abs(df['net_amount_ratio_D']) < net_ratio_std * 0.5).astype(int)
+            consolidation_score = (chip_stability_evidence + flow_stability_evidence + 
+                                  volatility_compression_evidence + fund_flow_balance_evidence)
             df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = (consolidation_score >= 3) & (df['ADX_14_D'] < 25)
+            # 4.2 吸筹信号识别（使用多因子融合）
             hidden_buy_evidence = pd.Series(0, index=df.index, dtype=int)
-            if all(col in df.columns for col in ['main_force_buy_execution_alpha_D', 'main_force_net_flow_calibrated_D']):
-                mf_quantile = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).quantile(0.5).fillna(method='ffill')
-                hidden_buy_evidence = ((df['main_force_buy_execution_alpha_D'] > 0) & (df['main_force_net_flow_calibrated_D'] > mf_quantile)).astype(int)
-            retail_panic_evidence = pd.Series(0, index=df.index, dtype=int)
-            if 'retail_panic_surrender_index_D' in df.columns:
-                rp_quantile = df['retail_panic_surrender_index_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
-                retail_panic_evidence = (df['retail_panic_surrender_index_D'] > rp_quantile).astype(int)
+            if all(col in df.columns for col in ['accumulation_score_D', 'net_amount_ratio_D']):
+                net_ratio_quantile = df['net_amount_ratio_D'].rolling(rolling_window, min_periods=20).quantile(0.5).fillna(method='ffill')
+                hidden_buy_evidence = ((df['accumulation_score_D'] > 50) & (df['net_amount_ratio_D'] > net_ratio_quantile)).astype(int)
+            absorption_energy_evidence = pd.Series(0, index=df.index, dtype=int)
+            if 'absorption_energy_D' in df.columns:
+                absorb_threshold = dynamic_thresholds.get('absorption_energy_D', pd.Series(70, index=df.index))
+                absorption_energy_evidence = (df['absorption_energy_D'] > absorb_threshold).astype(int)
             price_suppression_evidence = pd.Series(0, index=df.index, dtype=int)
-            high_20_max = df['high_D'].rolling(20).max()
-            price_suppression_evidence = ((df['high_D'] < high_20_max * 0.98) & (df['pct_change_D'].abs() < 0.02)).astype(int)
+            if 'high_D' in df.columns:
+                high_20_max = df['high_D'].rolling(20).max()
+                price_suppression_evidence = ((df['high_D'] < high_20_max * 0.98) & 
+                                              (df['pct_change_D'].abs() < 0.02) if 'pct_change_D' in df.columns else pd.Series(False, index=df.index)).astype(int)
             chip_concentration_evidence = pd.Series(0, index=df.index, dtype=int)
-            if 'dominant_peak_solidity_D' in df.columns:
-                dp_threshold = dynamic_thresholds.get('dominant_peak_solidity_D', pd.Series(0.3, index=df.index))
-                chip_concentration_evidence = (df['dominant_peak_solidity_D'] > dp_threshold).astype(int)
-            accumulation_score = (hidden_buy_evidence * 2.0 + retail_panic_evidence * 1.5 + price_suppression_evidence + chip_concentration_evidence)
+            if 'concentration_comprehensive_D' in df.columns:
+                conc_threshold = dynamic_thresholds.get('concentration_comprehensive_D', pd.Series(0.6, index=df.index))
+                chip_concentration_evidence = (df['concentration_comprehensive_D'] > conc_threshold).astype(int)
+            accumulation_score = (hidden_buy_evidence * 2.0 + absorption_energy_evidence * 1.5 + 
+                                 price_suppression_evidence + chip_concentration_evidence)
             df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & (accumulation_score >= 2.5)
+            # 4.3 突破信号识别
             momentum_break_evidence = pd.Series(0, index=df.index, dtype=int)
             if 'pct_change_D' in df.columns:
                 pct_quantile = df['pct_change_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
@@ -786,37 +775,45 @@ class FeatureEngineeringService:
             if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns:
                 volume_break_evidence = (df['volume_D'] > df['VOL_MA_21_D'] * 1.5).astype(int)
             fund_flow_break_evidence = pd.Series(0, index=df.index, dtype=int)
-            if all(col in df.columns for col in ['main_force_net_flow_calibrated_D', 'main_force_flow_directionality_D']):
-                mf_threshold = dynamic_thresholds.get('main_force_net_flow_calibrated_D', pd.Series(0, index=df.index))
-                fund_flow_break_evidence = ((df['main_force_net_flow_calibrated_D'] > mf_threshold) & (df['main_force_flow_directionality_D'] > 0.7)).astype(int)
-            structure_break_evidence = pd.Series(0, index=df.index, dtype=int)
-            if all(col in df.columns for col in ['platform_conviction_score_D', 'trend_conviction_score_D']):
-                pc_threshold = dynamic_thresholds.get('platform_conviction_score_D', pd.Series(70, index=df.index))
-                tc_threshold = dynamic_thresholds.get('trend_conviction_score_D', pd.Series(70, index=df.index))
-                structure_break_evidence = ((df['platform_conviction_score_D'] > pc_threshold) & (df['trend_conviction_score_D'] > tc_threshold)).astype(int)
-            breakout_score = (momentum_break_evidence * 2.0 + volume_break_evidence * 1.5 + fund_flow_break_evidence * 1.2 + structure_break_evidence)
-            df['IS_BREAKOUT_D'] = (breakout_score >= 5) & (momentum_break_evidence.astype(bool) | structure_break_evidence.astype(bool))
-            main_force_dist_evidence = pd.Series(0, index=df.index, dtype=int)
-            if 'main_force_net_flow_calibrated_D' in df.columns:
-                mf_low_quantile = df['main_force_net_flow_calibrated_D'].rolling(rolling_window, min_periods=20).quantile(0.3).fillna(method='ffill')
-                main_force_dist_evidence = (df['main_force_net_flow_calibrated_D'] < mf_low_quantile).astype(int)
-            retail_fomo_evidence = pd.Series(0, index=df.index, dtype=int)
-            if 'retail_fomo_premium_index_D' in df.columns:
-                rf_quantile = df['retail_fomo_premium_index_D'].rolling(rolling_window, min_periods=20).quantile(0.6).fillna(method='ffill')
-                retail_fomo_evidence = (df['retail_fomo_premium_index_D'] > rf_quantile).astype(int)
+            if all(col in df.columns for col in ['net_amount_ratio_D', 'flow_intensity_D']):
+                net_ratio_threshold = dynamic_thresholds.get('net_amount_ratio_D', pd.Series(0, index=df.index))
+                fund_flow_break_evidence = ((df['net_amount_ratio_D'] > net_ratio_threshold) & 
+                                           (df['flow_intensity_D'] > 60)).astype(int)
+            energy_break_evidence = pd.Series(0, index=df.index, dtype=int)
+            if 'absorption_energy_D' in df.columns:
+                absorb_break_threshold = dynamic_thresholds.get('absorption_energy_D', pd.Series(70, index=df.index)) * 1.2
+                energy_break_evidence = (df['absorption_energy_D'] > absorb_break_threshold).astype(int)
+            breakout_score = (momentum_break_evidence * 2.0 + volume_break_evidence * 1.5 + 
+                             fund_flow_break_evidence * 1.2 + energy_break_evidence)
+            df['IS_BREAKOUT_D'] = (breakout_score >= 5) & (momentum_break_evidence.astype(bool) | energy_break_evidence.astype(bool))
+            # 4.4 派发信号识别
+            distribution_evidence = pd.Series(0, index=df.index, dtype=int)
+            if 'distribution_score_D' in df.columns:
+                dist_threshold = dynamic_thresholds.get('distribution_score_D', pd.Series(40, index=df.index))
+                distribution_evidence = (df['distribution_score_D'] > dist_threshold).astype(int)
+            distribution_energy_evidence = pd.Series(0, index=df.index, dtype=int)
+            if 'distribution_energy_D' in df.columns:
+                dist_energy_threshold = dynamic_thresholds.get('distribution_energy_D', pd.Series(40, index=df.index))
+                distribution_energy_evidence = (df['distribution_energy_D'] > dist_energy_threshold).astype(int)
             price_divergence_evidence = pd.Series(0, index=df.index, dtype=int)
-            close_20_max = df['close_D'].rolling(20).max()
-            mf_5ma = df['main_force_net_flow_calibrated_D'].rolling(5).mean()
-            mf_20ma = df['main_force_net_flow_calibrated_D'].rolling(20).mean()
-            price_divergence_evidence = ((df['close_D'] > close_20_max) & (mf_5ma < mf_20ma)).astype(int)
+            if all(col in df.columns for col in ['close_D', 'net_amount_ratio_D']):
+                close_20_max = df['close_D'].rolling(20).max()
+                net_ratio_5ma = df['net_amount_ratio_D'].rolling(5).mean()
+                net_ratio_20ma = df['net_amount_ratio_D'].rolling(20).mean()
+                price_divergence_evidence = ((df['close_D'] > close_20_max) & (net_ratio_5ma < net_ratio_20ma)).astype(int)
             chip_dispersion_evidence = pd.Series(0, index=df.index, dtype=int)
-            if 'chip_health_score_D' in df.columns:
-                ch_threshold = dynamic_thresholds.get('chip_health_score_D', pd.Series(40, index=df.index))
-                chip_dispersion_evidence = ((df['chip_health_score_D'] < ch_threshold) & (df['pct_change_D'] > 0.05)).astype(int)
-            distribution_score = (main_force_dist_evidence * 1.5 + retail_fomo_evidence * 1.2 + price_divergence_evidence + chip_dispersion_evidence)
+            if 'chip_stability_D' in df.columns and 'pct_change_D' in df.columns:
+                chip_stab_threshold = dynamic_thresholds.get('chip_stability_D', pd.Series(0.5, index=df.index))
+                chip_dispersion_evidence = ((df['chip_stability_D'] < chip_stab_threshold) & 
+                                           (df['pct_change_D'] > 0.05)).astype(int)
+            distribution_score = (distribution_evidence * 1.5 + distribution_energy_evidence * 1.2 + 
+                                price_divergence_evidence + chip_dispersion_evidence)
             df['IS_DISTRIBUTION_D'] = distribution_score >= 3
+        # ==================== 5. 信号后处理与互斥逻辑 ====================
+        # 信号平滑处理
         if market_phase == 'TRENDING':
-            for col in ['IS_TREND_CONTINUATION_D', 'IS_TREND_REVERSAL_D']:
+            trend_signals = ['IS_TREND_CONTINUATION_D', 'IS_TREND_REVERSAL_D']
+            for col in trend_signals:
                 if col in df.columns:
                     df[col] = df[col].fillna(False).astype(bool)
                     try:
@@ -829,14 +826,16 @@ class FeatureEngineeringService:
                 try:
                     signal_series = df['IS_TREND_CORRECTION_D'].astype(float)
                     df['IS_TREND_CORRECTION_D'] = (signal_series.rolling(2, min_periods=1).max() >= 1).fillna(False).astype(bool)
+                    # 避免连续回调信号
                     correction_mask = df['IS_TREND_CORRECTION_D']
                     continuous_correction = (correction_mask & correction_mask.shift(1))
                     df.loc[continuous_correction, 'IS_TREND_CORRECTION_D'] = False
                 except:
                     pass
         else:
-            signal_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
-            for col in signal_cols:
+            consolidation_signals = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 
+                                   'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
+            for col in consolidation_signals:
                 if col in df.columns:
                     df[col] = df[col].fillna(False).astype(bool)
                     try:
@@ -844,32 +843,35 @@ class FeatureEngineeringService:
                         df[col] = (signal_series.rolling(3, min_periods=2).sum() >= 2).fillna(False).astype(bool)
                     except:
                         pass
+        # 信号互斥逻辑
         if market_phase == 'TRENDING':
+            # 趋势延续与反转互斥
             if 'IS_TREND_CONTINUATION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
                 continuation_mask = df['IS_TREND_CONTINUATION_D'].astype(bool)
                 if continuation_mask.any():
                     df.loc[continuation_mask, 'IS_TREND_REVERSAL_D'] = False
+            # 回调与反转互斥
             if 'IS_TREND_CORRECTION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
                 correction_mask = df['IS_TREND_CORRECTION_D'].astype(bool)
                 if correction_mask.any():
                     df.loc[correction_mask, 'IS_TREND_REVERSAL_D'] = False
-            if 'IS_TREND_REVERSAL_D' in df.columns and 'IS_TREND_CORRECTION_D' in df.columns:
-                reversal_mask = df['IS_TREND_REVERSAL_D'].astype(bool)
-                if reversal_mask.any():
-                    df.loc[reversal_mask, 'IS_TREND_CORRECTION_D'] = False
+            # 回调与延续互斥
             if 'IS_TREND_CONTINUATION_D' in df.columns and 'IS_TREND_CORRECTION_D' in df.columns:
                 continuation_mask = df['IS_TREND_CONTINUATION_D'].astype(bool)
                 if continuation_mask.any():
                     df.loc[continuation_mask, 'IS_TREND_CORRECTION_D'] = False
         else:
+            # 突破与吸筹互斥
             if 'IS_BREAKOUT_D' in df.columns and 'IS_ACCUMULATION_D' in df.columns:
                 breakout_mask = df['IS_BREAKOUT_D'].astype(bool)
                 if breakout_mask.any():
                     df.loc[breakout_mask, 'IS_ACCUMULATION_D'] = False
+            # 派发与突破互斥
             if 'IS_DISTRIBUTION_D' in df.columns and 'IS_BREAKOUT_D' in df.columns:
                 distribution_mask = df['IS_DISTRIBUTION_D'].astype(bool)
                 if distribution_mask.any():
                     df.loc[distribution_mask, 'IS_BREAKOUT_D'] = False
+        # ==================== 6. 结果输出 ====================
         df['MARKET_PHASE_D'] = market_phase
         print(f"=== 分析完成 ===")
         print(f"市场阶段: {market_phase}")
@@ -879,12 +881,13 @@ class FeatureEngineeringService:
                 if col in df.columns:
                     print(f"{col}: 总触发={df[col].sum()}, 最新信号={df[col].iloc[-1]}")
         else:
-            signal_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
+            signal_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 
+                          'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
             for col in signal_cols:
                 if col in df.columns:
                     print(f"{col}: 总触发={df[col].sum()}, 最新信号={df[col].iloc[-1]}")
         all_dfs[timeframe] = df
-        print("=== 高级模式识别引擎(V5.4 向量化优化版)分析完成 ===")
+        print("=== 高级模式识别引擎(V6.0 多因子融合版)分析完成 ===")
         return all_dfs
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.Series:
@@ -988,70 +991,276 @@ class FeatureEngineeringService:
 
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.2 · 细粒度意图与斐波那契周期升级版】根据多因子共振识别盘整期。
-        - 核心升级: 判定逻辑从单一的“几何形态”升级为“几何形态 或 主力意图”的双重标准。
-                      即使K线形态不完美，只要筹码高度锁定且主力展现出强控盘意图，也将其识别为盘整构筑期。
-                      增强主力意图判断，引入细粒度买卖方意图和欺骗指数。
-                      周期参数调整为斐波那契数列。
+        【V3.0 · 多因子融合版】根据多因子共振识别盘整期
+        - 核心升级：使用ChipFactorBase、ChipHoldingMatrixBase、FundFlowFactor三大模型的新字段
+        - 三重标准：技术形态 + 筹码结构 + 资金意图，全方位识别高质量盘整期
+        - 周期参数：斐波那契数列优化，结合A股市场特性
         """
         if not params.get('enabled', False):
             return all_dfs
         timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             return all_dfs
-        df = all_dfs[timeframe]
-        # 修改代码行: 调整默认周期为斐波那契数
-        boll_period = params.get('boll_period', 21) # 21是斐波那契数，保持
-        # 新增代码行: 从params中获取 boll_std，如果不存在则默认为 2.0
+        df = all_dfs[timeframe].copy()
+        # 调整默认周期为斐波那契数
+        boll_period = params.get('boll_period', 21)  # 21是斐波那契数
         boll_std = params.get('boll_std', 2.0)
-        roc_period = params.get('roc_period', 13)   # 从12改为13
-        vol_ma_period = params.get('vol_ma_period', 55) # 55是斐波那契数，保持
+        roc_period = params.get('roc_period', 13)    # 从12改为13
+        vol_ma_period = params.get('vol_ma_period', 55)  # 55是斐波那契数
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_{timeframe}"
         roc_col = f"ROC_{roc_period}_{timeframe}"
         vol_ma_col = f"VOL_MA_{vol_ma_period}_{timeframe}"
-        required_cols = [
-            bbw_col, roc_col, vol_ma_col, f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}',
-            'dominant_peak_solidity_D', 'control_solidity_index_D',
-            'mf_cost_zone_buy_intent_D', 'mf_cost_zone_sell_intent_D',
-            'deception_lure_long_intensity_D'
+        # ==================== 1. 新模型字段替代方案 ====================
+        # 废弃字段映射：
+        # dominant_peak_solidity_D -> chip_concentration_ratio_D + concentration_comprehensive_D
+        # control_solidity_index_D -> chip_stability_D + flow_stability_D
+        # mf_cost_zone_buy_intent_D -> accumulation_score_D + absorption_energy_D
+        # deception_lure_long_intensity_D -> flow_consistency_D + large_order_anomaly_D
+        # 基础必备字段
+        required_base_cols = [
+            bbw_col, roc_col, vol_ma_col, 
+            f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}',
+            f'close_{timeframe}'
         ]
-        if not all(col in df.columns for col in required_cols):
-            missing = [col for col in required_cols if col not in df.columns]
-            logger.warning(f"盘整期计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
+        # 新模型字段 - 按重要性排序
+        required_model_cols = [
+            # 筹码结构字段 (ChipFactorBase)
+            'chip_concentration_ratio_D',        # 筹码集中度
+            'chip_stability_D',                  # 筹码稳定性
+            'main_cost_range_ratio_D',           # 主力成本区间锁定比例
+            # 资金流向字段 (FundFlowFactor)
+            'accumulation_score_D',              # 建仓模式得分
+            'distribution_score_D',              # 派发模式得分
+            'flow_stability_D',                  # 资金流稳定性
+            'flow_consistency_D',                # 分档资金一致性
+            'large_order_anomaly_D',             # 大单异动
+            # 博弈能量场字段 (ChipHoldingMatrixBase)
+            'concentration_comprehensive_D',     # 综合集中度
+            'absorption_energy_D',               # 吸收能量
+            'distribution_energy_D',             # 派发能量
+            'energy_concentration_D',            # 能量集中度
+        ]
+        # 检查字段存在性
+        available_base_cols = [col for col in required_base_cols if col in df.columns]
+        available_model_cols = [col for col in required_model_cols if col in df.columns]
+        if len(available_base_cols) < len(required_base_cols):
+            missing = [col for col in required_base_cols if col not in df.columns]
+            logger.warning(f"盘整期计算跳过，基础列 '{', '.join(missing)}' 不存在。")
             return all_dfs
+        print(f"=== 盘整期识别引擎(V3.0)开始分析 ===")
+        print(f"可用的新模型字段: {len(available_model_cols)}/{len(required_model_cols)}")
+        # ==================== 2. 动态阈值计算 ====================
         bbw_quantile = params.get('bbw_quantile', 0.25)
         roc_threshold = params.get('roc_threshold', 5.0)
         min_expanding_periods = boll_period * 2
+        # 布林带宽度动态阈值
         dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile).bfill()
         df[f'dynamic_bbw_threshold_{timeframe}'] = dynamic_bbw_threshold
+        # ==================== 3. 三重盘整识别标准 ====================
+        # 3.1 技术形态盘整（经典标准）
         cond_volatility = df[bbw_col] < df[f'dynamic_bbw_threshold_{timeframe}']
         cond_trend = df[roc_col].abs() < roc_threshold
         cond_volume = df[f'volume_{timeframe}'] < df[vol_ma_col]
         is_classic_consolidation = cond_volatility & cond_trend & cond_volume
-        cond_chips_locked = df['dominant_peak_solidity_D'] > 0.7
-        cond_main_force_control = df['control_solidity_index_D'] > 0.6
-        cond_mf_buy_intent_strong = df['mf_cost_zone_buy_intent_D'] > 0.5
-        cond_mf_sell_intent_weak = df['mf_cost_zone_sell_intent_D'] < 0.3
-        cond_no_deception_lure_long = df['deception_lure_long_intensity_D'] < 0.2
-        is_intent_based_consolidation = cond_chips_locked & cond_main_force_control & \
-                                         cond_mf_buy_intent_strong & cond_mf_sell_intent_weak & \
-                                         cond_no_deception_lure_long
-        is_consolidating = is_classic_consolidation | is_intent_based_consolidation
+        # 3.2 筹码结构盘整（使用ChipFactorBase和ChipHoldingMatrixBase）
+        is_chip_based_consolidation = pd.Series(True, index=df.index)
+        # 筹码集中度条件
+        if 'chip_concentration_ratio_D' in df.columns:
+            # 高集中度表明筹码锁定良好，适合盘整
+            cond_chip_concentration = df['chip_concentration_ratio_D'] > 0.6
+            is_chip_based_consolidation = is_chip_based_consolidation & cond_chip_concentration
+        if 'concentration_comprehensive_D' in df.columns:
+            # 综合集中度确认
+            cond_comprehensive_concentration = df['concentration_comprehensive_D'] > 0.5
+            is_chip_based_consolidation = is_chip_based_consolidation & cond_comprehensive_concentration
+        # 筹码稳定性条件
+        if 'chip_stability_D' in df.columns:
+            cond_chip_stability = df['chip_stability_D'] > 0.5
+            is_chip_based_consolidation = is_chip_based_consolidation & cond_chip_stability
+        # 主力成本锁定条件
+        if 'main_cost_range_ratio_D' in df.columns:
+            cond_main_cost_locked = df['main_cost_range_ratio_D'] > 0.6
+            is_chip_based_consolidation = is_chip_based_consolidation & cond_main_cost_locked
+        # 长线筹码条件
+        if 'long_term_chip_ratio_D' in df.columns:
+            cond_long_term_chip = df['long_term_chip_ratio_D'] > 0.4
+            is_chip_based_consolidation = is_chip_based_consolidation & cond_long_term_chip
+        # 3.3 资金意图盘整（使用FundFlowFactor）
+        is_intent_based_consolidation = pd.Series(True, index=df.index)
+        # 建仓模式条件
+        if 'accumulation_score_D' in df.columns:
+            # 高建仓得分表明主力在建仓，适合盘整期
+            cond_accumulation_score = df['accumulation_score_D'] > 50
+            is_intent_based_consolidation = is_intent_based_consolidation & cond_accumulation_score
+        # 低派发模式条件
+        if 'distribution_score_D' in df.columns:
+            cond_low_distribution = df['distribution_score_D'] < 40
+            is_intent_based_consolidation = is_intent_based_consolidation & cond_low_distribution
+        # 资金流稳定性条件
+        if 'flow_stability_D' in df.columns:
+            cond_flow_stability = df['flow_stability_D'] > 60
+            is_intent_based_consolidation = is_intent_based_consolidation & cond_flow_stability
+        # 资金一致性条件（替代欺骗指数）
+        if 'flow_consistency_D' in df.columns:
+            cond_flow_consistency = df['flow_consistency_D'] > 70
+            is_intent_based_consolidation = is_intent_based_consolidation & cond_flow_consistency
+        # 无大单异动条件
+        if 'large_order_anomaly_D' in df.columns:
+            cond_no_anomaly = df['large_order_anomaly_D'] == False
+            is_intent_based_consolidation = is_intent_based_consolidation & cond_no_anomaly
+        # 3.4 博弈能量场确认（使用ChipHoldingMatrixBase）
+        is_energy_based_consolidation = pd.Series(True, index=df.index)
+        # 吸收能量条件
+        if 'absorption_energy_D' in df.columns:
+            cond_absorption_energy = df['absorption_energy_D'] > 50
+            is_energy_based_consolidation = is_energy_based_consolidation & cond_absorption_energy
+        # 低派发能量条件
+        if 'distribution_energy_D' in df.columns:
+            cond_low_distribution_energy = df['distribution_energy_D'] < 40
+            is_energy_based_consolidation = is_energy_based_consolidation & cond_low_distribution_energy
+        # 能量集中度条件
+        if 'energy_concentration_D' in df.columns:
+            cond_energy_concentration = df['energy_concentration_D'] > 0.6
+            is_energy_based_consolidation = is_energy_based_consolidation & cond_energy_concentration
+        # ==================== 4. 综合盘整判断逻辑 ====================
+        # 三重共振：至少满足两种盘整条件
+        consolidation_scores = pd.Series(0, index=df.index)
+        # 计分系统
+        consolidation_scores += is_classic_consolidation.astype(int)
+        consolidation_scores += is_chip_based_consolidation.astype(int)
+        consolidation_scores += is_intent_based_consolidation.astype(int)
+        consolidation_scores += is_energy_based_consolidation.astype(int)
+        # 根据可用模型字段数量调整阈值
+        available_models = len(available_model_cols)
+        if available_models >= 8:
+            # 字段充足时，要求三重共振
+            score_threshold = 3
+        elif available_models >= 4:
+            # 字段中等时，要求双重共振
+            score_threshold = 2
+        else:
+            # 字段不足时，主要依赖技术形态
+            score_threshold = 1
+        is_consolidating = consolidation_scores >= score_threshold
+        # 强度分级
+        df[f'consolidation_strength_{timeframe}'] = consolidation_scores
+        df[f'consolidation_type_{timeframe}'] = pd.cut(
+            consolidation_scores,
+            bins=[-1, 0.5, 1.5, 2.5, 3.5, 4.5],
+            labels=['NONE', 'WEAK', 'MODERATE', 'STRONG', 'VERY_STRONG']
+        )
+        # 高级盘整信号：高质量盘整（满足所有条件）
+        is_high_quality_consolidation = consolidation_scores == 4
+        df[f'is_high_quality_consolidation_{timeframe}'] = is_high_quality_consolidation
+        # 主力盘整信号：以筹码和资金意图为主
+        is_main_force_consolidation = is_chip_based_consolidation & is_intent_based_consolidation
+        df[f'is_main_force_consolidation_{timeframe}'] = is_main_force_consolidation
         df[f'is_consolidating_{timeframe}'] = is_consolidating
+        # ==================== 5. 盘整期特征提取 ====================
         if is_consolidating.any():
             consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
             consolidating_df = df[is_consolidating].copy()
             grouped = consolidating_df.groupby(consolidation_blocks[is_consolidating])
+            # 基础特征
             df[f'dynamic_consolidation_high_{timeframe}'] = grouped[f'high_{timeframe}'].transform('max')
             df[f'dynamic_consolidation_low_{timeframe}'] = grouped[f'low_{timeframe}'].transform('min')
             df[f'dynamic_consolidation_avg_vol_{timeframe}'] = grouped[f'volume_{timeframe}'].transform('mean')
             df[f'dynamic_consolidation_duration_{timeframe}'] = grouped[f'high_{timeframe}'].transform('size')
-            fill_cols = [f'dynamic_consolidation_high_{timeframe}', f'dynamic_consolidation_low_{timeframe}', f'dynamic_consolidation_avg_vol_{timeframe}', f'dynamic_consolidation_duration_{timeframe}']
-            df[fill_cols] = df[fill_cols].ffill()
+            # 新增：盘整期筹码特征
+            if 'chip_concentration_ratio_D' in df.columns:
+                df[f'consolidation_chip_concentration_{timeframe}'] = grouped['chip_concentration_ratio_D'].transform('mean')
+            if 'chip_stability_D' in df.columns:
+                df[f'consolidation_chip_stability_{timeframe}'] = grouped['chip_stability_D'].transform('mean')
+            # 新增：盘整期资金特征
+            if 'accumulation_score_D' in df.columns:
+                df[f'consolidation_accumulation_score_{timeframe}'] = grouped['accumulation_score_D'].transform('mean')
+            if 'flow_stability_D' in df.columns:
+                df[f'consolidation_flow_stability_{timeframe}'] = grouped['flow_stability_D'].transform('mean')
+            # 新增：盘整期能量特征
+            if 'absorption_energy_D' in df.columns:
+                df[f'consolidation_absorption_energy_{timeframe}'] = grouped['absorption_energy_D'].transform('mean')
+            # 前向填充
+            fill_cols = [
+                f'dynamic_consolidation_high_{timeframe}',
+                f'dynamic_consolidation_low_{timeframe}',
+                f'dynamic_consolidation_avg_vol_{timeframe}',
+                f'dynamic_consolidation_duration_{timeframe}',
+                f'consolidation_chip_concentration_{timeframe}',
+                f'consolidation_chip_stability_{timeframe}',
+                f'consolidation_accumulation_score_{timeframe}',
+                f'consolidation_flow_stability_{timeframe}',
+                f'consolidation_absorption_energy_{timeframe}'
+            ]
+            existing_fill_cols = [col for col in fill_cols if col in df.columns]
+            df[existing_fill_cols] = df[existing_fill_cols].ffill()
+        # 处理缺失值
         df[f'dynamic_consolidation_high_{timeframe}'] = df.get(f'dynamic_consolidation_high_{timeframe}', pd.Series(index=df.index)).fillna(df[f'high_{timeframe}'])
         df[f'dynamic_consolidation_low_{timeframe}'] = df.get(f'dynamic_consolidation_low_{timeframe}', pd.Series(index=df.index)).fillna(df[f'low_{timeframe}'])
         df[f'dynamic_consolidation_avg_vol_{timeframe}'] = df.get(f'dynamic_consolidation_avg_vol_{timeframe}', pd.Series(index=df.index)).fillna(0)
         df[f'dynamic_consolidation_duration_{timeframe}'] = df.get(f'dynamic_consolidation_duration_{timeframe}', pd.Series(index=df.index)).fillna(0)
+        # ==================== 6. 盘整期质量评估 ====================
+        if 'is_consolidating_D' in df.columns and 'consolidation_strength_D' in df.columns:
+            consolidating_mask = df['is_consolidating_D'] == True
+            if consolidating_mask.any():
+                # 计算盘整期质量评分
+                quality_factors = []
+                # 筹码集中度质量
+                if 'consolidation_chip_concentration_D' in df.columns:
+                    chip_conc_score = np.clip(df['consolidation_chip_concentration_D'] * 100, 0, 100)
+                    quality_factors.append(chip_conc_score)
+                # 资金建仓质量
+                if 'consolidation_accumulation_score_D' in df.columns:
+                    accum_score = df['consolidation_accumulation_score_D']
+                    quality_factors.append(accum_score)
+                # 资金稳定性质量
+                if 'consolidation_flow_stability_D' in df.columns:
+                    flow_stab_score = df['consolidation_flow_stability_D']
+                    quality_factors.append(flow_stab_score)
+                # 能量吸收质量
+                if 'consolidation_absorption_energy_D' in df.columns:
+                    energy_score = df['consolidation_absorption_energy_D']
+                    quality_factors.append(energy_score)
+                # 价格压缩质量（布林带宽度越小越好）
+                bbw_norm = 100 - np.clip(df[bbw_col] / df[f'dynamic_bbw_threshold_{timeframe}'] * 50, 0, 100)
+                quality_factors.append(bbw_norm)
+                # 成交量萎缩质量
+                if f'volume_{timeframe}' in df.columns and vol_ma_col in df.columns:
+                    vol_ratio = df[f'volume_{timeframe}'] / df[vol_ma_col].replace(0, 1)
+                    vol_score = 100 - np.clip(vol_ratio * 50, 0, 100)
+                    quality_factors.append(vol_score)
+                if quality_factors:
+                    quality_matrix = pd.concat(quality_factors, axis=1)
+                    df['consolidation_quality_score_D'] = quality_matrix.mean(axis=1)
+                    
+                    # 质量分级
+                    df['consolidation_quality_grade_D'] = pd.cut(
+                        df['consolidation_quality_score_D'],
+                        bins=[-1, 30, 50, 70, 85, 101],
+                        labels=['POOR', 'FAIR', 'GOOD', 'EXCELLENT', 'OUTSTANDING']
+                    )
+        # ==================== 7. 盘整期突破预警 ====================
+        # 监测盘整末期特征
+        if 'is_consolidating_D' in df.columns:
+            # 寻找盘整结束点
+            consolidation_end = (df['is_consolidating_D'] == True) & (df['is_consolidating_D'].shift(-1) == False)
+            if consolidation_end.any():
+                # 突破预警信号
+                if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns:
+                    volume_breakout = df['volume_D'] > df['VOL_MA_21_D'] * 1.5
+                    df['consolidation_volume_breakout_D'] = consolidation_end & volume_breakout
+                if 'flow_intensity_D' in df.columns:
+                    flow_intensity_surge = df['flow_intensity_D'] > 70
+                    df['consolidation_flow_breakout_D'] = consolidation_end & flow_intensity_surge
+        # ==================== 8. 结果统计与输出 ====================
+        consolidation_count = df[f'is_consolidating_{timeframe}'].sum()
+        high_quality_count = df[f'is_high_quality_consolidation_{timeframe}'].sum() if f'is_high_quality_consolidation_{timeframe}' in df.columns else 0
+        print(f"盘整期识别统计:")
+        print(f"  总盘整期数: {consolidation_count}")
+        print(f"  高质量盘整期数: {high_quality_count}")
+        print(f"  盘整强度分布: {df[f'consolidation_strength_{timeframe}'].value_counts().to_dict()}")
+        if 'consolidation_quality_grade_D' in df.columns:
+            quality_dist = df[df[f'is_consolidating_{timeframe}']][f'consolidation_quality_grade_D'].value_counts()
+            print(f"  盘整质量分布: {quality_dist.to_dict()}")
         all_dfs[timeframe] = df
         return all_dfs
 
@@ -1100,12 +1309,12 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict) -> Dict:
         """
-        【V3.4 · 依赖注入修复版】突破质量分计算专用通道
-        - 核心修复: 移除 calculator 参数，改用 self.calculator。
-        - 核心修复: 增加幂等性检查。在计算前判断 `breakout_quality_score_D` 列是否已存在，
-                  如果存在则跳过计算，避免重复处理和潜在的数据覆盖。
-        - 核心修复: 协同 IndicatorCalculator V2.5 修复了接口契约。本方法现在能正确接收不带后缀的
-                  'breakout_quality_score'，并执行重命名与填充，确保数据流的绝对标准化和健壮性。
+        【V4.0 · 多因子融合版】突破质量分计算专用通道
+        - 核心重构：使用ChipFactorBase、ChipHoldingMatrixBase、FundFlowFactor模型的新字段
+        - 废弃字段替代：
+            total_winner_rate -> winner_rate_D + profit_ratio_D + pressure_trapped_D组合
+            main_force_flow_directionality -> behavior_pattern_D + net_energy_flow_D + flow_momentum_5d_D组合
+        - 增强维度：从单一突破质量扩展为技术、筹码、资金、能量四维突破质量评估
         """
         if not params.get('enabled', False):
             return all_dfs
@@ -1117,39 +1326,131 @@ class FeatureEngineeringService:
         if 'breakout_quality_score_D' in df_daily.columns:
             logger.debug(f"突破质量分 (breakout_quality_score_D) 已存在于周期 '{timeframe}' 的DataFrame中，跳过重复计算。")
             return all_dfs
-        # 修改代码行: 补充 calculate_breakout_quality_score 所需的所有列
+        # ==================== 1. 新模型字段替代方案 ====================
+        # 废弃字段映射：
+        # total_winner_rate -> winner_rate_D + profit_ratio_D + pressure_trapped_D
+        # main_force_flow_directionality -> behavior_pattern_D + net_energy_flow_D + flow_momentum_5d_D
+        # 补充 calculate_breakout_quality_score 所需的材料
         required_materials = [
-            'volume', 'VOL_MA_21', 'main_force_flow_directionality',
+            # 基础量价指标
+            'volume', 'VOL_MA_21', 
             'open', 'high', 'low', 'close',
-            'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY',
+            # VPA效率指标
+            'VPA_EFFICIENCY',
+            'VPA_BUY_EFFICIENCY',
+            # 执行强度指标
             'main_force_buy_execution_alpha', 'upward_impulse_strength',
             'buy_order_book_clearing_rate', 'bid_side_liquidity',
             'vwap_cross_up_intensity', 'opening_buy_strength',
+            # 筹码清洗指标
             'floating_chip_cleansing_efficiency',
-            'VPA_BUY_EFFICIENCY',
+            # 风险预警指标
             'deception_lure_long_intensity', 'wash_trade_buy_volume'
         ]
+        # 新增：新模型字段（替代废弃字段）
+        new_model_materials = [
+            # ChipFactorBase字段（筹码替代）
+            'winner_rate',                    # 胜率（替代total_winner_rate）
+            'profit_ratio',                   # 获利比例
+            'chip_concentration_ratio',       # 筹码集中度
+            'chip_stability',                 # 筹码稳定性
+            'profit_pressure',                # 获利盘压力
+            # FundFlowFactor字段（资金流向替代）
+            'flow_intensity',                 # 资金流入强度得分
+            'accumulation_score',             # 建仓模式得分
+            'pushing_score',                  # 拉升模式得分
+            'net_amount_ratio',               # 净流入占比
+            'flow_momentum_5d',               # 5日资金动量（替代directionality）
+            'flow_stability',                 # 资金流稳定性
+            'large_order_anomaly',            # 大单异动
+            # ChipHoldingMatrixBase字段（能量场替代）
+            'absorption_energy',              # 吸收能量
+            'distribution_energy',            # 派发能量
+            'net_energy_flow',                # 净能量流向（替代directionality）
+            'game_intensity',                 # 博弈强度
+            'breakout_potential',             # 突破势能
+            'energy_concentration',           # 能量集中度
+            # 博弈状态字段
+            'behavior_accumulation',          # 吸筹强度
+            'behavior_distribution',          # 派发强度
+            'behavior_consolidation',         # 整理强度
+            # 压力支撑字段
+            'pressure_trapped',               # 套牢盘压力
+            'pressure_profit',                # 获利盘比例
+            'support_strength',               # 下方支撑强度
+            'resistance_strength',            # 上方阻力强度
+        ]
+        # 合并所有需要的字段
+        all_required_materials = required_materials + new_model_materials
         df_standardized = pd.DataFrame(index=df_daily.index)
         missing_materials = []
-        for material in required_materials:
+        for material in all_required_materials:
             source_col_with_suffix = f"{material}_{timeframe}"
+            # 特殊处理：部分字段可能有不同的命名格式
             if source_col_with_suffix in df_daily.columns:
                 df_standardized[material] = df_daily[source_col_with_suffix]
             else:
-                missing_materials.append(source_col_with_suffix)
-        if missing_materials:
-            logger.warning(f"突破质量分计算中止，缺少标准化原材料: {missing_materials}")
+                # 尝试其他可能的命名格式
+                alt_names = [
+                    f"{material}",
+                    f"{material.upper()}_{timeframe}",
+                    f"{material.lower()}_{timeframe}"
+                ]
+                found = False
+                for alt_name in alt_names:
+                    if alt_name in df_daily.columns:
+                        df_standardized[material] = df_daily[alt_name]
+                        found = True
+                        break
+                if not found:
+                    missing_materials.append(source_col_with_suffix)
+        # 检查关键字段是否存在
+        critical_materials = ['volume', 'high', 'low', 'close', 'VPA_EFFICIENCY']
+        missing_critical = [m for m in critical_materials if m not in df_standardized.columns]
+        if missing_critical:
+            logger.warning(f"突破质量分计算中止，缺少关键材料: {missing_critical}")
             return all_dfs
-        result_df = await self.calculator.calculate_breakout_quality_score(df_daily=df_standardized, params=params)
+        if missing_materials:
+            logger.debug(f"突破质量分计算缺少部分材料（非关键）: {missing_materials[:10]}...")
+        # ==================== 2. 计算突破质量分（多因子融合版） ====================
+        try:
+            # 调用新版计算器（支持新模型字段）
+            result_df = await self.calculate_breakout_quality_score_v4(
+                df_daily=df_standardized, 
+                params=params
+            )
+        except AttributeError:
+            # 如果新版计算器不存在，使用降级版本
+            logger.warning("新版突破质量分计算器不存在，使用降级版本...")
+            result_df = await self.calculate_breakout_quality_score_v3(df_standardized, params)
         if result_df is not None and not result_df.empty:
             df_daily = df_daily.join(result_df, how='left')
             # --- 命名协议强制执行 ---
-            # 将合并进来的、不带后缀的列，强制重命名为带 '_D' 后缀的标准格式
-            if 'breakout_quality_score' in df_daily.columns:
-                df_daily.rename(columns={'breakout_quality_score': 'breakout_quality_score_D'}, inplace=True)
-                df_daily['breakout_quality_score_D'] = df_daily['breakout_quality_score_D'].ffill()
+            # 将合并进来的列，强制重命名为带 '_D' 后缀的标准格式
+            rename_dict = {}
+            for col in result_df.columns:
+                if not col.endswith(f'_{timeframe}'):
+                    rename_dict[col] = f"{col}_{timeframe}"
+            if rename_dict:
+                df_daily.rename(columns=rename_dict, inplace=True)
+            # 前向填充关键指标
+            fill_cols = [
+                'breakout_quality_score_D',
+                'breakout_technical_score_D',
+                'breakout_chip_score_D',
+                'breakout_fundflow_score_D',
+                'breakout_energy_score_D'
+            ]
+            for col in fill_cols:
+                if col in df_daily.columns:
+                    df_daily[col] = df_daily[col].ffill()
             all_dfs[timeframe] = df_daily
             logger.info("突破质量分计算完成并已集成。")
+            # 输出统计信息
+            if 'breakout_quality_score_D' in df_daily.columns:
+                score_series = df_daily['breakout_quality_score_D'].dropna()
+                if not score_series.empty:
+                    logger.info(f"突破质量分统计 - 均值: {score_series.mean():.2f}, 最大值: {score_series.max():.2f}, 最小值: {score_series.min():.2f}")
         else:
             logger.warning("突破质量分计算器返回了None或空DataFrame，未集成。")
         return all_dfs
@@ -1252,10 +1553,8 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             logger.warning(f"计算 OCH 失败：缺少日线数据。")
             return all_dfs
-
         df = all_dfs[timeframe]
         df_index = df.index
-
         # 辅助函数：安全获取 Series，缺失补默认值，确保 float32
         def _get_safe_series_local(col_name, default_val=0.0):
             if col_name not in df.columns:
@@ -1263,12 +1562,10 @@ class FeatureEngineeringService:
                 # print(f"调试信息: OCH计算缺少列: {col_name}，使用默认值 {default_val}。")
                 return pd.Series(default_val, index=df_index, dtype=np.float32)
             return df[col_name].fillna(default_val).astype(np.float32)
-
         # --- 情境自适应调制器 ---
         volatility_context = _get_safe_series_local('VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
         sentiment_context = _get_safe_series_local('market_sentiment_score_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
         entropy_context = _get_safe_series_local('price_volume_entropy_D', 0.0).rolling(21).mean().fillna(0).astype(np.float32)
-
         # 融合函数：非线性融合 + Numba 优化
         def _nonlinear_fusion(scores_dict: Dict[str, pd.Series], weights_dict: Dict[str, float], volatility_mod: pd.Series, sentiment_mod: pd.Series, entropy_mod: pd.Series) -> pd.Series:
             score_arrays = []
@@ -1277,7 +1574,6 @@ class FeatureEngineeringService:
                 score_series = scores_dict.get(score_name, pd.Series(0.0, index=df_index, dtype=np.float32))
                 score_arrays.append(score_series.values)
                 weight_arrays.append(np.full_like(score_series.values, weight, dtype=np.float32))
-            
             # 调用 Numba 优化核心函数 (确保该函数已在文件头部导入或定义)
             fused_score_values = _numba_nonlinear_fusion_core(
                 score_arrays,
@@ -1287,23 +1583,19 @@ class FeatureEngineeringService:
                 entropy_mod.values
             )
             return pd.Series(fused_score_values, index=df_index, dtype=np.float32)
-
         # --- 1. 筹码集中度与结构优化 ---
         cost_gini = _get_safe_series_local('cost_gini_coefficient_D', 0.5)
         peak_kurtosis = _get_safe_series_local('primary_peak_kurtosis_D', 3.0)
         peak_solidity = _get_safe_series_local('dominant_peak_solidity_D', 0.5)
         peak_volume_ratio = _get_safe_series_local('dominant_peak_volume_ratio_D', 0.5)
         chip_fault = _get_safe_series_local('chip_fault_blockage_ratio_D', 0.0)
-
         concentration_health = (1 - cost_gini).clip(0, 1)
         normalized_kurtosis = peak_kurtosis.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5).astype(np.float32)
         peak_quality = (peak_solidity * peak_volume_ratio * normalized_kurtosis).clip(0, 1)
         blockage_penalty = (1 - chip_fault)
-
         concentration_scores = {'concentration_health': concentration_health, 'peak_quality': peak_quality, 'blockage_penalty': blockage_penalty}
         concentration_weights = {'concentration_health': 0.5, 'peak_quality': 0.4, 'blockage_penalty': 0.1}
         concentration_score = _nonlinear_fusion(concentration_scores, concentration_weights, volatility_context, sentiment_context, entropy_context)
-
         # --- 2. 成本与盈亏结构动态 ---
         total_winner_rate = _get_safe_series_local('total_winner_rate_D', 0.5)
         total_loser_rate = _get_safe_series_local('total_loser_rate_D', 0.5)
@@ -1313,23 +1605,19 @@ class FeatureEngineeringService:
         mf_cost_advantage = _get_safe_series_local('main_force_cost_advantage_D', 0.0)
         imminent_profit_taking = _get_safe_series_local('profit_taking_flow_ratio_D', 0.0)
         loser_capitulation_pressure = _get_safe_series_local('loser_pain_index_D', 0.0)
-
         profit_pressure = total_winner_rate * winner_profit_margin * (_get_safe_series_local('rally_sell_distribution_intensity_D', 0.0) + imminent_profit_taking).clip(0,1)
         loser_support = total_loser_rate * loser_loss_margin * (1 - loser_capitulation_pressure) + \
                         _get_safe_series_local('dip_buy_absorption_strength_D', 0.0) * 0.5 + \
                         _get_safe_series_local('panic_buy_absorption_contribution_D', 0.0) * 0.5
         cost_advantage_score = (mf_cost_advantage - cost_divergence).clip(-1, 1)
-
         cost_structure_scores = {'loser_support': loser_support, 'cost_advantage_score': cost_advantage_score, 'profit_pressure': profit_pressure}
         cost_structure_weights = {'loser_support': 0.4, 'cost_advantage_score': 0.4, 'profit_pressure': -0.2}
         cost_structure_score = _nonlinear_fusion(cost_structure_scores, cost_structure_weights, volatility_context, sentiment_context, entropy_context)
-
         # --- 3. 持股心态与交易行为 ---
         winner_conviction = _get_safe_series_local('winner_stability_index_D', 0.0)
         chip_fatigue = _get_safe_series_local('chip_fatigue_index_D', 0.0)
         locked_profit = _get_safe_series_local('winner_stability_index_D', 0.0)
         locked_loss = 1.0 - _get_safe_series_local('capitulation_flow_ratio_D', 0.0)
-
         buy_side_absorption_composite = (
             _get_safe_series_local('capitulation_absorption_index_D', 0.0) * 0.2 +
             _get_safe_series_local('active_buying_support_D', 0.0) * 0.1 +
@@ -1344,7 +1632,6 @@ class FeatureEngineeringService:
             _get_safe_series_local('buy_order_book_clearing_rate_D', 0.0) * 0.05 +
             _get_safe_series_local('vwap_buy_control_strength_D', 0.0) * 0.05
         ).clip(0, 1)
-
         sell_side_pressure_composite = (
             _get_safe_series_local('active_selling_pressure_D', 0.0) * 0.1 +
             _get_safe_series_local('rally_sell_distribution_intensity_D', 0.0) * 0.1 +
@@ -1359,12 +1646,10 @@ class FeatureEngineeringService:
             _get_safe_series_local('sell_order_book_clearing_rate_D', 0.0) * 0.05 +
             _get_safe_series_local('vwap_sell_control_strength_D', 0.0) * 0.05
         ).clip(0, 1)
-
         combat_intensity = _get_safe_series_local('mf_retail_battle_intensity_D', 0.0)
         conviction_lock_score = (winner_conviction + locked_profit - chip_fatigue - locked_loss).clip(-1, 1)
         absorption_support_score = (buy_side_absorption_composite - sell_side_pressure_composite).clip(-1, 1)
         wash_trade_penalty = (_get_safe_series_local('wash_trade_buy_volume_D', 0.0) + _get_safe_series_local('wash_trade_sell_volume_D', 0.0)).clip(0, 1) * 0.1
-
         sentiment_scores = {
             'conviction_lock_score': (conviction_lock_score + 1) / 2,
             'absorption_support_score': (absorption_support_score + 1) / 2,
@@ -1373,12 +1658,10 @@ class FeatureEngineeringService:
         }
         sentiment_weights = {'conviction_lock_score': 0.4, 'absorption_support_score': 0.4, 'combat_intensity': 0.2, 'wash_trade_penalty': -0.1}
         sentiment_score = _nonlinear_fusion(sentiment_scores, sentiment_weights, volatility_context, sentiment_context, entropy_context)
-
         # --- 4. 主力控盘与意图 ---
         mf_control_leverage = _get_safe_series_local('control_solidity_index_D', 0.0)
         mf_on_peak_flow_composite = (_get_safe_series_local('main_force_on_peak_buy_flow_D', 0.0) - _get_safe_series_local('main_force_on_peak_sell_flow_D', 0.0))
         mf_on_peak_flow_normalized = (mf_on_peak_flow_composite.rank(pct=True) * 2 - 1).clip(0, 1).astype(np.float32)
-
         mf_intent_composite = (
             _get_safe_series_local('main_force_flow_directionality_D', 0.0) * 0.2 +
             (_get_safe_series_local('main_force_buy_execution_alpha_D', 0.0) - _get_safe_series_local('main_force_sell_execution_alpha_D', 0.0)) * 0.2 +
@@ -1388,20 +1671,16 @@ class FeatureEngineeringService:
             (_get_safe_series_local('main_force_t0_buy_efficiency_D', 0.0) - _get_safe_series_local('main_force_t0_sell_efficiency_D', 0.0)) * 0.1 +
             (_get_safe_series_local('buy_flow_efficiency_index_D', 0.0) - _get_safe_series_local('sell_flow_efficiency_index_D', 0.0)) * 0.1
         ).clip(-1, 1)
-
         mf_vpoc_premium = _get_safe_series_local('mf_vpoc_premium_D', 0.0)
         vwap_control_composite = (_get_safe_series_local('vwap_buy_control_strength_D', 0.0) - _get_safe_series_local('vwap_sell_control_strength_D', 0.0))
         control_strength = mf_control_leverage * ((vwap_control_composite + 1) / 2)
         mf_cost_advantage_final = (mf_vpoc_premium + 1) / 2
-
         turnover_rate_f = _get_safe_series_local('turnover_rate_f_D', 0.0)
         turnover_health = pd.Series(1.0, index=df_index, dtype=np.float32)
         turnover_health[turnover_rate_f < 2] = turnover_rate_f[turnover_rate_f < 2] / 2
         turnover_health[turnover_rate_f > 15] = 1 - (turnover_rate_f[turnover_rate_f > 15] - 15) / 10
         turnover_health = turnover_health.clip(0, 1)
-
         distribution_penalty = (_get_safe_series_local('covert_distribution_signal_D', 0.0) + _get_safe_series_local('supportive_distribution_intensity_D', 0.0)).clip(0, 1) * 0.1
-
         main_force_scores = {
             'control_strength': control_strength, 'mf_on_peak_flow_normalized': mf_on_peak_flow_normalized, 'mf_intent_composite': (mf_intent_composite + 1) / 2,
             'mf_cost_advantage_final': mf_cost_advantage_final, 'turnover_health': turnover_health, 'distribution_penalty': distribution_penalty
@@ -1411,20 +1690,15 @@ class FeatureEngineeringService:
             'mf_cost_advantage_final': 0.1, 'turnover_health': 0.1, 'distribution_penalty': -0.1
         }
         main_force_score = _nonlinear_fusion(main_force_scores, main_force_weights, volatility_context, sentiment_context, entropy_context)
-
         # --- 最终 OCH_D 融合 ---
         och_scores = {'concentration_score': concentration_score, 'cost_structure_score': cost_structure_score, 'sentiment_score': sentiment_score, 'main_force_score': main_force_score}
         och_weights = {'concentration_score': 0.25, 'cost_structure_score': 0.25, 'sentiment_score': 0.25, 'main_force_score': 0.25}
-        
         och_score = _nonlinear_fusion(och_scores, och_weights, volatility_context, sentiment_context, entropy_context) * 2 - 1
-
         # 【核心逻辑】直接在原 DataFrame 上赋值，确保不会丢失其他列 (如 close_D)
         df['OCH_D'] = och_score.astype(np.float32)
-        
         # 调试输出（可选）
         if 'close_D' not in df.columns:
             logger.error("严重错误：计算 OCH 后 close_D 丢失！请检查是否有其他过滤器。")
-        
         all_dfs[timeframe] = df
         logger.info("OCH 指标计算完成。")
         return all_dfs

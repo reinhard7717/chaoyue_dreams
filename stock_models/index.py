@@ -153,7 +153,7 @@ class TradeCalendar(models.Model):
         :return: 如果是交易日则返回 True，否则返回 False。
         """
         check_date = None
-        # 修改代码行: 修正类型判断
+        # 修正类型判断
         if isinstance(date_to_check, datetime.datetime):
             check_date = date_to_check.date()
         elif isinstance(date_to_check, datetime.date):

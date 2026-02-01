@@ -25,6 +25,7 @@ from core.constants import TimeLevel
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
+from dao_manager.tushare_daos.factor_dao import FactorDao
 from utils.cache_manager import CacheManager
 from utils.math_tools import hurst_exponent
 from strategies.trend_following.utils import _numba_calculate_zscore_core
@@ -47,8 +48,9 @@ class IndicatorService:
     """
     def __init__(self, cache_manager_instance: CacheManager):
         """
-        【V8.1 依赖注入版】初始化 IndicatorService。
+        【V8.2 因子服务升级版】初始化 IndicatorService。
         - 接收 CacheManager 实例，并将其注入所有内部创建的DAO。
+        - 新增 FactorDao 初始化，用于获取新版资金流向和筹码因子。
         """
         # 将 cache_manager_instance 传递给所有DAO的构造函数
         self.indicator_dao = IndicatorDAO(cache_manager_instance)
@@ -58,6 +60,7 @@ class IndicatorService:
         self.index_dao = IndexBasicDAO(cache_manager_instance)
         self.strategies_dao = StrategiesDAO(cache_manager_instance)
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
+        self.factor_dao = FactorDao()
         # 专业服务层
         self.calculator = IndicatorCalculator()
         self.feature_service = FeatureEngineeringService(self.calculator) # 注入 self.calculator
@@ -349,8 +352,6 @@ class IndicatorService:
         bqs_params = indicators_config.get('breakout_quality_score', {})
         if bqs_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_breakout_quality(all_dfs, bqs_params)
-        # 【元特征计算】
-        all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
         # 【均线势能计算】
         ma_potential_params = indicators_config.get('ma_potential_metrics', {})
         if ma_potential_params.get('enabled', False):
@@ -487,20 +488,13 @@ class IndicatorService:
                 df_supp_std.rename(columns={'total_mv_D': 'total_market_value_D'}, inplace=True)
         return df_supp_std
 
-    async def _prepare_base_data_and_indicators(
-        self,
-        stock_code: str,
-        config: dict,
-        trade_time: Optional[str] = None,
-        latest_only: bool = False
-    ) -> Dict[str, pd.DataFrame]:
+    async def _prepare_base_data_and_indicators(self, stock_code: str, config: dict, trade_time: Optional[str] = None, latest_only: bool = False) -> Dict[str, pd.DataFrame]:
         """
-        【V8.6 · 分钟线动态扩容版】
-        为策略准备数据的统一入口，彻底重构数据合并和命名规则。
-        - 核心修复: 针对分钟线数据（如60min, 1min），自动根据A股交易时间（240分钟/天）计算所需的条数，
-                  解决了直接使用日线条数导致分钟线时间跨度严重不足的问题。
+        【V8.8 · 因子体系重构版】
+        为策略准备数据的统一入口，已切换至 FactorDao 获取新版资金与筹码因子。
+        - 核心升级: 替换原有的 AdvancedFundFlow 和 AdvancedChips 调用，转为调用 FactorDao 的 ChipFactor, FundFlowFactor 和 ChipHoldingMatrix。
+        - 字段同步: priority_supp_cols 已更新为新版因子模型的所有字段，确保数据合并时优先保留这些高精度指标。
         - 统一命名: 所有日线数据列名统一以 `_D` 结尾。
-        - 迭代合并: 逐个合并补充 DataFrame，明确处理列名冲突。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -531,23 +525,16 @@ class IndicatorService:
         # --- 步骤 1: 并发获取所有原始数据 ---
         tasks = []
         # OHLCV 数据
-        # 修改：增加 limit 参数，允许针对不同周期动态调整获取条数
         async def _fetch_and_tag_ohlcv_data(tf_to_fetch, trade_time_str, limit):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, limit, trade_time_str)
             return (tf_to_fetch, df)
         for tf in base_tfs_to_fetch:
-            # 【动态计算分钟线条数】
-            # A股每天交易240分钟。如果base_needed_bars是天数，则分钟线需要相应放大。
             current_limit = base_needed_bars
-            if tf.isdigit(): # 分钟线
+            if tf.isdigit(): # 分钟线动态扩容
                 try:
                     tf_minutes = int(tf)
-                    # 计算倍数：每天240分钟 / 当前周期分钟数
-                    # 例如：60分钟线 -> 240/60 = 4倍；1分钟线 -> 240/1 = 240倍
                     multiplier = 240 / tf_minutes
-                    # 加上1.2倍的安全冗余，确保覆盖足够的天数
                     current_limit = int(base_needed_bars * multiplier * 1.2)
-                    # 设置一个合理的上限，防止请求过多数据（例如上限50000条）
                     current_limit = min(current_limit, 50000)
                     logger.info(f"[{stock_code}] 分钟周期 '{tf}' 动态调整获取条数: {base_needed_bars} (基准) -> {current_limit} (扩容)")
                 except ValueError:
@@ -556,15 +543,17 @@ class IndicatorService:
         # 补充数据 (各种高级指标和基本面数据)
         trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
         trade_time_dt_date = trade_time_dt.date() if trade_time_dt else datetime.datetime.now().date()
-        # 修改代码块：将 DAO 异步调用封装在返回 (tag, result_df) 元组的辅助函数中
+        # 1. 传统补充数据 (FundFlow & Chips Legacy)
         async def _fetch_legacy_supplemental_tagged():
             df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, base_needed_bars)
             return ('legacy_supplemental', df)
         tasks.append(_fetch_legacy_supplemental_tagged())
+        # 2. 每日基本面
         async def _fetch_daily_basic_tagged():
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, base_needed_bars)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged())
+        # 3. 资金流 (THS/DC/Tushare)
         async def _fetch_fund_flow_ths_tagged():
             df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('fund_flow_ths', df)
@@ -577,19 +566,22 @@ class IndicatorService:
             df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('fund_flow_tushare', df)
         tasks.append(_fetch_fund_flow_tushare_tagged())
-        async def _fetch_advanced_fund_flow_tagged():
-            df = await self.fund_flow_dao.get_advanced_fund_flow_metrics_data(stock_code, trade_time_dt_date, base_needed_bars)
-            return ('advanced_fund_flow', df)
-        tasks.append(_fetch_advanced_fund_flow_tagged())
-        # get_price_limit_data 应该通过 self.stock_trade_dao 实例调用
+        # 4. 【替换】新版资金流向因子 (FundFlowFactor)
+        async def _fetch_fund_flow_factor_tagged():
+            df = await self.factor_dao.get_fund_flow_factor_data(stock_code, trade_time_dt_date, base_needed_bars)
+            return ('fund_flow_factor', df)
+        tasks.append(_fetch_fund_flow_factor_tagged())
+        # 5. 涨跌停数据
         async def _fetch_price_limit_tagged():
             df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, base_needed_bars)
             return ('price_limit', df)
         tasks.append(_fetch_price_limit_tagged())
+        # 6. 高级结构与行为指标 (AdvancedStructuralMetrics) - 保持不变
         async def _fetch_advanced_structural_metrics_tagged():
             df = await self.strategies_dao.get_advanced_structural_metrics_data(stock_code, trade_time_dt, base_needed_bars)
             return ('advanced_structural_metrics', df)
         tasks.append(_fetch_advanced_structural_metrics_tagged())
+        # 7. 几何形态特征 (Platform/Trendline)
         async def _fetch_platform_feature_tagged():
             df = await self.strategies_dao.get_platform_feature_data(stock_code, trade_time_dt, base_needed_bars)
             return ('platform_feature', df)
@@ -602,10 +594,16 @@ class IndicatorService:
             df = await self.strategies_dao.get_multi_timeframe_trendline_data(stock_code, trade_time_dt, base_needed_bars)
             return ('multi_timeframe_trendline', df)
         tasks.append(_fetch_multi_timeframe_trendline_tagged())
-        async def _fetch_advanced_chips_tagged():
-            df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, base_needed_bars)
-            return ('advanced_chips', df)
-        tasks.append(_fetch_advanced_chips_tagged())
+        # 8. 【替换】新版筹码因子 (ChipFactor)
+        async def _fetch_chip_factor_tagged():
+            df = await self.factor_dao.get_chip_factor_data(stock_code, trade_time_dt_date, base_needed_bars)
+            return ('chip_factor', df)
+        tasks.append(_fetch_chip_factor_tagged())
+        # 9. 【新增】筹码持有矩阵 (ChipHoldingMatrix)
+        async def _fetch_chip_holding_matrix_tagged():
+            df = await self.factor_dao.get_chip_holding_matrix_data(stock_code, trade_time_dt_date, base_needed_bars)
+            return ('chip_holding_matrix', df)
+        tasks.append(_fetch_chip_holding_matrix_tagged())
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
         raw_dfs: Dict[str, pd.DataFrame] = {}
         supplemental_dfs: Dict[str, pd.DataFrame] = {}
@@ -613,19 +611,17 @@ class IndicatorService:
             if isinstance(result, Exception):
                 print(f"      -> 警告: 一个数据获取任务失败: {result}")
                 continue
-            # 直接解包 (tag, data) 元组
             if isinstance(result, tuple) and len(result) == 2:
                 tag, data = result
             else:
-                continue # Skip unexpected results
+                continue
             if isinstance(data, pd.DataFrame) and not data.empty:
-                # Convert object columns to numeric where possible
                 object_cols = data.select_dtypes(include=['object']).columns
                 for col in object_cols:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
                 if tag in ['legacy_supplemental', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare',
-                           'advanced_fund_flow', 'price_limit', 'advanced_structural_metrics', 'platform_feature',
-                           'trendline_feature', 'multi_timeframe_trendline', 'advanced_chips']:
+                           'fund_flow_factor', 'price_limit', 'advanced_structural_metrics', 'platform_feature',
+                           'trendline_feature', 'multi_timeframe_trendline', 'chip_factor', 'chip_holding_matrix']:
                     supplemental_dfs[tag] = data
                 else:
                     raw_dfs[tag] = data
@@ -633,115 +629,68 @@ class IndicatorService:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
         # --- 步骤 2: 初始化 df_daily_master (OHLCV 日线数据) ---
-        # 【修复】使用 copy() 断开引用，防止 inplace 修改影响 raw_dfs，同时避免 chained assignment 警告
         df_daily_master = raw_dfs['D'].copy()
-        # 【修复】强制清理列名空格，防止 'close ' 等隐形字符导致重命名匹配失败
         df_daily_master.columns = df_daily_master.columns.str.strip()
         df_daily_master.index = df_daily_master.index.normalize()
-        # 删除重复的索引行，保留最后一条
         if df_daily_master.index.duplicated().any():
-            print(f"调试信息: 日线数据中发现重复索引，已删除重复项，保留最后一条。重复数量: {df_daily_master.index.duplicated().sum()}")
             df_daily_master = df_daily_master[~df_daily_master.index.duplicated(keep='last')]
-        # 为核心 OHLCV 列添加 _D 后缀
-        # 添加 'pct_change' 和 'pre_close' 到 ohlcv_cols，确保它们也被标准化
         ohlcv_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pct_change', 'pre_close']
-        # 【修复】构建重命名映射，确保只重命名尚未带后缀的列
         rename_ohlcv_map = {}
         for col in ohlcv_cols:
             if col in df_daily_master.columns and not col.endswith('_D'):
                  rename_ohlcv_map[col] = f"{col}_D"
-        # 【修复】使用显式赋值而非 inplace，确保重命名操作绝对生效
         if rename_ohlcv_map:
             df_daily_master = df_daily_master.rename(columns=rename_ohlcv_map)
-        # 【防御性检查】再次确认 close_D 是否存在，如果因任何原因上述逻辑漏掉了 close，强制重命名
         if 'close' in df_daily_master.columns and 'close_D' not in df_daily_master.columns:
              df_daily_master = df_daily_master.rename(columns={'close': 'close_D'})
-        # 【修复】定义 OHLCV 核心列，基于实际重命名后的列名生成，确保准确性
-        # 这些列在后续合并时应始终优先保留 df_daily_master 中的值
         ohlcv_core_cols = set()
         for col in df_daily_master.columns:
-            # 检查是否以 _D 结尾，且去除后缀后的名称在核心列表中
             if col.endswith('_D'):
                 base_name = col[:-2]
                 if base_name in ohlcv_cols:
                     ohlcv_core_cols.add(col)
         # --- 步骤 3: 逐个处理并合并补充数据 ---
-        all_merged_cols_for_ffill = set() # 收集所有新合并进来的列，用于后续 ffill
-        # 定义优先级列：这些列如果来自补充数据，则优先保留补充数据的值
-        # 这是一个综合了所有高级指标模型字段的列表，确保它们在冲突时优先
+        all_merged_cols_for_ffill = set()
+        # 定义优先级列：更新为新版因子模型的所有字段
         priority_supp_cols = set([
-            # StockDailyBasic (after renaming total_mv)
+            # StockDailyBasic
             'turnover_rate_D', 'turnover_rate_f_D', 'volume_ratio_D', 'pe_ttm_D', 'pb_D',
             'total_market_value_D', 'circ_mv_D',
-            # StockCyqPerf (after renaming)
-            'his_low_D', 'his_high_D', 'cost_5pct_D', 'cost_15pct_D', 'cost_50pct_D',
-            'cost_85pct_D', 'cost_95pct_D', 'weight_avg_D', 'winner_rate_D',
-            # FundFlow (Tushare, THS, DC) - assuming all columns are unique or handled by specific logic
-            # AdvancedChipMetrics (all CORE_METRICS, suffixed)
-            'structural_node_count_D', 'primary_peak_kurtosis_D', 'cost_gini_coefficient_D', 'structural_tension_index_D',
-            'structural_leverage_D', 'vacuum_zone_magnitude_D', 'winner_stability_index_D', 'dominant_peak_cost_D',
-            'dominant_peak_volume_ratio_D', 'dominant_peak_profit_margin_D', 'dominant_peak_solidity_D',
-            'secondary_peak_cost_D', 'peak_separation_ratio_D', 'winner_concentration_90pct_D',
-            'loser_concentration_90pct_D', 'chip_fault_magnitude_D', 'chip_fault_blockage_ratio_D',
-            'total_winner_rate_D', 'total_loser_rate_D', 'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
-            'loser_pain_index_D', 'structural_potential_score_D', 'cost_structure_skewness_D', 'price_volume_entropy_D',
-            'impulse_quality_ratio_D', 'upward_impulse_strength_D', 'downward_impulse_strength_D', 'peak_control_transfer_D',
-            'support_validation_strength_D', 'pressure_rejection_strength_D', 'vacuum_traversal_efficiency_D',
-            'intraday_posture_score_D', 'floating_chip_cleansing_efficiency_D', 'active_selling_pressure_D',
-            'active_buying_support_D', 'upward_impulse_purity_D', 'opening_gap_defense_strength_D',
-            'profit_realization_quality_D', 'capitulation_absorption_index_D', 'peak_mass_transfer_rate_D',
-            'conviction_flow_index_D', 'conviction_flow_buy_intensity_D', 'conviction_flow_sell_intensity_D',
-            'constructive_turnover_ratio_D', 'structural_entropy_change_D', 'main_force_flow_gini_D',
-            'gathering_by_support_D', 'gathering_by_chasing_D', 'dispersal_by_distribution_D',
-            'dispersal_by_capitulation_D', 'profit_taking_flow_ratio_D', 'capitulation_flow_ratio_D',
-            'winner_loser_momentum_D', 'chip_fatigue_index_D', 'strategic_phase_score_D', 'deception_index_D',
-            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D', 'control_solidity_index_D',
-            'exhaustion_risk_index_D', 'breakout_readiness_score_D', 'mf_cost_zone_defense_intent_D',
-            'mf_cost_zone_buy_intent_D', 'mf_cost_zone_sell_intent_D', 'main_force_cost_advantage_D',
-            'chip_health_score_D', 'auction_intent_signal_D', 'auction_closing_position_D',
-            'peak_exchange_purity_D', 'pressure_validation_score_D', 'support_validation_score_D',
-            'covert_accumulation_signal_D', 'covert_distribution_signal_D', 'suppressive_accumulation_intensity_D',
-            'supportive_distribution_intensity_D', 'signal_conviction_score_D', 'risk_reward_profile_D',
-            'trend_vitality_index_D', 'overall_t1_rating_D', 'distribution_at_peak_intensity_D',
-            'absorption_at_peak_intensity_D', 'breakthrough_of_peak_quality_D', 'defense_of_peak_quality_D',
-            # AdvancedFundFlowMetrics (all CORE_METRICS, suffixed)
-            'net_flow_calibrated_D', 'total_buy_amount_calibrated_D', 'total_sell_amount_calibrated_D',
-            'main_force_net_flow_calibrated_D', 'main_force_buy_amount_calibrated_D', 'main_force_sell_amount_calibrated_D',
-            'retail_net_flow_calibrated_D', 'retail_buy_amount_calibrated_D', 'retail_sell_amount_calibrated_D',
-            'net_xl_amount_calibrated_D', 'buy_elg_amount_calibrated_D', 'sell_elg_amount_calibrated_D',
-            'net_lg_amount_calibrated_D', 'buy_lg_amount_calibrated_D', 'sell_lg_amount_calibrated_D',
-            'net_md_amount_calibrated_D', 'buy_md_amount_calibrated_D', 'sell_md_amount_calibrated_D',
-            'net_sh_amount_calibrated_D', 'buy_sm_amount_calibrated_D', 'sell_sm_amount_calibrated_D',
-            'flow_credibility_index_D', 'mf_retail_battle_intensity_D', 'main_force_activity_ratio_D',
-            'main_force_flow_directionality_D', 'main_force_conviction_index_D', 'main_force_posture_index_D',
-            'observed_large_order_size_avg_D', 'retail_flow_dominance_index_D', 'main_force_slippage_index_D',
-            'dip_absorption_power_D', 'dip_buy_absorption_strength_D', 'dip_sell_pressure_resistance_D',
-            'rally_distribution_pressure_D', 'rally_sell_distribution_intensity_D', 'rally_buy_support_weakness_D',
-            'panic_selling_cascade_D', 'panic_sell_volume_contribution_D', 'panic_buy_absorption_contribution_D',
-            'opening_battle_result_D', 'opening_buy_strength_D', 'opening_sell_strength_D',
-            'pre_closing_posturing_D', 'pre_closing_buy_posture_D', 'pre_closing_sell_posture_D',
-            'closing_auction_ambush_D', 'closing_auction_buy_ambush_D', 'closing_auction_sell_ambush_D',
-            'main_force_execution_alpha_D', 'main_force_buy_execution_alpha_D', 'main_force_sell_execution_alpha_D',
-            'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'main_force_t0_efficiency_D',
-            'main_force_t0_buy_efficiency_D', 'main_force_t0_sell_efficiency_D', 'vwap_structure_skew_D',
-            'flow_efficiency_index_D', 'buy_flow_efficiency_index_D', 'sell_flow_efficiency_index_D',
-            'micro_price_impact_asymmetry_D', 'order_book_clearing_rate_D', 'buy_order_book_clearing_rate_D',
-            'sell_order_book_clearing_rate_D', 'vwap_control_strength_D', 'vwap_buy_control_strength_D',
-            'vwap_sell_control_strength_D', 'main_force_vwap_guidance_D', 'main_force_vwap_up_guidance_D',
-            'main_force_vwap_down_guidance_D', 'vwap_crossing_intensity_D', 'vwap_cross_up_intensity_D',
-            'vwap_cross_down_intensity_D', 'upper_shadow_selling_pressure_D', 'lower_shadow_absorption_strength_D',
-            'trend_alignment_index_D', 'reversal_power_index_D', 'holistic_cmf_D', 'main_force_cmf_D',
-            'cmf_divergence_score_D', 'main_force_vpoc_D', 'mf_vpoc_premium_D', 'main_force_on_peak_flow_D',
-            'main_force_on_peak_buy_flow_D', 'main_force_on_peak_sell_flow_D', 'flow_temperature_premium_D',
-            'mf_retail_liquidity_swap_corr_D', 'main_force_ofi_D', 'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
-            'retail_ofi_D', 'retail_buy_ofi_D', 'retail_sell_ofi_D', 'microstructure_efficiency_index_D',
-            'hidden_accumulation_intensity_D', 'wash_trade_intensity_D', 'wash_trade_buy_volume_D', 'wash_trade_sell_volume_D',
-            'order_book_imbalance_D', 'bid_side_liquidity_D', 'ask_side_liquidity_D', 'large_order_pressure_D',
-            'large_order_support_D', 'order_book_liquidity_supply_D', 'buy_quote_exhaustion_rate_D',
-            'sell_quote_exhaustion_rate_D', 'imbalance_effectiveness_D', 'volatility_asymmetry_index_D',
-            'closing_strength_index_D', 'micro_impact_elasticity_D', 'price_reversion_velocity_D',
-            'asymmetric_friction_index_D',
-            # AdvancedStructuralMetrics (all CORE_METRICS, suffixed)
+            # ChipFactor (新版筹码因子)
+            'price_to_weight_avg_ratio_D', 'chip_concentration_ratio_D', 'chip_stability_D', 'profit_pressure_D',
+            'profit_ratio_D', 'chip_entropy_D', 'chip_skewness_D', 'chip_kurtosis_D', 'winner_rate_D',
+            'win_rate_price_position_D', 'cost_5pct_D', 'cost_15pct_D', 'cost_50pct_D', 'cost_85pct_D', 'cost_95pct_D',
+            'price_to_ma5_ratio_D', 'price_to_ma21_ratio_D', 'price_to_ma34_ratio_D', 'price_to_ma55_ratio_D',
+            'ma_arrangement_status_D', 'chip_cost_to_ma21_diff_D', 'peak_count_D', 'main_peak_position_D',
+            'peak_distance_ratio_D', 'peak_concentration_D', 'is_double_peak_D', 'is_multi_peak_D',
+            'chip_convergence_ratio_D', 'chip_divergence_ratio_D', 'chip_flow_direction_D', 'chip_flow_intensity_D',
+            'high_position_lock_ratio_90_D', 'main_cost_range_ratio_D', 'long_term_chip_ratio_D', 'short_term_chip_ratio_D',
+            'trend_confirmation_score_D', 'reversal_warning_score_D', 'percent_change_convergence_D',
+            'percent_change_divergence_D', 'absolute_change_strength_D', 'accumulation_signal_score_D',
+            'distribution_signal_score_D', 'main_force_activity_index_D', 'net_migration_direction_D',
+            'migration_convergence_ratio_D', 'signal_quality_score_D', 'behavior_confirmation_D',
+            'pressure_release_index_D', 'support_resistance_ratio_D',
+            # ChipHoldingMatrix (新版筹码持有矩阵)
+            'short_term_ratio_D', 'mid_term_ratio_D', 'long_term_ratio_D', 'absorption_energy_D',
+            'distribution_energy_D', 'net_energy_flow_D', 'game_intensity_D', 'breakout_potential_D',
+            'energy_concentration_D', 'concentration_comprehensive_D', 'concentration_entropy_D',
+            'concentration_peak_D', 'pressure_trapped_D', 'pressure_profit_D', 'support_strength_D',
+            'resistance_strength_D', 'convergence_comprehensive_D', 'convergence_migration_D',
+            'behavior_accumulation_D', 'behavior_distribution_D', 'behavior_consolidation_D', 'validation_score_D',
+            # FundFlowFactor (新版资金流向因子)
+            'total_net_amount_3d_D', 'total_net_amount_5d_D', 'total_net_amount_10d_D', 'total_net_amount_20d_D',
+            'avg_daily_net_5d_D', 'avg_daily_net_10d_D', 'avg_daily_net_20d_D', 'total_volume_5d_D', 'total_volume_10d_D',
+            'net_amount_ratio_D', 'net_amount_ratio_ma5_D', 'net_amount_ratio_ma10_D', 'flow_intensity_D',
+            'intensity_level_D', 'accumulation_score_D', 'pushing_score_D', 'distribution_score_D', 'shakeout_score_D',
+            'pattern_confidence_D', 'outflow_quality_D', 'inflow_persistence_D', 'large_order_anomaly_D',
+            'anomaly_intensity_D', 'flow_consistency_D', 'flow_stability_D', 'daily_weekly_sync_D',
+            'daily_monthly_sync_D', 'short_mid_sync_D', 'mid_long_sync_D', 'flow_momentum_5d_D', 'flow_momentum_10d_D',
+            'flow_acceleration_D', 'uptrend_strength_D', 'downtrend_strength_D', 'price_flow_divergence_D',
+            'divergence_strength_D', 'flow_peak_value_D', 'days_since_last_peak_D', 'flow_support_level_D',
+            'flow_resistance_level_D', 'flow_zscore_D', 'flow_percentile_D', 'flow_volatility_10d_D',
+            'flow_volatility_20d_D', 'expected_flow_next_1d_D', 'flow_forecast_confidence_D',
+            'uptrend_continuation_prob_D', 'reversal_prob_D', 'comprehensive_score_D', 'signal_strength_D',
+            # AdvancedStructuralMetrics (保持不变)
             'intraday_energy_density_D', 'intraday_thrust_purity_D', 'volume_burstiness_index_D',
             'auction_impact_score_D', 'dynamic_reversal_strength_D', 'reversal_conviction_rate_D',
             'reversal_recovery_rate_D', 'high_level_consolidation_volume_D', 'opening_period_thrust_D',
@@ -757,16 +706,16 @@ class IndicatorService:
             'equilibrium_compression_index_D', 'order_flow_imbalance_score_D', 'buy_sweep_intensity_D',
             'sell_sweep_intensity_D', 'vpin_score_D', 'vwap_mean_reversion_corr_D', 'market_impact_cost_D',
             'liquidity_slope_D', 'liquidity_authenticity_score_D', 'value_area_migration_D',
-            'value_area_overlap_pct_D', 'closing_acceptance_type_D',
-            # PlatformFeature (after renaming high/low/slope/intercept/validity_score)
+            'value_area_overlap_pct_D', 'closing_acceptance_type_D', 'today_vpoc_D', 'today_vah_D', 'today_val_D',
+            # PlatformFeature
             'duration_D', 'platform_high_D', 'platform_low_D', 'vpoc_D', 'total_volume_D', 'quality_score_D',
             'precise_vpoc_D', 'internal_accumulation_intensity_D', 'breakout_quality_score_D',
             'platform_character_D', 'character_score_D', 'platform_archetype_D',
             'breakout_readiness_score_D', 'goodness_of_fit_score_D', 'platform_conviction_score_D',
-            # TrendlineFeature (after renaming slope/intercept/validity_score)
+            # TrendlineFeature
             'start_date_D', 'end_date_D', 'line_type_D', 'trendline_slope_D', 'trendline_intercept_D',
             'touch_points_D', 'trendline_validity_score_D', 'touch_conviction_score_D',
-            # MultiTimeframeTrendline (after renaming slope/intercept/validity_score)
+            # MultiTimeframeTrendline
             'period_D', 'mtf_line_type_D', 'mtf_trendline_slope_D', 'mtf_trendline_intercept_D',
             'mtf_trendline_validity_score_D', 'trend_conviction_score_D',
             # PriceLimit
@@ -777,53 +726,34 @@ class IndicatorService:
             df_supp_processed = await self._process_supplemental_df(df_supp_raw, tag)
             if df_supp_processed.empty:
                 continue
-            # Perform join with a temporary suffix
             temp_suffix = '_temp_supp'
             df_daily_master = df_daily_master.join(df_supp_processed, how='left', rsuffix=temp_suffix)
-            # Resolve conflicts for common columns
             common_cols = df_daily_master.columns.intersection(df_supp_processed.columns)
             for col in common_cols:
                 temp_col_name = f"{col}{temp_suffix}"
-                if temp_col_name in df_daily_master.columns: # Ensure the temp column was actually created
+                if temp_col_name in df_daily_master.columns:
                     if col in ohlcv_core_cols:
-                        # OHLCV 核心列，始终保留 df_daily_master 中的值，用补充数据填充 NaN
                         df_daily_master[col] = df_daily_master[col].fillna(df_daily_master[temp_col_name])
                     elif col in priority_supp_cols:
-                        # 优先级补充数据列，优先保留补充数据的值，用 df_daily_master 填充 NaN
                         df_daily_master[col] = df_daily_master[temp_col_name].fillna(df_daily_master[col])
                     else:
-                        # 其他冲突列，默认保留 df_daily_master 中的值，用补充数据填充 NaN
                         df_daily_master[col] = df_daily_master[col].fillna(df_daily_master[temp_col_name])
-                    # Drop the temporary column after resolution
                     df_daily_master.drop(columns=[temp_col_name], inplace=True)
-            # Add newly introduced columns from df_supp_processed to the ffill list
-            # 这里的逻辑需要调整，因为 df_supp_processed 已经包含了 _D 后缀
-            # 我们需要收集的是最终合并到 df_daily_master 中的列名
             for col in df_supp_processed.columns:
-                if col not in df_daily_master.columns: # 如果是新列
+                if col not in df_daily_master.columns:
                     all_merged_cols_for_ffill.add(col)
-                elif col in common_cols: # 如果是冲突列，且我们决定保留了补充数据的值
+                elif col in common_cols:
                     if col in priority_supp_cols:
                         all_merged_cols_for_ffill.add(col)
-        # 确保所有预期的补充数据列都存在于 df_daily_master 中
-        # 即使某个补充数据源返回空DataFrame，其对应的列也应存在，并用NaN填充，
-        # 以避免后续依赖这些列的计算（如斜率、加速度）因列缺失而报错。
         for col in priority_supp_cols:
             if col not in df_daily_master.columns:
                 df_daily_master[col] = np.nan
-                # 这些列如果完全是NaN，通常不应该被ffill，因为ffill会向前填充，
-                # 如果整个列都是NaN，ffill不会改变它。
-                # 如果有部分数据，则在前面的合并逻辑中已经添加到all_merged_cols_for_ffill了。
         # --- 4: 统一 ffill 填充 ---
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
         if cols_to_ffill:
             df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
         # --- 5: 计算基础衍生指标 ---
-        # 移除重新计算 pct_change_D 的逻辑，现在直接使用原始数据中的 pct_change_D
-        # if 'close_D' in df_daily_master.columns:
-        #     df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
         raw_dfs['D'] = df_daily_master
-        # Calculate AAA_D and NMFNF_D
         if 'D' in raw_dfs and not raw_dfs['D'].empty:
             temp_dfs = {'D': raw_dfs['D']}
             temp_dfs = await self.feature_service.calculate_aaa_indicator(temp_dfs)
@@ -839,26 +769,22 @@ class IndicatorService:
                     aggregation_rules = {
                         'open_D': 'first', 'high_D': 'max', 'low_D': 'min', 'close_D': 'last', 'volume_D': 'sum'
                     }
-                    # 添加 'pct_change_D' 和 'pre_close_D' 到聚合规则
                     if 'pct_change_D' in df_daily.columns:
-                        aggregation_rules['pct_change_D'] = 'last' # 周/月线的 pct_change 取周期最后一天的
+                        aggregation_rules['pct_change_D'] = 'last'
                     if 'pre_close_D' in df_daily.columns:
-                        aggregation_rules['pre_close_D'] = 'first' # 周/月线的 pre_close 取周期第一天的 pre_close
-                    # 动态为所有已有的 _D 后缀列添加聚合规则
+                        aggregation_rules['pre_close_D'] = 'first'
                     for col in df_daily.columns:
                         if col.endswith('_D') and col not in aggregation_rules:
-                            # 资金流、金额、OCH、NMFNF 等求和，其他取 last
                             if any(keyword in col.lower() for keyword in ['amount', 'vol', 'net', 'flow', 'value', 'och', 'nmfnf', 'total_volume']):
                                 aggregation_rules[col] = 'sum'
-                            elif 'turnover_rate' in col.lower(): # 换手率取平均
+                            elif 'turnover_rate' in col.lower():
                                 aggregation_rules[col] = 'mean'
-                            else: # 其他指标取最后一个值
+                            else:
                                 aggregation_rules[col] = 'last'
                     resample_period = 'W-FRI' if target_tf == 'W' else 'ME'
                     df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
-                    df_resampled.dropna(how='all', inplace=True) # 删除全为NaN的行
+                    df_resampled.dropna(how='all', inplace=True)
                     if not df_resampled.empty:
-                        # 统一重命名列名后缀
                         rename_map_resampled = {col: col.replace('_D', f'_{target_tf}') for col in df_resampled.columns if col.endswith('_D')}
                         df_resampled.rename(columns=rename_map_resampled, inplace=True)
                         if target_tf == 'W':

@@ -23,7 +23,7 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from users.models import FavoriteStock
 from utils.cache_manager import CacheManager
 from stock_models.stock_basic import StockInfo
-# 修改代码行: 引入交易日历模型，并移除不再使用的分钟线模型辅助函数
+# 引入交易日历模型，并移除不再使用的分钟线模型辅助函数
 from stock_models.index import TradeCalendar
 from utils.model_helpers import get_stock_tick_data_model_by_code
 
@@ -38,7 +38,7 @@ def is_trading_time():
     该函数现在会同时检查日期和时间。
     """
     now = datetime.datetime.now()
-    # 新增代码行: 首先检查当天是否为交易日
+    # 首先检查当天是否为交易日
     if not TradeCalendar.is_trade_date(check_date=now.date()):
         return False # 如果不是交易日，则直接返回False
     # 如果是交易日，再继续判断时间是否在交易时段内
@@ -54,7 +54,7 @@ def is_trading_time():
 
 def is_trading_day():
     now = datetime.datetime.now()
-    # 新增代码行: 首先检查当天是否为交易日
+    # 首先检查当天是否为交易日
     if not TradeCalendar.is_trade_date(check_date=now.date()):
         return False # 如果不是交易日，则直接返回False
     return True # 如果是交易日，则返回True
