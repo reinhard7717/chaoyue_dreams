@@ -715,24 +715,6 @@ class IndicatorService:
             df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, base_needed_bars)
             return ('price_limit', df)
         tasks.append(_fetch_price_limit_tagged())
-        # 6. 高级结构与行为指标 (AdvancedStructuralMetrics) - 保持不变
-        async def _fetch_advanced_structural_metrics_tagged():
-            df = await self.strategies_dao.get_advanced_structural_metrics_data(stock_code, trade_time_dt, base_needed_bars)
-            return ('advanced_structural_metrics', df)
-        tasks.append(_fetch_advanced_structural_metrics_tagged())
-        # 7. 几何形态特征 (Platform/Trendline)
-        async def _fetch_platform_feature_tagged():
-            df = await self.strategies_dao.get_platform_feature_data(stock_code, trade_time_dt, base_needed_bars)
-            return ('platform_feature', df)
-        tasks.append(_fetch_platform_feature_tagged())
-        async def _fetch_trendline_feature_tagged():
-            df = await self.strategies_dao.get_trendline_feature_data(stock_code, trade_time_dt, base_needed_bars)
-            return ('trendline_feature', df)
-        tasks.append(_fetch_trendline_feature_tagged())
-        async def _fetch_multi_timeframe_trendline_tagged():
-            df = await self.strategies_dao.get_multi_timeframe_trendline_data(stock_code, trade_time_dt, base_needed_bars)
-            return ('multi_timeframe_trendline', df)
-        tasks.append(_fetch_multi_timeframe_trendline_tagged())
         # 8. 【替换】新版筹码因子 (ChipFactor)
         async def _fetch_chip_factor_tagged():
             df = await self.factor_dao.get_chip_factor_data(stock_code, trade_time_dt_date, base_needed_bars)
