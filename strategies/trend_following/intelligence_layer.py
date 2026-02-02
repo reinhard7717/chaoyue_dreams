@@ -46,17 +46,17 @@ class IntelligenceLayer:
         # 移除所有在此方法内部的import语句
         # 现在所有依赖都在文件顶部导入，可以直接使用
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
-        self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
-        self.foundation_intel = FoundationIntelligence(self.strategy)
-        self.structural_intel = StructuralIntelligence(self.strategy, {})
-        self.chip_intel = ChipIntelligence(self.strategy)
-        self.behavioral_intel = BehavioralIntelligence(self.strategy)
-        self.micro_behavior_engine = MicroBehaviorEngine(self.strategy)
-        self.intraday_behavior_engine = IntradayBehaviorEngine(self.strategy)
-        self.fund_flow_intel = FundFlowIntelligence(self.strategy)
-        self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
-        self.pattern_intel = PatternIntelligence(strategy_instance)
-        self.cyclical_intel = CyclicalIntelligence(self.strategy)
+        # self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
+        # self.foundation_intel = FoundationIntelligence(self.strategy)
+        # self.structural_intel = StructuralIntelligence(self.strategy, {})
+        # self.chip_intel = ChipIntelligence(self.strategy)
+        # self.behavioral_intel = BehavioralIntelligence(self.strategy)
+        # self.micro_behavior_engine = MicroBehaviorEngine(self.strategy)
+        # self.intraday_behavior_engine = IntradayBehaviorEngine(self.strategy)
+        # self.fund_flow_intel = FundFlowIntelligence(self.strategy)
+        # self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
+        # self.pattern_intel = PatternIntelligence(strategy_instance)
+        # self.cyclical_intel = CyclicalIntelligence(self.strategy)
         self.process_intel = ProcessIntelligence(self.strategy)
         self.fusion_intel = FusionIntelligence(self.strategy)
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
@@ -96,22 +96,22 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
-        update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
-        update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
-        update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
+        # update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
+        # update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
+        # update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
         # 重构日内引擎的调用逻辑
-        try:
-            intraday_results = self.intraday_behavior_engine.run_intraday_diagnostics(df)
-            update_states(intraday_results)
-        except Exception as e:
-            print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
-        update_states(self.foundation_intel.run_foundation_analysis_command(df))
-        chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
-        update_states(chip_states_from_intel)
-        update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        update_states(self.structural_intel.diagnose_structural_states(df))
-        update_states(self.mechanics_engine.run_dynamic_analysis_command(df))
-        update_states(self.pattern_intel.run_pattern_analysis_command(df))
+        # try:
+        #     intraday_results = self.intraday_behavior_engine.run_intraday_diagnostics(df)
+        #     update_states(intraday_results)
+        # except Exception as e:
+        #     print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
+        # update_states(self.foundation_intel.run_foundation_analysis_command(df))
+        # chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
+        # update_states(chip_states_from_intel)
+        # update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
+        # update_states(self.structural_intel.diagnose_structural_states(df))
+        # update_states(self.mechanics_engine.run_dynamic_analysis_command(df))
+        # update_states(self.pattern_intel.run_pattern_analysis_command(df))
         # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
         update_states(self.process_intel.run_process_diagnostics(df, task_type_filter=None))
         # --- 阶段三：融合态势情报层 (Fusion & Situational Layer) ---
