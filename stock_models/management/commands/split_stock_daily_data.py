@@ -1,7 +1,7 @@
 # split_stock_daily_data.py
 from django.core.management.base import BaseCommand
 from stock_models.time_trade import (
-    StockDailyData, StockDailyData_SZ, StockDailyData_SH,
+    StockDailyData_SZ, StockDailyData_SH,
     StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
 )
 from django.db import transaction

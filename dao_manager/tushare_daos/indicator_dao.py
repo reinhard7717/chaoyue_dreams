@@ -17,7 +17,7 @@ from core.constants import TimeLevel, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP �
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.industry import ThsIndex, ThsIndexDaily, ThsIndexMember # 导入 ThsIndexMember 模型
-from stock_models.time_trade import IndexDaily, StockDailyBasic, StockDailyData, StockMonthlyData, StockWeeklyData
+from stock_models.time_trade import IndexDaily, StockDailyBasic, StockMonthlyData, StockWeeklyData
 from stock_models.chip import StockCyqPerf
 # 导入资金流向相关模型
 from stock_models.fund_flow import FundFlowCntTHS, FundFlowIndustryTHS
