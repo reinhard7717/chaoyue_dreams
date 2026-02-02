@@ -80,17 +80,17 @@ class IntelligenceLayer:
         self.strategy.playbook_states = {}
         self.strategy.exit_triggers = pd.DataFrame(index=df.index)
         # --- 新增逻辑：前置调试标志的初始化 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        self.probes.should_probe = debug_params.get('enabled', {}).get('value', False)
-        probe_dates_list = debug_params.get('probe_dates')
-        if not probe_dates_list:
-            single_date = debug_params.get('probe_date')
-            if single_date:
-                probe_dates_list = [single_date]
-        if probe_dates_list and isinstance(probe_dates_list, list):
-            self.probes.probe_dates_set = {pd.to_datetime(d).date() for d in probe_dates_list if d}
-        else:
-            self.probes.probe_dates_set = set()
+        # debug_params = get_params_block(self.strategy, 'debug_params', {})
+        # self.probes.should_probe = debug_params.get('enabled', {}).get('value', False)
+        # probe_dates_list = debug_params.get('probe_dates')
+        # if not probe_dates_list:
+        #     single_date = debug_params.get('probe_date')
+        #     if single_date:
+        #         probe_dates_list = [single_date]
+        # if probe_dates_list and isinstance(probe_dates_list, list):
+        #     self.probes.probe_dates_set = {pd.to_datetime(d).date() for d in probe_dates_list if d}
+        # else:
+        #     self.probes.probe_dates_set = set()
         # --- 调试标志初始化结束 ---
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
