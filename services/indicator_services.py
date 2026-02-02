@@ -829,34 +829,6 @@ class IndicatorService:
             'flow_resistance_level_D', 'flow_zscore_D', 'flow_percentile_D', 'flow_volatility_10d_D',
             'flow_volatility_20d_D', 'expected_flow_next_1d_D', 'flow_forecast_confidence_D',
             'uptrend_continuation_prob_D', 'reversal_prob_D', 'comprehensive_score_D', 'signal_strength_D',
-            # AdvancedStructuralMetrics (保持不变)
-            'intraday_energy_density_D', 'intraday_thrust_purity_D', 'volume_burstiness_index_D',
-            'auction_impact_score_D', 'dynamic_reversal_strength_D', 'reversal_conviction_rate_D',
-            'reversal_recovery_rate_D', 'high_level_consolidation_volume_D', 'opening_period_thrust_D',
-            'thrust_purity_ma5_D', 'absorption_strength_ma5_D', 'sweep_intensity_ma5_D', 'vpin_roc3_D',
-            'trend_efficiency_ratio_D', 'pullback_depth_ratio_D', 'mean_reversion_frequency_D',
-            'opening_impulse_efficiency_D', 'midday_narrow_range_gravity_D', 'tail_acceleration_efficiency_D',
-            'closing_conviction_score_D', 'volume_profile_entropy_D', 'intraday_pnl_imbalance_D',
-            'cost_dispersion_index_D', 'trend_asymmetry_index_D', 'active_volume_price_efficiency_D',
-            'breakthrough_cost_index_D', 'defense_cost_index_D', 'thrust_efficiency_score_D',
-            'price_thrust_divergence_D', 'volatility_expansion_ratio_D', 'shock_conviction_score_D',
-            'auction_showdown_score_D', 'trend_acceleration_score_D', 'final_charge_intensity_D',
-            'volume_structure_skew_D', 'breakthrough_conviction_score_D', 'defense_solidity_score_D',
-            'equilibrium_compression_index_D', 'order_flow_imbalance_score_D', 'buy_sweep_intensity_D',
-            'sell_sweep_intensity_D', 'vpin_score_D', 'vwap_mean_reversion_corr_D', 'market_impact_cost_D',
-            'liquidity_slope_D', 'liquidity_authenticity_score_D', 'value_area_migration_D',
-            'value_area_overlap_pct_D', 'closing_acceptance_type_D', 'today_vpoc_D', 'today_vah_D', 'today_val_D',
-            # PlatformFeature
-            'duration_D', 'platform_high_D', 'platform_low_D', 'vpoc_D', 'total_volume_D', 'quality_score_D',
-            'precise_vpoc_D', 'internal_accumulation_intensity_D', 'breakout_quality_score_D',
-            'platform_character_D', 'character_score_D', 'platform_archetype_D',
-            'breakout_readiness_score_D', 'goodness_of_fit_score_D', 'platform_conviction_score_D',
-            # TrendlineFeature
-            'start_date_D', 'end_date_D', 'line_type_D', 'trendline_slope_D', 'trendline_intercept_D',
-            'touch_points_D', 'trendline_validity_score_D', 'touch_conviction_score_D',
-            # MultiTimeframeTrendline
-            'period_D', 'mtf_line_type_D', 'mtf_trendline_slope_D', 'mtf_trendline_intercept_D',
-            'mtf_trendline_validity_score_D', 'trend_conviction_score_D',
             # PriceLimit
             'up_limit_D', 'down_limit_D', 'up_limit_pct_D', 'down_limit_pct_D'
         ])

@@ -13,15 +13,6 @@ from stock_models.time_trade import (
     StockPriceLimit_SZ, StockPriceLimit_SH, StockPriceLimit_CY,StockPriceLimit_KC, StockPriceLimit_BJ,
 )
 from stock_models.chip import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ
-from stock_models.advanced_metrics import (
-    AdvancedChipMetrics_CY, AdvancedChipMetrics_SZ, AdvancedChipMetrics_KC, AdvancedChipMetrics_SH, AdvancedChipMetrics_BJ,
-    AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ,
-    AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_BJ,
-    PlatformFeature_CY, PlatformFeature_SZ, PlatformFeature_KC, PlatformFeature_SH, PlatformFeature_BJ,
-    TrendlineFeature_CY, TrendlineFeature_SZ, TrendlineFeature_KC, TrendlineFeature_SH, TrendlineFeature_BJ,
-    MultiTimeframeTrendline_CY, MultiTimeframeTrendline_SZ, MultiTimeframeTrendline_KC, MultiTimeframeTrendline_SH, MultiTimeframeTrendline_BJ,
-    TrendlineEvent_CY, TrendlineEvent_SZ, TrendlineEvent_KC, TrendlineEvent_SH, TrendlineEvent_BJ
-)
 from stock_models.stock_realtime import (
     StockRealtimeData_SH, StockRealtimeData_SZ, StockRealtimeData_CY, StockRealtimeData_KC, StockRealtimeData_BJ,
     StockLevel5Data_SH, StockLevel5Data_SZ, StockLevel5Data_CY, StockLevel5Data_KC, StockLevel5Data_BJ,
@@ -38,6 +29,9 @@ from stock_models.chip_factors import (
 )
 from stock_models.fundflow_factors import (
     FundFlowFactorCY, FundFlowFactorSZ, FundFlowFactorKC, FundFlowFactorSH, FundFlowFactorBJ
+)
+from stock_models.structural_factors import (
+    StockStructuralFactors_CY, StockStructuralFactors_SZ, StockStructuralFactors_KC, StockStructuralFactors_SH, StockStructuralFactors_BJ
 )
 from typing import Type, Optional, List, Dict
 from datetime import datetime, timezone, date
@@ -415,7 +409,7 @@ def get_stock_level5_data_model_by_code(stock_code: str) -> Optional[Type[models
         print(f"调试信息: 未能为 {stock_code} 找到对应的Level5盘口数据模型。")
         return None
 
-def get_chip_factor_model_by_code(stock_code: str):
+def get_chip_factor_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
     """
     根据股票代码返回对应的筹码因子分表Model
     """
@@ -432,7 +426,7 @@ def get_chip_factor_model_by_code(stock_code: str):
     else:
         return ChipFactorSZ
 
-def get_chip_holding_matrix_model_by_code(stock_code: str):
+def get_chip_holding_matrix_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
     """
     根据股票代码返回对应的筹码持有时间矩阵分表Model
     """
@@ -448,6 +442,23 @@ def get_chip_holding_matrix_model_by_code(stock_code: str):
         return ChipHoldingMatrix_BJ
     else:
         return ChipHoldingMatrix_SZ
+
+def get_structural_factors_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    根据股票代码返回对应的结构因子分表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return StockStructuralFactors_CY
+    elif stock_code.endswith('.SZ'):
+        return StockStructuralFactors_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return StockStructuralFactors_KC
+    elif stock_code.endswith('.SH'):
+        return StockStructuralFactors_SH
+    elif stock_code.endswith('.BJ'):
+        return StockStructuralFactors_BJ
+    else:
+        return StockStructuralFactors_SZ
 
 # 资金流向因子分表模型获取函数
 def get_fundflow_factor_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:

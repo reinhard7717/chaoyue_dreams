@@ -15,9 +15,10 @@ from utils.model_helpers import (
     get_platform_feature_model_by_code,
     get_multi_timeframe_trendline_model_by_code, # 导入新模型辅助函数
     get_trendline_event_model_by_code, # 导入事件模型辅助函数
-    get_advanced_chip_metrics_model_by_code, # 导入高级芯片指标模型辅助函数
-    get_advanced_fund_flow_metrics_model_by_code, # 导入高级资金流指标模型辅助函数
-    get_advanced_structural_metrics_model_by_code, # 导入高级结构性指标模型辅助函数
+    get_chip_factor_model_by_code, # 导入芯片指标模型辅助函数
+    get_fundflow_factor_model_by_code, # 导入资金流指标模型辅助函数
+    get_structural_factors_model_by_code, # 导入结构性指标模型辅助函数
+    get_chip_holding_matrix_model_by_code, # 导入芯片持仓矩阵模型辅助函数
 )
 
 @numba.njit(cache=True)
@@ -187,9 +188,10 @@ class GeometricPatternService:
         self.mtt_model = get_multi_timeframe_trendline_model_by_code(stock_code)
         self.event_model = get_trendline_event_model_by_code(stock_code)
         self.flag_predictor_model = self._load_predictor_model()
-        self.chip_metrics_model = get_advanced_chip_metrics_model_by_code(stock_code)
-        self.fund_flow_metrics_model = get_advanced_fund_flow_metrics_model_by_code(stock_code)
-        self.structural_metrics_model = get_advanced_structural_metrics_model_by_code(stock_code)
+        self.chip_metrics_model = get_chip_factor_model_by_code(stock_code)
+        self.chip_holding_model = get_chip_holding_matrix_model_by_code(stock_code)
+        self.fund_flow_metrics_model = get_fundflow_factor_model_by_code(stock_code)
+        self.structural_metrics_model = get_structural_factors_model_by_code(stock_code)
         self.fib_periods = [5, 8, 13, 21, 34, 55]
         self.long_term_period = max(self.fib_periods) if self.fib_periods else 55
         self.ultra_long_term_period = 233
@@ -239,10 +241,11 @@ class GeometricPatternService:
         fund_flow_metrics_qs = self.fund_flow_metrics_model.objects.filter(stock=self.stock_instance).values()
         structural_metrics_qs = self.structural_metrics_model.objects.filter(stock=self.stock_instance).values()
         df_chip = pd.DataFrame.from_records(chip_metrics_qs).rename(columns={'trade_time': 'trade_date'})
+        df_chip_holding = pd.DataFrame.from_records(self.chip_holding_model.objects.filter(stock=self.stock_instance).values()).rename(columns={'trade_time': 'trade_date'})
         df_fund = pd.DataFrame.from_records(fund_flow_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         df_struct = pd.DataFrame.from_records(structural_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         non_numeric_whitelist = ['stock_id']
-        dataframes_to_process = {'chip': df_chip, 'fund': df_fund, 'struct': df_struct}
+        dataframes_to_process = {'chip': df_chip, 'chip_holding': df_chip_holding, 'fund': df_fund, 'struct': df_struct}
         for name, df in dataframes_to_process.items():
             if not df.empty:
                 if 'trade_date' in df.columns:
@@ -289,12 +292,6 @@ class GeometricPatternService:
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
         data_dfs['enriched_df'] = enriched_df
-        # 计算 main_force_net_flow_calibrated_sum_5d 列，以解决 KeyError
-        if 'main_force_net_flow_calibrated' in enriched_df.columns: # 检查基础列是否存在
-            enriched_df['main_force_net_flow_calibrated_sum_5d'] = enriched_df['main_force_net_flow_calibrated'].rolling(window=5, min_periods=1).sum()
-        else:
-            # 如果基础资金流数据不存在，则将此列填充为 NaN，避免后续计算出错
-            enriched_df['main_force_net_flow_calibrated_sum_5d'] = np.nan
         if start_date_str:
             deleted_count, _ = self.platform_model.objects.filter(
                 stock=self.stock_instance,
