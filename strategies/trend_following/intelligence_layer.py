@@ -62,7 +62,7 @@ class IntelligenceLayer:
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
         self.predictive_intel = PredictiveIntelligence(self.strategy)
-        self.probes = ForensicProbes(self)
+        # self.probes = ForensicProbes(self)
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
