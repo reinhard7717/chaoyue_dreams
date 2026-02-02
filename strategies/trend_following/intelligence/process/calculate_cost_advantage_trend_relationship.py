@@ -415,8 +415,7 @@ class CalculateCostAdvantageTrendRelationship:
         print(f"【趋势维度】综合分数均值: {trend_structure_score.mean():.3f}")
         return trend_structure_score.clip(-1, 1)
 
-    def _calculate_multi_dimension_resonance(self, chip_score: pd.Series, main_force_score: pd.Series, 
-                                             trend_score: pd.Series, df_index: pd.Index) -> pd.Series:
+    def _calculate_multi_dimension_resonance(self, chip_score: pd.Series, main_force_score: pd.Series, trend_score: pd.Series, df_index: pd.Index) -> pd.Series:
         """【V8.0 · 多维度共振分析 - 幻方量化A股专用】
         - 核心逻辑: 分析三个维度的协同与背离关系
         - 关键原则: 三维共振 > 二维共振 > 单维强势

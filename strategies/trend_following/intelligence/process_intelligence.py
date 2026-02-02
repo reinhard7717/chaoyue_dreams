@@ -365,9 +365,8 @@ class ProcessIntelligence:
         signal_name = config.get('name')
         df_index = df.index
         meta_score = pd.Series(dtype=np.float32)
-        if signal_name == 'PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD':
-            relationship_score = self._calculate_ff_vs_structure_relationship(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
+        if signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
+            meta_score = self.calculate_cost_advantage_trend_relationship_processor.calculate(df, config)
         elif signal_name == 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY':
             relationship_score = self._calculate_dyn_vs_chip_relationship(df, config)
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
@@ -393,8 +392,9 @@ class ProcessIntelligence:
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_LOSER_CAPITULATION':
             meta_score = self._calculate_loser_capitulation(df, config)
-        elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
-            meta_score = self.calculate_cost_advantage_trend_relationship_processor.calculate(df, config)
+        elif signal_name == 'PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD':
+            relationship_score = self._calculate_ff_vs_structure_relationship(df, config)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
             meta_score = self.calculate_main_force_control_processor.calculate(df, config) # 修改此行
         elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
