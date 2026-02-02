@@ -167,8 +167,7 @@
         "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [5, 13],
         "VOL_MA_5_D": [5, 13],
-        "VOL_MA_13_D": [5, 13],
-        "goodness_of_fit_score_D": [5, 13, 21, 34]
+        "VOL_MA_13_D": [5, 13]
       }
     },
     "accel_params": {
@@ -219,9 +218,7 @@
         "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [5, 13],
         "VOL_MA_5_D": [5, 13],
-        "VOL_MA_13_D": [5, 13],
-        "quality_score_D": [5, 13, 21],
-        "goodness_of_fit_score_D": [5, 13, 21]
+        "VOL_MA_13_D": [5, 13]
       }
     }
   },
