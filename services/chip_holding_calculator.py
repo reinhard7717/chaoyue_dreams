@@ -55,7 +55,7 @@ class AdvancedChipDynamicsService:
         Args:
             tick_data: 可选的tick数据DataFrame，包含['trade_time', 'price', 'volume', 'type']
         修改思路:
-        1. 在调用_calculate_tick_enhanced_factors时，传入trade_date参数，确保日志能正确输出日期。
+        1. 调用_calculate_tick_enhanced_factors时传入trade_date，确保底层能获取准确日期。
         """
         try:
             # 1. 获取筹码分布历史数据
@@ -134,7 +134,7 @@ class AdvancedChipDynamicsService:
             tick_enhanced_factors = {}
             if tick_data is not None and not tick_data.empty:
                 try:
-                    # 修改：传入trade_date
+                    # 修改：传入trade_date参数
                     tick_enhanced_factors = await self._calculate_tick_enhanced_factors(
                         tick_data, chip_data, price_grid, chip_matrix[-1], trade_date
                     )
@@ -197,14 +197,14 @@ class AdvancedChipDynamicsService:
         """
         计算tick数据增强因子
         修改思路:
-        1. 增加trade_date参数，接收交易日期。
-        2. 在输出数据质量低的警告日志时，使用传入的trade_date，确保日期显示正确。
+        1. 接收trade_date参数。
+        2. 增加详细的探针日志：当数据质量低时，输出行数、列名、时间范围、成交量统计等信息，帮助定位原因。
         """
         try:
             if tick_data.empty:
                 return self._get_default_tick_factors()
             
-            # 使用传入的日期，如果未传入则尝试从tick数据获取（作为兜底）
+            # 确定日期显示
             date_str = trade_date
             if not date_str:
                 if 'trade_time' in tick_data.columns and not tick_data.empty:
@@ -220,9 +220,36 @@ class AdvancedChipDynamicsService:
             close_price = current_price
             # 预处理tick数据
             processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
+            
+            # 探针：检查数据质量低的原因
             if data_quality < self.params['tick_data_quality_threshold']:
-                print(f"⚠️ [tick因子] {date_str} 数据质量低: {data_quality:.2f}，使用默认值")
+                print(f"⚠️ [tick因子-探针] {date_str} 数据质量低 ({data_quality:.2f} < {self.params['tick_data_quality_threshold']})，原因分析:")
+                print(f"   - 原始行数: {len(tick_data)}")
+                print(f"   - 处理后行数: {len(processed_tick)}")
+                print(f"   - 包含列名: {list(tick_data.columns)}")
+                
+                if 'volume' in tick_data.columns:
+                    vol_sum = tick_data['volume'].sum()
+                    vol_mean = tick_data['volume'].mean()
+                    print(f"   - 总成交量: {vol_sum:.0f}, 平均成交量: {vol_mean:.2f}")
+                else:
+                    print(f"   - 缺失 'volume' 列")
+                
+                if 'trade_time' in tick_data.columns and not tick_data.empty:
+                    try:
+                        t_min = tick_data['trade_time'].min()
+                        t_max = tick_data['trade_time'].max()
+                        if hasattr(t_min, 'strftime'):
+                            print(f"   - 时间范围: {t_min.strftime('%H:%M:%S')} -> {t_max.strftime('%H:%M:%S')}")
+                        else:
+                            print(f"   - 时间范围: {t_min} -> {t_max}")
+                    except Exception as e:
+                        print(f"   - 时间解析失败: {e}")
+                else:
+                    print(f"   - 缺失 'trade_time' 列或数据为空")
+                
                 return self._get_default_tick_factors()
+
             factors = {
                 'tick_data_quality_score': data_quality,
                 'intraday_factor_calc_method': 'tick_based',
@@ -295,6 +322,8 @@ class AdvancedChipDynamicsService:
             return factors
         except Exception as e:
             print(f"❌ [tick因子] 计算异常: {e}")
+            import traceback
+            traceback.print_exc()
             return self._get_default_tick_factors()
 
     def _build_normalized_chip_matrix(self, chip_history: List[pd.DataFrame], current_chip: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
