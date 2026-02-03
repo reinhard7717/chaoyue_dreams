@@ -60,35 +60,29 @@ class AdvancedChipDynamicsService:
             chip_data = await self._fetch_chip_percent_data(
                 stock_code, trade_date, lookback_days
             )
-            
             # PROBE: 检查数据获取结果
             history_len = len(chip_data['chip_history']) if chip_data else 0
             if not chip_data or len(chip_data['chip_history']) < 5:
                 print(f"⚠️ [PROBE-WARN] 数据不足 (历史天数 {history_len} < 5)，返回默认结果")
                 return self._get_default_result(stock_code, trade_date)
-            
             # 2. 构建价格网格和归一化筹码矩阵
             price_grid, chip_matrix = self._build_normalized_chip_matrix(
                 chip_data['chip_history'],
                 chip_data['current_chip_dist']
             )
-            
             # 3. 计算百分比变化矩阵（核心）
             percent_change_matrix = self._calculate_percent_change_matrix(chip_matrix)
-            
             # 4. 基于绝对变化的行为分析
             absolute_signals = self._analyze_absolute_changes(
                 percent_change_matrix,
                 price_grid,
                 chip_data['current_price']
             )
-            
             # 5. 计算筹码集中度指标
             concentration_metrics = self._calculate_concentration_metrics(
                 chip_matrix[-1],  # 当前筹码分布
                 price_grid
             )
-            
             # 6. 计算压力与支撑指标
             pressure_metrics = self._calculate_pressure_metrics(
                 chip_matrix[-1],
@@ -96,7 +90,6 @@ class AdvancedChipDynamicsService:
                 chip_data['current_price'],
                 chip_data['price_history']
             )
-            
             # 7. 识别主力行为模式
             behavior_patterns = self._identify_behavior_patterns(
                 percent_change_matrix,
@@ -104,21 +97,18 @@ class AdvancedChipDynamicsService:
                 price_grid,
                 chip_data['current_price']
             )
-            
             # 8. 计算筹码迁移模式
             migration_patterns = self._calculate_migration_patterns(
                 percent_change_matrix,
                 chip_matrix,
                 price_grid
             )
-            
             # 9. 计算综合聚散度
             convergence_metrics = self._calculate_convergence_metrics(
                 chip_matrix,
                 percent_change_matrix,
                 price_grid
             )
-            
             # 10. 计算博弈能量场
             game_energy_result = self._calculate_game_energy(
                 percent_change_matrix,
@@ -128,7 +118,6 @@ class AdvancedChipDynamicsService:
                 stock_code,
                 trade_date
             )
-            
             # 11. 计算直接吸收/派发
             direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(
                 percent_change_matrix,
@@ -137,7 +126,6 @@ class AdvancedChipDynamicsService:
                 chip_data['current_price'],
                 chip_data['price_history']
             )
-            
             # =======================================================
             # 新增：计算tick数据增强因子
             # =======================================================
@@ -152,31 +140,26 @@ class AdvancedChipDynamicsService:
                     tick_enhanced_factors = self._get_default_tick_factors()
             else:
                 tick_enhanced_factors = self._get_default_tick_factors()
-            
             # =======================================================
             # 构建验证信息
             # =======================================================
             validation_warnings = []
             validation_score = absolute_signals.get('signal_quality', 0.5)
-            
             # 检查数据长度
             if history_len < lookback_days:
                 validation_warnings.append(f"历史数据不足: {history_len}/{lookback_days}")
                 validation_score *= 0.8
-            
             # 检查价格覆盖
             current_price = chip_data['current_price']
             if current_price > price_grid.max() or current_price < price_grid.min():
                 validation_warnings.append("当前价格超出网格范围")
                 validation_score *= 0.9
-            
             # tick数据质量检查
             if 'tick_data_quality_score' in tick_enhanced_factors:
                 tick_quality = tick_enhanced_factors['tick_data_quality_score']
                 if tick_quality < 0.3:
                     validation_warnings.append(f"tick数据质量低: {tick_quality:.2f}")
                     validation_score *= 0.9
-            
             result = {
                 'stock_code': stock_code,
                 'trade_date': trade_date,
@@ -214,29 +197,23 @@ class AdvancedChipDynamicsService:
         try:
             if tick_data.empty:
                 return self._get_default_tick_factors()
-            
             current_price = chip_data.get('current_price', 0)
             close_price = current_price
-            
             # 预处理tick数据
             processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
-            
             if data_quality < self.params['tick_data_quality_threshold']:
                 print(f"⚠️ [tick因子] 数据质量低: {data_quality:.2f}，使用默认值")
                 return self._get_default_tick_factors()
-            
             factors = {
                 'tick_data_quality_score': data_quality,
                 'intraday_factor_calc_method': 'tick_based',
             }
-            
             # 1. 日内筹码分布统计
             intraday_dist = ChipFactorCalculator.calculate_intraday_chip_distribution(processed_tick)
             if intraday_dist:
                 factors['intraday_chip_concentration'] = intraday_dist.get('concentration', 0.0)
                 factors['intraday_chip_entropy'] = intraday_dist.get('entropy', 0.0)
                 factors['intraday_price_distribution_skewness'] = intraday_dist.get('skewness', 0.0)
-            
             # 2. 日内筹码流动
             intraday_flow = ChipFactorCalculator.calculate_intraday_chip_flow(processed_tick)
             if intraday_flow:
@@ -244,13 +221,11 @@ class AdvancedChipDynamicsService:
                 factors['intraday_chip_turnover_intensity'] = intraday_flow.get('flow_intensity', 0.0)
                 factors['tick_clustering_index'] = intraday_flow.get('clustering_index', 0.0)
                 factors['tick_chip_balance_ratio'] = intraday_flow.get('buy_ratio', 0.5) / max(0.01, intraday_flow.get('sell_ratio', 0.5))
-            
             # 3. 日内成本重心
             cost_center = ChipFactorCalculator.calculate_intraday_cost_center(processed_tick)
             if cost_center:
                 factors['intraday_cost_center_migration'] = cost_center.get('migration_ratio', 0.0)
                 factors['intraday_cost_center_volatility'] = cost_center.get('volatility', 0.0)
-            
             # 4. 日内支撑阻力测试
             # 需要将chip_data中的current_chip_dist转换为DataFrame
             chip_dist_df = pd.DataFrame({
@@ -264,13 +239,11 @@ class AdvancedChipDynamicsService:
                 factors['intraday_dynamic_support_test_count'] = support_resistance.get('support_test_count', 0)
                 factors['intraday_dynamic_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
                 factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree', 0.0)
-            
             # 5. 异常成交量
             abnormal_volume = ChipFactorCalculator.calculate_intraday_abnormal_volume(processed_tick)
             if abnormal_volume:
                 factors['tick_abnormal_volume_ratio'] = abnormal_volume.get('abnormal_volume_ratio', 0.0)
                 factors['tick_chip_transfer_efficiency'] = abnormal_volume.get('transfer_efficiency', 0.0)
-            
             # 6. 日内筹码锁定
             chip_locking = ChipFactorCalculator.calculate_intraday_chip_locking(processed_tick, current_price)
             if chip_locking:
@@ -278,23 +251,19 @@ class AdvancedChipDynamicsService:
                 factors['intraday_high_lock_ratio'] = chip_locking.get('high_lock_ratio', 0.0)
                 factors['intraday_peak_valley_ratio'] = chip_locking.get('peak_valley_ratio', 0.0)
                 factors['intraday_trough_filling_degree'] = chip_locking.get('trough_filling', 0.0)
-            
             # 7. 筹码博弈指数
             game_index = ChipFactorCalculator.calculate_intraday_chip_game_index(processed_tick)
             factors['intraday_chip_game_index'] = game_index
-            
             # 8. 计算主力活跃度（简化版）
             factors['intraday_main_force_activity'] = self._calculate_main_force_activity(
                 processed_tick, intraday_flow, abnormal_volume
             )
-            
             # 9. 计算吸筹/派发置信度
             accumulation_confidence, distribution_confidence = self._calculate_accumulation_distribution_confidence(
                 intraday_flow, chip_locking, support_resistance
             )
             factors['intraday_accumulation_confidence'] = accumulation_confidence
             factors['intraday_distribution_confidence'] = distribution_confidence
-            
             # 10. Tick数据统计摘要
             factors['tick_data_summary'] = {
                 'total_ticks': len(processed_tick),
@@ -302,12 +271,9 @@ class AdvancedChipDynamicsService:
                 'avg_volume': float(processed_tick['volume'].mean() if not processed_tick.empty else 0),
                 'price_range': float(processed_tick['price'].max() - processed_tick['price'].min() if not processed_tick.empty else 0),
             }
-            
             # 11. 市场微观结构指标
             factors['intraday_market_microstructure'] = self._calculate_market_microstructure(processed_tick)
-            
             return factors
-            
         except Exception as e:
             print(f"❌ [tick因子] 计算异常: {e}")
             return self._get_default_tick_factors()
@@ -322,14 +288,12 @@ class AdvancedChipDynamicsService:
         3. 保持np.interp的高效插值。
         """
         all_chips = chip_history + [current_chip]
-        
         # 收集所有价格以确定网格范围
         all_prices = []
         for chip_df in all_chips:
             if not chip_df.empty:
                 # 直接获取values，避免Series开销
                 all_prices.append(chip_df['price'].values)
-        
         if not all_prices:
             min_price, max_price = 1.0, 100.0
         else:
@@ -348,7 +312,6 @@ class AdvancedChipDynamicsService:
         n_prices = len(price_grid)
         chip_matrix = np.zeros((n_days, n_prices))
         uniform_dist = np.full(n_prices, 100.0 / n_prices)
-        
         for day_idx, chip_df in enumerate(all_chips):
             if chip_df.empty or len(chip_df) < 3:
                 chip_matrix[day_idx, :] = uniform_dist
@@ -359,26 +322,20 @@ class AdvancedChipDynamicsService:
                 if df_valid.empty:
                     chip_matrix[day_idx, :] = uniform_dist
                     continue
-                    
                 # 排序和去重
                 df_valid = df_valid.sort_values('price').drop_duplicates('price')
-                
                 if len(df_valid) < 2:
                     chip_matrix[day_idx, :] = uniform_dist
                     continue
-                    
                 x = df_valid['price'].values
                 y = df_valid['percent'].values
-                
                 total_p = np.sum(y)
                 if total_p == 0:
                     chip_matrix[day_idx, :] = uniform_dist
                     continue
-                    
                 # 归一化并插值
                 y_normalized = y * (100.0 / total_p)
                 interpolated = np.interp(price_grid, x, y_normalized, left=0.0, right=0.0)
-                
                 sum_interp = np.sum(interpolated)
                 if sum_interp > 0:
                     chip_matrix[day_idx, :] = interpolated * (100.0 / sum_interp)
@@ -698,26 +655,22 @@ class AdvancedChipDynamicsService:
         """计算主力活跃度"""
         try:
             activity_score = 0.0
-            
             # 1. 异常成交量权重
             if abnormal_volume:
                 abnormal_ratio = abnormal_volume.get('abnormal_volume_ratio', 0.0)
                 activity_score += min(0.4, abnormal_ratio * 2)
-            
             # 2. 大单占比（假设成交量>平均3倍为大单）
             if not tick_data.empty:
                 avg_volume = tick_data['volume'].mean()
                 large_order_mask = tick_data['volume'] > avg_volume * 3
                 large_order_ratio = large_order_mask.sum() / len(tick_data)
                 activity_score += min(0.3, large_order_ratio * 3)
-            
             # 3. 买卖不平衡度
             if intraday_flow:
                 buy_ratio = intraday_flow.get('buy_ratio', 0.5)
                 sell_ratio = intraday_flow.get('sell_ratio', 0.5)
                 imbalance = abs(buy_ratio - sell_ratio)
                 activity_score += min(0.3, imbalance * 2)
-            
             return min(1.0, activity_score)
         except Exception as e:
             print(f"⚠️ 主力活跃度计算失败: {e}")
@@ -727,7 +680,6 @@ class AdvancedChipDynamicsService:
         """计算吸筹/派发置信度"""
         accumulation_confidence = 0.0
         distribution_confidence = 0.0
-        
         try:
             # 1. 基于筹码流动判断
             if intraday_flow:
@@ -736,7 +688,6 @@ class AdvancedChipDynamicsService:
                     accumulation_confidence += 0.3
                 elif net_flow < -0.1:  # 净流出
                     distribution_confidence += 0.3
-            
             # 2. 基于筹码锁定判断
             if chip_locking:
                 low_lock = chip_locking.get('low_lock_ratio', 0.0)
@@ -745,7 +696,6 @@ class AdvancedChipDynamicsService:
                     accumulation_confidence += 0.2  # 低位锁定，可能是吸筹
                 if high_lock > 0.15:
                     distribution_confidence += 0.2  # 高位锁定，可能是派发或套牢
-            
             # 3. 基于支撑阻力测试
             if support_resistance:
                 support_tests = support_resistance.get('support_test_count', 0)
@@ -754,7 +704,6 @@ class AdvancedChipDynamicsService:
                     accumulation_confidence += 0.2  # 支撑测试多，可能是吸筹
                 elif resistance_tests > support_tests * 2:
                     distribution_confidence += 0.2  # 阻力测试多，可能是派发
-            
             # 4. 博弈指数影响
             if intraday_flow and 'clustering_index' in intraday_flow:
                 clustering = intraday_flow['clustering_index']
@@ -763,7 +712,6 @@ class AdvancedChipDynamicsService:
                         accumulation_confidence += 0.1
                     else:
                         distribution_confidence += 0.1
-            
             return min(1.0, accumulation_confidence), min(1.0, distribution_confidence)
         except Exception as e:
             print(f"⚠️ 置信度计算失败: {e}")
@@ -787,22 +735,18 @@ class AdvancedChipDynamicsService:
         try:
             if tick_data.empty or len(tick_data) < 10:
                 return {}
-            
             microstructure = {}
-            
             # 1. 价格变动分布
             if len(tick_data) >= 2:
                 price_changes = tick_data['price'].diff().dropna()
                 microstructure['price_change_mean'] = float(price_changes.mean())
                 microstructure['price_change_std'] = float(price_changes.std())
                 microstructure['price_change_skewness'] = float(price_changes.skew())
-            
             # 2. 成交量分布
             volume_series = tick_data['volume']
             microstructure['volume_mean'] = float(volume_series.mean())
             microstructure['volume_std'] = float(volume_series.std())
             microstructure['volume_skewness'] = float(volume_series.skew())
-            
             # 3. 买卖强度
             if 'type' in tick_data.columns:
                 buy_mask = tick_data['type'] == 'B'
@@ -810,17 +754,14 @@ class AdvancedChipDynamicsService:
                 buy_volume = tick_data.loc[buy_mask, 'volume'].sum() if buy_mask.any() else 0
                 sell_volume = tick_data.loc[sell_mask, 'volume'].sum() if sell_mask.any() else 0
                 total_volume = buy_volume + sell_volume
-                
                 if total_volume > 0:
                     microstructure['buy_strength'] = float(buy_volume / total_volume)
                     microstructure['sell_strength'] = float(sell_volume / total_volume)
-            
             # 4. 时间间隔分布
             if len(tick_data) >= 3:
                 time_diffs = tick_data['trade_time'].diff().dt.total_seconds().dropna()
                 microstructure['avg_time_gap'] = float(time_diffs.mean())
                 microstructure['time_gap_std'] = float(time_diffs.std())
-            
             return microstructure
         except Exception as e:
             print(f"⚠️ 微观结构计算失败: {e}")
@@ -1082,7 +1023,6 @@ class DirectAccumulationDistributionCalculator:
         significant_mask = np.abs(changes) > self.params['noise_filter']
         clean_changes = changes[significant_mask]
         clean_rels = price_rel[significant_mask]
-        
         if len(clean_changes) == 0:
             return {
                 'accumulation_volume': 0.0,
@@ -1103,38 +1043,29 @@ class DirectAccumulationDistributionCalculator:
         # 5: deep_above (>= 0.12)
         bins = np.array([-0.12, -0.03, 0, 0.05, 0.12])
         indices = np.digitize(clean_rels, bins)
-        
         # 分离正负变化
         pos_changes = np.maximum(clean_changes, 0)
         neg_changes = np.abs(np.minimum(clean_changes, 0))
-        
         # 聚合各区间的总量 (minlength=6 确保所有区间都有值)
         pos_sums = np.bincount(indices, weights=pos_changes, minlength=6)
         neg_sums = np.bincount(indices, weights=neg_changes, minlength=6)
-        
         # 定义各区间的权重
         # 索引: 0, 1, 2, 3, 4, 5
         zone_weights = np.array([0.4, 1.3, 1.0, 1.0, 1.2, 0.5])
-        
         # 吸收系数 (Accumulation Multipliers)
         # deep_below(1.0), below(1.0), near_below(1.0), near_above(0.6), above(0.3), deep_above(0.3)
         accum_mults = np.array([1.0, 1.0, 1.0, 0.6, 0.3, 0.3])
-        
         # 派发系数 (Distribution Multipliers)
         # deep_below(0.8), below(0.8), near_below(0.8), near_above(0.9), above(1.0), deep_above(1.0)
         distrib_mults = np.array([0.8, 0.8, 0.8, 0.9, 1.0, 1.0])
-        
         # 向量化计算基础吸收/派发量
         # 逻辑保持一致：
         # Below区域: Pos -> Accum, Neg -> Distrib
         # Above区域: Pos -> Accum*0.3, Neg -> Distrib
-        
         raw_accum = pos_sums * zone_weights * accum_mults
         raw_distrib = neg_sums * zone_weights * distrib_mults
-        
         accumulation_volume = np.sum(raw_accum)
         distribution_volume = np.sum(raw_distrib)
-        
         # 趋势修正
         overall_trend = np.sum(clean_changes)
         if overall_trend > 0:
@@ -1143,10 +1074,8 @@ class DirectAccumulationDistributionCalculator:
         elif overall_trend < 0:
             accumulation_volume *= 0.8
             distribution_volume *= 1.2
-            
         total_volume = accumulation_volume + distribution_volume + 1e-10
         net_ad_ratio = (accumulation_volume - distribution_volume) / total_volume
-        
         return {
             'accumulation_volume': float(accumulation_volume),
             'distribution_volume': float(distribution_volume),
@@ -1264,38 +1193,31 @@ class DirectAccumulationDistributionCalculator:
             'deep_above': (0.15, np.inf),
         }
         result = {}
-        
         # 预计算掩码
         accum_mask = changes > 0
         distrib_mask = changes < 0
         abs_changes = np.abs(changes)
-        
         # 价格相对于当前价的位置掩码
         rel_below = price_rel < 0
         rel_above = price_rel >= 0
-        
         for level_name, (low, high) in levels.items():
             # 区域掩码
             level_mask = (price_rel > low) & (price_rel <= high)
             if not np.any(level_mask):
                 continue
-                
             # 1. 筹码增加 (changes > 0)
             # 价格 < 当前价: 吸收
             accum_from_inc = np.sum(changes[level_mask & accum_mask & rel_below])
             # 价格 >= 当前价: 派发
             distrib_from_inc = np.sum(changes[level_mask & accum_mask & rel_above])
-            
             # 2. 筹码减少 (changes < 0)
             # 价格 < 当前价: 派发 (取绝对值)
             distrib_from_dec = np.sum(abs_changes[level_mask & distrib_mask & rel_below])
             # 价格 >= 当前价: 吸收 (取绝对值)
             accum_from_dec = np.sum(abs_changes[level_mask & distrib_mask & rel_above])
-            
             total_accum = accum_from_inc + accum_from_dec
             total_distrib = distrib_from_inc + distrib_from_dec
             total = total_accum + total_distrib
-            
             if total > 0:
                 result[level_name] = {
                     'accumulation_ratio': float(total_accum / total),
@@ -1428,10 +1350,8 @@ class GameEnergyCalculator:
         reference_price = close_price if close_price > 0 else current_price
         if len(changes) == 0 or len(price_grid) == 0 or reference_price <= 0:
             return self._get_default_energy()
-            
         try:
             price_rel = (price_grid - reference_price) / reference_price
-            
             # 定义区间边界 [-0.15, -0.05, 0, 0.05, 0.15]
             # 0: deep_below (< -0.15)
             # 1: below (-0.15 ~ -0.05)
@@ -1441,40 +1361,32 @@ class GameEnergyCalculator:
             # 5: deep_above (>= 0.15)
             bins = np.array([-0.15, -0.05, 0, 0.05, 0.15])
             indices = np.digitize(price_rel, bins)
-            
             # 分离正负变化
             pos_changes = np.maximum(changes, 0)
             neg_changes = np.abs(np.minimum(changes, 0))
-            
             # 聚合各区间的总量
             pos_sums = np.bincount(indices, weights=pos_changes, minlength=6)
             neg_sums = np.bincount(indices, weights=neg_changes, minlength=6)
-            
             # 区域权重
             # deep_below(0.6), below(0.9), near_below(1.5), near_above(1.3), above(1.0), deep_above(0.7)
             weights = np.array([0.6, 0.9, 1.5, 1.3, 1.0, 0.7])
-            
             absorption_advanced = 0.0
             distribution_advanced = 0.0
-            
             # 1. 价格以下区域 (Bins 0, 1, 2)
             # 增加(Pos) -> 吸筹, 减少(Neg) -> 派发 * 0.8
             for i in range(3):
                 absorption_advanced += pos_sums[i] * weights[i]
                 distribution_advanced += neg_sums[i] * weights[i] * 0.8
-                
             # 2. 价格以上区域 (Bins 3, 4)
             # 增加(Pos) -> 派发, 减少(Neg) -> 吸筹 * 0.7
             for i in range(3, 5):
                 distribution_advanced += pos_sums[i] * weights[i]
                 absorption_advanced += neg_sums[i] * weights[i] * 0.7
-                
             # 3. 深度获利区 (Bin 5) - 特殊逻辑
             i = 5
             w = weights[i]
             inc_sum = pos_sums[i]
             dec_sum = neg_sums[i]
-            
             if inc_sum > dec_sum:
                 # 增加多于减少 -> 派发主导
                 distribution_advanced += inc_sum * w * 1.2
@@ -1483,14 +1395,11 @@ class GameEnergyCalculator:
                 # 减少多于增加 -> 洗盘/换手
                 distribution_advanced += inc_sum * w * 0.6
                 absorption_advanced += dec_sum * w * 0.9
-                
             # 计算其他指标
             game_intensity, breakout_potential, energy_concentration = self._calculate_energy_indicators(
                 changes, price_grid, reference_price, stock_code, trade_date
             )
-            
             key_battle_zones = self._identify_key_battle_zones(changes, price_grid, reference_price, stock_code, trade_date)
-            
             return {
                 'absorption_energy': min(100, max(0.01, absorption_advanced)),
                 'distribution_energy': min(100, max(0.01, distribution_advanced)),
@@ -1672,25 +1581,20 @@ class GameEnergyCalculator:
         try:
             # 筛选出显著变化的索引
             significant_indices = np.where(np.abs(changes) > min_intensity)[0]
-            
             for i in significant_indices:
                 change = changes[i]
                 price = price_grid[i]
-                
                 # 定义邻域范围
                 start_idx = max(0, i - 2)
                 end_idx = min(len(changes), i + 3)
                 neighborhood = changes[start_idx:end_idx]
-                
                 # 向量化计算对抗强度
                 # 寻找符号相反的变化 (乘积 < 0)
                 opponent_mask = (neighborhood * change) < 0
-                
                 if np.any(opponent_mask):
                     opponent_changes = neighborhood[opponent_mask]
                     opponent_avg = np.mean(np.abs(opponent_changes))
                     battle_intensity = abs(change) + opponent_avg * 0.5
-                    
                     if battle_intensity > min_intensity * 1.5:
                         battle_zones.append({
                             'price': float(price),
@@ -1699,7 +1603,6 @@ class GameEnergyCalculator:
                             'position': 'below_current' if price < current_price else 'above_current',
                             'distance_to_current': float((price - current_price) / current_price),
                         })
-            
             # 按强度排序并限制数量
             battle_zones.sort(key=lambda x: x['battle_intensity'], reverse=True)
             return battle_zones[:5]
