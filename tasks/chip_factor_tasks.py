@@ -132,7 +132,6 @@ def schedule_chip_factor_calculation(
 ) -> Dict:
     """
     调度筹码因子计算任务 - V3版本：集成能量场计算
-    
     Args:
         stock_codes: 股票代码列表，None表示全市场
         start_date_str: 开始日期 (YYYYMMDD)，None表示默认起始
@@ -155,7 +154,6 @@ def schedule_chip_factor_calculation(
             end_date = parse_date(end_date_str)
         else:
             end_date = get_last_trade_date()
-            
         logger.info(f"日期范围: {start_date} 到 {end_date}")
         # 获取股票列表
         if stock_codes is None:
@@ -187,10 +185,8 @@ def schedule_chip_factor_calculation(
             result = schedule_energy_only_calculation(stock_codes, start_date, end_date)
         else:
             raise ValueError(f"未知的计算模式: {calculation_mode}")
-            
         # logger.info(f"筹码因子计算任务调度完成: {result}")
         return result
-        
     except Exception as e:
         logger.error(f"调度筹码因子计算任务失败: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
@@ -353,7 +349,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
     try:
         logger.debug(f"开始计算股票 {stock_code} 的筹码因子")
         print(f"🔴 [单股异步开始] {stock_code} {start_date} 到 {end_date}")
-        
         # 检查持有矩阵数据是否已存在
         HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
         holding_count = await sync_to_async(HoldingMatrixModel.objects.filter(
@@ -366,42 +361,34 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             print(f"⚠️ [单股检查] {stock_code} 在日期范围内无持有矩阵数据，将尝试降级计算")
         else:
             print(f"✅ [单股检查] {stock_code} 已有 {holding_count} 天的持有矩阵数据")
-        
         # 获取对应的模型
         chip_factor_model = get_chip_factor_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
         daily_data_model = get_daily_data_model_by_code(stock_code)
         tick_model = get_stock_tick_data_model_by_code(stock_code)
-        
         # 获取股票基本信息
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock:
             print(f"❌ [单股错误] {stock_code} 股票不存在")
             return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
-        
         # 获取历史价格数据用于计算MA
         historical_df = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
         if historical_df.empty:
             print(f"❌ [单股错误] {stock_code} 历史价格数据不足")
             return {'status': 'failed', 'error': f'股票 {stock_code} 历史价格数据不足', 'processed_dates': 0}
         print(f"📊 [单股数据] 历史价格: {len(historical_df)} 条")
-        
         # 提取 close Series 用于传给 calculate_complete_factors
         historical_prices_series = historical_df['close_qfq'] if 'close_qfq' in historical_df else pd.Series()
-        
         # 获取日期范围内的所有交易日（异步调用）
         get_dates_between_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_between_func(start_date, end_date)
-        
         if not trade_dates:
             print(f"⚠️ [单股警告] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
             return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
-        
         processed_dates = 0
         saved_dates = []
         failed_dates = []
         date_progress_interval = max(1, len(trade_dates) // 10)
-        
         # 按日期循环处理当前股票
         for date_index, current_date in enumerate(trade_dates):
             try:
@@ -475,18 +462,15 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     # 获取当日所有tick数据（按交易时间过滤）
                     start_datetime = datetime.combine(current_date, time(9, 30))
                     end_datetime = datetime.combine(current_date, time(15, 0))
-                    
                     tick_queryset = tick_model.objects.filter(
                         stock=stock,
                         trade_time__gte=start_datetime,
                         trade_time__lte=end_datetime
                     ).order_by('trade_time')
-                    
                     # 转换为DataFrame
                     tick_list = await sync_to_async(list)(
                         tick_queryset.values('trade_time', 'price', 'volume', 'type', 'amount')
                     )
-                    
                     if tick_list:
                         tick_df = pd.DataFrame(tick_list)
                         # 确保数据类型正确
@@ -497,7 +481,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         print(f"📊 [单股tick] {stock_code} {current_date}: 获取到 {len(tick_df)} 条tick数据")
                     else:
                         print(f"⚠️ [单股tick] {stock_code} {current_date}: 无tick数据，将使用日线近似")
-                        
                 except Exception as tick_error:
                     logger.warning(f"获取 {stock_code} {current_date} tick数据失败: {tick_error}")
                     print(f"⚠️ [单股tick] {stock_code} {current_date}: 获取tick数据失败，使用日线近似")
@@ -549,7 +532,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 except Exception as calc_error:
                     logger.error(f"使用tick数据计算因子失败，回退到原始计算: {calc_error}")
                     print(f"⚠️ [单股计算] {stock_code} {current_date}: tick计算失败，回退到原始计算")
-                    
                     # 回退到原始计算方法
                     factors = ChipFactorCalculator.calculate_complete_factors(
                         chip_perf_data=chip_perf_dict, 
@@ -576,18 +558,15 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             except Exception as e:
                 logger.warning(f"股票 {stock_code} 日期 {current_date} 计算失败: {e}")
                 failed_dates.append(current_date)
-        
         # 打印最终结果
         print(f"✅ [单股完成] {stock_code} 处理完成")
         print(f"📊 [单股统计] 成功: {len(saved_dates)} 天, 失败: {len(failed_dates)} 天")
-        
         # 统计tick数据使用情况
         tick_stats = {
             'total_dates': len(trade_dates),
             'tick_available_dates': 0,
             'daily_approximation_dates': 0
         }
-        
         return {
             'status': 'success', 
             'processed_dates': processed_dates, 
@@ -596,7 +575,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             'date_range': f"{start_date} - {end_date}",
             'tick_stats': tick_stats
         }
-        
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 筹码因子失败: {e}", exc_info=True)
         print(f"❌ [单股异常] {stock_code}: {e}")
@@ -724,7 +702,6 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
             'failed_dates': len(failed_dates), 
             'date_range': f"{start_date} - {end_date}"
         }
-        
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 持有矩阵失败: {e}", exc_info=True)
         print(f"❌ [持有矩阵异常] {stock_code}: {e}")
@@ -839,12 +816,10 @@ async def save_chip_factors(chip_factor_model, stock, trade_date, factors):
             trade_time=trade_date,
             defaults=factors
         )
-        
         if created:
             print(f"✅ [保存因子] {stock.stock_code} {trade_date}: 创建新记录")
         else:
             print(f"🔄 [保存因子] {stock.stock_code} {trade_date}: 更新记录")
-            
         return obj
     except Exception as e:
         logger.error(f"保存筹码因子失败 {stock.stock_code} {trade_date}: {e}")
@@ -1519,7 +1494,6 @@ def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, 
                             'status': 'failed',
                             'error': '无可用数据'
                         })
-                        
                 except Exception as e:
                     results['failed'] += 1
                     results['details'].append({
@@ -1532,7 +1506,6 @@ def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, 
         finally:
             loop.close()
         return results
-        
     except Exception as e:
         logger.error(f"批量计算能量场失败: {e}")
         raise self.retry(exc=e, countdown=60)
@@ -1540,10 +1513,8 @@ def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, 
 async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date], cm: CacheManager) -> Dict:
     """处理单只股票的能量场计算"""
     processed_dates = 0
-    
     # 创建AdvancedChipDynamicsService实例
     service = AdvancedChipDynamicsService(market_type=get_market_from_code(stock_code))
-    
     for trade_date in trade_dates:
         try:
             # 分析筹码动态（包含能量场）
@@ -1579,17 +1550,14 @@ async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date
                         record.energy_concentration = game_energy.get('energy_concentration', 0.0)
                         record.fake_distribution_flag = game_energy.get('fake_distribution_flag', False)
                         record.key_battle_zones = game_energy.get('key_battle_zones', [])
-                        
                         # 标记为能量场计算
                         record.analysis_method = 'energy_field_v2'
                         await sync_to_async(record.save)()
-                        
                         processed_dates += 1
                         
         except Exception as e:
             print(f"⚠️ [能量场日期错误] {stock_code} {trade_date}: {e}")
             continue
-    
     return {'processed_dates': processed_dates}
 
 # ========== 工具函数 ==========
@@ -1599,16 +1567,13 @@ def schedule_comprehensive_calculation(stock_codes: List[str], start_date: date,
     """
     print(f"🚀 [综合计算V3] 开始调度 {len(stock_codes)} 只股票")
     print(f"📅 [日期范围] {start_date} 到 {end_date}")
-    
     # 按市场分组
     market_groups = {}
     for code in stock_codes:
         market = get_market_from_code(code)
         market_groups.setdefault(market, []).append(code)
-    
     total_tasks = 0
     task_details = []
-    
     # 为每个市场的股票创建链式任务
     for market, codes in market_groups.items():
         print(f"📊 [市场分组] {market}: {len(codes)} 只股票")
@@ -1650,9 +1615,7 @@ def schedule_comprehensive_calculation(stock_codes: List[str], start_date: date,
             if total_tasks % 10 == 0:
                 print(f"⏳ [任务创建] 已创建 {total_tasks} 个链式任务...")
                 time.sleep(0.5)
-    
     print(f"✅ [综合计算V3] 共创建 {total_tasks} 个链式任务")
-    
     return {
         'status': 'scheduled',
         'total_tasks': total_tasks,
@@ -1672,15 +1635,12 @@ def schedule_energy_only_calculation(
     仅调度能量场分析
     """
     print(f"⚡ [能量场专用] 开始调度 {len(stock_codes)} 只股票的能量场计算")
-    
     # 按市场分组
     market_groups = {}
     for code in stock_codes:
         market = get_market_from_code(code)
         market_groups.setdefault(market, []).append(code)
-    
     total_tasks = 0
-    
     for market, codes in market_groups.items():
         # 分批处理
         for i in range(0, len(codes), ChipTaskConfig.BATCH_SIZE_BULK):
@@ -1693,7 +1653,6 @@ def schedule_energy_only_calculation(
             )
             total_tasks += 1
             print(f"📤 [能量场任务] 创建任务 {task.id}: {market}市场 {len(batch_codes)} 只股票")
-    
     return {
         'status': 'scheduled',
         'total_tasks': total_tasks,

@@ -193,16 +193,32 @@ class AdvancedChipDynamicsService:
     async def _calculate_tick_enhanced_factors(self, tick_data: pd.DataFrame, chip_data: Dict[str, Any],price_grid: np.ndarray,current_chip_dist: np.ndarray) -> Dict[str, Any]:
         """
         计算tick数据增强因子
+        修改思路:
+        1. 从tick_data中提取交易日期字符串，用于日志标识。
+        2. 在输出数据质量低的警告日志时，增加日期信息，便于定位具体日期的数据问题。
         """
         try:
             if tick_data.empty:
                 return self._get_default_tick_factors()
+            
+            # 提取日期用于日志显示
+            trade_date_str = "未知日期"
+            if 'trade_time' in tick_data.columns and not tick_data.empty:
+                try:
+                    first_time = tick_data['trade_time'].iloc[0]
+                    if hasattr(first_time, 'strftime'):
+                        trade_date_str = first_time.strftime('%Y-%m-%d')
+                    else:
+                        trade_date_str = str(first_time)[:10]
+                except:
+                    pass
+
             current_price = chip_data.get('current_price', 0)
             close_price = current_price
             # 预处理tick数据
             processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
             if data_quality < self.params['tick_data_quality_threshold']:
-                print(f"⚠️ [tick因子] 数据质量低: {data_quality:.2f}，使用默认值")
+                print(f"⚠️ [tick因子] {trade_date_str} 数据质量低: {data_quality:.2f}，使用默认值")
                 return self._get_default_tick_factors()
             factors = {
                 'tick_data_quality_score': data_quality,
@@ -275,7 +291,7 @@ class AdvancedChipDynamicsService:
             factors['intraday_market_microstructure'] = self._calculate_market_microstructure(processed_tick)
             return factors
         except Exception as e:
-            print(f"❌ [tick因子] 计算异常: {e}")
+            print(f"❌ [tick因子] 计算异常: {{trade_date_str}}, {e}")
             return self._get_default_tick_factors()
 
     def _build_normalized_chip_matrix(self, chip_history: List[pd.DataFrame], current_chip: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
