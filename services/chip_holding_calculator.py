@@ -10,6 +10,7 @@ from scipy.optimize import minimize
 from sklearn.mixture import GaussianMixture
 import asyncio
 from asgiref.sync import sync_to_async
+from services.chip_calculator import ChipFactorCalculator
 from utils.model_helpers import get_cyq_chips_model_by_code, get_daily_data_model_by_code
 
 logger = logging.getLogger(__name__)
@@ -27,54 +28,67 @@ class AdvancedChipDynamicsService:
     
     def __init__(self, market_type: str = 'A'):
         self.market_type = market_type
-        self.price_granularity = 200  # 价格粒度
+        self.price_granularity = 200
         # 初始化各计算器
         self.game_energy_calculator = GameEnergyCalculator(market_type)
         self.direct_ad_calculator = DirectAccumulationDistributionCalculator(market_type)
         # 中国A股特定参数
-        # 修正：降低阈值以适应 200 格的价格粒度 (平均每格仅 0.5%)
         self.params = {
-            'significant_change_threshold': 1,  # 显著变化阈值（%）原 2.0
-            'noise_threshold': 0.2,              # 噪声阈值（%）原 1.0
-            'institution_min_change': 2.0,       # 机构行为最小变化（%）原 5.0
-            'main_force_concentration': 0.3,     # 主力控盘集中度阈值
-            'retail_scatter_threshold': 0.7,     # 散户分散阈值
-            'accumulation_days': 5,              # 吸筹天数判定
-            'distribution_days': 3,              # 派发天数判定
+            'significant_change_threshold': 1,
+            'noise_threshold': 0.2,
+            'institution_min_change': 2.0,
+            'main_force_concentration': 0.3,
+            'retail_scatter_threshold': 0.7,
+            'accumulation_days': 5,
+            'distribution_days': 3,
+            # 新增tick数据相关参数
+            'tick_data_quality_threshold': 0.3,  # tick数据质量阈值
+            'tick_min_count': 100,               # 最小tick数量要求
+            'tick_time_coverage': 0.5,          # 时间覆盖率要求
         }
-   
-    async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20) -> Dict[str, any]:
+        # 初始化tick数据处理器
+        self.tick_processor = ChipFactorCalculator()  # 复用ChipFactorCalculator中的tick计算方法
+
+    async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """
-        分析单日筹码动态 - 主入口函数
+        分析单日筹码动态 - 主入口函数（增强版：支持tick数据）
+        Args:
+            tick_data: 可选的tick数据DataFrame，包含['trade_time', 'price', 'volume', 'type']
         """
         try:
-            # 1. 获取筹码分布历史数据（包含百分比）
+            # 1. 获取筹码分布历史数据
             chip_data = await self._fetch_chip_percent_data(
                 stock_code, trade_date, lookback_days
             )
+            
             # PROBE: 检查数据获取结果
             history_len = len(chip_data['chip_history']) if chip_data else 0
             if not chip_data or len(chip_data['chip_history']) < 5:
                 print(f"⚠️ [PROBE-WARN] 数据不足 (历史天数 {history_len} < 5)，返回默认结果")
                 return self._get_default_result(stock_code, trade_date)
+            
             # 2. 构建价格网格和归一化筹码矩阵
             price_grid, chip_matrix = self._build_normalized_chip_matrix(
                 chip_data['chip_history'],
                 chip_data['current_chip_dist']
             )
+            
             # 3. 计算百分比变化矩阵（核心）
             percent_change_matrix = self._calculate_percent_change_matrix(chip_matrix)
+            
             # 4. 基于绝对变化的行为分析
             absolute_signals = self._analyze_absolute_changes(
                 percent_change_matrix,
                 price_grid,
                 chip_data['current_price']
             )
+            
             # 5. 计算筹码集中度指标
             concentration_metrics = self._calculate_concentration_metrics(
                 chip_matrix[-1],  # 当前筹码分布
                 price_grid
             )
+            
             # 6. 计算压力与支撑指标
             pressure_metrics = self._calculate_pressure_metrics(
                 chip_matrix[-1],
@@ -82,6 +96,7 @@ class AdvancedChipDynamicsService:
                 chip_data['current_price'],
                 chip_data['price_history']
             )
+            
             # 7. 识别主力行为模式
             behavior_patterns = self._identify_behavior_patterns(
                 percent_change_matrix,
@@ -89,28 +104,32 @@ class AdvancedChipDynamicsService:
                 price_grid,
                 chip_data['current_price']
             )
+            
             # 8. 计算筹码迁移模式
             migration_patterns = self._calculate_migration_patterns(
                 percent_change_matrix,
                 chip_matrix,
                 price_grid
             )
+            
             # 9. 计算综合聚散度
             convergence_metrics = self._calculate_convergence_metrics(
                 chip_matrix,
                 percent_change_matrix,
                 price_grid
             )
+            
             # 10. 计算博弈能量场
             game_energy_result = self._calculate_game_energy(
                 percent_change_matrix,
                 price_grid,
                 chip_data['current_price'],
-                chip_data['price_history'],  # 需要包含成交量数据
+                chip_data['price_history'],
                 stock_code,
                 trade_date
             )
-            # 11. 计算直接吸收/派发（用于交叉验证）
+            
+            # 11. 计算直接吸收/派发
             direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(
                 percent_change_matrix,
                 chip_matrix,
@@ -118,26 +137,50 @@ class AdvancedChipDynamicsService:
                 chip_data['current_price'],
                 chip_data['price_history']
             )
+            
+            # =======================================================
+            # 新增：计算tick数据增强因子
+            # =======================================================
+            tick_enhanced_factors = {}
+            if tick_data is not None and not tick_data.empty:
+                try:
+                    tick_enhanced_factors = await self._calculate_tick_enhanced_factors(
+                        tick_data, chip_data, price_grid, chip_matrix[-1]
+                    )
+                except Exception as e:
+                    print(f"⚠️ [tick因子] 计算失败: {e}")
+                    tick_enhanced_factors = self._get_default_tick_factors()
+            else:
+                tick_enhanced_factors = self._get_default_tick_factors()
+            
             # =======================================================
             # 构建验证信息
             # =======================================================
             validation_warnings = []
-            # 基于信号质量作为基础分
             validation_score = absolute_signals.get('signal_quality', 0.5)
+            
             # 检查数据长度
             if history_len < lookback_days:
                 validation_warnings.append(f"历史数据不足: {history_len}/{lookback_days}")
                 validation_score *= 0.8
+            
             # 检查价格覆盖
             current_price = chip_data['current_price']
             if current_price > price_grid.max() or current_price < price_grid.min():
                 validation_warnings.append("当前价格超出网格范围")
                 validation_score *= 0.9
+            
+            # tick数据质量检查
+            if 'tick_data_quality_score' in tick_enhanced_factors:
+                tick_quality = tick_enhanced_factors['tick_data_quality_score']
+                if tick_quality < 0.3:
+                    validation_warnings.append(f"tick数据质量低: {tick_quality:.2f}")
+                    validation_score *= 0.9
+            
             result = {
                 'stock_code': stock_code,
                 'trade_date': trade_date,
                 'price_grid': price_grid.tolist(),
-                # 返回原始筹码矩阵（用于 matrix_data）
                 'chip_matrix': chip_matrix.tolist(),
                 'percent_change_matrix': percent_change_matrix.tolist(),
                 'absolute_change_signals': absolute_signals,
@@ -146,10 +189,10 @@ class AdvancedChipDynamicsService:
                 'behavior_patterns': behavior_patterns,
                 'migration_patterns': migration_patterns,
                 'convergence_metrics': convergence_metrics,
-                # 博弈能量场结果
                 'game_energy_result': game_energy_result,
-                # 直接吸收/派发结果
                 'direct_ad_result': direct_ad_result,
+                # 新增tick增强因子
+                'tick_enhanced_factors': tick_enhanced_factors,
                 # 验证字段
                 'validation_score': round(validation_score, 2),
                 'validation_warnings': validation_warnings,
@@ -163,6 +206,111 @@ class AdvancedChipDynamicsService:
             import traceback
             traceback.print_exc()
             return self._get_default_result(stock_code, trade_date)
+
+    async def _calculate_tick_enhanced_factors(self, tick_data: pd.DataFrame, chip_data: Dict[str, Any],price_grid: np.ndarray,current_chip_dist: np.ndarray) -> Dict[str, Any]:
+        """
+        计算tick数据增强因子
+        """
+        try:
+            if tick_data.empty:
+                return self._get_default_tick_factors()
+            
+            current_price = chip_data.get('current_price', 0)
+            close_price = current_price
+            
+            # 预处理tick数据
+            processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
+            
+            if data_quality < self.params['tick_data_quality_threshold']:
+                print(f"⚠️ [tick因子] 数据质量低: {data_quality:.2f}，使用默认值")
+                return self._get_default_tick_factors()
+            
+            factors = {
+                'tick_data_quality_score': data_quality,
+                'intraday_factor_calc_method': 'tick_based',
+            }
+            
+            # 1. 日内筹码分布统计
+            intraday_dist = ChipFactorCalculator.calculate_intraday_chip_distribution(processed_tick)
+            if intraday_dist:
+                factors['intraday_chip_concentration'] = intraday_dist.get('concentration', 0.0)
+                factors['intraday_chip_entropy'] = intraday_dist.get('entropy', 0.0)
+                factors['intraday_price_distribution_skewness'] = intraday_dist.get('skewness', 0.0)
+            
+            # 2. 日内筹码流动
+            intraday_flow = ChipFactorCalculator.calculate_intraday_chip_flow(processed_tick)
+            if intraday_flow:
+                factors['tick_level_chip_flow'] = intraday_flow.get('net_flow_ratio', 0.0)
+                factors['intraday_chip_turnover_intensity'] = intraday_flow.get('flow_intensity', 0.0)
+                factors['tick_clustering_index'] = intraday_flow.get('clustering_index', 0.0)
+                factors['tick_chip_balance_ratio'] = intraday_flow.get('buy_ratio', 0.5) / max(0.01, intraday_flow.get('sell_ratio', 0.5))
+            
+            # 3. 日内成本重心
+            cost_center = ChipFactorCalculator.calculate_intraday_cost_center(processed_tick)
+            if cost_center:
+                factors['intraday_cost_center_migration'] = cost_center.get('migration_ratio', 0.0)
+                factors['intraday_cost_center_volatility'] = cost_center.get('volatility', 0.0)
+            
+            # 4. 日内支撑阻力测试
+            # 需要将chip_data中的current_chip_dist转换为DataFrame
+            chip_dist_df = pd.DataFrame({
+                'price': price_grid,
+                'percent': current_chip_dist
+            })
+            support_resistance = ChipFactorCalculator.identify_intraday_support_resistance(
+                processed_tick, chip_dist_df
+            )
+            if support_resistance:
+                factors['intraday_support_test_count'] = support_resistance.get('support_test_count', 0)
+                factors['intraday_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
+                factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree', 0.0)
+            
+            # 5. 异常成交量
+            abnormal_volume = ChipFactorCalculator.calculate_intraday_abnormal_volume(processed_tick)
+            if abnormal_volume:
+                factors['tick_abnormal_volume_ratio'] = abnormal_volume.get('abnormal_volume_ratio', 0.0)
+                factors['tick_chip_transfer_efficiency'] = abnormal_volume.get('transfer_efficiency', 0.0)
+            
+            # 6. 日内筹码锁定
+            chip_locking = ChipFactorCalculator.calculate_intraday_chip_locking(processed_tick, current_price)
+            if chip_locking:
+                factors['intraday_low_lock_ratio'] = chip_locking.get('low_lock_ratio', 0.0)
+                factors['intraday_high_lock_ratio'] = chip_locking.get('high_lock_ratio', 0.0)
+                factors['intraday_peak_valley_ratio'] = chip_locking.get('peak_valley_ratio', 0.0)
+                factors['intraday_trough_filling_degree'] = chip_locking.get('trough_filling', 0.0)
+            
+            # 7. 筹码博弈指数
+            game_index = ChipFactorCalculator.calculate_intraday_chip_game_index(processed_tick)
+            factors['intraday_chip_game_index'] = game_index
+            
+            # 8. 计算主力活跃度（简化版）
+            factors['intraday_main_force_activity'] = self._calculate_main_force_activity(
+                processed_tick, intraday_flow, abnormal_volume
+            )
+            
+            # 9. 计算吸筹/派发置信度
+            accumulation_confidence, distribution_confidence = self._calculate_accumulation_distribution_confidence(
+                intraday_flow, chip_locking, support_resistance
+            )
+            factors['intraday_accumulation_confidence'] = accumulation_confidence
+            factors['intraday_distribution_confidence'] = distribution_confidence
+            
+            # 10. Tick数据统计摘要
+            factors['tick_data_summary'] = {
+                'total_ticks': len(processed_tick),
+                'time_span_hours': self._calculate_tick_time_span(processed_tick),
+                'avg_volume': float(processed_tick['volume'].mean() if not processed_tick.empty else 0),
+                'price_range': float(processed_tick['price'].max() - processed_tick['price'].min() if not processed_tick.empty else 0),
+            }
+            
+            # 11. 市场微观结构指标
+            factors['intraday_market_microstructure'] = self._calculate_market_microstructure(processed_tick)
+            
+            return factors
+            
+        except Exception as e:
+            print(f"❌ [tick因子] 计算异常: {e}")
+            return self._get_default_tick_factors()
 
     def _build_normalized_chip_matrix(self, chip_history: List[pd.DataFrame], current_chip: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -524,12 +672,7 @@ class AdvancedChipDynamicsService:
             metrics['divergence_strength'] = min(1.0, abs(net_change_direction) / 100.0)
         return metrics
 
-    def _calculate_game_energy(self, percent_change_matrix: np.ndarray,
-                             price_grid: np.ndarray,
-                             current_price: float,
-                             price_history: pd.DataFrame,
-                             stock_code: str = "",
-                             trade_date: str = "") -> Dict[str, Any]:
+    def _calculate_game_energy(self, percent_change_matrix: np.ndarray,price_grid: np.ndarray,current_price: float,price_history: pd.DataFrame,stock_code: str = "",trade_date: str = "") -> Dict[str, Any]:
         """计算博弈能量场"""
         # 提取成交量历史
         volume_history = None
@@ -551,6 +694,168 @@ class AdvancedChipDynamicsService:
         )
         return energy_result
 
+    def _calculate_main_force_activity(self, tick_data: pd.DataFrame, intraday_flow: Dict[str, float],abnormal_volume: Dict[str, float]) -> float:
+        """计算主力活跃度"""
+        try:
+            activity_score = 0.0
+            
+            # 1. 异常成交量权重
+            if abnormal_volume:
+                abnormal_ratio = abnormal_volume.get('abnormal_volume_ratio', 0.0)
+                activity_score += min(0.4, abnormal_ratio * 2)
+            
+            # 2. 大单占比（假设成交量>平均3倍为大单）
+            if not tick_data.empty:
+                avg_volume = tick_data['volume'].mean()
+                large_order_mask = tick_data['volume'] > avg_volume * 3
+                large_order_ratio = large_order_mask.sum() / len(tick_data)
+                activity_score += min(0.3, large_order_ratio * 3)
+            
+            # 3. 买卖不平衡度
+            if intraday_flow:
+                buy_ratio = intraday_flow.get('buy_ratio', 0.5)
+                sell_ratio = intraday_flow.get('sell_ratio', 0.5)
+                imbalance = abs(buy_ratio - sell_ratio)
+                activity_score += min(0.3, imbalance * 2)
+            
+            return min(1.0, activity_score)
+        except Exception as e:
+            print(f"⚠️ 主力活跃度计算失败: {e}")
+            return 0.0
+
+    def _calculate_accumulation_distribution_confidence(self, intraday_flow: Dict[str, float],chip_locking: Dict[str, float],support_resistance: Dict[str, Any]) -> Tuple[float, float]:
+        """计算吸筹/派发置信度"""
+        accumulation_confidence = 0.0
+        distribution_confidence = 0.0
+        
+        try:
+            # 1. 基于筹码流动判断
+            if intraday_flow:
+                net_flow = intraday_flow.get('net_flow_ratio', 0.0)
+                if net_flow > 0.1:  # 净流入
+                    accumulation_confidence += 0.3
+                elif net_flow < -0.1:  # 净流出
+                    distribution_confidence += 0.3
+            
+            # 2. 基于筹码锁定判断
+            if chip_locking:
+                low_lock = chip_locking.get('low_lock_ratio', 0.0)
+                high_lock = chip_locking.get('high_lock_ratio', 0.0)
+                if low_lock > 0.1:
+                    accumulation_confidence += 0.2  # 低位锁定，可能是吸筹
+                if high_lock > 0.15:
+                    distribution_confidence += 0.2  # 高位锁定，可能是派发或套牢
+            
+            # 3. 基于支撑阻力测试
+            if support_resistance:
+                support_tests = support_resistance.get('support_test_count', 0)
+                resistance_tests = support_resistance.get('resistance_test_count', 0)
+                if support_tests > resistance_tests * 2:
+                    accumulation_confidence += 0.2  # 支撑测试多，可能是吸筹
+                elif resistance_tests > support_tests * 2:
+                    distribution_confidence += 0.2  # 阻力测试多，可能是派发
+            
+            # 4. 博弈指数影响
+            if intraday_flow and 'clustering_index' in intraday_flow:
+                clustering = intraday_flow['clustering_index']
+                if clustering > 0.7:  # 高度聚类，可能是主力行为
+                    if accumulation_confidence > distribution_confidence:
+                        accumulation_confidence += 0.1
+                    else:
+                        distribution_confidence += 0.1
+            
+            return min(1.0, accumulation_confidence), min(1.0, distribution_confidence)
+        except Exception as e:
+            print(f"⚠️ 置信度计算失败: {e}")
+            return 0.0, 0.0
+
+    def _calculate_tick_time_span(self, tick_data: pd.DataFrame) -> float:
+        """计算tick数据时间跨度（小时）"""
+        try:
+            if tick_data.empty:
+                return 0.0
+            time_min = tick_data['trade_time'].min()
+            time_max = tick_data['trade_time'].max()
+            time_span = (time_max - time_min).total_seconds() / 3600
+            return float(time_span)
+        except Exception as e:
+            print(f"⚠️ 时间跨度计算失败: {e}")
+            return 0.0
+
+    def _calculate_market_microstructure(self, tick_data: pd.DataFrame) -> Dict[str, Any]:
+        """计算市场微观结构指标"""
+        try:
+            if tick_data.empty or len(tick_data) < 10:
+                return {}
+            
+            microstructure = {}
+            
+            # 1. 价格变动分布
+            if len(tick_data) >= 2:
+                price_changes = tick_data['price'].diff().dropna()
+                microstructure['price_change_mean'] = float(price_changes.mean())
+                microstructure['price_change_std'] = float(price_changes.std())
+                microstructure['price_change_skewness'] = float(price_changes.skew())
+            
+            # 2. 成交量分布
+            volume_series = tick_data['volume']
+            microstructure['volume_mean'] = float(volume_series.mean())
+            microstructure['volume_std'] = float(volume_series.std())
+            microstructure['volume_skewness'] = float(volume_series.skew())
+            
+            # 3. 买卖强度
+            if 'type' in tick_data.columns:
+                buy_mask = tick_data['type'] == 'B'
+                sell_mask = tick_data['type'] == 'S'
+                buy_volume = tick_data.loc[buy_mask, 'volume'].sum() if buy_mask.any() else 0
+                sell_volume = tick_data.loc[sell_mask, 'volume'].sum() if sell_mask.any() else 0
+                total_volume = buy_volume + sell_volume
+                
+                if total_volume > 0:
+                    microstructure['buy_strength'] = float(buy_volume / total_volume)
+                    microstructure['sell_strength'] = float(sell_volume / total_volume)
+            
+            # 4. 时间间隔分布
+            if len(tick_data) >= 3:
+                time_diffs = tick_data['trade_time'].diff().dt.total_seconds().dropna()
+                microstructure['avg_time_gap'] = float(time_diffs.mean())
+                microstructure['time_gap_std'] = float(time_diffs.std())
+            
+            return microstructure
+        except Exception as e:
+            print(f"⚠️ 微观结构计算失败: {e}")
+            return {}
+
+    def _get_default_tick_factors(self) -> Dict[str, Any]:
+        """获取默认的tick因子"""
+        return {
+            'tick_data_quality_score': 0.0,
+            'intraday_factor_calc_method': 'daily_only',
+            'intraday_chip_concentration': 0.5,
+            'intraday_chip_entropy': 0.0,
+            'intraday_price_distribution_skewness': 0.0,
+            'intraday_chip_turnover_intensity': 0.0,
+            'tick_level_chip_flow': 0.0,
+            'intraday_low_lock_ratio': 0.0,
+            'intraday_high_lock_ratio': 0.0,
+            'intraday_cost_center_migration': 0.0,
+            'intraday_cost_center_volatility': 0.0,
+            'intraday_peak_valley_ratio': 0.0,
+            'intraday_trough_filling_degree': 0.0,
+            'tick_abnormal_volume_ratio': 0.0,
+            'tick_clustering_index': 0.0,
+            'intraday_support_test_count': 0,
+            'intraday_resistance_test_count': 0,
+            'intraday_chip_consolidation_degree': 0.0,
+            'tick_chip_transfer_efficiency': 0.0,
+            'intraday_chip_game_index': 0.5,
+            'tick_chip_balance_ratio': 1.0,
+            'intraday_main_force_activity': 0.0,
+            'intraday_accumulation_confidence': 0.0,
+            'intraday_distribution_confidence': 0.0,
+            'tick_data_summary': {},
+            'intraday_market_microstructure': {},
+        }
     # ============== 数据获取方法 ==============
     
     async def _fetch_chip_percent_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
@@ -623,7 +928,7 @@ class AdvancedChipDynamicsService:
     # ============== 默认结果方法 ==============
     
     def _get_default_result(self, stock_code: str = "", trade_date: str = "") -> Dict[str, any]:
-        return {
+        result = {
             'stock_code': stock_code,
             'trade_date': trade_date,
             'price_grid': [],
@@ -634,9 +939,17 @@ class AdvancedChipDynamicsService:
             'behavior_patterns': self._get_default_behavior_patterns(),
             'migration_patterns': self._get_default_migration_patterns(),
             'convergence_metrics': self._get_default_convergence_metrics(),
+            'game_energy_result': {},
+            'direct_ad_result': {},
+            # 新增：默认tick因子
+            'tick_enhanced_factors': self._get_default_tick_factors(),
             'analysis_status': 'failed'
         }
-    
+        # 确保有默认的game_energy_result
+        if 'game_energy_result' not in result or not result['game_energy_result']:
+            result['game_energy_result'] = self.game_energy_calculator._get_default_energy()
+        return result
+
     def _get_default_absolute_signals(self) -> Dict[str, any]:
         return {
             'significant_increase_areas': [],

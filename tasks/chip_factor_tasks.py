@@ -11,6 +11,7 @@ import logging
 from typing import List, Dict, Optional, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.chip_holding_calculator import AdvancedChipDynamicsService
+from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 import time
 
 # 导入模型和工具
@@ -619,7 +620,7 @@ def calculate_single_stock_holding_matrix_sync(stock_code: str, start_date: date
         print(f"❌ [持有矩阵单股异常] {stock_code}: {e}")
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
-async def calculate_single_stock_holding_matrix_async(stock_code: str, start_date: date, end_date: date) -> Dict:
+async def calculate_single_stock_holding_matrix_async(stock_code: str, start_date: date, end_date: date, cm: CacheManager) -> Dict:
     """异步版本的单个股票持有矩阵计算函数 - 修复数据保存问题"""
     try:
         logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵")
@@ -673,10 +674,13 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                         continue
                 # 使用AdvancedChipDynamicsService进行动态分析
                 trade_date_str = current_date.strftime('%Y-%m-%d')
+                realtime_dao = StockRealtimeDAO(cm)
+                tick_data = await realtime_dao.get_daily_real_ticks(stock_code, current_date) 
                 dynamics_result = await service.analyze_chip_dynamics_daily(
                     stock_code=stock_code,
                     trade_date=trade_date_str,
-                    lookback_days=20
+                    lookback_days=20,
+                    tick_data=tick_data
                 )
                 # 保存动态分析结果到数据库
                 if dynamics_result.get('analysis_status') == 'success':
@@ -735,7 +739,8 @@ def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, e
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(calculate_single_stock_holding_matrix_async(stock_code, start_date, end_date))
+            cm = CacheManager()
+            result = loop.run_until_complete(calculate_single_stock_holding_matrix_async(stock_code, start_date, end_date, cm))
             return result
         finally:
             loop.close()
@@ -1487,6 +1492,7 @@ def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, 
         # 创建事件循环用于异步调用
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        cm = CacheManager()
         try:
             for idx, stock_code in enumerate(stock_codes):
                 try:
@@ -1495,7 +1501,7 @@ def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, 
                     trade_dates = TradeCalendar.get_trade_dates_between(start_date_obj, end_date_obj)
                     # 同步方式处理每个日期
                     date_results = loop.run_until_complete(
-                        process_energy_field_for_stock(stock_code, trade_dates)
+                        process_energy_field_for_stock(stock_code, trade_dates, cm)
                     )
                     processed_dates = date_results['processed_dates']
                     if processed_dates > 0:
@@ -1530,7 +1536,7 @@ def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, 
         logger.error(f"批量计算能量场失败: {e}")
         raise self.retry(exc=e, countdown=60)
 
-async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date]) -> Dict:
+async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date], cm: CacheManager) -> Dict:
     """处理单只股票的能量场计算"""
     processed_dates = 0
     
@@ -1540,10 +1546,13 @@ async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date
     for trade_date in trade_dates:
         try:
             # 分析筹码动态（包含能量场）
+            realtime_dao = StockRealtimeDAO(cm)
+            tick_data = await realtime_dao.get_daily_real_ticks(stock_code, trade_date) 
             dynamics_result = await service.analyze_chip_dynamics_daily(
                 stock_code=stock_code,
                 trade_date=trade_date.strftime('%Y-%m-%d'),
-                lookback_days=20
+                lookback_days=20,
+                tick_data=tick_data
             )
             if dynamics_result.get('analysis_status') == 'success':
                 # 更新持有矩阵记录的能量场字段
