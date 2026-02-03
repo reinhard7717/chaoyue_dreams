@@ -197,8 +197,8 @@ class AdvancedChipDynamicsService:
         """
         计算tick数据增强因子
         修改思路:
-        1. 移除列名兼容性处理（不需要猜测 time/datetime 等）。
-        2. 优化 trade_time 处理逻辑：如果 trade_time 在索引中，直接将其赋值为列，从而保留原索引结构。
+        1. 解决 'trade_time' 既是列名又是索引名的歧义问题。
+        2. 当从索引恢复 'trade_time' 列后，如果索引名也叫 'trade_time'，则移除索引名。
         """
         try:
             if tick_data.empty:
@@ -216,6 +216,11 @@ class AdvancedChipDynamicsService:
                     tick_data = tick_data.copy()
                     tick_data['trade_time'] = tick_data.index
             
+            # 关键修复：消除索引名和列名的歧义
+            # 如果列中有 trade_time 且索引名也是 trade_time，Pandas sort_values 会报错
+            if 'trade_time' in tick_data.columns and tick_data.index.name == 'trade_time':
+                tick_data.index.name = None  # 移除索引名称
+
             # 3. 确保 trade_time 是 datetime 类型
             if 'trade_time' in tick_data.columns:
                 if not pd.api.types.is_datetime64_any_dtype(tick_data['trade_time']):
