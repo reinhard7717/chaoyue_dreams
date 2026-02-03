@@ -1243,7 +1243,7 @@ class ChipFactorCalculator:
     @staticmethod
     def preprocess_tick_data(tick_data: pd.DataFrame) -> Tuple[pd.DataFrame, float]:
         """
-        预处理tick数据 - 修复KeyError索引问题 v1.2
+        预处理tick数据 - 修复KeyError索引问题 v1.2 & 修复Decimal类型兼容问题 v1.3
         Args:
             tick_data: 包含['trade_time', 'price', 'volume', 'type']列的DataFrame，或者是trade_time为索引的DF
         Returns:
@@ -1252,30 +1252,54 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty:
                 return pd.DataFrame(), 0.0
+            
             # 拷贝数据防止修改原始数据
             df = tick_data.copy()
-            # 【修复】核心逻辑：检测 trade_time 是否为索引，如果是则重置为列
+            
+            # 【修复1】核心逻辑：检测 trade_time 是否为索引，如果是则重置为列
             if 'trade_time' not in df.columns:
                 if isinstance(df.index, pd.DatetimeIndex) or df.index.name == 'trade_time':
                     df.reset_index(inplace=True)
                     # 防止reset_index后列名变成'index'
                     if 'trade_time' not in df.columns and 'index' in df.columns:
                         df.rename(columns={'index': 'trade_time'}, inplace=True)
+            
             # 再次安全检查
             if 'trade_time' not in df.columns:
                 logger.error(f"预处理tick数据失败: 无法找到 'trade_time' 列，现有列: {df.columns.tolist()}")
                 return pd.DataFrame(), 0.0
+
+            # 【修复2】类型转换：将Decimal类型转换为float，避免后续Numpy计算报错
+            # Explicitly convert numeric columns to float to handle Decimal types from Django
+            numeric_cols = ['price', 'volume', 'amount', 'price_change']
+            for col in numeric_cols:
+                if col in df.columns:
+                    try:
+                        # 尝试直接转换
+                        df[col] = df[col].astype(float)
+                    except Exception:
+                        # 如果失败（例如包含非数字字符），强制转换
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+
             # 确保时间排序
             df = df.sort_values('trade_time')
+            
             # 计算3秒时间窗口（基于3秒聚合数据特性）
-            df['time_window'] = df['trade_time'].dt.floor('3s')
+            # 注意：pandas旧版本可能只支持 '3S'，新版本支持 '3s'，这里使用 '3s'
+            try:
+                df['time_window'] = df['trade_time'].dt.floor('3s')
+            except ValueError:
+                df['time_window'] = df['trade_time'].dt.floor('3S')
+            
             # 数据完整性检查
             # 计算相邻tick的时间差
             time_diffs = df['trade_time'].diff().dt.total_seconds().fillna(0)
+            
             # 统计间隔超过3.5秒的情况（视为数据缺失或不活跃）
             # 注意：对于非高频交易股票，间隔大不一定是数据质量差，但在计算日内分布时需要考虑连续性
             gaps_count = (time_diffs > 3.5).sum()
             data_quality = 1.0 - (gaps_count / len(df)) if len(df) > 0 else 0.0
+            
             return df, max(0.0, float(data_quality))
         except Exception as e:
             logger.error(f"预处理tick数据失败: {e}", exc_info=True)
