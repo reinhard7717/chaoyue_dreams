@@ -197,13 +197,35 @@ class AdvancedChipDynamicsService:
         """
         计算tick数据增强因子
         修改思路:
-        1. 接收trade_date参数。
-        2. 增加详细的探针日志：当数据质量低时，输出行数、列名、时间范围、成交量统计等信息，帮助定位原因。
+        1. 移除列名兼容性处理（不需要猜测 time/datetime 等）。
+        2. 优化 trade_time 处理逻辑：如果 trade_time 在索引中，直接将其赋值为列，从而保留原索引结构。
         """
         try:
             if tick_data.empty:
                 return self._get_default_tick_factors()
             
+            # =======================================================
+            # 数据预处理：确保 trade_time 存在于列中
+            # =======================================================
+            # 如果 trade_time 不在列中，检查是否在索引中
+            if 'trade_time' not in tick_data.columns:
+                # 如果索引是 DatetimeIndex 或者名字叫 trade_time
+                if isinstance(tick_data.index, pd.DatetimeIndex) or tick_data.index.name == 'trade_time':
+                    # 将索引赋值给新列，保留原索引
+                    # 使用 copy 避免 SettingWithCopyWarning
+                    tick_data = tick_data.copy()
+                    tick_data['trade_time'] = tick_data.index
+            
+            # 3. 确保 trade_time 是 datetime 类型
+            if 'trade_time' in tick_data.columns:
+                if not pd.api.types.is_datetime64_any_dtype(tick_data['trade_time']):
+                    try:
+                        tick_data['trade_time'] = pd.to_datetime(tick_data['trade_time'])
+                    except Exception as e:
+                        print(f"⚠️ [tick因子] trade_time 转换失败: {e}")
+
+            # =======================================================
+
             # 确定日期显示
             date_str = trade_date
             if not date_str:
