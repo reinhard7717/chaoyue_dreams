@@ -1241,33 +1241,46 @@ class ChipFactorCalculator:
     # ========== Tick数据处理基础方法 ==========
     
     @staticmethod
-    def preprocess_tick_data(tick_data: pd.DataFrame) -> pd.DataFrame:
+    def preprocess_tick_data(tick_data: pd.DataFrame) -> Tuple[pd.DataFrame, float]:
         """
-        预处理tick数据
+        预处理tick数据 - 修复KeyError索引问题 v1.2
         Args:
-            tick_data: 包含['trade_time', 'price', 'volume', 'type']列的DataFrame
+            tick_data: 包含['trade_time', 'price', 'volume', 'type']列的DataFrame，或者是trade_time为索引的DF
         Returns:
-            预处理后的DataFrame
+            Tuple[pd.DataFrame, float]: (预处理后的DataFrame, 数据质量评分)
         """
         try:
             if tick_data.empty:
-                return pd.DataFrame()
-            
+                return pd.DataFrame(), 0.0
+            # 拷贝数据防止修改原始数据
+            df = tick_data.copy()
+            # 【修复】核心逻辑：检测 trade_time 是否为索引，如果是则重置为列
+            if 'trade_time' not in df.columns:
+                if isinstance(df.index, pd.DatetimeIndex) or df.index.name == 'trade_time':
+                    df.reset_index(inplace=True)
+                    # 防止reset_index后列名变成'index'
+                    if 'trade_time' not in df.columns and 'index' in df.columns:
+                        df.rename(columns={'index': 'trade_time'}, inplace=True)
+            # 再次安全检查
+            if 'trade_time' not in df.columns:
+                logger.error(f"预处理tick数据失败: 无法找到 'trade_time' 列，现有列: {df.columns.tolist()}")
+                return pd.DataFrame(), 0.0
             # 确保时间排序
-            tick_data = tick_data.sort_values('trade_time').copy()
-            
+            df = df.sort_values('trade_time')
             # 计算3秒时间窗口（基于3秒聚合数据特性）
-            tick_data['time_window'] = tick_data['trade_time'].dt.floor('3S')
-            
+            df['time_window'] = df['trade_time'].dt.floor('3s')
             # 数据完整性检查
-            time_gaps = tick_data['time_window'].diff().dt.total_seconds().fillna(0)
-            data_quality = 1.0 - (time_gaps > 3.5).sum() / len(tick_data)
-            
-            return tick_data, data_quality
+            # 计算相邻tick的时间差
+            time_diffs = df['trade_time'].diff().dt.total_seconds().fillna(0)
+            # 统计间隔超过3.5秒的情况（视为数据缺失或不活跃）
+            # 注意：对于非高频交易股票，间隔大不一定是数据质量差，但在计算日内分布时需要考虑连续性
+            gaps_count = (time_diffs > 3.5).sum()
+            data_quality = 1.0 - (gaps_count / len(df)) if len(df) > 0 else 0.0
+            return df, max(0.0, float(data_quality))
         except Exception as e:
-            logger.error(f"预处理tick数据失败: {e}")
+            logger.error(f"预处理tick数据失败: {e}", exc_info=True)
             return pd.DataFrame(), 0.0
-    
+
     @staticmethod
     def calculate_intraday_chip_distribution(tick_data: pd.DataFrame, price_bins: int = 20) -> Dict[str, Any]:
         """
@@ -1281,57 +1294,43 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty:
                 return {}
-            
             prices = tick_data['price'].values
             volumes = tick_data['volume'].values
-            
             # 计算价格区间
             price_min, price_max = np.min(prices), np.max(prices)
             price_range = price_max - price_min
-            
             if price_range <= 0:
                 return {}
-            
             # 按价格区间分组统计成交量
             bin_edges = np.linspace(price_min, price_max, price_bins + 1)
             bin_indices = np.digitize(prices, bin_edges) - 1
             bin_indices = np.clip(bin_indices, 0, price_bins - 1)
-            
             # 统计各区间成交量
             bin_volumes = np.zeros(price_bins)
             for i in range(price_bins):
                 mask = bin_indices == i
                 if np.any(mask):
                     bin_volumes[i] = np.sum(volumes[mask])
-            
             total_volume = np.sum(bin_volumes)
-            
             if total_volume <= 0:
                 return {}
-            
             # 计算归一化分布
             bin_distribution = bin_volumes / total_volume
-            
             # 计算统计指标
             valid_bins = bin_distribution > 0
-            
             # 集中度 (HHI指数)
             concentration = np.sum(bin_distribution ** 2)
-            
             # 熵值
             entropy = -np.sum(bin_distribution[valid_bins] * np.log(bin_distribution[valid_bins]))
-            
             # 偏度 (基于成交量加权)
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             mean_price = np.average(bin_centers, weights=bin_distribution)
             std_price = np.sqrt(np.average((bin_centers - mean_price) ** 2, weights=bin_distribution))
-            
             if std_price > 0:
                 z_scores = (bin_centers - mean_price) / std_price
                 skewness = np.average(z_scores ** 3, weights=bin_distribution)
             else:
                 skewness = 0.0
-            
             return {
                 'concentration': float(concentration),
                 'entropy': float(entropy),
@@ -1355,25 +1354,18 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty or 'type' not in tick_data.columns:
                 return {}
-            
             # 按买卖方向分组
             buy_mask = tick_data['type'] == 'B'
             sell_mask = tick_data['type'] == 'S'
-            
             buy_volume = tick_data.loc[buy_mask, 'volume'].sum() if np.any(buy_mask) else 0
             sell_volume = tick_data.loc[sell_mask, 'volume'].sum() if np.any(sell_mask) else 0
-            
             total_volume = buy_volume + sell_volume
-            
             if total_volume <= 0:
                 return {}
-            
             # 净流动比例
             net_flow_ratio = (buy_volume - sell_volume) / total_volume
-            
             # 流动强度
             flow_intensity = (buy_volume + sell_volume) / total_volume  # 非中性盘占比
-            
             # 连续同向tick统计（聚类指数）
             if len(tick_data) >= 2:
                 directions = np.where(tick_data['type'] == 'B', 1, 
@@ -1382,7 +1374,6 @@ class ChipFactorCalculator:
                 clustering_index = 1.0 - np.sum(direction_changes) / len(direction_changes)
             else:
                 clustering_index = 0.0
-            
             return {
                 'net_flow_ratio': float(net_flow_ratio),
                 'flow_intensity': float(flow_intensity),
@@ -1406,43 +1397,33 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty:
                 return {}
-            
             # 按时间窗口计算成本重心序列
             tick_data = tick_data.copy()
-            
             # 计算累积加权平均成本
             cum_volume = tick_data['volume'].cumsum()
             cum_value = (tick_data['price'] * tick_data['volume']).cumsum()
-            
             # 避免除零
             valid_mask = cum_volume > 0
             if not np.any(valid_mask):
                 return {}
-            
             cost_center_series = cum_value[valid_mask] / cum_volume[valid_mask]
-            
             # 开盘成本
             open_cost = cost_center_series.iloc[0] if len(cost_center_series) > 0 else 0
-            
             # 收盘成本（最终成本）
             close_cost = cost_center_series.iloc[-1] if len(cost_center_series) > 0 else 0
-            
             # 成本重心迁移
             if open_cost > 0:
                 migration_ratio = (close_cost - open_cost) / open_cost
             else:
                 migration_ratio = 0.0
-            
             # 成本重心波动率
             if len(cost_center_series) >= 2:
                 volatility = cost_center_series.std()
             else:
                 volatility = 0.0
-            
             # 日内高低成本
             max_cost = cost_center_series.max()
             min_cost = cost_center_series.min()
-            
             return {
                 'open_cost': float(open_cost),
                 'close_cost': float(close_cost),
@@ -1469,10 +1450,8 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty or chip_dist.empty:
                 return {}
-            
             # 从筹码分布中提取关键分位
             cost_50pct = chip_dist['price'].iloc[len(chip_dist) // 2] if len(chip_dist) > 0 else 0
-            
             # 计算筹码密集区（前30%密集区域）
             if len(chip_dist) >= 3:
                 sorted_chip = chip_dist.sort_values('percent', ascending=False)
@@ -1481,27 +1460,21 @@ class ChipFactorCalculator:
                 dense_price_max = top_30_percent['price'].max()
             else:
                 dense_price_min = dense_price_max = cost_50pct
-            
             # 识别tick价格触及关键位的情况
             tick_prices = tick_data['price'].values
-            
             # 触及支撑（价格低于密集区下沿2%）
             support_threshold = dense_price_min * 0.98
             support_tests = np.sum(tick_prices <= support_threshold)
-            
             # 触及阻力（价格高于密集区上沿2%）
             resistance_threshold = dense_price_max * 1.02
             resistance_tests = np.sum(tick_prices >= resistance_threshold)
-            
             # 窄幅震荡比例（价格在密集区±1%内）
             narrow_range_min = dense_price_min * 0.99
             narrow_range_max = dense_price_max * 1.01
             in_narrow_range = np.sum((tick_prices >= narrow_range_min) & 
                                     (tick_prices <= narrow_range_max))
-            
             total_ticks = len(tick_prices)
             consolidation_degree = in_narrow_range / total_ticks if total_ticks > 0 else 0.0
-            
             return {
                 'support_test_count': int(support_tests),
                 'resistance_test_count': int(resistance_tests),
@@ -1526,29 +1499,21 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty:
                 return {}
-            
             volumes = tick_data['volume'].values
-            
             if len(volumes) < 10:
                 return {}
-            
             # 计算统计量
             mean_volume = np.mean(volumes)
             std_volume = np.std(volumes)
-            
             if std_volume <= 0:
                 return {}
-            
             # 识别异常tick（超过3倍标准差）
             threshold = mean_volume + 3 * std_volume
             abnormal_mask = volumes > threshold
-            
             abnormal_count = np.sum(abnormal_mask)
             abnormal_volume = np.sum(volumes[abnormal_mask])
             total_volume = np.sum(volumes)
-            
             abnormal_ratio = abnormal_volume / total_volume if total_volume > 0 else 0.0
-            
             # 计算成交效率（价格变动单位带来的筹码转移）
             if len(tick_data) >= 2:
                 price_changes = np.abs(np.diff(tick_data['price'].values))
@@ -1561,7 +1526,6 @@ class ChipFactorCalculator:
                     transfer_efficiency = 0.0
             else:
                 transfer_efficiency = 0.0
-            
             return {
                 'abnormal_volume_ratio': float(abnormal_ratio),
                 'abnormal_tick_count': int(abnormal_count),
@@ -1586,35 +1550,26 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty or current_price <= 0:
                 return {}
-            
             prices = tick_data['price'].values
             volumes = tick_data['volume'].values
-            
             # 定义价格区间
             price_range = np.max(prices) - np.min(prices)
-            
             if price_range <= 0:
                 return {}
-            
             # 低位区间（最低价+20%区间）
             low_bound = np.min(prices) + price_range * 0.2
             low_mask = prices <= low_bound
-            
             # 高位区间（最高价-20%区间）
             high_bound = np.max(prices) - price_range * 0.2
             high_mask = prices >= high_bound
-            
             # 计算各区成交量占比
             low_volume = np.sum(volumes[low_mask])
             high_volume = np.sum(volumes[high_mask])
             total_volume = np.sum(volumes)
-            
             if total_volume <= 0:
                 return {}
-            
             low_ratio = low_volume / total_volume
             high_ratio = high_volume / total_volume
-            
             # 识别峰谷区域
             # 使用简单的峰值检测（简化版）
             if len(volumes) >= 5:
@@ -1640,7 +1595,6 @@ class ChipFactorCalculator:
             else:
                 peak_valley_ratio = 0.0
                 trough_filling = 0.0
-            
             return {
                 'low_lock_ratio': float(low_ratio),
                 'high_lock_ratio': float(high_ratio),
@@ -1665,25 +1619,18 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty or 'type' not in tick_data.columns:
                 return 0.0
-            
             # 计算买卖平衡度
             flow_metrics = ChipFactorCalculator.calculate_intraday_chip_flow(tick_data)
-            
             if not flow_metrics:
                 return 0.0
-            
             buy_ratio = flow_metrics.get('buy_ratio', 0.5)
             sell_ratio = flow_metrics.get('sell_ratio', 0.5)
-            
             # 平衡度（越接近0.5表示博弈越激烈）
             balance = 1.0 - 2.0 * abs(buy_ratio - 0.5)
-            
             # 聚类指数（连续同向交易降低博弈激烈度）
             clustering = flow_metrics.get('clustering_index', 0.0)
-            
             # 博弈指数 = 平衡度 * (1 - 聚类指数)
             game_index = balance * (1.0 - clustering)
-            
             return float(game_index)
         except Exception as e:
             logger.error(f"计算筹码博弈指数失败: {e}")
@@ -1701,7 +1648,6 @@ class ChipFactorCalculator:
                 chip_perf_data, chip_dist_data, daily_basic_data, daily_kline_data
             )
             factors.update(base_factors)
-            
             # 2. 计算tick相关因子（如果tick数据可用）
             if tick_data is not None and not tick_data.empty:
                 # 预处理tick数据
@@ -1783,10 +1729,8 @@ class ChipFactorCalculator:
                     factors, chip_dist_data, daily_kline_data
                 )
                 factors['intraday_factor_calc_method'] = 'daily_only'
-            
             # 3. 继续计算其他原有因子（时间序列、市场适应性等）
             # ... 原有逻辑 ...
-            
             factors['calc_status'] = 'success'
             
         except Exception as e:
@@ -1812,7 +1756,6 @@ class ChipFactorCalculator:
                 # 实际应用中可根据历史数据回归得到更好的近似公式
                 factors['intraday_chip_concentration'] = daily_concentration * 1.2  # 假设日内更集中
                 factors['intraday_chip_entropy'] = daily_entropy * 0.8  # 假设日内熵值更低
-            
             # 基于K线数据近似其他因子
             if daily_kline_data:
                 vol = daily_kline_data.get('vol', 0)
@@ -1828,7 +1771,6 @@ class ChipFactorCalculator:
                     # 近似日内筹码换手强度
                     turnover_rate = factors.get('turnover_rate', 0)
                     factors['intraday_chip_turnover_intensity'] = turnover_rate / 100.0  # 归一化
-            
             # 设置默认值
             default_values = {
                 'intraday_low_lock_ratio': 0.3,
@@ -1838,11 +1780,9 @@ class ChipFactorCalculator:
                 'intraday_chip_game_index': 0.5,
                 'tick_data_quality_score': 0.0
             }
-            
             for key, value in default_values.items():
                 if key not in factors:
                     factors[key] = value
-            
             return factors
         
         except Exception as e:
@@ -1868,7 +1808,6 @@ class ChipFactorCalculator:
                     'missing_intervals': 0,
                     'recommendation': 'no_data'
                 }
-            
             # 基本统计
             total_ticks = len(tick_data)
             if total_ticks == 0:
@@ -1880,36 +1819,27 @@ class ChipFactorCalculator:
                     'missing_intervals': 0,
                     'recommendation': 'no_data'
                 }
-            
             # 时间跨度
             time_min = tick_data['trade_time'].min()
             time_max = tick_data['trade_time'].max()
             time_span = (time_max - time_min).total_seconds() / 3600  # 小时
-            
             # 理想情况：4小时交易时间（9:30-11:30, 13:00-15:00）
             expected_hours = 4.0
-            
             # 检查时间连续性（3秒间隔）
             tick_times = tick_data['trade_time'].sort_values().values
             time_diffs = np.diff(tick_times) / np.timedelta64(1, 's')
-            
             # 计算缺失间隔（超过4秒的间隔视为缺失）
             missing_intervals = np.sum(time_diffs > 4.0)
-            
             # 数据质量评分（0-1）
             # 1. 时间覆盖度（最高0.4分）
             time_coverage = min(1.0, time_span / expected_hours) * 0.4
-            
             # 2. 连续性（最高0.3分）
             continuity_score = 1.0 - min(1.0, missing_intervals / max(1, total_ticks)) * 0.3
-            
             # 3. 数据量充分性（最高0.3分）
             # 理想情况下，4小时=4800个3秒tick（实际会有集合竞价等）
             expected_ticks = 4800
             volume_score = min(1.0, total_ticks / expected_ticks) * 0.3
-            
             quality_score = time_coverage + continuity_score + volume_score
-            
             # 给出使用建议
             if quality_score >= 0.7:
                 recommendation = 'excellent'
@@ -1919,7 +1849,6 @@ class ChipFactorCalculator:
                 recommendation = 'fair'
             else:
                 recommendation = 'poor'
-            
             return {
                 'available': True,
                 'quality_score': float(quality_score),
