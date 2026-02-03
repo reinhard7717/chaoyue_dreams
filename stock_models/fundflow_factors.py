@@ -379,6 +379,122 @@ class FundFlowFactorBase(models.Model):
         verbose_name='特征向量', null=True, blank=True,
         help_text='Base64编码的特征向量，用于机器学习模型'
     )
+
+    # ==================== 13. 基于Tick数据的资金流向增强指标 ====================
+    # 13.1 日内资金流分布特征
+    intraday_flow_distribution = models.JSONField(
+        verbose_name='日内资金流分布', null=True, blank=True,
+        help_text='JSON格式，记录各时间段资金分布特征'
+    )
+
+    # 13.2 高频大单识别
+    tick_large_order_net = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='Tick大单净流入(万元)', null=True, blank=True,
+        help_text='基于tick数据识别的大单净流入'
+    )
+    tick_large_order_count = models.IntegerField(
+        verbose_name='大单笔数', null=True, blank=True,
+        help_text='日内识别的大单交易笔数'
+    )
+
+    # 13.3 资金冲击特征
+    flow_impact_ratio = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='资金冲击系数', null=True, blank=True,
+        help_text='单位资金对价格的冲击程度'
+    )
+    flow_persistence_minutes = models.IntegerField(
+        verbose_name='资金持续分钟数', null=True, blank=True,
+        help_text='连续同向资金流入的分钟数'
+    )
+
+    # 13.4 日内资金动量
+    intraday_flow_momentum = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='日内资金动量', null=True, blank=True,
+        help_text='日内资金流向的动量指标'
+    )
+    flow_acceleration_intraday = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='日内资金加速度', null=True, blank=True,
+        help_text='日内资金流入的加速/减速特征'
+    )
+
+    # 13.5 资金聚类特征
+    flow_cluster_intensity = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='资金聚类强度', null=True, blank=True,
+        help_text='资金流入的时间聚集程度'
+    )
+    flow_cluster_duration = models.IntegerField(
+        verbose_name='资金聚类持续时间(分钟)', null=True, blank=True,
+        help_text='资金集中流入的持续时间'
+    )
+
+    # 13.6 高频资金分歧度
+    high_freq_flow_divergence = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='高频资金分歧度', null=True, blank=True,
+        help_text='高频资金流入流出之间的分歧程度'
+    )
+
+    # 13.7 日内VWAP偏离
+    vwap_deviation = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='VWAP偏离度(%)', null=True, blank=True,
+        help_text='资金流入价格相对于VWAP的偏离程度'
+    )
+
+    # 13.8 资金流入效率
+    flow_efficiency = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='资金流入效率', null=True, blank=True,
+        help_text='单位资金流入推动的价格变化'
+    )
+
+    # 13.9 尾盘资金特征
+    closing_flow_ratio = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='尾盘资金占比(%)', null=True, blank=True,
+        help_text='收盘前30分钟资金流入占比'
+    )
+    closing_flow_intensity = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='尾盘资金强度', null=True, blank=True,
+        help_text='尾盘资金流入的集中程度'
+    )
+
+    # 13.10 高频统计特征
+    high_freq_flow_skewness = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='高频资金偏度', null=True, blank=True,
+        help_text='日内资金流分布的偏度特征'
+    )
+    high_freq_flow_kurtosis = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='高频资金峰度', null=True, blank=True,
+        help_text='日内资金流分布的峰度特征'
+    )
+
+    # 13.11 资金流入时段分布
+    morning_flow_ratio = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='上午资金占比(%)', null=True, blank=True,
+        help_text='上午交易时段资金流入占比'
+    )
+    afternoon_flow_ratio = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='下午资金占比(%)', null=True, blank=True,
+        help_text='下午交易时段资金流入占比'
+    )
+
+    # 13.12 主力隐蔽性指标
+    stealth_flow_ratio = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='隐蔽资金占比(%)', null=True, blank=True,
+        help_text='分散小单但持续流入的资金占比'
+    )
     
     # ==================== 时间戳管理 ====================
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')

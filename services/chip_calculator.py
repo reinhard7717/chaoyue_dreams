@@ -368,8 +368,7 @@ class ChipFactorCalculator:
             return 0, 0.0
 
     @staticmethod
-    def calculate_convergence_divergence(chip_dist: pd.DataFrame, cost_50pct: float,
-                                        price_range: Tuple[float, float]) -> Tuple[float, float]:
+    def calculate_convergence_divergence(chip_dist: pd.DataFrame, cost_50pct: float, price_range: Tuple[float, float]) -> Tuple[float, float]:
         """
         计算筹码聚集度和发散度 - Numpy优化版 v1.1
         修改思路：使用Numpy数组操作替代Pandas过滤。
@@ -926,15 +925,7 @@ class ChipFactorCalculator:
             return 0.0
 
     @staticmethod
-    def calculate_complete_factors(
-        chip_perf_data: Dict,
-        chip_dist_data: pd.DataFrame,
-        daily_basic_data: Dict,
-        daily_kline_data: Dict,
-        prev_chip_dist_data: pd.DataFrame = None,
-        historical_prices: pd.Series = None,
-        historical_chip_factors: List[Dict] = None
-    ) -> Dict:
+    def calculate_complete_factors(chip_perf_data: Dict,chip_dist_data: pd.DataFrame,daily_basic_data: Dict,daily_kline_data: Dict,prev_chip_dist_data: pd.DataFrame = None,historical_prices: pd.Series = None,historical_chip_factors: List[Dict] = None) -> Dict:
         """
         计算完整的筹码因子（包含时间序列因子）
         Args:
@@ -1247,6 +1238,704 @@ class ChipFactorCalculator:
             logger.error(f"计算高位筹码沉淀比例失败: {e}")
             return 0.0
 
+    # ========== Tick数据处理基础方法 ==========
+    
+    @staticmethod
+    def preprocess_tick_data(tick_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        预处理tick数据
+        Args:
+            tick_data: 包含['trade_time', 'price', 'volume', 'type']列的DataFrame
+        Returns:
+            预处理后的DataFrame
+        """
+        try:
+            if tick_data.empty:
+                return pd.DataFrame()
+            
+            # 确保时间排序
+            tick_data = tick_data.sort_values('trade_time').copy()
+            
+            # 计算3秒时间窗口（基于3秒聚合数据特性）
+            tick_data['time_window'] = tick_data['trade_time'].dt.floor('3S')
+            
+            # 数据完整性检查
+            time_gaps = tick_data['time_window'].diff().dt.total_seconds().fillna(0)
+            data_quality = 1.0 - (time_gaps > 3.5).sum() / len(tick_data)
+            
+            return tick_data, data_quality
+        except Exception as e:
+            logger.error(f"预处理tick数据失败: {e}")
+            return pd.DataFrame(), 0.0
+    
+    @staticmethod
+    def calculate_intraday_chip_distribution(tick_data: pd.DataFrame, price_bins: int = 20) -> Dict[str, Any]:
+        """
+        基于tick数据计算日内筹码分布
+        Args:
+            tick_data: 预处理后的tick数据
+            price_bins: 价格区间数量
+        Returns:
+            日内筹码分布统计
+        """
+        try:
+            if tick_data.empty:
+                return {}
+            
+            prices = tick_data['price'].values
+            volumes = tick_data['volume'].values
+            
+            # 计算价格区间
+            price_min, price_max = np.min(prices), np.max(prices)
+            price_range = price_max - price_min
+            
+            if price_range <= 0:
+                return {}
+            
+            # 按价格区间分组统计成交量
+            bin_edges = np.linspace(price_min, price_max, price_bins + 1)
+            bin_indices = np.digitize(prices, bin_edges) - 1
+            bin_indices = np.clip(bin_indices, 0, price_bins - 1)
+            
+            # 统计各区间成交量
+            bin_volumes = np.zeros(price_bins)
+            for i in range(price_bins):
+                mask = bin_indices == i
+                if np.any(mask):
+                    bin_volumes[i] = np.sum(volumes[mask])
+            
+            total_volume = np.sum(bin_volumes)
+            
+            if total_volume <= 0:
+                return {}
+            
+            # 计算归一化分布
+            bin_distribution = bin_volumes / total_volume
+            
+            # 计算统计指标
+            valid_bins = bin_distribution > 0
+            
+            # 集中度 (HHI指数)
+            concentration = np.sum(bin_distribution ** 2)
+            
+            # 熵值
+            entropy = -np.sum(bin_distribution[valid_bins] * np.log(bin_distribution[valid_bins]))
+            
+            # 偏度 (基于成交量加权)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            mean_price = np.average(bin_centers, weights=bin_distribution)
+            std_price = np.sqrt(np.average((bin_centers - mean_price) ** 2, weights=bin_distribution))
+            
+            if std_price > 0:
+                z_scores = (bin_centers - mean_price) / std_price
+                skewness = np.average(z_scores ** 3, weights=bin_distribution)
+            else:
+                skewness = 0.0
+            
+            return {
+                'concentration': float(concentration),
+                'entropy': float(entropy),
+                'skewness': float(skewness),
+                'price_distribution': dict(zip(bin_centers, bin_distribution)),
+                'price_range': (float(price_min), float(price_max))
+            }
+        except Exception as e:
+            logger.error(f"计算日内筹码分布失败: {e}")
+            return {}
+    
+    @staticmethod
+    def calculate_intraday_chip_flow(tick_data: pd.DataFrame) -> Dict[str, float]:
+        """
+        计算tick级筹码流动
+        Args:
+            tick_data: 包含买卖方向的tick数据
+        Returns:
+            筹码流动指标
+        """
+        try:
+            if tick_data.empty or 'type' not in tick_data.columns:
+                return {}
+            
+            # 按买卖方向分组
+            buy_mask = tick_data['type'] == 'B'
+            sell_mask = tick_data['type'] == 'S'
+            
+            buy_volume = tick_data.loc[buy_mask, 'volume'].sum() if np.any(buy_mask) else 0
+            sell_volume = tick_data.loc[sell_mask, 'volume'].sum() if np.any(sell_mask) else 0
+            
+            total_volume = buy_volume + sell_volume
+            
+            if total_volume <= 0:
+                return {}
+            
+            # 净流动比例
+            net_flow_ratio = (buy_volume - sell_volume) / total_volume
+            
+            # 流动强度
+            flow_intensity = (buy_volume + sell_volume) / total_volume  # 非中性盘占比
+            
+            # 连续同向tick统计（聚类指数）
+            if len(tick_data) >= 2:
+                directions = np.where(tick_data['type'] == 'B', 1, 
+                                     np.where(tick_data['type'] == 'S', -1, 0))
+                direction_changes = np.diff(directions) != 0
+                clustering_index = 1.0 - np.sum(direction_changes) / len(direction_changes)
+            else:
+                clustering_index = 0.0
+            
+            return {
+                'net_flow_ratio': float(net_flow_ratio),
+                'flow_intensity': float(flow_intensity),
+                'clustering_index': float(clustering_index),
+                'buy_ratio': float(buy_volume / total_volume),
+                'sell_ratio': float(sell_volume / total_volume)
+            }
+        except Exception as e:
+            logger.error(f"计算日内筹码流动失败: {e}")
+            return {}
+    
+    @staticmethod
+    def calculate_intraday_cost_center(tick_data: pd.DataFrame) -> Dict[str, float]:
+        """
+        计算日内成本重心及其动态
+        Args:
+            tick_data: tick数据
+        Returns:
+            成本重心指标
+        """
+        try:
+            if tick_data.empty:
+                return {}
+            
+            # 按时间窗口计算成本重心序列
+            tick_data = tick_data.copy()
+            
+            # 计算累积加权平均成本
+            cum_volume = tick_data['volume'].cumsum()
+            cum_value = (tick_data['price'] * tick_data['volume']).cumsum()
+            
+            # 避免除零
+            valid_mask = cum_volume > 0
+            if not np.any(valid_mask):
+                return {}
+            
+            cost_center_series = cum_value[valid_mask] / cum_volume[valid_mask]
+            
+            # 开盘成本
+            open_cost = cost_center_series.iloc[0] if len(cost_center_series) > 0 else 0
+            
+            # 收盘成本（最终成本）
+            close_cost = cost_center_series.iloc[-1] if len(cost_center_series) > 0 else 0
+            
+            # 成本重心迁移
+            if open_cost > 0:
+                migration_ratio = (close_cost - open_cost) / open_cost
+            else:
+                migration_ratio = 0.0
+            
+            # 成本重心波动率
+            if len(cost_center_series) >= 2:
+                volatility = cost_center_series.std()
+            else:
+                volatility = 0.0
+            
+            # 日内高低成本
+            max_cost = cost_center_series.max()
+            min_cost = cost_center_series.min()
+            
+            return {
+                'open_cost': float(open_cost),
+                'close_cost': float(close_cost),
+                'migration_ratio': float(migration_ratio),
+                'volatility': float(volatility),
+                'max_cost': float(max_cost),
+                'min_cost': float(min_cost),
+                'cost_series': cost_center_series.tolist()
+            }
+        except Exception as e:
+            logger.error(f"计算日内成本重心失败: {e}")
+            return {}
+    
+    @staticmethod
+    def identify_intraday_support_resistance(tick_data: pd.DataFrame, chip_dist: pd.DataFrame) -> Dict[str, Any]:
+        """
+        识别日内支撑阻力位测试情况
+        Args:
+            tick_data: tick数据
+            chip_dist: 日线筹码分布数据
+        Returns:
+            支撑阻力测试指标
+        """
+        try:
+            if tick_data.empty or chip_dist.empty:
+                return {}
+            
+            # 从筹码分布中提取关键分位
+            cost_50pct = chip_dist['price'].iloc[len(chip_dist) // 2] if len(chip_dist) > 0 else 0
+            
+            # 计算筹码密集区（前30%密集区域）
+            if len(chip_dist) >= 3:
+                sorted_chip = chip_dist.sort_values('percent', ascending=False)
+                top_30_percent = sorted_chip.head(max(1, int(len(chip_dist) * 0.3)))
+                dense_price_min = top_30_percent['price'].min()
+                dense_price_max = top_30_percent['price'].max()
+            else:
+                dense_price_min = dense_price_max = cost_50pct
+            
+            # 识别tick价格触及关键位的情况
+            tick_prices = tick_data['price'].values
+            
+            # 触及支撑（价格低于密集区下沿2%）
+            support_threshold = dense_price_min * 0.98
+            support_tests = np.sum(tick_prices <= support_threshold)
+            
+            # 触及阻力（价格高于密集区上沿2%）
+            resistance_threshold = dense_price_max * 1.02
+            resistance_tests = np.sum(tick_prices >= resistance_threshold)
+            
+            # 窄幅震荡比例（价格在密集区±1%内）
+            narrow_range_min = dense_price_min * 0.99
+            narrow_range_max = dense_price_max * 1.01
+            in_narrow_range = np.sum((tick_prices >= narrow_range_min) & 
+                                    (tick_prices <= narrow_range_max))
+            
+            total_ticks = len(tick_prices)
+            consolidation_degree = in_narrow_range / total_ticks if total_ticks > 0 else 0.0
+            
+            return {
+                'support_test_count': int(support_tests),
+                'resistance_test_count': int(resistance_tests),
+                'consolidation_degree': float(consolidation_degree),
+                'support_level': float(support_threshold),
+                'resistance_level': float(resistance_threshold),
+                'dense_range': (float(dense_price_min), float(dense_price_max))
+            }
+        except Exception as e:
+            logger.error(f"识别日内支撑阻力失败: {e}")
+            return {}
+    
+    @staticmethod
+    def calculate_intraday_abnormal_volume(tick_data: pd.DataFrame) -> Dict[str, float]:
+        """
+        计算tick异常成交量
+        Args:
+            tick_data: tick数据
+        Returns:
+            异常成交量指标
+        """
+        try:
+            if tick_data.empty:
+                return {}
+            
+            volumes = tick_data['volume'].values
+            
+            if len(volumes) < 10:
+                return {}
+            
+            # 计算统计量
+            mean_volume = np.mean(volumes)
+            std_volume = np.std(volumes)
+            
+            if std_volume <= 0:
+                return {}
+            
+            # 识别异常tick（超过3倍标准差）
+            threshold = mean_volume + 3 * std_volume
+            abnormal_mask = volumes > threshold
+            
+            abnormal_count = np.sum(abnormal_mask)
+            abnormal_volume = np.sum(volumes[abnormal_mask])
+            total_volume = np.sum(volumes)
+            
+            abnormal_ratio = abnormal_volume / total_volume if total_volume > 0 else 0.0
+            
+            # 计算成交效率（价格变动单位带来的筹码转移）
+            if len(tick_data) >= 2:
+                price_changes = np.abs(np.diff(tick_data['price'].values))
+                volume_changes = volumes[1:]  # 与价格变化对应的成交量
+                
+                valid_mask = price_changes > 0
+                if np.any(valid_mask):
+                    transfer_efficiency = np.mean(volume_changes[valid_mask] / price_changes[valid_mask])
+                else:
+                    transfer_efficiency = 0.0
+            else:
+                transfer_efficiency = 0.0
+            
+            return {
+                'abnormal_volume_ratio': float(abnormal_ratio),
+                'abnormal_tick_count': int(abnormal_count),
+                'transfer_efficiency': float(transfer_efficiency),
+                'mean_volume': float(mean_volume),
+                'std_volume': float(std_volume)
+            }
+        except Exception as e:
+            logger.error(f"计算异常成交量失败: {e}")
+            return {}
+    
+    @staticmethod
+    def calculate_intraday_chip_locking(tick_data: pd.DataFrame, current_price: float) -> Dict[str, float]:
+        """
+        计算日内筹码锁定情况
+        Args:
+            tick_data: tick数据
+            current_price: 当前价格
+        Returns:
+            筹码锁定指标
+        """
+        try:
+            if tick_data.empty or current_price <= 0:
+                return {}
+            
+            prices = tick_data['price'].values
+            volumes = tick_data['volume'].values
+            
+            # 定义价格区间
+            price_range = np.max(prices) - np.min(prices)
+            
+            if price_range <= 0:
+                return {}
+            
+            # 低位区间（最低价+20%区间）
+            low_bound = np.min(prices) + price_range * 0.2
+            low_mask = prices <= low_bound
+            
+            # 高位区间（最高价-20%区间）
+            high_bound = np.max(prices) - price_range * 0.2
+            high_mask = prices >= high_bound
+            
+            # 计算各区成交量占比
+            low_volume = np.sum(volumes[low_mask])
+            high_volume = np.sum(volumes[high_mask])
+            total_volume = np.sum(volumes)
+            
+            if total_volume <= 0:
+                return {}
+            
+            low_ratio = low_volume / total_volume
+            high_ratio = high_volume / total_volume
+            
+            # 识别峰谷区域
+            # 使用简单的峰值检测（简化版）
+            if len(volumes) >= 5:
+                # 平滑处理
+                smooth_volumes = savgol_filter(volumes, window_length=min(5, len(volumes)), polyorder=2)
+                
+                # 寻找峰值和谷值
+                peaks_idx, _ = find_peaks(smooth_volumes, height=np.mean(smooth_volumes))
+                valleys_idx, _ = find_peaks(-smooth_volumes, height=-np.mean(smooth_volumes))
+                
+                if len(peaks_idx) > 0 and len(valleys_idx) > 0:
+                    # 计算峰谷成交量比
+                    peak_volumes = volumes[peaks_idx]
+                    valley_volumes = volumes[valleys_idx]
+                    
+                    peak_valley_ratio = np.mean(peak_volumes) / np.mean(valley_volumes) if np.mean(valley_volumes) > 0 else 0.0
+                    
+                    # 计算谷填充度（谷底区域实际成交量/预期成交量）
+                    trough_filling = np.sum(valley_volumes) / (len(valleys_idx) * np.mean(volumes)) if np.mean(volumes) > 0 else 0.0
+                else:
+                    peak_valley_ratio = 0.0
+                    trough_filling = 0.0
+            else:
+                peak_valley_ratio = 0.0
+                trough_filling = 0.0
+            
+            return {
+                'low_lock_ratio': float(low_ratio),
+                'high_lock_ratio': float(high_ratio),
+                'peak_valley_ratio': float(peak_valley_ratio),
+                'trough_filling': float(trough_filling),
+                'price_levels': {
+                    'low_bound': float(low_bound),
+                    'high_bound': float(high_bound),
+                    'current': float(current_price)
+                }
+            }
+        except Exception as e:
+            logger.error(f"计算日内筹码锁定失败: {e}")
+            return {}
+    
+    @staticmethod
+    def calculate_intraday_chip_game_index(tick_data: pd.DataFrame) -> float:
+        """
+        计算日内筹码博弈指数
+        反映买卖双方筹码交换的激烈程度
+        """
+        try:
+            if tick_data.empty or 'type' not in tick_data.columns:
+                return 0.0
+            
+            # 计算买卖平衡度
+            flow_metrics = ChipFactorCalculator.calculate_intraday_chip_flow(tick_data)
+            
+            if not flow_metrics:
+                return 0.0
+            
+            buy_ratio = flow_metrics.get('buy_ratio', 0.5)
+            sell_ratio = flow_metrics.get('sell_ratio', 0.5)
+            
+            # 平衡度（越接近0.5表示博弈越激烈）
+            balance = 1.0 - 2.0 * abs(buy_ratio - 0.5)
+            
+            # 聚类指数（连续同向交易降低博弈激烈度）
+            clustering = flow_metrics.get('clustering_index', 0.0)
+            
+            # 博弈指数 = 平衡度 * (1 - 聚类指数)
+            game_index = balance * (1.0 - clustering)
+            
+            return float(game_index)
+        except Exception as e:
+            logger.error(f"计算筹码博弈指数失败: {e}")
+            return 0.0
 
+    @staticmethod
+    def calculate_complete_factors_with_tick(chip_perf_data: Dict,chip_dist_data: pd.DataFrame,daily_basic_data: Dict,daily_kline_data: Dict,prev_chip_dist_data: pd.DataFrame = None,historical_prices: pd.Series = None,historical_chip_factors: List[Dict] = None,tick_data: pd.DataFrame = None) -> Dict:
+        """
+        计算完整的筹码因子（包含tick数据支持）
+        """
+        factors = {}
+        try:
+            # 1. 先计算基础因子（原有逻辑）
+            base_factors = ChipFactorCalculator.calculate_all_factors(
+                chip_perf_data, chip_dist_data, daily_basic_data, daily_kline_data
+            )
+            factors.update(base_factors)
+            
+            # 2. 计算tick相关因子（如果tick数据可用）
+            if tick_data is not None and not tick_data.empty:
+                # 预处理tick数据
+                processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
+                
+                factors['tick_data_quality_score'] = data_quality
+                factors['intraday_factor_calc_method'] = 'tick_based'
+                
+                if data_quality > 0.3:  # 数据质量阈值
+                    close_price = factors.get('close', 0)
+                    
+                    # 计算各类tick因子
+                    # a. 日内筹码分布统计
+                    intraday_dist = ChipFactorCalculator.calculate_intraday_chip_distribution(
+                        processed_tick
+                    )
+                    if intraday_dist:
+                        factors['intraday_chip_concentration'] = intraday_dist.get('concentration', 0.0)
+                        factors['intraday_chip_entropy'] = intraday_dist.get('entropy', 0.0)
+                        factors['intraday_price_distribution_skewness'] = intraday_dist.get('skewness', 0.0)
+                    
+                    # b. 日内筹码流动
+                    intraday_flow = ChipFactorCalculator.calculate_intraday_chip_flow(processed_tick)
+                    if intraday_flow:
+                        factors['tick_level_chip_flow'] = intraday_flow.get('net_flow_ratio', 0.0)
+                        factors['intraday_chip_turnover_intensity'] = intraday_flow.get('flow_intensity', 0.0)
+                        factors['tick_clustering_index'] = intraday_flow.get('clustering_index', 0.0)
+                    
+                    # c. 日内成本重心
+                    cost_center = ChipFactorCalculator.calculate_intraday_cost_center(processed_tick)
+                    if cost_center:
+                        factors['intraday_cost_center_migration'] = cost_center.get('migration_ratio', 0.0)
+                        factors['intraday_cost_center_volatility'] = cost_center.get('volatility', 0.0)
+                    
+                    # d. 日内支撑阻力测试
+                    support_resistance = ChipFactorCalculator.identify_intraday_support_resistance(
+                        processed_tick, chip_dist_data
+                    )
+                    if support_resistance:
+                        factors['intraday_support_test_count'] = support_resistance.get('support_test_count', 0)
+                        factors['intraday_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
+                        factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree', 0.0)
+                    
+                    # e. 异常成交量
+                    abnormal_volume = ChipFactorCalculator.calculate_intraday_abnormal_volume(processed_tick)
+                    if abnormal_volume:
+                        factors['tick_abnormal_volume_ratio'] = abnormal_volume.get('abnormal_volume_ratio', 0.0)
+                        factors['tick_chip_transfer_efficiency'] = abnormal_volume.get('transfer_efficiency', 0.0)
+                    
+                    # f. 日内筹码锁定
+                    chip_locking = ChipFactorCalculator.calculate_intraday_chip_locking(
+                        processed_tick, close_price
+                    )
+                    if chip_locking:
+                        factors['intraday_low_lock_ratio'] = chip_locking.get('low_lock_ratio', 0.0)
+                        factors['intraday_high_lock_ratio'] = chip_locking.get('high_lock_ratio', 0.0)
+                        factors['intraday_peak_valley_ratio'] = chip_locking.get('peak_valley_ratio', 0.0)
+                        factors['intraday_trough_filling_degree'] = chip_locking.get('trough_filling', 0.0)
+                    
+                    # g. 筹码博弈指数
+                    game_index = ChipFactorCalculator.calculate_intraday_chip_game_index(processed_tick)
+                    factors['intraday_chip_game_index'] = game_index
+                    
+                    # h. 计算筹码平衡比
+                    if intraday_flow:
+                        buy_ratio = intraday_flow.get('buy_ratio', 0.5)
+                        sell_ratio = intraday_flow.get('sell_ratio', 0.5)
+                        factors['tick_chip_balance_ratio'] = buy_ratio / sell_ratio if sell_ratio > 0 else 1.0
+                
+                else:
+                    # 数据质量不足，使用日线近似
+                    factors = ChipFactorCalculator._approximate_intraday_factors(
+                        factors, chip_dist_data, daily_kline_data
+                    )
+                    factors['intraday_factor_calc_method'] = 'daily_only'
+            else:
+                # 无tick数据，使用日线近似
+                factors = ChipFactorCalculator._approximate_intraday_factors(
+                    factors, chip_dist_data, daily_kline_data
+                )
+                factors['intraday_factor_calc_method'] = 'daily_only'
+            
+            # 3. 继续计算其他原有因子（时间序列、市场适应性等）
+            # ... 原有逻辑 ...
+            
+            factors['calc_status'] = 'success'
+            
+        except Exception as e:
+            logger.error(f"计算完整筹码因子(tick版)失败: {e}", exc_info=True)
+            factors['calc_status'] = 'failed'
+            factors['error_message'] = str(e)
+        
+        return factors
+    
+    @staticmethod
+    def _approximate_intraday_factors(factors: Dict, chip_dist_data: pd.DataFrame,daily_kline_data: Dict) -> Dict:
+        """
+        使用日线数据近似日内因子（当tick数据不可用时）
+        """
+        try:
+            # 基于日线数据近似部分日内因子
+            if not chip_dist_data.empty:
+                # 使用日线筹码分布近似日内分布
+                daily_entropy = factors.get('chip_entropy', 0.0)
+                daily_concentration = factors.get('chip_concentration_ratio', 0.5)
+                
+                # 简单近似：日内因子 = 日线因子 * 调整系数
+                # 实际应用中可根据历史数据回归得到更好的近似公式
+                factors['intraday_chip_concentration'] = daily_concentration * 1.2  # 假设日内更集中
+                factors['intraday_chip_entropy'] = daily_entropy * 0.8  # 假设日内熵值更低
+            
+            # 基于K线数据近似其他因子
+            if daily_kline_data:
+                vol = daily_kline_data.get('vol', 0)
+                high = daily_kline_data.get('high', 0)
+                low = daily_kline_data.get('low', 0)
+                close = daily_kline_data.get('close', 0)
+                
+                if high > low > 0:
+                    # 近似日内价格区间占比
+                    day_range = high - low
+                    factors['intraday_price_range_ratio'] = day_range / close if close > 0 else 0.0
+                    
+                    # 近似日内筹码换手强度
+                    turnover_rate = factors.get('turnover_rate', 0)
+                    factors['intraday_chip_turnover_intensity'] = turnover_rate / 100.0  # 归一化
+            
+            # 设置默认值
+            default_values = {
+                'intraday_low_lock_ratio': 0.3,
+                'intraday_high_lock_ratio': 0.2,
+                'intraday_cost_center_migration': 0.0,
+                'intraday_cost_center_volatility': 0.0,
+                'intraday_chip_game_index': 0.5,
+                'tick_data_quality_score': 0.0
+            }
+            
+            for key, value in default_values.items():
+                if key not in factors:
+                    factors[key] = value
+            
+            return factors
+        
+        except Exception as e:
+            logger.error(f"近似日内因子失败: {e}")
+            return factors
 
-
+    @staticmethod
+    def analyze_tick_data_availability(tick_data: pd.DataFrame) -> Dict[str, Any]:
+        """
+        分析tick数据可用性和质量
+        Args:
+            tick_data: tick数据DataFrame
+        Returns:
+            数据质量分析结果
+        """
+        try:
+            if tick_data is None or tick_data.empty:
+                return {
+                    'available': False,
+                    'quality_score': 0.0,
+                    'total_ticks': 0,
+                    'time_span_hours': 0.0,
+                    'missing_intervals': 0,
+                    'recommendation': 'no_data'
+                }
+            
+            # 基本统计
+            total_ticks = len(tick_data)
+            if total_ticks == 0:
+                return {
+                    'available': False,
+                    'quality_score': 0.0,
+                    'total_ticks': 0,
+                    'time_span_hours': 0.0,
+                    'missing_intervals': 0,
+                    'recommendation': 'no_data'
+                }
+            
+            # 时间跨度
+            time_min = tick_data['trade_time'].min()
+            time_max = tick_data['trade_time'].max()
+            time_span = (time_max - time_min).total_seconds() / 3600  # 小时
+            
+            # 理想情况：4小时交易时间（9:30-11:30, 13:00-15:00）
+            expected_hours = 4.0
+            
+            # 检查时间连续性（3秒间隔）
+            tick_times = tick_data['trade_time'].sort_values().values
+            time_diffs = np.diff(tick_times) / np.timedelta64(1, 's')
+            
+            # 计算缺失间隔（超过4秒的间隔视为缺失）
+            missing_intervals = np.sum(time_diffs > 4.0)
+            
+            # 数据质量评分（0-1）
+            # 1. 时间覆盖度（最高0.4分）
+            time_coverage = min(1.0, time_span / expected_hours) * 0.4
+            
+            # 2. 连续性（最高0.3分）
+            continuity_score = 1.0 - min(1.0, missing_intervals / max(1, total_ticks)) * 0.3
+            
+            # 3. 数据量充分性（最高0.3分）
+            # 理想情况下，4小时=4800个3秒tick（实际会有集合竞价等）
+            expected_ticks = 4800
+            volume_score = min(1.0, total_ticks / expected_ticks) * 0.3
+            
+            quality_score = time_coverage + continuity_score + volume_score
+            
+            # 给出使用建议
+            if quality_score >= 0.7:
+                recommendation = 'excellent'
+            elif quality_score >= 0.5:
+                recommendation = 'good'
+            elif quality_score >= 0.3:
+                recommendation = 'fair'
+            else:
+                recommendation = 'poor'
+            
+            return {
+                'available': True,
+                'quality_score': float(quality_score),
+                'total_ticks': int(total_ticks),
+                'time_span_hours': float(time_span),
+                'missing_intervals': int(missing_intervals),
+                'recommendation': recommendation
+            }
+            
+        except Exception as e:
+            logger.error(f"分析tick数据质量失败: {e}")
+            return {
+                'available': False,
+                'quality_score': 0.0,
+                'total_ticks': 0,
+                'time_span_hours': 0.0,
+                'missing_intervals': 0,
+                'recommendation': 'error'
+            }

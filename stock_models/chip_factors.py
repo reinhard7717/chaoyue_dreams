@@ -342,6 +342,292 @@ class ChipFactorBase(models.Model):
         null=True, blank=True,
         help_text='支撑强度/阻力强度，>1表示支撑强'
     )
+
+    # ========== 基于Tick数据的筹码微观结构因子 ==========
+    
+    # 1. 日内筹码分布统计因子（基于tick成交量在价格区间的分布）
+    intraday_chip_concentration = models.FloatField(
+        verbose_name='日内筹码集中度',
+        null=True, blank=True,
+        help_text='基于tick数据计算的日内筹码集中度（HHI指数）'
+    )
+    
+    intraday_chip_entropy = models.FloatField(
+        verbose_name='日内筹码分布熵值',
+        null=True, blank=True,
+        help_text='基于tick成交量的日内筹码分布熵值'
+    )
+    
+    intraday_price_distribution_skewness = models.FloatField(
+        verbose_name='日内价格分布偏度',
+        null=True, blank=True,
+        help_text='基于tick成交价格分布的偏度'
+    )
+    
+    # 2. 日内筹码交换强度因子
+    intraday_chip_turnover_intensity = models.FloatField(
+        verbose_name='日内筹码换手强度',
+        null=True, blank=True,
+        help_text='基于tick数据的单位时间筹码交换率'
+    )
+    
+    tick_level_chip_flow = models.FloatField(
+        verbose_name='tick级筹码净流动',
+        null=True, blank=True,
+        help_text='基于tick买卖方向判断的筹码净流动比例'
+    )
+    
+    # 3. 日内筹码分层锁定因子
+    intraday_low_lock_ratio = models.FloatField(
+        verbose_name='日内低位筹码锁定比例',
+        null=True, blank=True,
+        help_text='日内低价区tick成交量占比（反映低位锁定）'
+    )
+    
+    intraday_high_lock_ratio = models.FloatField(
+        verbose_name='日内高位筹码锁定比例',
+        null=True, blank=True,
+        help_text='日内高价区tick成交量占比（反映高位沉淀）'
+    )
+    
+    # 4. 日内筹码成本重心迁移因子
+    intraday_cost_center_migration = models.FloatField(
+        verbose_name='日内成本重心迁移幅度',
+        null=True, blank=True,
+        help_text='日内成交加权成本相对于开盘的迁移百分比'
+    )
+    
+    intraday_cost_center_volatility = models.FloatField(
+        verbose_name='日内成本重心波动率',
+        null=True, blank=True,
+        help_text='日内tick级成本重心的标准差'
+    )
+    
+    # 5. 日内筹码峰谷识别因子
+    intraday_peak_valley_ratio = models.FloatField(
+        verbose_name='日内峰谷成交比',
+        null=True, blank=True,
+        help_text='日内价格峰值与谷值区域成交量比率'
+    )
+    
+    intraday_trough_filling_degree = models.FloatField(
+        verbose_name='日内筹码谷填充度',
+        null=True, blank=True,
+        help_text='筹码分布谷底区域的成交量填充程度'
+    )
+    
+    # 6. 日内筹码异常交换因子
+    tick_abnormal_volume_ratio = models.FloatField(
+        verbose_name='tick异常成交量比例',
+        null=True, blank=True,
+        help_text='超过均值3倍标准差tick的成交量占比'
+    )
+    
+    tick_clustering_index = models.FloatField(
+        verbose_name='tick成交聚类指数',
+        null=True, blank=True,
+        help_text='连续同向tick成交的聚合程度'
+    )
+    
+    # 7. 日内筹码压力测试因子
+    intraday_support_test_count = models.IntegerField(
+        verbose_name='日内支撑测试次数',
+        null=True, blank=True,
+        help_text='价格触及关键支撑位时的tick成交量次数'
+    )
+    
+    intraday_resistance_test_count = models.IntegerField(
+        verbose_name='日内阻力测试次数',
+        null=True, blank=True,
+        help_text='价格触及关键阻力位时的tick成交量次数'
+    )
+    
+    # 8. 日内筹码交换效率因子
+    tick_chip_transfer_efficiency = models.FloatField(
+        verbose_name='tick筹码转移效率',
+        null=True, blank=True,
+        help_text='单位价格变动带来的筹码转移量'
+    )
+    
+    intraday_chip_consolidation_degree = models.FloatField(
+        verbose_name='日内筹码整固度',
+        null=True, blank=True,
+        help_text='窄幅震荡区间内的tick成交量占比'
+    )
+    
+    # 9. 日内筹码博弈状态因子
+    intraday_chip_game_index = models.FloatField(
+        verbose_name='日内筹码博弈指数',
+        null=True, blank=True,
+        help_text='基于tick买卖博弈的筹码状态指数'
+    )
+    
+    tick_chip_balance_ratio = models.FloatField(
+        verbose_name='tick筹码平衡比',
+        null=True, blank=True,
+        help_text='买卖双方tick成交量平衡度'
+    )
+    
+    # 10. 数据质量标识
+    tick_data_quality_score = models.FloatField(
+        verbose_name='tick数据质量评分',
+        null=True, blank=True,
+        help_text='基于tick数据完整性和连续性的质量评分(0-1)'
+    )
+    
+    intraday_factor_calc_method = models.CharField(
+        max_length=20,
+        verbose_name='日内因子计算方法',
+        null=True, blank=True,
+        choices=[
+            ('tick_based', '基于tick数据'),
+            ('minute_approximated', '分钟线近似'),
+            ('daily_only', '仅日线数据')
+        ],
+        default='daily_only'
+    )    # ========== 基于Tick数据的筹码微观结构因子 ==========
+    
+    # 1. 日内筹码分布统计因子（基于tick成交量在价格区间的分布）
+    intraday_chip_concentration = models.FloatField(
+        verbose_name='日内筹码集中度',
+        null=True, blank=True,
+        help_text='基于tick数据计算的日内筹码集中度（HHI指数）'
+    )
+    
+    intraday_chip_entropy = models.FloatField(
+        verbose_name='日内筹码分布熵值',
+        null=True, blank=True,
+        help_text='基于tick成交量的日内筹码分布熵值'
+    )
+    
+    intraday_price_distribution_skewness = models.FloatField(
+        verbose_name='日内价格分布偏度',
+        null=True, blank=True,
+        help_text='基于tick成交价格分布的偏度'
+    )
+    
+    # 2. 日内筹码交换强度因子
+    intraday_chip_turnover_intensity = models.FloatField(
+        verbose_name='日内筹码换手强度',
+        null=True, blank=True,
+        help_text='基于tick数据的单位时间筹码交换率'
+    )
+    
+    tick_level_chip_flow = models.FloatField(
+        verbose_name='tick级筹码净流动',
+        null=True, blank=True,
+        help_text='基于tick买卖方向判断的筹码净流动比例'
+    )
+    
+    # 3. 日内筹码分层锁定因子
+    intraday_low_lock_ratio = models.FloatField(
+        verbose_name='日内低位筹码锁定比例',
+        null=True, blank=True,
+        help_text='日内低价区tick成交量占比（反映低位锁定）'
+    )
+    
+    intraday_high_lock_ratio = models.FloatField(
+        verbose_name='日内高位筹码锁定比例',
+        null=True, blank=True,
+        help_text='日内高价区tick成交量占比（反映高位沉淀）'
+    )
+    
+    # 4. 日内筹码成本重心迁移因子
+    intraday_cost_center_migration = models.FloatField(
+        verbose_name='日内成本重心迁移幅度',
+        null=True, blank=True,
+        help_text='日内成交加权成本相对于开盘的迁移百分比'
+    )
+    
+    intraday_cost_center_volatility = models.FloatField(
+        verbose_name='日内成本重心波动率',
+        null=True, blank=True,
+        help_text='日内tick级成本重心的标准差'
+    )
+    
+    # 5. 日内筹码峰谷识别因子
+    intraday_peak_valley_ratio = models.FloatField(
+        verbose_name='日内峰谷成交比',
+        null=True, blank=True,
+        help_text='日内价格峰值与谷值区域成交量比率'
+    )
+    
+    intraday_trough_filling_degree = models.FloatField(
+        verbose_name='日内筹码谷填充度',
+        null=True, blank=True,
+        help_text='筹码分布谷底区域的成交量填充程度'
+    )
+    
+    # 6. 日内筹码异常交换因子
+    tick_abnormal_volume_ratio = models.FloatField(
+        verbose_name='tick异常成交量比例',
+        null=True, blank=True,
+        help_text='超过均值3倍标准差tick的成交量占比'
+    )
+    
+    tick_clustering_index = models.FloatField(
+        verbose_name='tick成交聚类指数',
+        null=True, blank=True,
+        help_text='连续同向tick成交的聚合程度'
+    )
+    
+    # 7. 日内筹码压力测试因子
+    intraday_support_test_count = models.IntegerField(
+        verbose_name='日内支撑测试次数',
+        null=True, blank=True,
+        help_text='价格触及关键支撑位时的tick成交量次数'
+    )
+    
+    intraday_resistance_test_count = models.IntegerField(
+        verbose_name='日内阻力测试次数',
+        null=True, blank=True,
+        help_text='价格触及关键阻力位时的tick成交量次数'
+    )
+    
+    # 8. 日内筹码交换效率因子
+    tick_chip_transfer_efficiency = models.FloatField(
+        verbose_name='tick筹码转移效率',
+        null=True, blank=True,
+        help_text='单位价格变动带来的筹码转移量'
+    )
+    
+    intraday_chip_consolidation_degree = models.FloatField(
+        verbose_name='日内筹码整固度',
+        null=True, blank=True,
+        help_text='窄幅震荡区间内的tick成交量占比'
+    )
+    
+    # 9. 日内筹码博弈状态因子
+    intraday_chip_game_index = models.FloatField(
+        verbose_name='日内筹码博弈指数',
+        null=True, blank=True,
+        help_text='基于tick买卖博弈的筹码状态指数'
+    )
+    
+    tick_chip_balance_ratio = models.FloatField(
+        verbose_name='tick筹码平衡比',
+        null=True, blank=True,
+        help_text='买卖双方tick成交量平衡度'
+    )
+    
+    # 10. 数据质量标识
+    tick_data_quality_score = models.FloatField(
+        verbose_name='tick数据质量评分',
+        null=True, blank=True,
+        help_text='基于tick数据完整性和连续性的质量评分(0-1)'
+    )
+    
+    intraday_factor_calc_method = models.CharField(
+        max_length=20,
+        verbose_name='日内因子计算方法',
+        null=True, blank=True,
+        choices=[
+            ('tick_based', '基于tick数据'),
+            ('minute_approximated', '分钟线近似'),
+            ('daily_only', '仅日线数据')
+        ],
+        default='daily_only'
+    )
     calc_time = models.DateTimeField(verbose_name='计算时间', auto_now=True)
     error_message = models.TextField(verbose_name='错误信息', null=True, blank=True)
     class Meta:
