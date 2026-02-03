@@ -1278,45 +1278,32 @@ class ChipHoldingMatrixBase(models.Model):
             return False
 
     def _calculate_tick_enhanced_holding_factors(self, tick_factors: Dict[str, Any]):
-        """
-        基于tick数据增强的持有时间因子计算
-        """
         try:
-            # 如果tick数据质量低，则使用原有逻辑
             if self.intraday_chip_quality_score < 0.3:
                 print(f"⚠️ [持有时间] tick数据质量低({self.intraday_chip_quality_score:.2f})，使用日线逻辑")
                 return
-            # 基于tick数据的持有时间调整
-            # 4. 日内主力活跃度越高，中线筹码比例可能增加（主力换手）
+            tick_intensity = tick_factors.get('intraday_chip_turnover_intensity', 0.0)
             main_force = self.intraday_main_force_activity
             if main_force > 0.3:
                 mid_term_adjust = min(0.15, main_force * 0.1)
                 self.mid_term_ratio = min(0.5, self.mid_term_ratio + mid_term_adjust)
-            # 重新计算中线比例
             total = self.short_term_ratio + self.mid_term_ratio + self.long_term_ratio
             if total > 1.0:
-                # 按比例压缩
                 scale = 1.0 / total
                 self.short_term_ratio *= scale
                 self.mid_term_ratio *= scale
                 self.long_term_ratio *= scale
             elif total < 1.0:
-                # 补齐到中线
                 self.mid_term_ratio += 1.0 - total
-            # 基于tick数据调整平均持有天数
             if tick_intensity > 0:
-                # 换手强度越高，平均持有天数越短
                 self.avg_holding_days = max(10, self.avg_holding_days * (1.0 - min(0.5, tick_intensity)))
-            # 保留4位小数
             self.short_term_ratio = round(self.short_term_ratio, 4)
             self.mid_term_ratio = round(self.mid_term_ratio, 4)
             self.long_term_ratio = round(self.long_term_ratio, 4)
             self.avg_holding_days = round(self.avg_holding_days, 1)
             print(f"✅ [持有时间] tick增强调整完成: 短线={self.short_term_ratio:.3f}, 中线={self.mid_term_ratio:.3f}, 长线={self.long_term_ratio:.3f}")
-            
         except Exception as e:
             print(f"⚠️ [持有时间] tick增强计算异常: {e}")
-            # 异常时保持原有值不变
 
     def _calculate_absolute_change_analysis_robust(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
         """健壮版的绝对变化分析"""
