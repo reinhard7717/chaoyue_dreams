@@ -197,13 +197,12 @@ class AdvancedChipDynamicsService:
         """
         计算tick数据增强因子
         修改思路:
-        1. 解决 'trade_time' 既是列名又是索引名的歧义问题。
-        2. 当从索引恢复 'trade_time' 列后，如果索引名也叫 'trade_time'，则移除索引名。
+        1. 保留之前的索引名修复逻辑。
+        2. 新增时区自动修正逻辑：检测时间分布，如果数据集中在 UTC 时间段（01:00-07:00），则自动加8小时转换为北京时间。
         """
         try:
             if tick_data.empty:
                 return self._get_default_tick_factors()
-            
             # =======================================================
             # 数据预处理：确保 trade_time 存在于列中
             # =======================================================
@@ -215,12 +214,10 @@ class AdvancedChipDynamicsService:
                     # 使用 copy 避免 SettingWithCopyWarning
                     tick_data = tick_data.copy()
                     tick_data['trade_time'] = tick_data.index
-            
             # 关键修复：消除索引名和列名的歧义
             # 如果列中有 trade_time 且索引名也是 trade_time，Pandas sort_values 会报错
             if 'trade_time' in tick_data.columns and tick_data.index.name == 'trade_time':
                 tick_data.index.name = None  # 移除索引名称
-
             # 3. 确保 trade_time 是 datetime 类型
             if 'trade_time' in tick_data.columns:
                 if not pd.api.types.is_datetime64_any_dtype(tick_data['trade_time']):
@@ -228,9 +225,21 @@ class AdvancedChipDynamicsService:
                         tick_data['trade_time'] = pd.to_datetime(tick_data['trade_time'])
                     except Exception as e:
                         print(f"⚠️ [tick因子] trade_time 转换失败: {e}")
-
+                # =======================================================
+                # 新增：时区修正逻辑 (UTC -> UTC+8)
+                # =======================================================
+                if not tick_data.empty:
+                    hours = tick_data['trade_time'].dt.hour
+                    # A股正常交易时间大致在 9点到15点 (包含集合竞价9:15-9:30)
+                    bj_time_ratio = ((hours >= 9) & (hours <= 15)).mean()
+                    # UTC对应的时间大致在 1点到7点
+                    utc_time_ratio = ((hours >= 1) & (hours <= 7)).mean()
+                    
+                    # 如果大部分数据落在UTC区间(>80%)，且极少落在北京时间区间(<20%)，则认为是UTC时间，需要+8小时
+                    if utc_time_ratio > 0.8 and bj_time_ratio < 0.2:
+                        print(f"ℹ️ [tick因子] 检测到UTC时间特征 (UTC区间占比: {utc_time_ratio:.2f})，自动修正为UTC+8")
+                        tick_data['trade_time'] = tick_data['trade_time'] + pd.Timedelta(hours=8)
             # =======================================================
-
             # 确定日期显示
             date_str = trade_date
             if not date_str:
@@ -242,26 +251,22 @@ class AdvancedChipDynamicsService:
                         date_str = "未知日期"
                 else:
                     date_str = "未知日期"
-
             current_price = chip_data.get('current_price', 0)
             close_price = current_price
             # 预处理tick数据
             processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
-            
             # 探针：检查数据质量低的原因
             if data_quality < self.params['tick_data_quality_threshold']:
                 print(f"⚠️ [tick因子-探针] {date_str} 数据质量低 ({data_quality:.2f} < {self.params['tick_data_quality_threshold']})，原因分析:")
                 print(f"   - 原始行数: {len(tick_data)}")
                 print(f"   - 处理后行数: {len(processed_tick)}")
                 print(f"   - 包含列名: {list(tick_data.columns)}")
-                
                 if 'volume' in tick_data.columns:
                     vol_sum = tick_data['volume'].sum()
                     vol_mean = tick_data['volume'].mean()
                     print(f"   - 总成交量: {vol_sum:.0f}, 平均成交量: {vol_mean:.2f}")
                 else:
                     print(f"   - 缺失 'volume' 列")
-                
                 if 'trade_time' in tick_data.columns and not tick_data.empty:
                     try:
                         t_min = tick_data['trade_time'].min()
@@ -274,9 +279,7 @@ class AdvancedChipDynamicsService:
                         print(f"   - 时间解析失败: {e}")
                 else:
                     print(f"   - 缺失 'trade_time' 列或数据为空")
-                
                 return self._get_default_tick_factors()
-
             factors = {
                 'tick_data_quality_score': data_quality,
                 'intraday_factor_calc_method': 'tick_based',
