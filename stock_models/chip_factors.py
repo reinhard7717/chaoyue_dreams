@@ -485,148 +485,6 @@ class ChipFactorBase(models.Model):
             ('daily_only', '仅日线数据')
         ],
         default='daily_only'
-    )    # ========== 基于Tick数据的筹码微观结构因子 ==========
-    
-    # 1. 日内筹码分布统计因子（基于tick成交量在价格区间的分布）
-    intraday_chip_concentration = models.FloatField(
-        verbose_name='日内筹码集中度',
-        null=True, blank=True,
-        help_text='基于tick数据计算的日内筹码集中度（HHI指数）'
-    )
-    
-    intraday_chip_entropy = models.FloatField(
-        verbose_name='日内筹码分布熵值',
-        null=True, blank=True,
-        help_text='基于tick成交量的日内筹码分布熵值'
-    )
-    
-    intraday_price_distribution_skewness = models.FloatField(
-        verbose_name='日内价格分布偏度',
-        null=True, blank=True,
-        help_text='基于tick成交价格分布的偏度'
-    )
-    
-    # 2. 日内筹码交换强度因子
-    intraday_chip_turnover_intensity = models.FloatField(
-        verbose_name='日内筹码换手强度',
-        null=True, blank=True,
-        help_text='基于tick数据的单位时间筹码交换率'
-    )
-    
-    tick_level_chip_flow = models.FloatField(
-        verbose_name='tick级筹码净流动',
-        null=True, blank=True,
-        help_text='基于tick买卖方向判断的筹码净流动比例'
-    )
-    
-    # 3. 日内筹码分层锁定因子
-    intraday_low_lock_ratio = models.FloatField(
-        verbose_name='日内低位筹码锁定比例',
-        null=True, blank=True,
-        help_text='日内低价区tick成交量占比（反映低位锁定）'
-    )
-    
-    intraday_high_lock_ratio = models.FloatField(
-        verbose_name='日内高位筹码锁定比例',
-        null=True, blank=True,
-        help_text='日内高价区tick成交量占比（反映高位沉淀）'
-    )
-    
-    # 4. 日内筹码成本重心迁移因子
-    intraday_cost_center_migration = models.FloatField(
-        verbose_name='日内成本重心迁移幅度',
-        null=True, blank=True,
-        help_text='日内成交加权成本相对于开盘的迁移百分比'
-    )
-    
-    intraday_cost_center_volatility = models.FloatField(
-        verbose_name='日内成本重心波动率',
-        null=True, blank=True,
-        help_text='日内tick级成本重心的标准差'
-    )
-    
-    # 5. 日内筹码峰谷识别因子
-    intraday_peak_valley_ratio = models.FloatField(
-        verbose_name='日内峰谷成交比',
-        null=True, blank=True,
-        help_text='日内价格峰值与谷值区域成交量比率'
-    )
-    
-    intraday_trough_filling_degree = models.FloatField(
-        verbose_name='日内筹码谷填充度',
-        null=True, blank=True,
-        help_text='筹码分布谷底区域的成交量填充程度'
-    )
-    
-    # 6. 日内筹码异常交换因子
-    tick_abnormal_volume_ratio = models.FloatField(
-        verbose_name='tick异常成交量比例',
-        null=True, blank=True,
-        help_text='超过均值3倍标准差tick的成交量占比'
-    )
-    
-    tick_clustering_index = models.FloatField(
-        verbose_name='tick成交聚类指数',
-        null=True, blank=True,
-        help_text='连续同向tick成交的聚合程度'
-    )
-    
-    # 7. 日内筹码压力测试因子
-    intraday_support_test_count = models.IntegerField(
-        verbose_name='日内支撑测试次数',
-        null=True, blank=True,
-        help_text='价格触及关键支撑位时的tick成交量次数'
-    )
-    
-    intraday_resistance_test_count = models.IntegerField(
-        verbose_name='日内阻力测试次数',
-        null=True, blank=True,
-        help_text='价格触及关键阻力位时的tick成交量次数'
-    )
-    
-    # 8. 日内筹码交换效率因子
-    tick_chip_transfer_efficiency = models.FloatField(
-        verbose_name='tick筹码转移效率',
-        null=True, blank=True,
-        help_text='单位价格变动带来的筹码转移量'
-    )
-    
-    intraday_chip_consolidation_degree = models.FloatField(
-        verbose_name='日内筹码整固度',
-        null=True, blank=True,
-        help_text='窄幅震荡区间内的tick成交量占比'
-    )
-    
-    # 9. 日内筹码博弈状态因子
-    intraday_chip_game_index = models.FloatField(
-        verbose_name='日内筹码博弈指数',
-        null=True, blank=True,
-        help_text='基于tick买卖博弈的筹码状态指数'
-    )
-    
-    tick_chip_balance_ratio = models.FloatField(
-        verbose_name='tick筹码平衡比',
-        null=True, blank=True,
-        help_text='买卖双方tick成交量平衡度'
-    )
-    
-    # 10. 数据质量标识
-    tick_data_quality_score = models.FloatField(
-        verbose_name='tick数据质量评分',
-        null=True, blank=True,
-        help_text='基于tick数据完整性和连续性的质量评分(0-1)'
-    )
-    
-    intraday_factor_calc_method = models.CharField(
-        max_length=20,
-        verbose_name='日内因子计算方法',
-        null=True, blank=True,
-        choices=[
-            ('tick_based', '基于tick数据'),
-            ('minute_approximated', '分钟线近似'),
-            ('daily_only', '仅日线数据')
-        ],
-        default='daily_only'
     )
     calc_time = models.DateTimeField(verbose_name='计算时间', auto_now=True)
     error_message = models.TextField(verbose_name='错误信息', null=True, blank=True)
@@ -1074,145 +932,6 @@ class ChipHoldingMatrixBase(models.Model):
         default='daily_only'
     )
     
-    # 2. 日内筹码分布统计因子
-    intraday_chip_concentration = models.FloatField(
-        verbose_name='日内筹码集中度(HHI)',
-        null=True, blank=True,
-        default=0.5,
-        help_text='基于tick成交量分布的集中度指数'
-    )
-    
-    intraday_chip_entropy = models.FloatField(
-        verbose_name='日内筹码分布熵值',
-        null=True, blank=True,
-        default=0.0
-    )
-    
-    intraday_price_distribution_skewness = models.FloatField(
-        verbose_name='日内价格分布偏度',
-        null=True, blank=True,
-        default=0.0
-    )
-    
-    # 3. 日内筹码流动强度因子
-    intraday_chip_turnover_intensity = models.FloatField(
-        verbose_name='日内筹码换手强度',
-        null=True, blank=True,
-        default=0.0,
-        help_text='基于tick数据的单位时间筹码交换率'
-    )
-    
-    tick_level_chip_flow = models.FloatField(
-        verbose_name='tick级筹码净流动比例',
-        null=True, blank=True,
-        default=0.0,
-        help_text='基于tick买卖方向判断的筹码净流动比例'
-    )
-    
-    # 4. 日内筹码分层锁定因子
-    intraday_low_lock_ratio = models.FloatField(
-        verbose_name='日内低位筹码锁定比例',
-        null=True, blank=True,
-        default=0.0,
-        help_text='日内低价区tick成交量占比（反映低位锁定）'
-    )
-    
-    intraday_high_lock_ratio = models.FloatField(
-        verbose_name='日内高位筹码锁定比例',
-        null=True, blank=True,
-        default=0.0,
-        help_text='日内高价区tick成交量占比（反映高位沉淀）'
-    )
-    
-    # 5. 日内成本重心迁移因子
-    intraday_cost_center_migration = models.FloatField(
-        verbose_name='日内成本重心迁移幅度(%)',
-        null=True, blank=True,
-        default=0.0,
-        help_text='日内成交加权成本相对于开盘的迁移百分比'
-    )
-    
-    intraday_cost_center_volatility = models.FloatField(
-        verbose_name='日内成本重心波动率',
-        null=True, blank=True,
-        default=0.0
-    )
-    
-    # 6. 日内筹码峰谷识别因子
-    intraday_peak_valley_ratio = models.FloatField(
-        verbose_name='日内峰谷成交比',
-        null=True, blank=True,
-        default=0.0,
-        help_text='日内价格峰值与谷值区域成交量比率'
-    )
-    
-    intraday_trough_filling_degree = models.FloatField(
-        verbose_name='日内筹码谷填充度',
-        null=True, blank=True,
-        default=0.0,
-        help_text='筹码分布谷底区域的成交量填充程度'
-    )
-    
-    # 7. 日内筹码异常交换因子
-    tick_abnormal_volume_ratio = models.FloatField(
-        verbose_name='tick异常成交量比例',
-        null=True, blank=True,
-        default=0.0,
-        help_text='超过均值3倍标准差tick的成交量占比'
-    )
-    
-    tick_clustering_index = models.FloatField(
-        verbose_name='tick成交聚类指数',
-        null=True, blank=True,
-        default=0.0,
-        help_text='连续同向tick成交的聚合程度'
-    )
-    
-    # 8. 日内筹码压力测试因子
-    intraday_support_test_count = models.IntegerField(
-        verbose_name='日内支撑测试次数',
-        null=True, blank=True,
-        default=0,
-        help_text='价格触及关键支撑位时的tick成交量次数'
-    )
-    
-    intraday_resistance_test_count = models.IntegerField(
-        verbose_name='日内阻力测试次数',
-        null=True, blank=True,
-        default=0,
-        help_text='价格触及关键阻力位时的tick成交量次数'
-    )
-    
-    intraday_chip_consolidation_degree = models.FloatField(
-        verbose_name='日内筹码整固度',
-        null=True, blank=True,
-        default=0.0,
-        help_text='窄幅震荡区间内的tick成交量占比'
-    )
-    
-    # 9. 日内筹码交换效率因子
-    tick_chip_transfer_efficiency = models.FloatField(
-        verbose_name='tick筹码转移效率',
-        null=True, blank=True,
-        default=0.0,
-        help_text='单位价格变动带来的筹码转移量'
-    )
-    
-    # 10. 日内筹码博弈状态因子
-    intraday_chip_game_index = models.FloatField(
-        verbose_name='日内筹码博弈指数',
-        null=True, blank=True,
-        default=0.5,
-        help_text='基于tick买卖博弈的筹码状态指数(0-1)'
-    )
-    
-    tick_chip_balance_ratio = models.FloatField(
-        verbose_name='tick筹码平衡比',
-        null=True, blank=True,
-        default=1.0,
-        help_text='买卖双方tick成交量平衡度(>1表示买盘强)'
-    )
-    
     # 11. 日内主力行为识别因子
     intraday_main_force_activity = models.FloatField(
         verbose_name='日内主力活跃度',
@@ -1293,10 +1012,7 @@ class ChipHoldingMatrixBase(models.Model):
         verbose_name_plural = '筹码持有时间矩阵基础'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['trade_time', 'calc_status']),
-            models.Index(fields=['short_term_ratio']),
-            models.Index(fields=['long_term_ratio']),
+            models.Index(fields=['stock', 'trade_time'])
         ]
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time} 动态分析"
@@ -1361,34 +1077,6 @@ class ChipHoldingMatrixBase(models.Model):
             # 数据质量相关
             'intraday_chip_quality_score': self.intraday_chip_quality_score if self.intraday_chip_quality_score is not None else 0.0,
             'intraday_calc_method': self.intraday_calc_method if self.intraday_calc_method else 'daily_only',
-            # 日内筹码分布统计
-            'intraday_chip_concentration': self.intraday_chip_concentration if self.intraday_chip_concentration is not None else 0.5,
-            'intraday_chip_entropy': self.intraday_chip_entropy if self.intraday_chip_entropy is not None else 0.0,
-            'intraday_price_distribution_skewness': self.intraday_price_distribution_skewness if self.intraday_price_distribution_skewness is not None else 0.0,
-            # 日内筹码流动
-            'intraday_chip_turnover_intensity': self.intraday_chip_turnover_intensity if self.intraday_chip_turnover_intensity is not None else 0.0,
-            'tick_level_chip_flow': self.tick_level_chip_flow if self.tick_level_chip_flow is not None else 0.0,
-            # 日内筹码锁定
-            'intraday_low_lock_ratio': self.intraday_low_lock_ratio if self.intraday_low_lock_ratio is not None else 0.0,
-            'intraday_high_lock_ratio': self.intraday_high_lock_ratio if self.intraday_high_lock_ratio is not None else 0.0,
-            # 日内成本重心
-            'intraday_cost_center_migration': self.intraday_cost_center_migration if self.intraday_cost_center_migration is not None else 0.0,
-            'intraday_cost_center_volatility': self.intraday_cost_center_volatility if self.intraday_cost_center_volatility is not None else 0.0,
-            # 日内筹码峰谷
-            'intraday_peak_valley_ratio': self.intraday_peak_valley_ratio if self.intraday_peak_valley_ratio is not None else 0.0,
-            'intraday_trough_filling_degree': self.intraday_trough_filling_degree if self.intraday_trough_filling_degree is not None else 0.0,
-            # 日内异常交换
-            'tick_abnormal_volume_ratio': self.tick_abnormal_volume_ratio if self.tick_abnormal_volume_ratio is not None else 0.0,
-            'tick_clustering_index': self.tick_clustering_index if self.tick_clustering_index is not None else 0.0,
-            # 日内压力测试
-            'intraday_support_test_count': self.intraday_support_test_count if self.intraday_support_test_count is not None else 0,
-            'intraday_resistance_test_count': self.intraday_resistance_test_count if self.intraday_resistance_test_count is not None else 0,
-            'intraday_chip_consolidation_degree': self.intraday_chip_consolidation_degree if self.intraday_chip_consolidation_degree is not None else 0.0,
-            # 日内交换效率
-            'tick_chip_transfer_efficiency': self.tick_chip_transfer_efficiency if self.tick_chip_transfer_efficiency is not None else 0.0,
-            # 日内博弈状态
-            'intraday_chip_game_index': self.intraday_chip_game_index if self.intraday_chip_game_index is not None else 0.5,
-            'tick_chip_balance_ratio': self.tick_chip_balance_ratio if self.tick_chip_balance_ratio is not None else 1.0,
             # 日内主力行为
             'intraday_main_force_activity': self.intraday_main_force_activity if self.intraday_main_force_activity is not None else 0.0,
             'intraday_accumulation_confidence': self.intraday_accumulation_confidence if self.intraday_accumulation_confidence is not None else 0.0,
@@ -1454,34 +1142,6 @@ class ChipHoldingMatrixBase(models.Model):
                 # 数据质量相关
                 self.intraday_chip_quality_score = tick_factors.get('tick_data_quality_score', 0.0)
                 self.intraday_calc_method = tick_factors.get('intraday_factor_calc_method', 'daily_only')
-                # 日内筹码分布统计
-                self.intraday_chip_concentration = tick_factors.get('intraday_chip_concentration', 0.5)
-                self.intraday_chip_entropy = tick_factors.get('intraday_chip_entropy', 0.0)
-                self.intraday_price_distribution_skewness = tick_factors.get('intraday_price_distribution_skewness', 0.0)
-                # 日内筹码流动
-                self.intraday_chip_turnover_intensity = tick_factors.get('intraday_chip_turnover_intensity', 0.0)
-                self.tick_level_chip_flow = tick_factors.get('tick_level_chip_flow', 0.0)
-                # 日内筹码锁定
-                self.intraday_low_lock_ratio = tick_factors.get('intraday_low_lock_ratio', 0.0)
-                self.intraday_high_lock_ratio = tick_factors.get('intraday_high_lock_ratio', 0.0)
-                # 日内成本重心
-                self.intraday_cost_center_migration = tick_factors.get('intraday_cost_center_migration', 0.0)
-                self.intraday_cost_center_volatility = tick_factors.get('intraday_cost_center_volatility', 0.0)
-                # 日内筹码峰谷
-                self.intraday_peak_valley_ratio = tick_factors.get('intraday_peak_valley_ratio', 0.0)
-                self.intraday_trough_filling_degree = tick_factors.get('intraday_trough_filling_degree', 0.0)
-                # 日内异常交换
-                self.tick_abnormal_volume_ratio = tick_factors.get('tick_abnormal_volume_ratio', 0.0)
-                self.tick_clustering_index = tick_factors.get('tick_clustering_index', 0.0)
-                # 日内压力测试
-                self.intraday_support_test_count = tick_factors.get('intraday_support_test_count', 0)
-                self.intraday_resistance_test_count = tick_factors.get('intraday_resistance_test_count', 0)
-                self.intraday_chip_consolidation_degree = tick_factors.get('intraday_chip_consolidation_degree', 0.0)
-                # 日内交换效率
-                self.tick_chip_transfer_efficiency = tick_factors.get('tick_chip_transfer_efficiency', 0.0)
-                # 日内博弈状态
-                self.intraday_chip_game_index = tick_factors.get('intraday_chip_game_index', 0.5)
-                self.tick_chip_balance_ratio = tick_factors.get('tick_chip_balance_ratio', 1.0)
                 # 日内主力行为
                 self.intraday_main_force_activity = tick_factors.get('intraday_main_force_activity', 0.0)
                 self.intraday_accumulation_confidence = tick_factors.get('intraday_accumulation_confidence', 0.0)
@@ -1627,22 +1287,6 @@ class ChipHoldingMatrixBase(models.Model):
                 print(f"⚠️ [持有时间] tick数据质量低({self.intraday_chip_quality_score:.2f})，使用日线逻辑")
                 return
             # 基于tick数据的持有时间调整
-            # 1. 日内换手强度越高，短线筹码比例越高
-            tick_intensity = self.intraday_chip_turnover_intensity
-            if tick_intensity > 0:
-                # 基础调整：tick换手强度每0.1增加2%的短线筹码
-                short_term_adjust = min(0.2, tick_intensity * 0.2)
-                self.short_term_ratio = min(0.6, self.short_term_ratio + short_term_adjust)
-            # 2. 日内低位锁定越高，长线筹码比例越高
-            low_lock = self.intraday_low_lock_ratio
-            if low_lock > 0.1:
-                long_term_adjust = min(0.15, low_lock * 0.3)
-                self.long_term_ratio = min(0.8, self.long_term_ratio + long_term_adjust)
-            # 3. 日内高位锁定越高，长线筹码比例越低（可能是套牢盘）
-            high_lock = self.intraday_high_lock_ratio
-            if high_lock > 0.15:
-                long_term_reduce = min(0.1, high_lock * 0.2)
-                self.long_term_ratio = max(0.1, self.long_term_ratio - long_term_reduce)
             # 4. 日内主力活跃度越高，中线筹码比例可能增加（主力换手）
             main_force = self.intraday_main_force_activity
             if main_force > 0.3:

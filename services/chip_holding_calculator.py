@@ -261,8 +261,8 @@ class AdvancedChipDynamicsService:
                 processed_tick, chip_dist_df
             )
             if support_resistance:
-                factors['intraday_support_test_count'] = support_resistance.get('support_test_count', 0)
-                factors['intraday_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
+                factors['intraday_dynamic_support_test_count'] = support_resistance.get('support_test_count', 0)
+                factors['intraday_dynamic_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
                 factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree', 0.0)
             
             # 5. 异常成交量
@@ -844,8 +844,8 @@ class AdvancedChipDynamicsService:
             'intraday_trough_filling_degree': 0.0,
             'tick_abnormal_volume_ratio': 0.0,
             'tick_clustering_index': 0.0,
-            'intraday_support_test_count': 0,
-            'intraday_resistance_test_count': 0,
+            'intraday_dynamic_support_test_count': 0,
+            'intraday_dynamic_resistance_test_count': 0,
             'intraday_chip_consolidation_degree': 0.0,
             'tick_chip_transfer_efficiency': 0.0,
             'intraday_chip_game_index': 0.5,

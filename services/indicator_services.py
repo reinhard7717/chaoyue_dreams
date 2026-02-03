@@ -792,7 +792,7 @@ class IndicatorService:
             'migration_convergence_ratio_D', 'signal_quality_score_D', 'behavior_confirmation_D',
             'pressure_release_index_D', 'support_resistance_ratio_D',
             # ChipHoldingMatrix (新版筹码持有矩阵)
-            'short_term_ratio_D', 'mid_term_ratio_D', 'long_term_ratio_D', 'absorption_energy_D',
+            'absorption_energy_D',
             'distribution_energy_D', 'net_energy_flow_D', 'game_intensity_D', 'breakout_potential_D',
             'energy_concentration_D', 'concentration_comprehensive_D', 'concentration_entropy_D',
             'concentration_peak_D', 'pressure_trapped_D', 'pressure_profit_D', 'support_strength_D',
