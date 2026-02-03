@@ -610,8 +610,9 @@ def calculate_single_stock_holding_matrix_sync(stock_code: str, start_date: date
         # 创建事件循环用于异步调用
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        cm = CacheManager()
         try:
-            result = loop.run_until_complete(calculate_single_stock_holding_matrix_async(stock_code, start_date, end_date))
+            result = loop.run_until_complete(calculate_single_stock_holding_matrix_async(stock_code, start_date, end_date, cm))
             return result
         finally:
             loop.close()
