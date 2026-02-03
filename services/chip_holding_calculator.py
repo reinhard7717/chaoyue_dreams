@@ -237,7 +237,7 @@ class AdvancedChipDynamicsService:
                     
                     # 如果大部分数据落在UTC区间(>80%)，且极少落在北京时间区间(<20%)，则认为是UTC时间，需要+8小时
                     if utc_time_ratio > 0.8 and bj_time_ratio < 0.2:
-                        print(f"ℹ️ [tick因子] 检测到UTC时间特征 (UTC区间占比: {utc_time_ratio:.2f})，自动修正为UTC+8")
+                        # print(f"ℹ️ [tick因子] 检测到UTC时间特征 (UTC区间占比: {utc_time_ratio:.2f})，自动修正为UTC+8")
                         tick_data['trade_time'] = tick_data['trade_time'] + pd.Timedelta(hours=8)
             # =======================================================
             # 确定日期显示
