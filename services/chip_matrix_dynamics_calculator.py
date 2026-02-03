@@ -215,6 +215,31 @@ class ChipMatrixDynamicsCalculator:
     # ========== 具体的私有分析方法 (静态化) ==========
 
     @staticmethod
+    def clean_structure(data, precision=3, threshold=0.0):
+        """数据清洗与精度控制辅助函数"""
+        # 优先处理布尔类型（包括numpy.bool_），防止JSON序列化失败
+        if isinstance(data, (bool, np.bool_)):
+            return bool(data)
+            
+        if isinstance(data, (float, int, np.number)):
+            try:
+                val = float(data)
+                if math.isnan(val) or math.isinf(val): return 0.0
+                if abs(val) < threshold: return 0.0
+                if val == 0.0: return 0.0
+                return round(val, precision)
+            except Exception: return 0.0
+        elif isinstance(data, np.ndarray):
+            try:
+                data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
+                if threshold > 0: data = np.where(np.abs(data) < threshold, 0.0, data)
+                return np.round(data, precision).tolist()
+            except Exception: return [ChipMatrixDynamicsCalculator.clean_structure(i, precision, threshold) for i in data.tolist()]
+        elif isinstance(data, dict): return {k: ChipMatrixDynamicsCalculator.clean_structure(v, precision, threshold) for k, v in data.items()}
+        elif isinstance(data, (list, tuple)): return [ChipMatrixDynamicsCalculator.clean_structure(i, precision, threshold) for i in data]
+        return data
+
+    @staticmethod
     def analyze_a_share_key_price_levels(changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
         """A股关键价格位分析（整数关口、历史价位、技术位）"""
         analysis = {
@@ -254,7 +279,7 @@ class ChipMatrixDynamicsCalculator:
                     analysis['technical_levels'].append({
                         'price': float(level),
                         'actual_price': float(price_grid[nearest_idx]),
-                        'change': float(changes[nearest_idx]),
+                        'strength': float(changes[nearest_idx]), # 修正：统一使用strength键名，防止排序KeyError
                         'type': 'golden_ratio',
                         'ratio': float((level - current_price) / current_price)
                     })
