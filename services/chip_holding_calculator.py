@@ -697,7 +697,6 @@ class AdvancedChipDynamicsService:
             'divergence_strength': 0.0
         }
 
-
 class DirectAccumulationDistributionCalculator:
     """
     直接吸收/派发计算器 - 基于绝对变化和博弈特性

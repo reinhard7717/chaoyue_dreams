@@ -793,64 +793,45 @@ class ChipFactorBase(models.Model):
             self.error_message = str(e)
             return False
     
-    def _calculate_trend_score(self, chip_dynamics_result: Dict[str, any]):
-        """
-        计算综合趋势得分 - 向量化优化版 v1.1
-        修改思路：
-        1. 使用 np.dot 替代 np.sum(a * b) 进行加权求和，提升计算效率。
-        2. 优化权重数组的定义。
-        """
+    def _calculate_trend_score(self):
+        """基于能量场和tick数据的趋势得分计算"""
         try:
-            # 获取相关数据
-            convergence_factors = self.calculate_convergence_divergence(chip_dynamics_result)
+            # 基础趋势得分（原有逻辑）
+            base_score = 0.5
+            if hasattr(self, 'net_energy_flow'):
+                # 净能量流向
+                if self.net_energy_flow > 10:
+                    base_score += 0.2
+                elif self.net_energy_flow < -10:
+                    base_score -= 0.2
+            if hasattr(self, 'game_intensity'):
+                # 博弈强度
+                if self.game_intensity > 0.6:
+                    base_score += 0.1
+                elif self.game_intensity < 0.3:
+                    base_score -= 0.1
+            # Tick数据增强
+            if self.intraday_chip_quality_score > 0.5:
+                tick_bonus = 0.0
+                # 1. 日内筹码净流动
+                if self.tick_level_chip_flow > 0.1:
+                    tick_bonus += 0.1
+                elif self.tick_level_chip_flow < -0.1:
+                    tick_bonus -= 0.1
+                # 2. 日内成本重心迁移
+                if self.intraday_cost_center_migration > 0.5:
+                    tick_bonus += 0.05
+                elif self.intraday_cost_center_migration < -0.5:
+                    tick_bonus -= 0.05
+                # 3. 日内主力活跃度
+                if self.intraday_main_force_activity > 0.4:
+                    tick_bonus += 0.05
+                base_score = min(1.0, max(0.0, base_score + tick_bonus))
+            return round(base_score, 3)
             
-            # 1. 趋势方向得分
-            direction_score = 0.0
-            net_migration = convergence_factors.get('net_migration_direction', 0.0)
-            if net_migration > 0.1:  # 向上迁移
-                direction_score = min(1.0, net_migration / 5.0)
-            elif net_migration < -0.1:  # 向下迁移
-                direction_score = -min(1.0, abs(net_migration) / 5.0)
-            
-            # 2. 主力行为得分
-            main_force_score = convergence_factors.get('main_force_activity_index', 0.0)
-            
-            # 3. 支撑强度得分
-            support_ratio = convergence_factors.get('support_resistance_ratio', 1.0)
-            support_score = min(1.0, support_ratio) if support_ratio > 1 else support_ratio
-            
-            # 4. 信号质量得分
-            signal_score = convergence_factors.get('signal_quality_score', 0.0)
-            
-            # 5. 行为确认得分
-            confirmation_score = convergence_factors.get('behavior_confirmation', 0.0)
-            
-            # 综合趋势得分 - 使用向量化点积
-            weights = np.array([0.3, 0.25, 0.2, 0.15, 0.1])
-            scores = np.array([
-                (direction_score + 1) / 2,  # 归一化到0-1
-                main_force_score,
-                (support_score + 1) / 2,
-                signal_score,
-                confirmation_score
-            ])
-            
-            # 使用点积计算加权和
-            trend_score = np.dot(weights, scores)
-            
-            # 趋势确认信号
-            self.trend_confirmation_score = float(trend_score)
-            
-            # 反转预警（趋势得分低但主力活跃）
-            if trend_score < 0.4 and main_force_score > 0.6:
-                self.reversal_warning_score = 1.0 - trend_score
-            else:
-                self.reversal_warning_score = 0.0
-                
         except Exception as e:
-            print(f"⚠️ 计算趋势得分失败: {e}")
-            self.trend_confirmation_score = 0.5
-            self.reversal_warning_score = 0.0
+            print(f"⚠️ [趋势得分] 计算异常: {e}")
+            return 0.5
 
 # 深交所主板筹码因子分表
 class ChipFactorSZ(ChipFactorBase):
@@ -1071,6 +1052,203 @@ class ChipHoldingMatrixBase(models.Model):
         verbose_name='验证警告',
         null=True, blank=True
     )
+
+    # ========== Tick数据增强因子 ==========
+    # 1. 日内筹码分布质量因子
+    intraday_chip_quality_score = models.FloatField(
+        verbose_name='日内筹码数据质量评分(0-1)',
+        null=True, blank=True,
+        default=0.0,
+        help_text='基于tick数据完整性和连续性的质量评分'
+    )
+    
+    intraday_calc_method = models.CharField(
+        max_length=20,
+        verbose_name='日内因子计算方法',
+        null=True, blank=True,
+        choices=[
+            ('tick_based', '基于tick数据'),
+            ('minute_approximated', '分钟线近似'),
+            ('daily_only', '仅日线数据')
+        ],
+        default='daily_only'
+    )
+    
+    # 2. 日内筹码分布统计因子
+    intraday_chip_concentration = models.FloatField(
+        verbose_name='日内筹码集中度(HHI)',
+        null=True, blank=True,
+        default=0.5,
+        help_text='基于tick成交量分布的集中度指数'
+    )
+    
+    intraday_chip_entropy = models.FloatField(
+        verbose_name='日内筹码分布熵值',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    intraday_price_distribution_skewness = models.FloatField(
+        verbose_name='日内价格分布偏度',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    # 3. 日内筹码流动强度因子
+    intraday_chip_turnover_intensity = models.FloatField(
+        verbose_name='日内筹码换手强度',
+        null=True, blank=True,
+        default=0.0,
+        help_text='基于tick数据的单位时间筹码交换率'
+    )
+    
+    tick_level_chip_flow = models.FloatField(
+        verbose_name='tick级筹码净流动比例',
+        null=True, blank=True,
+        default=0.0,
+        help_text='基于tick买卖方向判断的筹码净流动比例'
+    )
+    
+    # 4. 日内筹码分层锁定因子
+    intraday_low_lock_ratio = models.FloatField(
+        verbose_name='日内低位筹码锁定比例',
+        null=True, blank=True,
+        default=0.0,
+        help_text='日内低价区tick成交量占比（反映低位锁定）'
+    )
+    
+    intraday_high_lock_ratio = models.FloatField(
+        verbose_name='日内高位筹码锁定比例',
+        null=True, blank=True,
+        default=0.0,
+        help_text='日内高价区tick成交量占比（反映高位沉淀）'
+    )
+    
+    # 5. 日内成本重心迁移因子
+    intraday_cost_center_migration = models.FloatField(
+        verbose_name='日内成本重心迁移幅度(%)',
+        null=True, blank=True,
+        default=0.0,
+        help_text='日内成交加权成本相对于开盘的迁移百分比'
+    )
+    
+    intraday_cost_center_volatility = models.FloatField(
+        verbose_name='日内成本重心波动率',
+        null=True, blank=True,
+        default=0.0
+    )
+    
+    # 6. 日内筹码峰谷识别因子
+    intraday_peak_valley_ratio = models.FloatField(
+        verbose_name='日内峰谷成交比',
+        null=True, blank=True,
+        default=0.0,
+        help_text='日内价格峰值与谷值区域成交量比率'
+    )
+    
+    intraday_trough_filling_degree = models.FloatField(
+        verbose_name='日内筹码谷填充度',
+        null=True, blank=True,
+        default=0.0,
+        help_text='筹码分布谷底区域的成交量填充程度'
+    )
+    
+    # 7. 日内筹码异常交换因子
+    tick_abnormal_volume_ratio = models.FloatField(
+        verbose_name='tick异常成交量比例',
+        null=True, blank=True,
+        default=0.0,
+        help_text='超过均值3倍标准差tick的成交量占比'
+    )
+    
+    tick_clustering_index = models.FloatField(
+        verbose_name='tick成交聚类指数',
+        null=True, blank=True,
+        default=0.0,
+        help_text='连续同向tick成交的聚合程度'
+    )
+    
+    # 8. 日内筹码压力测试因子
+    intraday_support_test_count = models.IntegerField(
+        verbose_name='日内支撑测试次数',
+        null=True, blank=True,
+        default=0,
+        help_text='价格触及关键支撑位时的tick成交量次数'
+    )
+    
+    intraday_resistance_test_count = models.IntegerField(
+        verbose_name='日内阻力测试次数',
+        null=True, blank=True,
+        default=0,
+        help_text='价格触及关键阻力位时的tick成交量次数'
+    )
+    
+    intraday_chip_consolidation_degree = models.FloatField(
+        verbose_name='日内筹码整固度',
+        null=True, blank=True,
+        default=0.0,
+        help_text='窄幅震荡区间内的tick成交量占比'
+    )
+    
+    # 9. 日内筹码交换效率因子
+    tick_chip_transfer_efficiency = models.FloatField(
+        verbose_name='tick筹码转移效率',
+        null=True, blank=True,
+        default=0.0,
+        help_text='单位价格变动带来的筹码转移量'
+    )
+    
+    # 10. 日内筹码博弈状态因子
+    intraday_chip_game_index = models.FloatField(
+        verbose_name='日内筹码博弈指数',
+        null=True, blank=True,
+        default=0.5,
+        help_text='基于tick买卖博弈的筹码状态指数(0-1)'
+    )
+    
+    tick_chip_balance_ratio = models.FloatField(
+        verbose_name='tick筹码平衡比',
+        null=True, blank=True,
+        default=1.0,
+        help_text='买卖双方tick成交量平衡度(>1表示买盘强)'
+    )
+    
+    # 11. 日内主力行为识别因子
+    intraday_main_force_activity = models.FloatField(
+        verbose_name='日内主力活跃度',
+        null=True, blank=True,
+        default=0.0,
+        help_text='基于tick异常成交量和大单的主力量化'
+    )
+    
+    intraday_accumulation_confidence = models.FloatField(
+        verbose_name='日内吸筹置信度',
+        null=True, blank=True,
+        default=0.0,
+        help_text='基于tick数据的吸筹行为可信度评分'
+    )
+    
+    intraday_distribution_confidence = models.FloatField(
+        verbose_name='日内派发置信度',
+        null=True, blank=True,
+        default=0.0,
+        help_text='基于tick数据的派发行为可信度评分'
+    )
+    
+    # 12. 日内市场微观结构因子
+    intraday_market_microstructure = models.JSONField(
+        verbose_name='日内市场微观结构',
+        null=True, blank=True,
+        help_text='存储tick级市场微观结构指标'
+    )
+    
+    # 13. Tick数据原始统计（用于后续分析）
+    tick_data_summary = models.JSONField(
+        verbose_name='tick数据统计摘要',
+        null=True, blank=True,
+        help_text='包含tick数量、时间跨度、缺失间隔等统计信息'
+    )
+
     # ========== 计算状态 ==========
     calc_status = models.CharField(
         max_length=20,
@@ -1139,10 +1317,9 @@ class ChipHoldingMatrixBase(models.Model):
 
     def to_factor_dict(self) -> Dict[str, Any]:
         """
-        转换为筹码因子字典
-        重构：加入扁平化的核心指标
+        转换为筹码因子字典 - 增强版（包含tick数据因子）
         """
-        # 1. 能量场因子（核心）
+        # 1. 原有能量场因子
         factors = {
             # 能量场因子
             'absorption_energy': round(self.absorption_energy, 2) if self.absorption_energy is not None else 0.0,
@@ -1151,35 +1328,76 @@ class ChipHoldingMatrixBase(models.Model):
             'game_intensity': round(self.game_intensity, 3) if self.game_intensity is not None else 0.0,
             'breakout_potential': round(self.breakout_potential, 2) if self.breakout_potential is not None else 0.0,
             'energy_concentration': round(self.energy_concentration, 3) if self.energy_concentration is not None else 0.0,
-            'fake_distribution_flag': self.fake_distribution_flag,
+            'fake_distribution_flag': self.fake_distribution_flag if hasattr(self, 'fake_distribution_flag') else False,
             # 关键博弈区域强度
             'key_battle_intensity': self._calculate_key_battle_intensity(),
             # 趋势得分（基于能量场）
             'trend_score': self._calculate_trend_score(),
             # 突破概率
             'breakout_probability': self._calculate_breakout_probability(),
-            
             # 扁平化的核心指标 - 集中度
             'concentration_comprehensive': self.concentration_comprehensive if self.concentration_comprehensive is not None else 0.0,
             'concentration_entropy': self.concentration_entropy if self.concentration_entropy is not None else 0.0,
             'concentration_peak': self.concentration_peak if self.concentration_peak is not None else 0.0,
-            
             # 扁平化的核心指标 - 压力支撑
             'pressure_trapped': self.pressure_trapped if self.pressure_trapped is not None else 0.0,
             'pressure_profit': self.pressure_profit if self.pressure_profit is not None else 0.0,
             'support_strength': self.support_strength if self.support_strength is not None else 0.0,
             'resistance_strength': self.resistance_strength if self.resistance_strength is not None else 0.0,
-            
             # 扁平化的核心指标 - 聚散与行为
             'convergence_comprehensive': self.convergence_comprehensive if self.convergence_comprehensive is not None else 0.0,
             'convergence_migration': self.convergence_migration if self.convergence_migration is not None else 0.0,
             'behavior_accumulation': self.behavior_accumulation if self.behavior_accumulation is not None else 0.0,
             'behavior_distribution': self.behavior_distribution if self.behavior_distribution is not None else 0.0,
+            # 持有时间因子
+            'short_term_chip_ratio': self.short_term_ratio if self.short_term_ratio is not None else 0.2,
+            'mid_term_chip_ratio': self.mid_term_ratio if self.mid_term_ratio is not None else 0.3,
+            'long_term_chip_ratio': self.long_term_ratio if self.long_term_ratio is not None else 0.5,
+            'avg_holding_days': self.avg_holding_days if hasattr(self, 'avg_holding_days') else 100.0,
         }
-        # 2. 保留原有的部分重要因子（可选）
-        if hasattr(self, 'short_term_ratio'):
-            factors['short_term_chip_ratio'] = self.short_term_ratio if self.short_term_ratio is not None else 0.2
-            factors['long_term_chip_ratio'] = self.long_term_ratio if self.long_term_ratio is not None else 0.5
+        
+        # 2. 新增：Tick数据增强因子
+        tick_factors = {
+            # 数据质量相关
+            'intraday_chip_quality_score': self.intraday_chip_quality_score if self.intraday_chip_quality_score is not None else 0.0,
+            'intraday_calc_method': self.intraday_calc_method if self.intraday_calc_method else 'daily_only',
+            # 日内筹码分布统计
+            'intraday_chip_concentration': self.intraday_chip_concentration if self.intraday_chip_concentration is not None else 0.5,
+            'intraday_chip_entropy': self.intraday_chip_entropy if self.intraday_chip_entropy is not None else 0.0,
+            'intraday_price_distribution_skewness': self.intraday_price_distribution_skewness if self.intraday_price_distribution_skewness is not None else 0.0,
+            # 日内筹码流动
+            'intraday_chip_turnover_intensity': self.intraday_chip_turnover_intensity if self.intraday_chip_turnover_intensity is not None else 0.0,
+            'tick_level_chip_flow': self.tick_level_chip_flow if self.tick_level_chip_flow is not None else 0.0,
+            # 日内筹码锁定
+            'intraday_low_lock_ratio': self.intraday_low_lock_ratio if self.intraday_low_lock_ratio is not None else 0.0,
+            'intraday_high_lock_ratio': self.intraday_high_lock_ratio if self.intraday_high_lock_ratio is not None else 0.0,
+            # 日内成本重心
+            'intraday_cost_center_migration': self.intraday_cost_center_migration if self.intraday_cost_center_migration is not None else 0.0,
+            'intraday_cost_center_volatility': self.intraday_cost_center_volatility if self.intraday_cost_center_volatility is not None else 0.0,
+            # 日内筹码峰谷
+            'intraday_peak_valley_ratio': self.intraday_peak_valley_ratio if self.intraday_peak_valley_ratio is not None else 0.0,
+            'intraday_trough_filling_degree': self.intraday_trough_filling_degree if self.intraday_trough_filling_degree is not None else 0.0,
+            # 日内异常交换
+            'tick_abnormal_volume_ratio': self.tick_abnormal_volume_ratio if self.tick_abnormal_volume_ratio is not None else 0.0,
+            'tick_clustering_index': self.tick_clustering_index if self.tick_clustering_index is not None else 0.0,
+            # 日内压力测试
+            'intraday_support_test_count': self.intraday_support_test_count if self.intraday_support_test_count is not None else 0,
+            'intraday_resistance_test_count': self.intraday_resistance_test_count if self.intraday_resistance_test_count is not None else 0,
+            'intraday_chip_consolidation_degree': self.intraday_chip_consolidation_degree if self.intraday_chip_consolidation_degree is not None else 0.0,
+            # 日内交换效率
+            'tick_chip_transfer_efficiency': self.tick_chip_transfer_efficiency if self.tick_chip_transfer_efficiency is not None else 0.0,
+            # 日内博弈状态
+            'intraday_chip_game_index': self.intraday_chip_game_index if self.intraday_chip_game_index is not None else 0.5,
+            'tick_chip_balance_ratio': self.tick_chip_balance_ratio if self.tick_chip_balance_ratio is not None else 1.0,
+            # 日内主力行为
+            'intraday_main_force_activity': self.intraday_main_force_activity if self.intraday_main_force_activity is not None else 0.0,
+            'intraday_accumulation_confidence': self.intraday_accumulation_confidence if self.intraday_accumulation_confidence is not None else 0.0,
+            'intraday_distribution_confidence': self.intraday_distribution_confidence if self.intraday_distribution_confidence is not None else 0.0,
+        }
+        
+        # 合并原有因子和tick因子
+        factors.update(tick_factors)
+        
         # 3. 添加交叉验证因子（来自direct_ad）
         if hasattr(self, 'direct_ad_data') and self.direct_ad_data:
             direct_factors = {
@@ -1188,10 +1406,11 @@ class ChipHoldingMatrixBase(models.Model):
                 'direct_net_ad_ratio': self.direct_ad_data.get('net_ad_ratio', 0.0),
             }
             factors.update(direct_factors)
+            
         return factors
 
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
-        """保存动态分析结果(性能优化版v2.0:矩阵压缩+字段合并+核心指标扁平化)"""
+        """保存动态分析结果(增强版:集成tick数据)"""
         import math
         import zlib
         import json
@@ -1202,7 +1421,7 @@ class ChipHoldingMatrixBase(models.Model):
                 self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
                 return False
             # 2.确保必要字段存在
-            required_fields = ['price_grid', 'percent_change_matrix', 'current_price']
+            required_fields = ['price_grid', 'percent_change_matrix']
             for field in required_fields:
                 if field not in dynamics_result:
                     self.calc_status = 'failed'
@@ -1228,7 +1447,56 @@ class ChipHoldingMatrixBase(models.Model):
                 elif isinstance(data, dict): return {k: _clean_structure(v, precision, threshold) for k, v in data.items()}
                 elif isinstance(data, (list, tuple)): return [_clean_structure(i, precision, threshold) for i in data]
                 return data
-            # 4.计算并保存absolute_change_analysis(若缺失则计算)
+            # 4.保存tick数据增强因子（如果有的话）
+            # 检查dynamics_result中是否有tick相关数据
+            if 'tick_enhanced_factors' in dynamics_result:
+                tick_factors = dynamics_result['tick_enhanced_factors']
+                # 数据质量相关
+                self.intraday_chip_quality_score = tick_factors.get('tick_data_quality_score', 0.0)
+                self.intraday_calc_method = tick_factors.get('intraday_factor_calc_method', 'daily_only')
+                # 日内筹码分布统计
+                self.intraday_chip_concentration = tick_factors.get('intraday_chip_concentration', 0.5)
+                self.intraday_chip_entropy = tick_factors.get('intraday_chip_entropy', 0.0)
+                self.intraday_price_distribution_skewness = tick_factors.get('intraday_price_distribution_skewness', 0.0)
+                # 日内筹码流动
+                self.intraday_chip_turnover_intensity = tick_factors.get('intraday_chip_turnover_intensity', 0.0)
+                self.tick_level_chip_flow = tick_factors.get('tick_level_chip_flow', 0.0)
+                # 日内筹码锁定
+                self.intraday_low_lock_ratio = tick_factors.get('intraday_low_lock_ratio', 0.0)
+                self.intraday_high_lock_ratio = tick_factors.get('intraday_high_lock_ratio', 0.0)
+                # 日内成本重心
+                self.intraday_cost_center_migration = tick_factors.get('intraday_cost_center_migration', 0.0)
+                self.intraday_cost_center_volatility = tick_factors.get('intraday_cost_center_volatility', 0.0)
+                # 日内筹码峰谷
+                self.intraday_peak_valley_ratio = tick_factors.get('intraday_peak_valley_ratio', 0.0)
+                self.intraday_trough_filling_degree = tick_factors.get('intraday_trough_filling_degree', 0.0)
+                # 日内异常交换
+                self.tick_abnormal_volume_ratio = tick_factors.get('tick_abnormal_volume_ratio', 0.0)
+                self.tick_clustering_index = tick_factors.get('tick_clustering_index', 0.0)
+                # 日内压力测试
+                self.intraday_support_test_count = tick_factors.get('intraday_support_test_count', 0)
+                self.intraday_resistance_test_count = tick_factors.get('intraday_resistance_test_count', 0)
+                self.intraday_chip_consolidation_degree = tick_factors.get('intraday_chip_consolidation_degree', 0.0)
+                # 日内交换效率
+                self.tick_chip_transfer_efficiency = tick_factors.get('tick_chip_transfer_efficiency', 0.0)
+                # 日内博弈状态
+                self.intraday_chip_game_index = tick_factors.get('intraday_chip_game_index', 0.5)
+                self.tick_chip_balance_ratio = tick_factors.get('tick_chip_balance_ratio', 1.0)
+                # 日内主力行为
+                self.intraday_main_force_activity = tick_factors.get('intraday_main_force_activity', 0.0)
+                self.intraday_accumulation_confidence = tick_factors.get('intraday_accumulation_confidence', 0.0)
+                self.intraday_distribution_confidence = tick_factors.get('intraday_distribution_confidence', 0.0)
+                # Tick数据统计摘要
+                if 'tick_data_summary' in tick_factors:
+                    self.tick_data_summary = _clean_structure(tick_factors['tick_data_summary'], precision=3)
+                # 标记使用了tick数据
+                self.used_tick_data = True
+                # 日内市场微观结构
+                if 'intraday_market_microstructure' in tick_factors:
+                    self.intraday_market_microstructure = _clean_structure(
+                        tick_factors['intraday_market_microstructure'], precision=3
+                    )
+            # 5.计算并保存absolute_change_analysis(若缺失则计算)
             try:
                 percent_change_matrix = dynamics_result.get('percent_change_matrix', [])
                 price_grid = dynamics_result.get('price_grid', [])
@@ -1244,7 +1512,7 @@ class ChipHoldingMatrixBase(models.Model):
             except Exception as e:
                 print(f"⚠️ [保存] 计算absolute_change_analysis失败: {e}")
                 self.absolute_change_analysis = _clean_structure(self._get_default_absolute_analysis(), precision=3)
-            # 5.保存能量场数据
+            # 6.保存能量场数据
             game_energy = dynamics_result.get('game_energy_result', {})
             if game_energy:
                 self.absorption_energy = round(max(0.0, game_energy.get('absorption_energy', 0.0)), 3)
@@ -1261,44 +1529,44 @@ class ChipHoldingMatrixBase(models.Model):
             else:
                 self._set_default_energy_values()
                 key_battle_zones = []
-            # 6.提取核心指标并扁平化存储(从原始字典中pop出核心值)
+            # 7.提取核心指标并扁平化存储
             conc_metrics = dynamics_result.get('concentration_metrics', {}).copy()
             press_metrics = dynamics_result.get('pressure_metrics', {}).copy()
             conv_metrics = dynamics_result.get('convergence_metrics', {}).copy()
             behav_patterns = dynamics_result.get('behavior_patterns', {}).copy()
             migr_patterns = dynamics_result.get('migration_patterns', {}).copy()
-            # 6.1 集中度扁平化
+            # 7.1 集中度扁平化
             self.concentration_comprehensive = round(conc_metrics.pop('comprehensive_concentration', 0.0), 3)
             self.concentration_entropy = round(conc_metrics.pop('entropy_concentration', 0.0), 3)
             self.concentration_peak = round(conc_metrics.pop('peak_concentration', 0.0), 3)
-            # 6.2 压力支撑扁平化
+            # 7.2 压力支撑扁平化
             self.pressure_trapped = round(press_metrics.pop('trapped_pressure', 0.0), 3)
             self.pressure_profit = round(press_metrics.pop('profit_pressure', 0.0), 3)
             self.support_strength = round(press_metrics.pop('support_strength', 0.0), 3)
             self.resistance_strength = round(press_metrics.pop('resistance_strength', 0.0), 3)
-            # 6.3 聚散度扁平化
+            # 7.3 聚散度扁平化
             self.convergence_comprehensive = round(conv_metrics.pop('comprehensive_convergence', 0.0), 3)
             self.convergence_migration = round(conv_metrics.pop('migration_convergence', 0.0), 3)
-            # 6.4 行为模式扁平化
+            # 7.4 行为模式扁平化
             self.behavior_accumulation = round(behav_patterns.get('accumulation', {}).pop('strength', 0.0), 3)
             self.behavior_distribution = round(behav_patterns.get('distribution', {}).pop('strength', 0.0), 3)
             self.behavior_consolidation = round(behav_patterns.get('consolidation', {}).pop('strength', 0.0), 3)
-            # 7.矩阵压缩存储(BinaryField)
-            # 7.1 原始筹码矩阵压缩
+            # 8.矩阵压缩存储(BinaryField)
+            # 8.1 原始筹码矩阵压缩
             chip_matrix_list = dynamics_result.get('chip_matrix', [])
             if chip_matrix_list:
                 try:
                     cleaned = _clean_structure(chip_matrix_list, precision=3, threshold=0.001)
                     self.compressed_matrix = zlib.compress(json.dumps(cleaned, separators=(',', ':')).encode('utf-8'))
                 except Exception as e: print(f"⚠️ 筹码矩阵压缩失败: {e}")
-            # 7.2 变化矩阵压缩(替代原JSON字段)
+            # 8.2 变化矩阵压缩
             change_matrix_list = dynamics_result.get('percent_change_matrix', [])
             if change_matrix_list:
                 try:
                     cleaned = _clean_structure(change_matrix_list, precision=3, threshold=0.05)
                     self.compressed_change_matrix = zlib.compress(json.dumps(cleaned, separators=(',', ':')).encode('utf-8'))
                 except Exception as e: print(f"⚠️ 变化矩阵压缩失败: {e}")
-            # 8.合并图表信号(Visual Signals)
+            # 9.合并图表信号
             self.chart_signals = _clean_structure({
                 'absolute_signals': dynamics_result.get('absolute_change_signals', {}),
                 'behavior_areas': {
@@ -1311,7 +1579,7 @@ class ChipHoldingMatrixBase(models.Model):
                     'divergence': migr_patterns.get('divergence_migration', {}).get('areas', [])
                 }
             }, precision=3)
-            # 9.合并剩余指标(Extra Metrics)
+            # 10.合并剩余指标
             self.extra_metrics = _clean_structure({
                 'concentration': conc_metrics,
                 'pressure': press_metrics,
@@ -1323,17 +1591,22 @@ class ChipHoldingMatrixBase(models.Model):
                     'main_force_activity': behav_patterns.get('main_force_activity')
                 }
             }, precision=4)
-            # 10.保存其他独立字段
+            # 11.保存其他独立字段
             self.price_grid = _clean_structure(dynamics_result.get('price_grid', []), precision=3)
             self.validation_score = round(max(0.0, min(1.0, dynamics_result.get('validation_score', 0.5))), 3)
             self.validation_warnings = _clean_structure(dynamics_result.get('validation_warnings', []), precision=3)
-            # 11.计算持有时间因子并保存
+            # 12.计算持有时间因子并保存
             self._calculate_holding_factors_from_dynamics(dynamics_result)
+            # 13.标记数据源和计算方法
             self.calc_status = 'success'
-            self.analysis_method = 'advanced_dynamics_v2_optimized'
+            self.analysis_method = 'advanced_dynamics_v3_tick_enhanced'
             self.used_percent_data = True
+            # 如果没有设置tick数据标志，但tick质量分>0.3，也标记为使用了tick数据
+            if not self.used_tick_data and self.intraday_chip_quality_score > 0.3:
+                self.used_tick_data = True
             self.save()
             return True
+            
         except Exception as e:
             print(f"❌ [保存动态分析] 失败: {e}")
             import traceback
@@ -1343,6 +1616,63 @@ class ChipHoldingMatrixBase(models.Model):
             try: self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
             except: pass
             return False
+
+    def _calculate_tick_enhanced_holding_factors(self, tick_factors: Dict[str, Any]):
+        """
+        基于tick数据增强的持有时间因子计算
+        """
+        try:
+            # 如果tick数据质量低，则使用原有逻辑
+            if self.intraday_chip_quality_score < 0.3:
+                print(f"⚠️ [持有时间] tick数据质量低({self.intraday_chip_quality_score:.2f})，使用日线逻辑")
+                return
+            # 基于tick数据的持有时间调整
+            # 1. 日内换手强度越高，短线筹码比例越高
+            tick_intensity = self.intraday_chip_turnover_intensity
+            if tick_intensity > 0:
+                # 基础调整：tick换手强度每0.1增加2%的短线筹码
+                short_term_adjust = min(0.2, tick_intensity * 0.2)
+                self.short_term_ratio = min(0.6, self.short_term_ratio + short_term_adjust)
+            # 2. 日内低位锁定越高，长线筹码比例越高
+            low_lock = self.intraday_low_lock_ratio
+            if low_lock > 0.1:
+                long_term_adjust = min(0.15, low_lock * 0.3)
+                self.long_term_ratio = min(0.8, self.long_term_ratio + long_term_adjust)
+            # 3. 日内高位锁定越高，长线筹码比例越低（可能是套牢盘）
+            high_lock = self.intraday_high_lock_ratio
+            if high_lock > 0.15:
+                long_term_reduce = min(0.1, high_lock * 0.2)
+                self.long_term_ratio = max(0.1, self.long_term_ratio - long_term_reduce)
+            # 4. 日内主力活跃度越高，中线筹码比例可能增加（主力换手）
+            main_force = self.intraday_main_force_activity
+            if main_force > 0.3:
+                mid_term_adjust = min(0.15, main_force * 0.1)
+                self.mid_term_ratio = min(0.5, self.mid_term_ratio + mid_term_adjust)
+            # 重新计算中线比例
+            total = self.short_term_ratio + self.mid_term_ratio + self.long_term_ratio
+            if total > 1.0:
+                # 按比例压缩
+                scale = 1.0 / total
+                self.short_term_ratio *= scale
+                self.mid_term_ratio *= scale
+                self.long_term_ratio *= scale
+            elif total < 1.0:
+                # 补齐到中线
+                self.mid_term_ratio += 1.0 - total
+            # 基于tick数据调整平均持有天数
+            if tick_intensity > 0:
+                # 换手强度越高，平均持有天数越短
+                self.avg_holding_days = max(10, self.avg_holding_days * (1.0 - min(0.5, tick_intensity)))
+            # 保留4位小数
+            self.short_term_ratio = round(self.short_term_ratio, 4)
+            self.mid_term_ratio = round(self.mid_term_ratio, 4)
+            self.long_term_ratio = round(self.long_term_ratio, 4)
+            self.avg_holding_days = round(self.avg_holding_days, 1)
+            print(f"✅ [持有时间] tick增强调整完成: 短线={self.short_term_ratio:.3f}, 中线={self.mid_term_ratio:.3f}, 长线={self.long_term_ratio:.3f}")
+            
+        except Exception as e:
+            print(f"⚠️ [持有时间] tick增强计算异常: {e}")
+            # 异常时保持原有值不变
 
     def _calculate_absolute_change_analysis_robust(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
         """健壮版的绝对变化分析"""
@@ -1512,6 +1842,9 @@ class ChipHoldingMatrixBase(models.Model):
             self.mid_term_ratio = round(self.mid_term_ratio, 4)
             self.long_term_ratio = round(self.long_term_ratio, 4)
             self.avg_holding_days = round(self.avg_holding_days, 1) # 天数保留1位即可
+            # 如果有tick数据，进行增强调整
+            if 'tick_enhanced_factors' in dynamics_result:
+                self._calculate_tick_enhanced_holding_factors(dynamics_result['tick_enhanced_factors'])
         except Exception as e:
             print(f"⚠️ [计算警告] 推算持有时间因子异常: {e}")
             import traceback
