@@ -242,7 +242,6 @@ class AdvancedChipDynamicsService:
                     is_data_complete = True
             if data_quality < self.params['tick_data_quality_threshold']:
                 if is_data_complete:
-                    print(f"ℹ️ [tick因子] {date_str} 质量评分较低 ({data_quality:.2f}) 但数据完整 (行数: {len(processed_tick)})，继续计算")
                     data_quality = max(data_quality, self.params['tick_data_quality_threshold'])
                 else:
                     print(f"⚠️ [tick因子-探针] {date_str} 数据质量低 ({data_quality:.2f} < {self.params['tick_data_quality_threshold']})，原因分析:")
