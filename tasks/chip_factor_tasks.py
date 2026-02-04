@@ -594,6 +594,38 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                             conf_count += 1
                         factors['behavior_confirmation'] = conf_score / conf_count if conf_count > 0 else 0.0
                         
+                        # [修复]：从 intraday_market_microstructure JSON 中提取详细的Tick因子
+                        # 确保 ChipFactor 表中的字段被正确填充
+                        if holding_matrix.intraday_market_microstructure:
+                            micro = holding_matrix.intraday_market_microstructure
+                            
+                            # 定义需要提取的字段映射 (Key -> Key)
+                            tick_fields = [
+                                'intraday_chip_consolidation_degree',
+                                'intraday_peak_valley_ratio',
+                                'intraday_price_distribution_skewness',
+                                'intraday_resistance_test_count',
+                                'intraday_support_test_count',
+                                'intraday_trough_filling_degree',
+                                'tick_abnormal_volume_ratio',
+                                'tick_chip_balance_ratio',
+                                'tick_chip_transfer_efficiency',
+                                'tick_clustering_index',
+                                'tick_level_chip_flow',
+                                'intraday_chip_concentration',
+                                'intraday_chip_entropy',
+                                'intraday_chip_turnover_intensity',
+                                'intraday_cost_center_migration',
+                                'intraday_cost_center_volatility',
+                                'intraday_low_lock_ratio',
+                                'intraday_high_lock_ratio',
+                                'intraday_chip_game_index'
+                            ]
+                            
+                            for field in tick_fields:
+                                if field in micro:
+                                    factors[field] = micro[field]
+                        
                         print(f"🔗 [因子同步] {stock_code} {current_date}: 成功从持有矩阵同步高级因子")
                 except Exception as sync_error:
                     logger.warning(f"从持有矩阵同步因子失败 {stock_code} {current_date}: {sync_error}")

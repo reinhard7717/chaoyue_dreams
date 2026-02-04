@@ -50,12 +50,13 @@ class StockRealtimeDAO(BaseDAO):
             logger.critical(f"Tushare 库初始化失败，可能是 token 文件问题或网络问题: {e}", exc_info=True)
             self.ts = None # 初始化失败时，将 ts 设置为 None
             self.pro = None # 初始化失败时，将 pro 设置为 None
+
     # =================== 真实逐笔数据 (Tick Data) 核心接口 =============
     # --- 写操作 (Write Operation) ---
     async def save_realtime_tick_in_bulk(self, stock_codes: List[str], trade_date: str) -> Tuple[bool, str]:
         """
-        【V2.2 逐笔数据分表-无缓存版】并发获取、清洗、并持久化多支股票的当日实时逐笔数据。
-        - 将新增的 `price_change` 字段加入持久化列表。
+        【V2.3 - 向量化映射版】并发获取、清洗、并持久化多支股票的当日实时逐笔数据。
+        优化：使用 map 替代 apply 进行模型类的匹配，避免逐行函数调用。
         """
         if not stock_codes:
             return True, "股票列表为空，无需处理。"
@@ -77,12 +78,14 @@ class StockRealtimeDAO(BaseDAO):
         if all_ticks_df.empty:
             logger.warning("所有逐笔数据都无法关联到股票对象，无数据可保存。")
             return False, "所有逐笔数据都无法关联到股票对象。"
-        all_ticks_df['model_class'] = all_ticks_df['stock_code'].apply(get_stock_tick_data_model_by_code)
+        # 优化：预计算模型映射，使用 map 替代 apply
+        unique_codes = all_ticks_df['stock_code'].unique()
+        model_map = {code: get_stock_tick_data_model_by_code(code) for code in unique_codes}
+        all_ticks_df['model_class'] = all_ticks_df['stock_code'].map(model_map)
         all_ticks_df.dropna(subset=['model_class'], inplace=True)
         if all_ticks_df.empty:
             logger.warning("所有逐笔数据都无法映射到有效的分表模型，无数据可保存。")
             return False, "所有逐笔数据都无法映射到有效的分表模型。"
-        # 在最终列定义中加入 price_change
         final_cols = ['stock', 'trade_time', 'price', 'price_change', 'volume', 'amount', 'type']
         db_payload_df = all_ticks_df[final_cols + ['model_class']]
         try:
@@ -90,8 +93,6 @@ class StockRealtimeDAO(BaseDAO):
             for model_class, group_df in db_payload_df.groupby('model_class'):
                 payload_for_model = group_df[final_cols].to_dict('records')
                 if payload_for_model:
-                    # 更新唯一键约束，防止重复记录（如果价格变动也作为唯一性判断依据的话）
-                    # 考虑到同一秒可能有多笔同价同量但价格变动不同的成交，这里保持原有约束，price_change仅作记录
                     db_tasks.append(self._save_all_to_db_native_upsert(model_class, payload_for_model, ['stock', 'trade_time', 'price', 'volume']))
             tasks = db_tasks
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -107,10 +108,11 @@ class StockRealtimeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"save_realtime_tick_in_bulk 发生严重异常: {e}", exc_info=True)
             return False, f"save_realtime_tick_in_bulk 发生严重异常: {e}"
+
     async def _fetch_raw_ticks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
         """
-        【辅助】使用 asyncio.gather 并发调用 tushare 接口获取原始逐笔数据。
-        - 新增对 `CHANGE` (价格变动) 字段的获取和处理。
+        【V2.1 - 向量化增强版】使用 asyncio.gather 并发调用 tushare 接口获取原始逐笔数据。
+        优化：确保日期拼接和数值转换利用 Pandas 广播机制。
         """
         type_mapping = {'买盘': 'B', '卖盘': 'S', '中性盘': 'M'}
         async def fetch_one_stock(code: str):
@@ -122,21 +124,19 @@ class StockRealtimeDAO(BaseDAO):
                     if df is None or df.empty:
                         print(f"    -> [探针] Tushare接口为 {code} 返回了空数据。")
                         return code, None
-                    df['trade_time'] = pd.to_datetime(f"{trade_date} " + df['TIME'], errors='coerce')
+                    # 向量化日期解析：利用字符串广播机制
+                    df['trade_time'] = pd.to_datetime(trade_date + ' ' + df['TIME'], errors='coerce')
                     df['PRICE'] = pd.to_numeric(df['PRICE'], errors='coerce')
-                    df['CHANGE'] = pd.to_numeric(df['CHANGE'], errors='coerce') # 处理价格变动字段
+                    df['CHANGE'] = pd.to_numeric(df['CHANGE'], errors='coerce')
                     df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce')
                     df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
-                    initial_rows = len(df)
-                    df.dropna(subset=['trade_time', 'PRICE', 'CHANGE', 'VOLUME', 'AMOUNT'], inplace=True) # 增加CHANGE到dropna判断
+                    df.dropna(subset=['trade_time', 'PRICE', 'CHANGE', 'VOLUME', 'AMOUNT'], inplace=True)
                     if df.empty:
                         return code, None
                     df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
                     df['TYPE'] = df['TYPE'].map(type_mapping).fillna('M')
-                    # 重命名列时增加 price_change
                     df.rename(columns={'PRICE': 'price', 'CHANGE': 'price_change', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
                     df.set_index('trade_time', inplace=True)
-                    # 返回的数据中包含 price_change
                     return code, df[['price', 'price_change', 'volume', 'amount', 'type']]
                 except Exception as e:
                     if attempt < max_retries:
@@ -150,6 +150,7 @@ class StockRealtimeDAO(BaseDAO):
         results = await asyncio.gather(*tasks)
         final_map = {code: df for code, df in results if df is not None and not df.empty}
         return final_map
+
     # --- 读操作 (Read Operation) ---
     async def get_daily_real_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
@@ -165,16 +166,15 @@ class StockRealtimeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"get_daily_real_ticks 发生严重异常 for {stock_code}: {e}", exc_info=True)
             return None
+
     async def _get_daily_real_ticks_from_db(self, stock_code: str, trade_date_str) -> Optional[pd.DataFrame]:
         """
-        【辅助】从数据库获取指定股票和日期的真实逐笔数据。
-        - 在查询时增加 `price_change` 字段。
-        - 增强：兼容 datetime.date, datetime.datetime 和 str 类型的日期输入。
+        【V2.1 - 类型降级版】从数据库获取指定股票和日期的真实逐笔数据。
+        优化：将 Decimal 类型强制转换为 float/int，避免 object 类型阻碍计算。
         """
         from django.utils import timezone
         from datetime import datetime, time, timedelta, date
         try:
-            # 兼容处理 date/datetime 对象和 str 字符串
             if isinstance(trade_date_str, str):
                 trade_date_obj = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
             elif isinstance(trade_date_str, datetime):
@@ -190,7 +190,6 @@ class StockRealtimeDAO(BaseDAO):
                 return None
             start_of_day_beijing = datetime.combine(trade_date_obj, time.min)
             end_of_day_beijing = datetime.combine(trade_date_obj + timedelta(days=1), time.min)
-            # 转换为 UTC 时间进行查询
             start_dt_aware = timezone.make_aware(start_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
             end_dt_aware = timezone.make_aware(end_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
             query = tick_data_model.objects.filter(
@@ -198,7 +197,6 @@ class StockRealtimeDAO(BaseDAO):
                 trade_time__gte=start_dt_aware,
                 trade_time__lt=end_dt_aware
             ).order_by('trade_time').values(
-                # 增加 price_change 字段到查询列表
                 'trade_time', 'price', 'price_change', 'volume', 'amount', 'type'
             )
             ticks_list = await sync_to_async(list)(query)
@@ -206,40 +204,56 @@ class StockRealtimeDAO(BaseDAO):
                 return None
             df = pd.DataFrame(ticks_list)
             df.set_index('trade_time', inplace=True)
-            # 处理时区转换：UTC -> Shanghai (Standardize output timezone)
+            # 类型降级优化
+            numeric_cols = ['price', 'price_change', 'amount']
+            df[numeric_cols] = df[numeric_cols].astype(float)
+            df['volume'] = df['volume'].astype(int)
             if df.index.tz is None:
                 df.index = df.index.tz_localize('Asia/Shanghai', ambiguous='infer')
             else:
                 df.index = df.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer')
-            # 最终统一转回 UTC aware，保持与 get_single_stock_quotes_and_level5_from_db 一致
             df.index = df.index.tz_convert('UTC')
             return df
         except Exception as e:
             logger.error(f"从数据库获取 {stock_code} 逐笔数据失败: {e}", exc_info=True)
             return None
+
     # =================== 市场整体快照 (Market Snapshot) 接口 ==========
     async def get_realtime_market_snapshot(self, src: str = 'dc') -> Optional[pd.DataFrame]:
         """
-        获取实时涨跌幅排名，作为市场雷达。
-        数据源默认为东方财富(dc)，信息更全。
-        此数据为瞬时快照，通常不进行持久化。
+        【V2.2 - 类型清洗版】获取实时涨跌幅排名，作为市场雷达。
+        优化：对返回的 DataFrame 进行向量化类型转换，确保数值列为 float 类型，便于排序和筛选。
         """
         try:
-            # 使用 sync_to_async 包装同步的 tushare 调用
             df = await sync_to_async(self.ts.realtime_list)(src=src)
             if df is None or df.empty:
                 logger.warning(f"未能从 Tushare 获取实时市场快照 (src={src})。")
                 return None
+            
+            # 向量化类型转换
+            # 识别常见的数值列名 (Tushare 返回的列名可能是大写或小写)
+            numeric_cols_candidates = [
+                'PRICE', 'CLOSE', 'OPEN', 'HIGH', 'LOW', 'PRE_CLOSE', 
+                'VOL', 'VOLUME', 'AMOUNT', 'CHANGE', 'PCT_CHANGE', 'PCT_CHG',
+                'BID', 'ASK'
+            ]
+            
+            # 遍历列名，如果匹配则尝试转换为数值
+            for col in df.columns:
+                if col.upper() in numeric_cols_candidates:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            
             return df
         except Exception as e:
             logger.error(f"获取实时市场快照 (realtime_list) 失败: {e}", exc_info=True)
             return None
+
     # =================== 行情快照 (Quote) 历史接口 ===================
     # ▼▼▼ 此方法现在专用于获取行情快照 ▼▼▼
     async def save_quote_data_by_stock_codes(self, stock_codes: List[str]) -> List:
         """
-        【改造-分表版-健壮性增强-无缓存】获取实时行情快照(realtime_quote)并持久化到对应的分表。
-        - 移除所有缓存操作，只进行数据库持久化。
+        【V2.1 - 预计算优化版】获取实时行情快照(realtime_quote)并持久化到对应的分表。
+        优化：预先计算股票代码到模型类的映射，减少循环内的函数调用开销。
         """
         if not self.ts:
             logger.error("Tushare 实例未成功初始化，跳过 save_quote_data_by_stock_codes 任务。")
@@ -251,7 +265,6 @@ class StockRealtimeDAO(BaseDAO):
             try:
                 df = self.ts.realtime_quote(ts_code=stock_codes_str, src='sina')
             except pd.errors.EmptyDataError as e:
-                # logger.error(f"Tushare 读取 token 文件失败 (EmptyDataError)，请检查 token 文件是否为空或损坏: {e}", exc_info=True)
                 return []
             except Exception as e:
                 logger.error(f"调用 Tushare realtime_quote 接口失败: {e}", exc_info=True)
@@ -262,14 +275,16 @@ class StockRealtimeDAO(BaseDAO):
             stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
             db_realtime_payloads = defaultdict(list)
             db_level5_payloads = defaultdict(list)
-            # 移除缓存相关变量的定义
-            # cache_latest_realtime, cache_latest_level5 = {}, {}
-            # cache_append_realtime, cache_append_level5 = {}, {}
+            # 优化：预计算模型映射
+            unique_codes = df['TS_CODE'].unique()
+            realtime_model_map = {c: get_stock_realtime_data_model_by_code(c) for c in unique_codes}
+            level5_model_map = {c: get_stock_level5_data_model_by_code(c) for c in unique_codes}
             for row in df.itertuples():
                 stock = stocks_dict.get(row.TS_CODE)
                 if stock:
-                    realtime_model = get_stock_realtime_data_model_by_code(row.TS_CODE)
-                    level5_model = get_stock_level5_data_model_by_code(row.TS_CODE)
+                    # 使用字典查找替代函数调用
+                    realtime_model = realtime_model_map.get(row.TS_CODE)
+                    level5_model = level5_model_map.get(row.TS_CODE)
                     if not realtime_model or not level5_model:
                         logger.warning(f"无法为 {row.TS_CODE} 找到对应的实时数据分表模型，跳过此股票。")
                         continue
@@ -277,29 +292,22 @@ class StockRealtimeDAO(BaseDAO):
                     level5_dict_db = self.data_format_process.set_level5_data(stock, row)
                     db_realtime_payloads[realtime_model].append(real_dict_db)
                     db_level5_payloads[level5_model].append(level5_dict_db)
-                    # 移除缓存数据填充逻辑
-                    # real_dict_cache = self.data_format_process.set_realtime_tick_data(None, row)
-                    # level5_dict_cache = self.data_format_process.set_level5_data(None, row)
-                    # cache_latest_realtime[row.TS_CODE] = real_dict_cache
-                    # cache_latest_level5[row.TS_CODE] = level5_dict_cache
-                    # cache_append_realtime[row.TS_CODE] = real_dict_cache
-                    # cache_append_level5[row.TS_CODE] = level5_dict_cache
             if not db_realtime_payloads: return []
             db_tasks = []
             for model, payload in db_realtime_payloads.items():
                 db_tasks.append(self._save_all_to_db_native_upsert(model, payload, ['stock', 'trade_time']))
             for model, payload in db_level5_payloads.items():
                 db_tasks.append(self._save_all_to_db_native_upsert(model, payload, ['stock', 'trade_time']))
-            # 移除缓存保存任务
             tasks = db_tasks
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for i, result in enumerate(results): # 遍历所有结果，因为现在只有DB任务
+            for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     logger.error(f"批量保存行情快照到数据库分表失败 (任务 {i+1}): {result}", exc_info=result)
             return results[0] if not isinstance(results[0], Exception) else []
         except Exception as e:
             logger.error(f"save_quote_data_by_stock_codes 发生严重异常: {e}", exc_info=True)
             return []
+
     # ▼▼▼ 此方法现在用于获取快照数据，并明确其数据源 ▼▼▼
     async def get_daily_quotes_and_level5_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
         """
@@ -321,13 +329,11 @@ class StockRealtimeDAO(BaseDAO):
             else:
                 bulk_data_map[stock_code] = result
         return bulk_data_map
+
     async def _get_single_stock_quotes_and_level5_from_db(self, stock_code: str, trade_date_obj: datetime.date) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
-        【辅助】从数据库获取单只股票指定日期的行情快照和Level5数据。
-        - 【修正】统一将索引转换为 UTC aware datetime。
-        - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
-        - 【修复】修正 NameError: 'quotes_list' 和 'level5_list' 未定义的问题。
-        - 【修正】根据最新澄清，数据库存储的Level5数据是北京时间的 naive datetime，修正时区本地化逻辑。
+        【V2.1 - 类型降级版】从数据库获取单只股票指定日期的行情快照和Level5数据。
+        优化：将所有价格和成交量字段转换为 float，去除 Decimal 对象。
         """
         from django.utils import timezone
         from datetime import datetime, time, timedelta
@@ -352,11 +358,14 @@ class StockRealtimeDAO(BaseDAO):
             if quotes_list:
                 df_quotes = pd.DataFrame(quotes_list)
                 df_quotes.set_index('trade_time', inplace=True)
+                # 类型降级
+                q_cols = ['open_price', 'prev_close_price', 'current_price', 'high_price', 'low_price', 'turnover_value', 'volume']
+                df_quotes[q_cols] = df_quotes[q_cols].astype(float)
                 if df_quotes.index.tz is None:
                     df_quotes.index = df_quotes.index.tz_localize('Asia/Shanghai', ambiguous='infer')
                 else:
-                    df_quotes.index = df_quotes.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer') # 先转naive再localize为Asia/Shanghai
-                df_quotes.index = df_quotes.index.tz_convert('UTC') # 确保DAO输出UTC aware
+                    df_quotes.index = df_quotes.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer')
+                df_quotes.index = df_quotes.index.tz_convert('UTC')
         if level5_model:
             query_level5 = level5_model.objects.filter(
                 stock__stock_code=stock_code,
@@ -372,38 +381,61 @@ class StockRealtimeDAO(BaseDAO):
             if level5_list:
                 df_level5 = pd.DataFrame(level5_list)
                 df_level5.set_index('trade_time', inplace=True)
+                # 类型降级：Level5 所有列都是数值
+                df_level5 = df_level5.astype(float)
                 if df_level5.index.tz is None:
                     df_level5.index = df_level5.index.tz_localize('Asia/Shanghai', ambiguous='infer')
                 else:
-                    df_level5.index = df_level5.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer') # 先转naive再localize为Asia/Shanghai
-                df_level5.index = df_level5.index.tz_convert('UTC') # 确保DAO输出UTC aware
+                    df_level5.index = df_level5.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer')
+                df_level5.index = df_level5.index.tz_convert('UTC')
         return df_quotes, df_level5
+
     async def get_latest_tick_data(self, stock_code: str) -> dict:
         """
-        【无缓存版】从数据库获取最新一条行情快照数据。
-        - 移除缓存读取，直接从数据库查询最新记录。
+        【V2.2 - 查询优化版】从数据库获取最新一条行情快照数据。
+        优化：使用 .values() 仅获取所需字段，避免模型实例化的开销，适合高频轮询。
+        新增：自动计算 change_percent (涨跌幅)。
         """
         realtime_model = get_stock_realtime_data_model_by_code(stock_code)
         if not realtime_model:
             logger.warning(f"无法为 {stock_code} 找到对应的实时数据分表模型，无法获取最新数据。")
             return {}
         try:
-            latest_data = await sync_to_async(realtime_model.objects.filter(stock__stock_code=stock_code).order_by('-trade_time').first)()
+            # 使用 values() 仅查询需要的字段，减少数据传输和对象构建成本
+            # sync_to_async 包装 lambda 以确保 ORM 查询在线程池执行
+            latest_data = await sync_to_async(lambda: realtime_model.objects.filter(stock__stock_code=stock_code).order_by('-trade_time').values(
+                'current_price', 'high_price', 'low_price', 'open_price', 
+                'prev_close_price', 'trade_time', 'turnover_value', 'volume'
+            ).first())()
+            
             if latest_data:
+                # 计算涨跌幅
+                current = latest_data['current_price']
+                prev_close = latest_data['prev_close_price']
+                change_pct = None
+                if prev_close and prev_close > 0 and current is not None:
+                    try:
+                        # 转换为 float 计算，保留2位小数
+                        change_pct = (float(current) - float(prev_close)) / float(prev_close) * 100
+                        change_pct = round(change_pct, 2)
+                    except Exception:
+                        change_pct = None
+
                 return {
                     'code': stock_code,
-                    'current_price': str(latest_data.current_price),
-                    'high_price': str(latest_data.high_price),
-                    'low_price': str(latest_data.low_price),
-                    'open_price': str(latest_data.open_price),
-                    'prev_close_price': str(latest_data.prev_close_price),
-                    'trade_time': latest_data.trade_time.isoformat(),
-                    'turnover_value': str(latest_data.turnover_value),
-                    'volume': latest_data.volume,
-                    # change_percent 需要计算，这里只返回原始数据
-                    'change_percent': None # 无法直接从模型获取，需要额外计算
+                    'current_price': str(latest_data['current_price']),
+                    'high_price': str(latest_data['high_price']),
+                    'low_price': str(latest_data['low_price']),
+                    'open_price': str(latest_data['open_price']),
+                    'prev_close_price': str(latest_data['prev_close_price']),
+                    'trade_time': latest_data['trade_time'].isoformat(),
+                    'turnover_value': str(latest_data['turnover_value']),
+                    'volume': latest_data['volume'],
+                    'change_percent': change_pct
                 }
             return {}
         except Exception as e:
             logger.error(f"从数据库获取 {stock_code} 最新行情快照失败: {e}", exc_info=True)
             return {}
+
+

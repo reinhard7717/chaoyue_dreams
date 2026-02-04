@@ -198,6 +198,7 @@ class AdvancedChipDynamicsService:
         修改说明:
         1. 优化时间处理逻辑，使用numpy datetime64操作替代pandas .dt访问器以提升效率。
         2. 保持原有的数据完整性检查和异常处理逻辑。
+        3. [修复] 修正Key名称以匹配数据库字段。
         """
         try:
             if tick_data.empty:
@@ -273,8 +274,9 @@ class AdvancedChipDynamicsService:
                 processed_tick, chip_dist_df
             )
             if support_resistance:
-                factors['intraday_dynamic_support_test_count'] = support_resistance.get('support_test_count', 0)
-                factors['intraday_dynamic_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
+                # [修复]：去除 dynamic 前缀，与数据库字段保持一致
+                factors['intraday_support_test_count'] = support_resistance.get('support_test_count', 0)
+                factors['intraday_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
                 factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree', 0.0)
             abnormal_volume = ChipFactorCalculator.calculate_intraday_abnormal_volume(processed_tick)
             if abnormal_volume:
