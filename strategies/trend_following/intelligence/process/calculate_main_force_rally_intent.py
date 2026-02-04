@@ -978,13 +978,11 @@ class CalculateMainForceRallyIntent:
                     bins = np.unique(bins)
                     if len(bins) < 2:
                         continue
-                    
                     # 计算当前值所在区间的概率分布
                     hist, _ = np.histogram(window_data, bins=bins)
                     # 转换为概率
                     prob = hist / len(window_data)
                     prob = prob[prob > 0]  # 只保留正概率
-                    
                     # 计算信息熵：H = -sum(p * log2(p))
                     if len(prob) > 0:
                         entropy = -np.sum(prob * np.log2(prob))
@@ -1889,11 +1887,9 @@ class CalculateMainForceRallyIntent:
                     slope, _ = np.linalg.lstsq(np.vstack([x, np.ones(len(x))]).T, y, rcond=None)[0]
                     # 趋势强度的绝对值
                     trend_strength = abs(slope) * 100  # 放大到合理范围
-                    
                     # 噪声强度（去趋势后的残差标准差）
                     residuals = y - (slope * x + _)
                     noise_strength = np.std(residuals)
-                    
                     if noise_strength > 0:
                         snr = trend_strength / noise_strength
                         # SNR在1-3之间为理想范围
@@ -2000,7 +1996,6 @@ class CalculateMainForceRallyIntent:
                 for k in range(j+1, len(signal_names)):
                     signal1 = window_signals[signal_names[j]]
                     signal2 = window_signals[signal_names[k]]
-                    
                     if len(signal1) >= 10 and len(signal2) >= 10:
                         # 确保长度一致
                         min_len = min(len(signal1), len(signal2))
@@ -2018,7 +2013,6 @@ class CalculateMainForceRallyIntent:
                 for k in range(j+1, len(signal_names)):
                     signal1 = window_signals[signal_names[j]]
                     signal2 = window_signals[signal_names[k]]
-                    
                     if len(signal1) >= 10 and len(signal2) >= 10:
                         # 计算一阶差分的相关性（同步性）
                         diff1 = signal1.diff().dropna()
@@ -2563,7 +2557,6 @@ class CalculateMainForceRallyIntent:
                     non_diag_sum = np.sum(corr_matrix) - np.trace(corr_matrix)
                     non_diag_count = len(dim_names) * (len(dim_names) - 1)
                     avg_correlation = non_diag_sum / non_diag_count if non_diag_count > 0 else 0
-                    
                     # 高相关性（>0.7）表示维度冗余，需要调整权重
                     correlation_score.iloc[i] = avg_correlation
         correlation_score = correlation_score.ffill().fillna(0.5)
@@ -2757,10 +2750,8 @@ class CalculateMainForceRallyIntent:
                 for i in range(1, len(ewma_weights)):
                     prev_weight = limited_weights.iloc[i-1]
                     target_weight = ewma_weights.iloc[i]
-                    
                     # 计算最大允许变化
                     max_change = prev_weight * 0.2  # 20%变化限制
-                    
                     # 限制变化
                     if target_weight > prev_weight + max_change:
                         limited_weights.iloc[i] = prev_weight + max_change
@@ -2789,14 +2780,12 @@ class CalculateMainForceRallyIntent:
                 for dim in current_weights:
                     if dim not in normalized_weights:
                         normalized_weights[dim] = pd.Series(0.0, index=df_index)
-                    
                     normalized_weights[dim].iloc[i] = current_weights[dim] / total
             else:
                 # 默认权重
                 for dim in weights_dict.keys():
                     if dim not in normalized_weights:
                         normalized_weights[dim] = pd.Series(0.0, index=df_index)
-                    
                     normalized_weights[dim].iloc[i] = 0.25  # 均分
         return normalized_weights
 

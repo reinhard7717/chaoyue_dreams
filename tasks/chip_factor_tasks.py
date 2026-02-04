@@ -447,14 +447,14 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 if current_date in historical_df.index:
                     current_turnover = historical_df.loc[current_date, 'turnover_rate']
                 # =================================================
-                # 新增：获取当日tick数据
+                # 新增：获取当日tick数据 (带探针)
                 # =================================================
                 tick_data = None
                 try:
-                    # 获取当日所有tick数据（按交易时间过滤）
-                    # 使用 dt_time 替代 time，避免与 time 模块冲突
+                    # 探针：打印查询参数
                     start_datetime = datetime.combine(current_date, dt_time(9, 30))
                     end_datetime = datetime.combine(current_date, dt_time(15, 0))
+                    # 获取当日所有tick数据（按交易时间过滤）
                     tick_queryset = tick_model.objects.filter(
                         stock=stock,
                         trade_time__gte=start_datetime,
@@ -473,10 +473,34 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         tick_data = tick_df
                         print(f"📊 [单股tick] {stock_code} {current_date}: 获取到 {len(tick_df)} 条tick数据")
                     else:
+                        # 探针：深度检查为何为空
+                        print(f"🕵️ [Tick探针] {stock_code} {current_date}: 查询结果为空，开始深度检查...")
+                        print(f"🕵️ [Tick探针] 使用模型: {tick_model.__name__}")
+                        print(f"🕵️ [Tick探针] 查询范围: {start_datetime} -> {end_datetime}")
+                        # 检查1: 全天是否有数据（排除时间过滤影响）
+                        day_start = datetime.combine(current_date, dt_time(0, 0))
+                        day_end = datetime.combine(current_date, dt_time(23, 59))
+                        day_count = await sync_to_async(tick_model.objects.filter(
+                            stock=stock,
+                            trade_time__gte=day_start,
+                            trade_time__lte=day_end
+                        ).count)()
+                        print(f"🕵️ [Tick探针] 全天({day_start.time()}-{day_end.time()})数据量: {day_count}")
+                        # 检查2: 该股票总数据量
+                        total_count = await sync_to_async(tick_model.objects.filter(stock=stock).count)()
+                        print(f"🕵️ [Tick探针] 该股票数据库总Tick量: {total_count}")
+                        # 检查3: 最新一条数据时间
+                        last_record = await sync_to_async(tick_model.objects.filter(stock=stock).order_by('-trade_time').first)()
+                        if last_record:
+                            print(f"🕵️ [Tick探针] 数据库最新Tick时间: {last_record.trade_time}")
+                        else:
+                            print(f"🕵️ [Tick探针] 数据库中无该股票任何Tick记录")
+                            
                         print(f"⚠️ [单股tick] {stock_code} {current_date}: 无tick数据，将使用日线近似")
+                        
                 except Exception as tick_error:
                     logger.warning(f"获取 {stock_code} {current_date} tick数据失败: {tick_error}")
-                    print(f"⚠️ [单股tick] {stock_code} {current_date}: 获取tick数据失败，使用日线近似")
+                    print(f"⚠️ [单股tick] {stock_code} {current_date}: 获取tick数据异常: {tick_error}")
                 # =================================================
                 # 准备数据字典
                 chip_perf_dict = {

@@ -718,7 +718,6 @@ class CalculateCostAdvantageTrendRelationship:
                     # 首先尝试线性插值
                     repaired_series = repaired_series.interpolate(method='linear', limit_direction='both')
                     remaining_nan = repaired_series.isna().sum()
-                    
                     # 如果还有NaN，使用前向填充
                     if remaining_nan > 0:
                         repaired_series = repaired_series.ffill()
@@ -727,7 +726,6 @@ class CalculateCostAdvantageTrendRelationship:
                         # 如果还有NaN，使用后向填充
                         if remaining_nan > 0:
                             repaired_series = repaired_series.bfill()
-                    
                     repair_methods_count['linear_interpolation'] += 1
                     method_used = 'linear_interpolation'
                 else:
@@ -772,7 +770,6 @@ class CalculateCostAdvantageTrendRelationship:
                     # 简单的前向后向填充
                     repaired_series = signal_series.ffill().bfill()
                     remaining_nan = repaired_series.isna().sum()
-                    
                     if remaining_nan == 0:
                         df[signal] = repaired_series
                         repair_stats['signals_repaired'] += 1

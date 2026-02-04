@@ -734,7 +734,6 @@ class AdvancedFundFlowMetricsService:
                     s_vol = hf_analysis_df[f'sell_volume{i}'].values
                     b_price = hf_analysis_df[f'buy_price{i}'].values
                     s_price = hf_analysis_df[f'sell_price{i}'].values
-                    
                     weighted_buy_vol += b_vol * weight
                     weighted_sell_vol += s_vol * weight
                     total_buy_value += b_vol * b_price

@@ -665,20 +665,16 @@ class FeatureEngineeringService:
                     flow_intensity = df['flow_intensity_D'].fillna(0).values.astype(np.float32)
                     chip_stability = df['chip_stability_D'].fillna(0.5).values.astype(np.float32)
                     long_term_ratio = df['long_term_chip_ratio_D'].fillna(0.5).values.astype(np.float32)
-                    
                     # 使用新版本的numba函数
                     is_correction_numba = calculate_correction_scores_v2_numba(
                         pct_change, close, volume, vol_ma21, flow_intensity, 
                         chip_stability, long_term_ratio,
                         correction_min_magnitude, correction_max_magnitude
                     )
-                    
                     df['IS_TREND_CORRECTION_D'] = pd.Series(is_correction_numba, index=df.index)
-                    
                     # 与趋势延续信号互斥
                     if 'IS_TREND_CONTINUATION_D' in df.columns:
                         df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'] & (~df['IS_TREND_CONTINUATION_D'])
-                    
                     # 探针：检查最近的结果
                     if len(df) > 5:
                         last_5 = df.index[-5:]
@@ -833,8 +829,7 @@ class FeatureEngineeringService:
                 except:
                     pass
         else:
-            consolidation_signals = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 
-                                   'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
+            consolidation_signals = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
             for col in consolidation_signals:
                 if col in df.columns:
                     df[col] = df[col].fillna(False).astype(bool)
@@ -1201,7 +1196,6 @@ class FeatureEngineeringService:
                 if quality_factors:
                     quality_matrix = pd.concat(quality_factors, axis=1)
                     df['consolidation_quality_score_D'] = quality_matrix.mean(axis=1)
-                    
                     # 质量分级
                     df['consolidation_quality_grade_D'] = pd.cut(
                         df['consolidation_quality_score_D'],
