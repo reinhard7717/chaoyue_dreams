@@ -395,7 +395,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 if date_index % date_progress_interval == 0:
                     progress = (date_index + 1) / len(trade_dates) * 100
                     print(f"📊 [单股进度] {stock_code} 进度: {progress:.1f}% ({date_index + 1}/{len(trade_dates)})")
-                
                 # 检查是否已计算
                 existing = await sync_to_async(chip_factor_model.objects.filter(
                     stock=stock, 
@@ -404,7 +403,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 ).exists)()
                 if existing:
                     continue
-                
                 # 获取数据
                 chip_perf = await sync_to_async(StockCyqPerf.objects.filter(
                     stock=stock, 
@@ -412,7 +410,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 ).first)()
                 if not chip_perf:
                     continue
-                
                 # 获取筹码分布数据
                 chips_data = await sync_to_async(list)(
                     chips_model.objects.filter(
@@ -423,7 +420,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 if not chips_data:
                     continue
                 chips_df = pd.DataFrame(chips_data)
-                
                 # 获取日K线数据
                 daily_kline = await sync_to_async(daily_data_model.objects.filter(
                     stock=stock, 
@@ -431,7 +427,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 ).first)()
                 if not daily_kline:
                     continue
-                
                 # 获取前一日筹码数据
                 get_offset_func = sync_to_async(TradeCalendar.get_trade_date_offset, thread_sensitive=True)
                 prev_date = await get_offset_func(current_date, -1)
@@ -445,15 +440,12 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     prev_chips_df = pd.DataFrame(list(prev_chips_data)) if prev_chips_data else pd.DataFrame()
                 else:
                     prev_chips_df = pd.DataFrame()
-                
                 # 获取历史因子
                 historical_factors = await get_historical_chip_factors(chip_factor_model, stock, current_date, 5)
-                
                 # 获取当日换手率 (从 historical_df 中获取)
                 current_turnover = 0.0
                 if current_date in historical_df.index:
                     current_turnover = historical_df.loc[current_date, 'turnover_rate']
-                
                 # =================================================
                 # 新增：获取当日tick数据
                 # =================================================
@@ -485,7 +477,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     logger.warning(f"获取 {stock_code} {current_date} tick数据失败: {tick_error}")
                     print(f"⚠️ [单股tick] {stock_code} {current_date}: 获取tick数据失败，使用日线近似")
                 # =================================================
-                
                 # 准备数据字典
                 chip_perf_dict = {
                     'weight_avg': chip_perf.weight_avg,
@@ -498,7 +489,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     'cost_95pct': chip_perf.cost_95pct,
                     'winner_rate': chip_perf.winner_rate
                 }
-                
                 daily_kline_dict = {
                     'close': daily_kline.close_qfq,
                     'open': daily_kline.open_qfq,
@@ -508,10 +498,8 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     'amount': daily_kline.amount,
                     'pct_change': daily_kline.pct_change
                 }
-                
                 # 传入换手率
                 daily_basic_dict = {'turnover_rate': current_turnover}
-                
                 # =================================================
                 # 修改：调用带tick数据的完整因子计算函数
                 # =================================================
@@ -543,10 +531,8 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         historical_chip_factors=historical_factors
                     )
                 # =================================================
-                
                 # 保存到数据库
                 await save_chip_factors(chip_factor_model, stock, current_date, factors)
-                
                 # 验证保存结果
                 verify_result = await verify_chip_factor_saved(stock_code, current_date)
                 if verify_result.get('exists'):

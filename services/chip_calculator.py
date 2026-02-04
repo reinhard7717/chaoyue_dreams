@@ -1542,7 +1542,6 @@ class ChipFactorCalculator:
             if len(tick_data) >= 2:
                 price_changes = np.abs(np.diff(tick_data['price'].values))
                 volume_changes = volumes[1:]  # 与价格变化对应的成交量
-                
                 valid_mask = price_changes > 0
                 if np.any(valid_mask):
                     transfer_efficiency = np.mean(volume_changes[valid_mask] / price_changes[valid_mask])
@@ -1599,18 +1598,14 @@ class ChipFactorCalculator:
             if len(volumes) >= 5:
                 # 平滑处理
                 smooth_volumes = savgol_filter(volumes, window_length=min(5, len(volumes)), polyorder=2)
-                
                 # 寻找峰值和谷值
                 peaks_idx, _ = find_peaks(smooth_volumes, height=np.mean(smooth_volumes))
                 valleys_idx, _ = find_peaks(-smooth_volumes, height=-np.mean(smooth_volumes))
-                
                 if len(peaks_idx) > 0 and len(valleys_idx) > 0:
                     # 计算峰谷成交量比
                     peak_volumes = volumes[peaks_idx]
                     valley_volumes = volumes[valleys_idx]
-                    
                     peak_valley_ratio = np.mean(peak_volumes) / np.mean(valley_volumes) if np.mean(valley_volumes) > 0 else 0.0
-                    
                     # 计算谷填充度（谷底区域实际成交量/预期成交量）
                     trough_filling = np.sum(valley_volumes) / (len(valleys_idx) * np.mean(volumes)) if np.mean(volumes) > 0 else 0.0
                 else:
@@ -1676,13 +1671,10 @@ class ChipFactorCalculator:
             if tick_data is not None and not tick_data.empty:
                 # 预处理tick数据
                 processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
-                
                 factors['tick_data_quality_score'] = data_quality
                 factors['intraday_factor_calc_method'] = 'tick_based'
-                
                 if data_quality > 0.3:  # 数据质量阈值
                     close_price = factors.get('close', 0)
-                    
                     # 计算各类tick因子
                     # a. 日内筹码分布统计
                     intraday_dist = ChipFactorCalculator.calculate_intraday_chip_distribution(
@@ -1692,20 +1684,17 @@ class ChipFactorCalculator:
                         factors['intraday_chip_concentration'] = intraday_dist.get('concentration', 0.0)
                         factors['intraday_chip_entropy'] = intraday_dist.get('entropy', 0.0)
                         factors['intraday_price_distribution_skewness'] = intraday_dist.get('skewness', 0.0)
-                    
                     # b. 日内筹码流动
                     intraday_flow = ChipFactorCalculator.calculate_intraday_chip_flow(processed_tick)
                     if intraday_flow:
                         factors['tick_level_chip_flow'] = intraday_flow.get('net_flow_ratio', 0.0)
                         factors['intraday_chip_turnover_intensity'] = intraday_flow.get('flow_intensity', 0.0)
                         factors['tick_clustering_index'] = intraday_flow.get('clustering_index', 0.0)
-                    
                     # c. 日内成本重心
                     cost_center = ChipFactorCalculator.calculate_intraday_cost_center(processed_tick)
                     if cost_center:
                         factors['intraday_cost_center_migration'] = cost_center.get('migration_ratio', 0.0)
                         factors['intraday_cost_center_volatility'] = cost_center.get('volatility', 0.0)
-                    
                     # d. 日内支撑阻力测试
                     support_resistance = ChipFactorCalculator.identify_intraday_support_resistance(
                         processed_tick, chip_dist_data
@@ -1714,13 +1703,11 @@ class ChipFactorCalculator:
                         factors['intraday_support_test_count'] = support_resistance.get('support_test_count', 0)
                         factors['intraday_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
                         factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree', 0.0)
-                    
                     # e. 异常成交量
                     abnormal_volume = ChipFactorCalculator.calculate_intraday_abnormal_volume(processed_tick)
                     if abnormal_volume:
                         factors['tick_abnormal_volume_ratio'] = abnormal_volume.get('abnormal_volume_ratio', 0.0)
                         factors['tick_chip_transfer_efficiency'] = abnormal_volume.get('transfer_efficiency', 0.0)
-                    
                     # f. 日内筹码锁定
                     chip_locking = ChipFactorCalculator.calculate_intraday_chip_locking(
                         processed_tick, close_price
@@ -1730,17 +1717,14 @@ class ChipFactorCalculator:
                         factors['intraday_high_lock_ratio'] = chip_locking.get('high_lock_ratio', 0.0)
                         factors['intraday_peak_valley_ratio'] = chip_locking.get('peak_valley_ratio', 0.0)
                         factors['intraday_trough_filling_degree'] = chip_locking.get('trough_filling', 0.0)
-                    
                     # g. 筹码博弈指数
                     game_index = ChipFactorCalculator.calculate_intraday_chip_game_index(processed_tick)
                     factors['intraday_chip_game_index'] = game_index
-                    
                     # h. 计算筹码平衡比
                     if intraday_flow:
                         buy_ratio = intraday_flow.get('buy_ratio', 0.5)
                         sell_ratio = intraday_flow.get('sell_ratio', 0.5)
                         factors['tick_chip_balance_ratio'] = buy_ratio / sell_ratio if sell_ratio > 0 else 1.0
-                
                 else:
                     # 数据质量不足，使用日线近似
                     factors = ChipFactorCalculator._approximate_intraday_factors(
@@ -1775,7 +1759,6 @@ class ChipFactorCalculator:
                 # 使用日线筹码分布近似日内分布
                 daily_entropy = factors.get('chip_entropy', 0.0)
                 daily_concentration = factors.get('chip_concentration_ratio', 0.5)
-                
                 # 简单近似：日内因子 = 日线因子 * 调整系数
                 # 实际应用中可根据历史数据回归得到更好的近似公式
                 factors['intraday_chip_concentration'] = daily_concentration * 1.2  # 假设日内更集中
@@ -1786,12 +1769,10 @@ class ChipFactorCalculator:
                 high = daily_kline_data.get('high', 0)
                 low = daily_kline_data.get('low', 0)
                 close = daily_kline_data.get('close', 0)
-                
                 if high > low > 0:
                     # 近似日内价格区间占比
                     day_range = high - low
                     factors['intraday_price_range_ratio'] = day_range / close if close > 0 else 0.0
-                    
                     # 近似日内筹码换手强度
                     turnover_rate = factors.get('turnover_rate', 0)
                     factors['intraday_chip_turnover_intensity'] = turnover_rate / 100.0  # 归一化

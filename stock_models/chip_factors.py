@@ -349,6 +349,11 @@ class ChipFactorBase(models.Model):
         null=True, blank=True,
         help_text='基于tick成交价格分布的偏度'
     )
+    intraday_price_range_ratio = models.FloatField(
+        verbose_name='日内价格区间占比',
+        null=True, blank=True,
+        help_text='(High-Low)/Close，反映日内波动幅度'
+    )
     # 2. 日内筹码交换强度因子
     intraday_chip_turnover_intensity = models.FloatField(
         verbose_name='日内筹码换手强度',
