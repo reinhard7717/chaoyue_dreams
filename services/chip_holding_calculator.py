@@ -195,15 +195,15 @@ class AdvancedChipDynamicsService:
 
     async def _calculate_tick_enhanced_factors(self, tick_data: pd.DataFrame, chip_data: Dict[str, Any],price_grid: np.ndarray,current_chip_dist: np.ndarray, trade_date: str = "") -> Dict[str, Any]:
         """
-        计算tick数据增强因子 (v1.4)
+        计算tick数据增强因子 (v1.5)
         修改说明:
-        1. 增加数据完整性保底检查：只要包含必要列且行数>50，即使评分低也继续计算。
-        2. 解决因成交量小导致评分低而被过滤的问题，优先保证数据完整性。
-        3. 保留索引/列名处理和时区修正逻辑。
+        1. 优化时间处理逻辑，使用numpy datetime64操作替代pandas .dt访问器以提升效率。
+        2. 保持原有的数据完整性检查和异常处理逻辑。
         """
         try:
             if tick_data.empty:
                 return self._get_default_tick_factors()
+            # 确保trade_time列存在且为datetime类型
             if 'trade_time' not in tick_data.columns:
                 if isinstance(tick_data.index, pd.DatetimeIndex) or tick_data.index.name == 'trade_time':
                     tick_data = tick_data.copy()
@@ -217,11 +217,14 @@ class AdvancedChipDynamicsService:
                     except Exception as e:
                         print(f"⚠️ [tick因子] trade_time 转换失败: {e}")
                 if not tick_data.empty:
-                    hours = tick_data['trade_time'].dt.hour
-                    bj_time_ratio = ((hours >= 9) & (hours <= 15)).mean()
-                    utc_time_ratio = ((hours >= 1) & (hours <= 7)).mean()
-                    if utc_time_ratio > 0.8 and bj_time_ratio < 0.2:
-                        tick_data['trade_time'] = tick_data['trade_time'] + pd.Timedelta(hours=8)
+                    # 优化：使用numpy直接获取小时数，比.dt.hour快
+                    times = tick_data['trade_time'].values
+                    if times.dtype.name.startswith('datetime64'):
+                        hours = times.astype('datetime64[h]').astype(int) % 24
+                        bj_time_ratio = np.mean((hours >= 9) & (hours <= 15))
+                        utc_time_ratio = np.mean((hours >= 1) & (hours <= 7))
+                        if utc_time_ratio > 0.8 and bj_time_ratio < 0.2:
+                            tick_data['trade_time'] = tick_data['trade_time'] + pd.Timedelta(hours=8)
             date_str = trade_date
             if not date_str:
                 if 'trade_time' in tick_data.columns and not tick_data.empty:
@@ -233,7 +236,6 @@ class AdvancedChipDynamicsService:
                 else:
                     date_str = "未知日期"
             current_price = chip_data.get('current_price', 0)
-            close_price = current_price
             processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
             is_data_complete = False
             required_cols = ['price', 'volume', 'trade_time']
@@ -244,28 +246,6 @@ class AdvancedChipDynamicsService:
                 if is_data_complete:
                     data_quality = max(data_quality, self.params['tick_data_quality_threshold'])
                 else:
-                    print(f"⚠️ [tick因子-探针] {date_str} 数据质量低 ({data_quality:.2f} < {self.params['tick_data_quality_threshold']})，原因分析:")
-                    print(f"   - 原始行数: {len(tick_data)}")
-                    print(f"   - 处理后行数: {len(processed_tick)}")
-                    print(f"   - 包含列名: {list(tick_data.columns)}")
-                    if 'volume' in tick_data.columns:
-                        vol_sum = tick_data['volume'].sum()
-                        vol_mean = tick_data['volume'].mean()
-                        print(f"   - 总成交量: {vol_sum:.0f}, 平均成交量: {vol_mean:.2f}")
-                    else:
-                        print(f"   - 缺失 'volume' 列")
-                    if 'trade_time' in tick_data.columns and not tick_data.empty:
-                        try:
-                            t_min = tick_data['trade_time'].min()
-                            t_max = tick_data['trade_time'].max()
-                            if hasattr(t_min, 'strftime'):
-                                print(f"   - 时间范围: {t_min.strftime('%H:%M:%S')} -> {t_max.strftime('%H:%M:%S')}")
-                            else:
-                                print(f"   - 时间范围: {t_min} -> {t_max}")
-                        except Exception as e:
-                            print(f"   - 时间解析失败: {e}")
-                    else:
-                        print(f"   - 缺失 'trade_time' 列或数据为空")
                     return self._get_default_tick_factors()
             factors = {
                 'tick_data_quality_score': data_quality,
@@ -333,24 +313,23 @@ class AdvancedChipDynamicsService:
 
     def _build_normalized_chip_matrix(self, chip_history: List[pd.DataFrame], current_chip: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
-        版本: v2.1
-        说明: 构建归一化筹码矩阵（Pandas操作优化版）
+        版本: v2.2
+        说明: 构建归一化筹码矩阵（Numpy极致优化版）
         修改思路: 
-        1. 优化价格范围计算，使用np.concatenate一次性处理。
-        2. 优化DataFrame清洗，使用dropna替代复杂的布尔索引。
-        3. 保持np.interp的高效插值。
+        1. 移除循环内的Pandas操作（dropna, sort_values, drop_duplicates），改用Numpy数组操作。
+        2. 使用np.unique替代drop_duplicates，同时完成排序。
+        3. 使用np.isfinite进行快速过滤。
+        4. 保持np.interp的高效插值。
         """
         all_chips = chip_history + [current_chip]
         # 收集所有价格以确定网格范围
         all_prices = []
         for chip_df in all_chips:
             if not chip_df.empty:
-                # 直接获取values，避免Series开销
                 all_prices.append(chip_df['price'].values)
         if not all_prices:
             min_price, max_price = 1.0, 100.0
         else:
-            # 使用concatenate一次性合并，比extend循环更高效
             flat_prices = np.concatenate(all_prices)
             if len(flat_prices) == 0:
                 min_price, max_price = 1.0, 100.0
@@ -359,7 +338,6 @@ class AdvancedChipDynamicsService:
                 price_range = max_price - min_price
                 min_price = max(0.01, min_price - price_range * 0.15)
                 max_price = max_price + price_range * 0.15
-                
         price_grid = np.linspace(min_price, max_price, self.price_granularity)
         n_days = len(all_chips)
         n_prices = len(price_grid)
@@ -370,18 +348,30 @@ class AdvancedChipDynamicsService:
                 chip_matrix[day_idx, :] = uniform_dist
                 continue
             try:
-                # 优化：直接dropna，比布尔索引更快
-                df_valid = chip_df.dropna(subset=['price', 'percent'])
-                if df_valid.empty:
+                # 优化：直接提取numpy数组，避免DataFrame开销
+                p_raw = chip_df['price'].to_numpy()
+                v_raw = chip_df['percent'].to_numpy()
+                # 过滤无效值
+                mask = np.isfinite(p_raw) & np.isfinite(v_raw)
+                p_valid = p_raw[mask]
+                v_valid = v_raw[mask]
+                if len(p_valid) < 2:
                     chip_matrix[day_idx, :] = uniform_dist
                     continue
-                # 排序和去重
-                df_valid = df_valid.sort_values('price').drop_duplicates('price')
-                if len(df_valid) < 2:
-                    chip_matrix[day_idx, :] = uniform_dist
-                    continue
-                x = df_valid['price'].values
-                y = df_valid['percent'].values
+                # 排序并去重 (np.unique返回已排序的唯一值)
+                # 注意：如果有重复价格，这里简单保留第一个遇到的（通过return_index机制）
+                # 或者如果数据本身无重复价格，直接argsort即可
+                # 这里为了稳健性，使用lexsort或unique。unique对于浮点数可能过于严格，但通常够用。
+                # 为了效率，假设数据大致干净，使用argsort排序
+                sort_idx = np.argsort(p_valid)
+                x = p_valid[sort_idx]
+                y = v_valid[sort_idx]
+                # 简单的去重逻辑：如果相邻价格极近，只取一个。
+                # 这里使用diff > 0来快速去重
+                if len(x) > 1:
+                    keep_mask = np.concatenate(([True], np.diff(x) > 1e-6))
+                    x = x[keep_mask]
+                    y = y[keep_mask]
                 total_p = np.sum(y)
                 if total_p == 0:
                     chip_matrix[day_idx, :] = uniform_dist
@@ -397,7 +387,6 @@ class AdvancedChipDynamicsService:
             except Exception as e:
                 print(f"⚠️ 第{day_idx}天插值失败: {e}")
                 chip_matrix[day_idx, :] = uniform_dist
-                
         return price_grid, chip_matrix
 
     def _calculate_percent_change_matrix(self, chip_matrix: np.ndarray) -> np.ndarray:
@@ -1625,40 +1614,72 @@ class GameEnergyCalculator:
 
     def _identify_key_battle_zones(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> List[Dict]:
         """
-        版本: v2.1
-        说明: 关键博弈区域识别（Numpy优化版）
-        修改思路: 优化邻域对抗强度的计算，使用Numpy切片和向量化操作替代列表推导式。
+        版本: v2.2
+        说明: 关键博弈区域识别（全向量化版）
+        修改思路: 
+        1. 使用 np.lib.stride_tricks.sliding_window_view 替代循环切片。
+        2. 利用广播机制一次性计算所有点的邻域对抗强度。
+        3. 消除所有Python层面的循环，极大提升密集计算效率。
         """
         battle_zones = []
         min_intensity = 0.5
         try:
-            # 筛选出显著变化的索引
-            significant_indices = np.where(np.abs(changes) > min_intensity)[0]
-            for i in significant_indices:
-                change = changes[i]
-                price = price_grid[i]
-                # 定义邻域范围
-                start_idx = max(0, i - 2)
-                end_idx = min(len(changes), i + 3)
-                neighborhood = changes[start_idx:end_idx]
-                # 向量化计算对抗强度
-                # 寻找符号相反的变化 (乘积 < 0)
-                opponent_mask = (neighborhood * change) < 0
-                if np.any(opponent_mask):
-                    opponent_changes = neighborhood[opponent_mask]
-                    opponent_avg = np.mean(np.abs(opponent_changes))
-                    battle_intensity = abs(change) + opponent_avg * 0.5
-                    if battle_intensity > min_intensity * 1.5:
-                        battle_zones.append({
-                            'price': float(price),
-                            'battle_intensity': float(battle_intensity),
-                            'type': 'absorption' if change > 0 else 'distribution',
-                            'position': 'below_current' if price < current_price else 'above_current',
-                            'distance_to_current': float((price - current_price) / current_price),
-                        })
-            # 按强度排序并限制数量
-            battle_zones.sort(key=lambda x: x['battle_intensity'], reverse=True)
-            return battle_zones[:5]
+            n = len(changes)
+            if n < 5:
+                return []
+            # 1. 准备数据：填充边界以保持形状一致
+            # 窗口大小5，左右各补2个0
+            padded_changes = np.pad(changes, (2, 2), mode='constant', constant_values=0)
+            # 2. 创建滑动窗口视图 (shape: [n, 5])
+            # 这一步创建的是视图，不消耗额外内存
+            windows = np.lib.stride_tricks.sliding_window_view(padded_changes, window_shape=5)
+            # 3. 提取中心点 (即原始changes)
+            center_points = windows[:, 2]
+            # 4. 筛选显著点 (Masking)
+            significant_mask = np.abs(center_points) > min_intensity
+            if not np.any(significant_mask):
+                return []
+            # 只处理显著点
+            sig_windows = windows[significant_mask]
+            sig_centers = center_points[significant_mask]
+            sig_indices = np.where(significant_mask)[0]
+            # 5. 向量化计算对抗强度
+            # 寻找符号相反的邻居: (neighbor * center) < 0
+            # 利用广播: sig_centers[:, None] 将中心点变为列向量，与窗口行向量相乘
+            opponent_mask = (sig_windows * sig_centers[:, None]) < 0
+            # 计算对手强度的平均值 (只计算符号相反的部分)
+            # np.where(condition, value, 0)
+            opponent_values = np.where(opponent_mask, np.abs(sig_windows), 0)
+            # 计算每行的非零元素个数，避免除以0
+            opponent_counts = np.sum(opponent_mask, axis=1)
+            opponent_sums = np.sum(opponent_values, axis=1)
+            # 如果没有对手，平均值为0
+            opponent_avgs = np.divide(opponent_sums, opponent_counts, out=np.zeros_like(opponent_sums), where=opponent_counts!=0)
+            # 最终强度公式
+            battle_intensities = np.abs(sig_centers) + opponent_avgs * 0.5
+            # 6. 筛选符合阈值的区域
+            valid_battle_mask = battle_intensities > min_intensity * 1.5
+            if not np.any(valid_battle_mask):
+                return []
+            final_indices = sig_indices[valid_battle_mask]
+            final_intensities = battle_intensities[valid_battle_mask]
+            final_centers = sig_centers[valid_battle_mask]
+            # 7. 构建结果列表
+            # 这里必须循环构建字典，但数量已经很少（top 5）
+            # 先排序，取前5
+            sort_order = np.argsort(final_intensities)[::-1][:5]
+            for idx in sort_order:
+                grid_idx = final_indices[idx]
+                price = price_grid[grid_idx]
+                change = final_centers[idx]
+                battle_zones.append({
+                    'price': float(price),
+                    'battle_intensity': float(final_intensities[idx]),
+                    'type': 'absorption' if change > 0 else 'distribution',
+                    'position': 'below_current' if price < current_price else 'above_current',
+                    'distance_to_current': float((price - current_price) / current_price),
+                })
+            return battle_zones
         except Exception as e:
             print(f"❌ [探针-关键区域] {stock_code} {trade_date} 识别异常: {e}")
             return []
