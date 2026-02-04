@@ -610,7 +610,6 @@ class CalculateWinnerConvictionDecay:
         contextual_modulator_weights = params_dict['contextual_modulator_weights']
         contextual_mtf_config = params_dict['contextual_mtf_config']
         mtf_slope_accel_weights = params_dict['mtf_slope_accel_weights']
-
         # 辅助函数：将配置中的信号名映射到 raw_signals 字典中的实际键名
         def _map_config_signal_to_raw_signals_key(config_signal_name: str) -> str:
             if config_signal_name == 'market_sentiment_score_D':
@@ -623,7 +622,6 @@ class CalculateWinnerConvictionDecay:
                 return 'upper_shadow_pressure_raw'
             # 对于其他信号，假设配置名就是 raw_signals 中的键名
             return config_signal_name
-
         # --- 原料数据存在性检查 ---
         required_raw_signals = [
             "market_sentiment_raw", "volatility_instability_raw", "trend_vitality_raw",
@@ -657,10 +655,8 @@ class CalculateWinnerConvictionDecay:
                 base_signal_name_from_config = config_val.get('base_signal_name')
                 if not base_signal_name_from_config:
                     continue
-
                 # 使用映射函数获取 raw_signals 中的正确键名
                 raw_signals_key = _map_config_signal_to_raw_signals_key(base_signal_name_from_config)
-
                 raw_series_for_processing = raw_signals.get(raw_signals_key)
                 if raw_series_for_processing is None or raw_series_for_processing.empty or raw_series_for_processing.isnull().all():
                     print(f"    -> [过程情报警告] {method_name}: 缺少MTF分析所需原始信号 '{base_signal_name_from_config}' (映射到 '{raw_signals_key}') 或其值为空。")

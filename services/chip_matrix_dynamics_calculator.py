@@ -217,7 +217,6 @@ class ChipMatrixDynamicsCalculator:
         # 优先处理布尔类型（包括numpy.bool_），防止JSON序列化失败
         if isinstance(data, (bool, np.bool_)):
             return bool(data)
-            
         if isinstance(data, (float, int, np.number)):
             try:
                 val = float(data)
@@ -253,7 +252,6 @@ class ChipMatrixDynamicsCalculator:
             # 1. 整数关口分析
             rounded_prices = np.round(price_grid)
             is_integer = np.abs(price_grid - rounded_prices) < 0.01
-            
             if np.any(is_integer):
                 int_indices = np.where(is_integer)[0]
                 int_prices = rounded_prices[int_indices]
@@ -477,7 +475,6 @@ class ChipMatrixDynamicsCalculator:
                     analysis['reversal_type'] = 'mixed'
                 sig_count = len(analysis['divergence_signals']) + len(analysis['exhaustion_signals'])
                 analysis['reversal_confidence'] = min(1.0, 0.3 + 0.4 * (sig_count / 2) + 0.3 * analysis['reversal_strength'])
-
         except Exception as e:
             print(f"反转特征分析异常: {e}")
         return analysis
@@ -880,9 +877,7 @@ class ChipMatrixDynamicsCalculator:
         score = 0.5
         if net_flow > 10: score += 0.2
         elif net_flow < -10: score -= 0.2
-        
         if game_intensity > 0.6: score += 0.1
-        
         if intraday_quality > 0.5:
             if tick_flow > 0.1: score += 0.1
             elif tick_flow < -0.1: score -= 0.1

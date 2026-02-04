@@ -127,7 +127,6 @@ class VolumeStructureCalculator:
             if i < 20:
                 strengths.append(0)
                 continue
-                
             window_data = df.iloc[i-19:i+1]
             x = np.arange(20)
             y = window_data['vol'].values
@@ -148,7 +147,6 @@ class VolumeStructureCalculator:
             if i < 10:
                 momentum.append(0)
                 continue
-                
             # 计算短期（5日）和中期（10日）成交量变化率
             short_term = df.iloc[i-4:i+1]['vol'].mean() if i >= 4 else df.iloc[:i+1]['vol'].mean()
             medium_term = df.iloc[i-9:i+1]['vol'].mean() if i >= 9 else df.iloc[:i+1]['vol'].mean()
@@ -407,7 +405,6 @@ class VolumeStructureCalculator:
             if i < window or i >= len(prices) - window:
                 extremes.append('neutral')
                 continue
-                
             window_prices = prices[i-window:i+window+1]
             if prices[i] == np.max(window_prices):
                 extremes.append('high')
@@ -424,7 +421,6 @@ class VolumeStructureCalculator:
             if i < window or i >= len(volumes) - window:
                 extremes.append('neutral')
                 continue
-                
             window_volumes = volumes[i-window:i+window+1]
             if volumes[i] == np.max(window_volumes):
                 extremes.append('high')

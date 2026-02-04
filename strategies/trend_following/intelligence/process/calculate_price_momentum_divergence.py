@@ -185,7 +185,6 @@ class CalculatePriceMomentumDivergence:
         mtf_slope_weights = pmd_params['mtf_slope_weights']
         valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
         raw_data = {}
-
         # --- 1. 首先获取所有直接的原始信号 (不依赖其他 raw_data 中的复合信号) ---
         raw_data['price_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_close_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['macdh_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_MACDh_13_34_8_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
@@ -193,7 +192,6 @@ class CalculatePriceMomentumDivergence:
         raw_data['roc_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_ROC_13_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['volume_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_volume_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
         raw_data['mf_net_flow_slopes_raw'] = {p: self.helper._get_safe_series(df, f'SLOPE_{p}_main_force_net_flow_calibrated_D', 0.0, method_name=method_name) for p in valid_mtf_periods}
-
         raw_data['volume_burstiness_raw'] = self.helper._get_safe_series(df, 'volume_burstiness_index_D', 0.0, method_name=method_name)
         raw_data['deception_index_raw'] = self.helper._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
         raw_data['volatility_instability_raw'] = self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
@@ -222,7 +220,6 @@ class CalculatePriceMomentumDivergence:
         raw_data['intraday_vwap_div_index_raw'] = self.helper._get_safe_series(df, 'intraday_vwap_div_index_D', 0.0, method_name=method_name)
         raw_data['retail_panic_surrender_index_raw'] = self.helper._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name=method_name)
         raw_data['structural_tension_index_D'] = self.helper._get_safe_series(df, 'structural_tension_index_D', 0.0, method_name=method_name)
-
         # --- 2. 然后计算依赖于上述原始信号的复合分数 ---
         raw_data['volume_atrophy_score'] = self._calculate_composite_volume_atrophy_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['distribution_intent_score'] = self._calculate_composite_distribution_intent_score(df, df.index, raw_data, pmd_params, method_name)
@@ -237,7 +234,6 @@ class CalculatePriceMomentumDivergence:
         raw_data['liquidity_tide_score'] = self._calculate_composite_liquidity_tide_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['market_constitution_score'] = self._calculate_composite_market_constitution_score(df, df.index, raw_data, pmd_params, method_name)
         raw_data['market_tension_score'] = self._calculate_composite_market_tension_score(df, df.index, raw_data, pmd_params, method_name)
-
         return raw_data
 
     def _calculate_fused_price_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:

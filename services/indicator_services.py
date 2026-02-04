@@ -208,7 +208,6 @@ class IndicatorService:
         processed_time_level = str(time_level).lower()
         if processed_time_level.endswith('min'):
             processed_time_level = processed_time_level.replace('min', '')
-            
         start_date = None
         if TradeCalendar:
             try:
@@ -247,11 +246,9 @@ class IndicatorService:
         if df is None or df.empty:
             logger.warning(f"[{stock_code}] 时间级别 {time_level} 无法获取到数据。")
             return None
-            
         # 通用的列名标准化 (确保是原始列名，不带后缀)
         if 'vol' in df.columns and 'volume' not in df.columns:
             df.rename(columns={'vol': 'volume'}, inplace=True)
-            
         # 确保数据有 DatetimeIndex，这是后续所有时间序列操作的基础
         if not isinstance(df.index, pd.DatetimeIndex):
             time_col = None

@@ -1317,7 +1317,6 @@ class FundFlowFactorCalculator:
             buy_orders = df[df['type'] == 'B']
             if len(buy_orders) > 0:
                 buy_vwap = (buy_orders['amount'] * buy_orders['price']).sum() / buy_orders['amount'].sum()
-                
                 # 计算偏离度
                 if vwap > 0:
                     deviation = (buy_vwap - vwap) / vwap * 100

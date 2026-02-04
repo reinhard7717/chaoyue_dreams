@@ -392,7 +392,6 @@ def _numba_process_hf_features_and_clustering(
             p1, p2 = prices[i], prices[i+1]
             v1, v2 = volumes[i], volumes[i+1]
             type1, type2 = types[i], types[i+1]
-            
             # 价格接近 (0.05%)
             if abs(p1 - p2) / p1 <= 0.0005:
                 max_v = max(v1, v2)
@@ -721,13 +720,11 @@ class AdvancedFundFlowMetricsService:
                 if not all(col in hf_analysis_df.columns for col in [f'buy_volume{i}', f'sell_volume{i}', f'buy_price{i}', f'sell_price{i}']):
                     l5_cols_exist = False
                     break
-            
             if l5_cols_exist:
                 weighted_buy_vol = np.zeros(len(hf_analysis_df))
                 weighted_sell_vol = np.zeros(len(hf_analysis_df))
                 total_buy_value = np.zeros(len(hf_analysis_df))
                 total_sell_value = np.zeros(len(hf_analysis_df))
-                
                 for i in range(1, 6):
                     weight = 1.0 / i
                     b_vol = hf_analysis_df[f'buy_volume{i}'].values
@@ -738,7 +735,6 @@ class AdvancedFundFlowMetricsService:
                     weighted_sell_vol += s_vol * weight
                     total_buy_value += b_vol * b_price
                     total_sell_value += s_vol * s_price
-                
                 sum_weighted_vol = weighted_buy_vol + weighted_sell_vol
                 # 避免除以0
                 with np.errstate(divide='ignore', invalid='ignore'):
@@ -860,7 +856,6 @@ class AdvancedFundFlowMetricsService:
                     'order_renewal_signal': 'mean',
                     'wash_trade_signal': 'max'
                 })
-            
             valid_vol_groups = mf_trades[mf_trades['volume_group'] > 0]
             if not valid_vol_groups.empty:
                 volume_group_stats = valid_vol_groups.groupby('volume_group').agg({
@@ -2052,7 +2047,6 @@ class AdvancedFundFlowMetricsService:
                     ask_depth_series = hf_analysis_df[ask_liquidity_cols].sum(axis=1)
                     metrics['bid_side_liquidity'] = np.average(bid_depth_series.dropna(), weights=time_diffs[bid_depth_series.notna()]) if bid_depth_series.notna().any() else np.nan
                     metrics['ask_side_liquidity'] = np.average(ask_depth_series.dropna(), weights=time_diffs[ask_depth_series.notna()]) if ask_depth_series.notna().any() else np.nan
-                
                 # 【重构核心】imbalance_effectiveness信号完全重构
                 if 'imbalance' in hf_analysis_df.columns and hf_analysis_df['imbalance'].notna().sum() > 10:
                     # 1. 计算订单流不平衡与价格变动的时滞相关性（A股订单簿延迟效应）

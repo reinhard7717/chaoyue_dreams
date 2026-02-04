@@ -184,19 +184,15 @@ class StockRealtimeDAO(BaseDAO):
             else:
                 logger.warning(f"传入的日期格式不支持: {type(trade_date_str)}，期望 str, date 或 datetime")
                 return None
-
             tick_data_model = get_stock_tick_data_model_by_code(stock_code)
             if tick_data_model is None:
                 logger.warning(f"无法为股票 {stock_code} 找到对应的 StockTickData 模型，无法从数据库获取数据。")
                 return None
-
             start_of_day_beijing = datetime.combine(trade_date_obj, time.min)
             end_of_day_beijing = datetime.combine(trade_date_obj + timedelta(days=1), time.min)
-            
             # 转换为 UTC 时间进行查询
             start_dt_aware = timezone.make_aware(start_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
             end_dt_aware = timezone.make_aware(end_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
-            
             query = tick_data_model.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_dt_aware,
@@ -205,24 +201,18 @@ class StockRealtimeDAO(BaseDAO):
                 # 增加 price_change 字段到查询列表
                 'trade_time', 'price', 'price_change', 'volume', 'amount', 'type'
             )
-            
             ticks_list = await sync_to_async(list)(query)
-            
             if not ticks_list:
                 return None
-            
             df = pd.DataFrame(ticks_list)
             df.set_index('trade_time', inplace=True)
-            
             # 处理时区转换：UTC -> Shanghai (Standardize output timezone)
             if df.index.tz is None:
                 df.index = df.index.tz_localize('Asia/Shanghai', ambiguous='infer')
             else:
                 df.index = df.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer')
-            
             # 最终统一转回 UTC aware，保持与 get_single_stock_quotes_and_level5_from_db 一致
             df.index = df.index.tz_convert('UTC')
-            
             return df
         except Exception as e:
             logger.error(f"从数据库获取 {stock_code} 逐笔数据失败: {e}", exc_info=True)

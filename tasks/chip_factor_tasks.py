@@ -45,7 +45,7 @@ class ChipTaskConfig:
     PRIORITY_LOW = 9
     # 批量处理大小
     BATCH_SIZE_SINGLE = 100  # 单只股票每日批量大小
-    BATCH_SIZE_BULK = 50    # 批量股票每批数量
+    BATCH_SIZE_BULK = 10    # 批量股票每批数量
     # 重试配置
     MAX_RETRIES = 3
     RETRY_DELAY = 60  # 秒
@@ -471,33 +471,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         tick_df['volume'] = tick_df['volume'].astype(int)
                         tick_df['amount'] = tick_df['amount'].astype(float)
                         tick_data = tick_df
-                        print(f"📊 [单股tick] {stock_code} {current_date}: 获取到 {len(tick_df)} 条tick数据")
-                    else:
-                        # 探针：深度检查为何为空
-                        print(f"🕵️ [Tick探针] {stock_code} {current_date}: 查询结果为空，开始深度检查...")
-                        print(f"🕵️ [Tick探针] 使用模型: {tick_model.__name__}")
-                        print(f"🕵️ [Tick探针] 查询范围: {start_datetime} -> {end_datetime}")
-                        # 检查1: 全天是否有数据（排除时间过滤影响）
-                        day_start = datetime.combine(current_date, dt_time(0, 0))
-                        day_end = datetime.combine(current_date, dt_time(23, 59))
-                        day_count = await sync_to_async(tick_model.objects.filter(
-                            stock=stock,
-                            trade_time__gte=day_start,
-                            trade_time__lte=day_end
-                        ).count)()
-                        print(f"🕵️ [Tick探针] 全天({day_start.time()}-{day_end.time()})数据量: {day_count}")
-                        # 检查2: 该股票总数据量
-                        total_count = await sync_to_async(tick_model.objects.filter(stock=stock).count)()
-                        print(f"🕵️ [Tick探针] 该股票数据库总Tick量: {total_count}")
-                        # 检查3: 最新一条数据时间
-                        last_record = await sync_to_async(tick_model.objects.filter(stock=stock).order_by('-trade_time').first)()
-                        if last_record:
-                            print(f"🕵️ [Tick探针] 数据库最新Tick时间: {last_record.trade_time}")
-                        else:
-                            print(f"🕵️ [Tick探针] 数据库中无该股票任何Tick记录")
-                            
-                        print(f"⚠️ [单股tick] {stock_code} {current_date}: 无tick数据，将使用日线近似")
-                        
                 except Exception as tick_error:
                     logger.warning(f"获取 {stock_code} {current_date} tick数据失败: {tick_error}")
                     print(f"⚠️ [单股tick] {stock_code} {current_date}: 获取tick数据异常: {tick_error}")

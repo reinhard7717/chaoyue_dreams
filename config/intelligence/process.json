@@ -951,7 +951,6 @@
                     }
                 }
             },
-
             {
                 "name": "PROCESS_META_LOSER_CAPITULATION",
                 "type": "meta_analysis",

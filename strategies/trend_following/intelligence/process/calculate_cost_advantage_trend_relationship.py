@@ -694,7 +694,6 @@ class CalculateCostAdvantageTrendRelationship:
                 df[signal] = pd.Series(0.0, index=df.index)
                 repair_stats['critical_signals_status'][signal] = 'created_default'
                 continue
-                
             signal_series = df[signal]
             nan_count = signal_series.isna().sum()
             total_count = len(signal_series)
@@ -708,11 +707,9 @@ class CalculateCostAdvantageTrendRelationship:
             # 如果NaN比例过高，需要修复
             if nan_ratio > 0.05:  # 5%阈值
                 print(f"【V7.0信号修复】关键信号{signal}: NaN比例{nan_ratio:.1%}，开始修复")
-                
                 # 根据信号类型选择修复策略
                 original_dtype = signal_series.dtype
                 repaired_series = signal_series.copy()
-                
                 # 策略1：对于数值型信号，使用线性插值
                 if np.issubdtype(original_dtype, np.number):
                     # 首先尝试线性插值
@@ -743,7 +740,6 @@ class CalculateCostAdvantageTrendRelationship:
                     else:
                         repaired_series = signal_series.ffill().bfill()
                         method_used = 'forward_backward_fill'
-                
                 # 检查修复效果
                 final_nan_count = repaired_series.isna().sum()
                 if final_nan_count == 0:

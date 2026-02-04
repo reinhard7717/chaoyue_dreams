@@ -2695,7 +2695,6 @@ class MicrostructureDynamicsCalculators:
         sell_vols[mask_s] = volumes[mask_s]
         if np.any(types == 0):
             _numba_process_neutral_trades(prices, volumes, types, buy_vols, sell_vols)
-            
         cum_vol_arr = np.cumsum(volumes)
         target_bucket_count = 50
         bucket_size = total_volume / target_bucket_count
@@ -2715,7 +2714,6 @@ class MicrostructureDynamicsCalculators:
             # scipy.stats.norm.cdf 可以直接处理 numpy array
             vpin_vals = norm.cdf(z_score.values)
             results['vpin_score'] = float(np.nanmean(vpin_vals))
-            
         return results
 
     @staticmethod
@@ -2767,7 +2765,6 @@ class MicrostructureDynamicsCalculators:
         # 结果边界处理
         if pd.notna(results['vwap_mean_reversion_corr']):
             results['vwap_mean_reversion_corr'] = max(min(results['vwap_mean_reversion_corr'], 1.0), -1.0)
-            
         return results
 
     @staticmethod

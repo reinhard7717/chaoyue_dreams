@@ -446,7 +446,6 @@ class VolatilityStructureCalculator:
         for hour in range(9, 16):
             if hour == 12:  # 午休
                 continue
-                
             hour_mask = minute_data.index.hour == hour
             hour_data = minute_data[hour_mask]
             if len(hour_data) > 5:

@@ -189,7 +189,6 @@ class CalculateMainForceControlRelationship:
         mf_t0_sell_efficiency = self._get_safe_series(df, 'main_force_t0_sell_efficiency_D', 0.0, method_name=method_name)
         mf_vwap_up_guidance = self._get_safe_series(df, 'main_force_vwap_up_guidance_D', 0.0, method_name=method_name)
         mf_vwap_down_guidance = self._get_safe_series(df, 'main_force_vwap_down_guidance_D', 0.0, method_name=method_name)
-
         # 存储所有原始信号Series
         raw_signals_series = {
             "close_D": close_price,
@@ -206,7 +205,6 @@ class CalculateMainForceControlRelationship:
             "main_force_vwap_down_guidance_D": mf_vwap_down_guidance,
         }
         _temp_debug_values["原始信号值"] = raw_signals_series
-
         # 在调试模式下，输出原始信号的具体数值
         if is_debug_enabled_for_method and probe_ts:
             debug_output_raw_values = {}
@@ -214,7 +212,6 @@ class CalculateMainForceControlRelationship:
                 val = series.loc[probe_ts] if probe_ts in series.index else np.nan
                 debug_output_raw_values[sig_name] = val
             _temp_debug_values["原始信号值_具体数值"] = debug_output_raw_values # 存储具体数值供后续打印
-
         return close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, \
                mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, \
                mf_t0_buy_efficiency, mf_t0_sell_efficiency, mf_vwap_up_guidance, mf_vwap_down_guidance
@@ -234,7 +231,6 @@ class CalculateMainForceControlRelationship:
         # 遍历并打印原始信号的具体数值
         for sig_name, val in _temp_debug_values["原始信号值_具体数值"].items():
             debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 传统控盘度计算 ---"] = ""
         for key, series in _temp_debug_values["传统控盘度计算"].items():
             val = series.loc[probe_ts] if probe_ts in series.index else np.nan
@@ -392,17 +388,14 @@ class CalculateMainForceControlRelationship:
         ema13_series = self._get_safe_series(df, 'EMA_13_D', method_name=method_name)
         # varn1 对应原始逻辑中 ema13 的二次平滑，这里使用 EMA_55_D 作为中长期平滑的替代
         varn1_series = self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
-
         if ema13_series.isnull().all() or varn1_series.isnull().all():
             if is_debug_enabled_for_method and probe_ts:
                 debug_output[f"    -> [过程情报警告] {method_name} 传统控盘度所需EMA数据缺失或全为NaN，返回默认值。"] = ""
                 self._print_debug_info(debug_output)
             return pd.Series(np.nan, index=df.index, dtype=np.float32) # 返回NaN，让归一化处理
-
         prev_varn1_series = varn1_series.shift(1)
         # 避免除以零，并处理NaN
         kongpan_raw = (varn1_series - prev_varn1_series) / prev_varn1_series.replace(0, np.nan) * 1000
-        
         _temp_debug_values["传统控盘度计算"] = {
             "ema13": ema13_series,
             "varn1": varn1_series,

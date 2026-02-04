@@ -504,7 +504,6 @@ class CalculateWinnerConvictionRelationship:
         signals_data["mtf_winner_concentration_90pct"] = self.helper._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
         # 核心修正：cost_gini_coefficient，基尼系数越低越好，所以ascending=False
         signals_data["mtf_cost_gini_coefficient"] = self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        
         # 计算并存储指定信号的累积上下文分数 (使用新的参数名称和列表)
         cumulative_context_params = params["cumulative_context_params"]
         signals_for_cumulative_context = cumulative_context_params["signals_for_cumulative_context"]
@@ -518,14 +517,12 @@ class CalculateWinnerConvictionRelationship:
                     signal_name=sig_D, is_debug_enabled_for_method=is_debug_enabled_for_method, probe_ts=probe_ts, debug_output=debug_output # 传入调试参数
                 )
                 signals_data[f"cumulative_{sig_D.replace('_D', '').lower()}_score"] = cumulative_score
-        
         # 计算 main_force_daily_sell_ratio_D
         mf_buy_amount = signals_data["main_force_buy_amount_calibrated_raw"]
         mf_sell_amount = signals_data["main_force_sell_amount_calibrated_raw"]
         total_mf_amount = mf_buy_amount + mf_sell_amount
         # 避免除以零，如果总金额为零，则比例为0
         signals_data["main_force_daily_sell_ratio_D"] = (mf_sell_amount / total_mf_amount).fillna(0.0).replace([np.inf, -np.inf], 0.0)
-
         # 计算并存储指定信号的MTF趋势一致性分数
         signals_for_trend_consistency = [
             belief_signal_name,
@@ -550,7 +547,6 @@ class CalculateWinnerConvictionRelationship:
                 )
                 signals_data[f"inflection_{mtf_sig_key}"] = inflection_score
             # Removed the else block that defaulted to 0.0, as it's better to have NaN if signal is truly missing.
-
         # 将 belief_signal_name 和 pressure_signal_name 也添加到返回字典
         signals_data["belief_signal_name"] = belief_signal_name
         signals_data["pressure_signal_name"] = pressure_signal_name
@@ -643,7 +639,6 @@ class CalculateWinnerConvictionRelationship:
         conviction_enhancement_weights = params["conviction_enhancement_weights"]
         inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
         cumulative_conviction_threshold_params = params["cumulative_conviction_threshold_params"]
-
         # 核心赢家稳定性MTF分数
         mtf_winner_stability = signals["mtf_winner_stability_index"]
         winner_stability_percentile = signals["winner_stability_index_raw"].rank(pct=True).fillna(0.5)
@@ -655,7 +650,6 @@ class CalculateWinnerConvictionRelationship:
         mtf_winner_concentration_90pct = signals["mtf_winner_concentration_90pct"]
         mtf_chip_fatigue_index = signals["mtf_chip_fatigue_index"]
         mtf_cost_gini_coefficient = signals["mtf_cost_gini_coefficient"]
-
         # 获取累积主力信念指数 (用于阈值逻辑)
         cumulative_main_force_conviction_index = signals.get("cumulative_main_force_conviction_index_score", pd.Series(0.0, index=df_index))
         # 获取新的主力资金流累积信号
@@ -663,12 +657,9 @@ class CalculateWinnerConvictionRelationship:
         cumulative_main_force_sell_amount_score = signals.get("cumulative_main_force_sell_amount_calibrated_score", pd.Series(0.0, index=df_index))
         # 获取新的主力每日卖出占比信号
         main_force_daily_sell_ratio_norm = normalized_signals.get("main_force_daily_sell_ratio_norm", pd.Series(0.0, index=df_index))
-
-
         # --- 累积信念阈值逻辑 ---
         dynamic_short_term_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
         dynamic_long_term_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-
         if cumulative_conviction_threshold_params["enabled"]:
             decay_threshold_pct = cumulative_conviction_threshold_params["decay_threshold_pct"]
             absolute_threshold = cumulative_conviction_threshold_params["absolute_threshold"]
@@ -676,22 +667,17 @@ class CalculateWinnerConvictionRelationship:
             alert_long_term_decay_factor = cumulative_conviction_threshold_params["long_term_weight_decay_factor"]
             healthy_long_term_boost_factor = cumulative_conviction_threshold_params["healthy_long_term_boost_factor"]
             healthy_short_term_decay_factor = cumulative_conviction_threshold_params["healthy_short_term_decay_factor"]
-
             # 计算累积信念的历史最高点 (只考虑正值，因为我们关心的是信念的衰减)
             historical_max_cumulative_conviction = cumulative_main_force_conviction_index.clip(lower=0).expanding(min_periods=1).max()
-            
             # 计算回撤百分比 (只在历史最高点 > 0 时计算)
             decay_pct = pd.Series(0.0, index=df_index, dtype=np.float32)
             valid_max_mask = historical_max_cumulative_conviction > 1e-9
             decay_pct.loc[valid_max_mask] = (historical_max_cumulative_conviction.loc[valid_max_mask] - cumulative_main_force_conviction_index.loc[valid_max_mask]) / historical_max_cumulative_conviction.loc[valid_max_mask]
             decay_pct = decay_pct.clip(lower=0) # 确保回撤百分比不为负
-
             # 判断是否触发警惕模式
             condition_decay = (decay_pct >= decay_threshold_pct)
             condition_absolute = (cumulative_main_force_conviction_index.abs() < absolute_threshold)
-            
             alert_condition = condition_decay | condition_absolute
-
             # 动态调整权重因子
             # 警惕模式下
             dynamic_short_term_factor.loc[alert_condition] = alert_short_term_boost_factor
@@ -699,7 +685,6 @@ class CalculateWinnerConvictionRelationship:
             # 健康模式下
             dynamic_short_term_factor.loc[~alert_condition] = healthy_short_term_decay_factor
             dynamic_long_term_factor.loc[~alert_condition] = healthy_long_term_boost_factor
-            
             _temp_debug_values["信念强度"]["historical_max_cumulative_conviction"] = historical_max_cumulative_conviction
             _temp_debug_values["信念强度"]["decay_pct"] = decay_pct
             _temp_debug_values["信念强度"]["condition_decay_triggered"] = condition_decay # 新增调试输出
@@ -707,7 +692,6 @@ class CalculateWinnerConvictionRelationship:
             _temp_debug_values["信念强度"]["alert_condition"] = alert_condition
             _temp_debug_values["信念强度"]["dynamic_short_term_factor"] = dynamic_short_term_factor
             _temp_debug_values["信念强度"]["dynamic_long_term_factor"] = dynamic_long_term_factor
-
         # 调试输出调制前的MTF信号 (现在这些值就是最终使用的MTF值)
         _temp_debug_values["信念强度"]["mtf_winner_stability_pre_modulated"] = mtf_winner_stability
         # _temp_debug_values["信念强度"]["mtf_main_force_conviction_index_pre_modulated"] = mtf_main_force_conviction_index # 移除
@@ -717,7 +701,6 @@ class CalculateWinnerConvictionRelationship:
         _temp_debug_values["信念强度"]["mtf_winner_concentration_90pct_pre_modulated"] = mtf_winner_concentration_90pct
         _temp_debug_values["信念强度"]["mtf_chip_fatigue_index_pre_modulated"] = mtf_chip_fatigue_index
         _temp_debug_values["信念强度"]["mtf_cost_gini_coefficient_pre_modulated"] = mtf_cost_gini_coefficient
-        
         core_conviction_component = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) +
                                      (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6)))
         # 引入MTF趋势一致性分数
@@ -729,7 +712,6 @@ class CalculateWinnerConvictionRelationship:
         inflection_penalty = -inflection_mtf_winner_stability * inflection_penalty_strength
         # 将拐点惩罚应用于核心信念组件
         core_conviction_component = core_conviction_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
-        
         all_conviction_components = {
             "core_conviction": core_conviction_component,
             # "main_force_conviction": mtf_main_force_conviction_index, # 移除
@@ -754,7 +736,6 @@ class CalculateWinnerConvictionRelationship:
             "cumulative_main_force_sell_amount": cumulative_main_force_sell_amount_score * -1, # 负面信号，所以乘以-1
             "main_force_daily_sell_ratio": main_force_daily_sell_ratio_norm * -1 # 负面信号，所以乘以-1
         }
-        
         # 融合权重 (初始权重)
         # Note: conviction_enhancement_weights comes from params, which is loaded from process.json
         base_conviction_fusion_weights = {
@@ -780,7 +761,6 @@ class CalculateWinnerConvictionRelationship:
             "cumulative_main_force_sell_amount": conviction_enhancement_weights.get("cumulative_main_force_sell_amount", 0.1),
             "main_force_daily_sell_ratio": conviction_enhancement_weights.get("main_force_daily_sell_ratio", 0.05)
         }
-
         # Debugging: Print base_conviction_fusion_weights and raw_conviction_enhancement_weights_from_params
         if self.helper.debug_params.get('enabled') and self.helper.probe_dates:
             probe_ts = None
@@ -797,8 +777,6 @@ class CalculateWinnerConvictionRelationship:
                 }
                 # DEBUG: Confirm content
                 # print(f"DEBUG: base_fusion_weights_at_probe set to: {_temp_debug_values['信念强度']['base_fusion_weights_at_probe']}")
-
-
         # 动态调整权重
         conviction_fusion_weights = {}
         for k, v in base_conviction_fusion_weights.items():
@@ -808,37 +786,31 @@ class CalculateWinnerConvictionRelationship:
                 conviction_fusion_weights[k] = v * dynamic_long_term_factor
             else:
                 conviction_fusion_weights[k] = pd.Series(v, index=df_index, dtype=np.float32)
-
         # Debugging: Print conviction_fusion_weights before normalization
         if self.helper.debug_params.get('enabled') and self.helper.probe_dates and probe_ts:
             _temp_debug_values["信念强度"]["dynamic_fusion_weights_pre_norm_at_probe"] = {
                 k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
                 for k, v in conviction_fusion_weights.items()
             }
-
         # 归一化动态调整后的权重
         total_weight_series = pd.Series(0.0, index=df_index, dtype=np.float32)
         for w_series in conviction_fusion_weights.values():
             total_weight_series += w_series
-        
         # 确保 total_weight_series 不为0，避免除以0错误
         total_weight_safe = total_weight_series.replace(0, 1e-9)
         conviction_fusion_weights = {k: v / total_weight_safe for k, v in conviction_fusion_weights.items()}
-
         # Debugging: Print final weights for the probe date
         if self.helper.debug_params.get('enabled') and self.helper.probe_dates and probe_ts:
             _temp_debug_values["信念强度"]["final_fusion_weights_at_probe"] = {
                 k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
                 for k, v in conviction_fusion_weights.items()
             }
-
         fused_conviction_strength_0_1 = _robust_geometric_mean(
             all_conviction_components,
             conviction_fusion_weights,
             df_index
         )
         conviction_strength_score = (fused_conviction_strength_0_1 * 2 - 1).clip(-1, 1)
-        
         _temp_debug_values["信念强度"].update({ # 使用 update 方法合并字典
             "mtf_winner_stability": mtf_winner_stability,
             "winner_stability_percentile": winner_stability_percentile,
@@ -921,12 +893,10 @@ class CalculateWinnerConvictionRelationship:
         # _temp_debug_values["压力韧性"]["mtf_dispersal_by_distribution_pre_modulated"] = mtf_dispersal_by_distribution # 移除
         _temp_debug_values["压力韧性"]["mtf_distribution_at_peak_intensity_pre_modulated"] = mtf_distribution_at_peak_intensity
         _temp_debug_values["压力韧性"]["mtf_upper_shadow_selling_pressure_pre_modulated"] = mtf_upper_shadow_selling_pressure
-
         # 核心修正：core_resilience_component 的计算逻辑，直接使用 cumulative_dispersal_by_distribution_score
         # cumulative_dispersal_by_distribution_score 越高代表累积派发越多（越差），所以它应该对压力韧性产生负面影响。
         cumulative_dispersal_by_distribution = signals.get("cumulative_dispersal_by_distribution_score", pd.Series(0.0, index=df_index))
         core_resilience_component = cumulative_dispersal_by_distribution * -1 # 累积派发越高，核心韧性越低
-
         # 引入MTF趋势一致性分数 (使用新的压力信号)
         mtf_trend_consistency_selling_pressure = signals.get("mtf_trend_consistency_dispersal_by_distribution", pd.Series(0.0, index=df_index))
         # 引入拐点惩罚 (使用新的压力信号)

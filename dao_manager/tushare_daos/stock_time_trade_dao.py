@@ -148,16 +148,13 @@ class StockTimeTradeDAO(BaseDAO):
                 trade_time__gte=start_dt,
                 trade_time__lte=end_dt
             ).order_by('trade_time')
-            
             # [关键修正] 增加 'vol' 字段
             data_list = [item async for item in queryset.values(
                 'trade_time', 'open_qfq', 'close_qfq', 'high_qfq', 'low_qfq', 
                 'pct_change', 'amount', 'vol'
             )]
-            
             if not data_list:
                 return pd.DataFrame()
-                
             df = pd.DataFrame(data_list)
             # 重命名以符合通用习惯
             df.rename(columns={

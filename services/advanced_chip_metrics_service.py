@@ -234,11 +234,9 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
-            
             merged_realtime_df = pd.DataFrame()
             tick_df_day = tick_data_map.get(date_obj, pd.DataFrame())
             level5_df_day = level5_data_map.get(date_obj, pd.DataFrame())
-
             # --- 新增调试：检查 tick_df_day 和 level5_df_day 的索引重复情况 ---
             if not tick_df_day.empty and tick_df_day.index.has_duplicates:
                 duplicate_indices = tick_df_day.index[tick_df_day.index.duplicated()].unique().tolist()
@@ -247,7 +245,6 @@ class AdvancedChipMetricsService:
                 duplicate_indices = level5_df_day.index[level5_df_day.index.duplicated()].unique().tolist()
                 print(f"  [DEBUG_ERROR] _synthesize_and_forge_metrics: For stock {stock_code}, date {date_obj}, 'level5_df_day' has duplicate indices: {duplicate_indices}")
             # --- 调试信息结束 ---
-
             if not tick_df_day.empty and not level5_df_day.empty:
                 if all(col in tick_df_day.columns for col in ['price', 'volume']) and 'buy_price1' in level5_df_day.columns:
                     tick_df_sorted = tick_df_day.sort_index()
@@ -262,7 +259,6 @@ class AdvancedChipMetricsService:
                         duplicate_times = merged_realtime_df['trade_time'][merged_realtime_df['trade_time'].duplicated()].unique().tolist()
                         print(f"  [DEBUG_ERROR] _synthesize_and_forge_metrics: For stock {stock_code}, date {date_obj}, 'merged_realtime_df' has duplicate 'trade_time' column values AFTER merge_asof: {duplicate_times}")
                     # --- 调试信息结束 ---
-
                     if 'trade_time' in merged_realtime_df.columns:
                         merged_realtime_df.set_index('trade_time', inplace=True)
                         # --- 新增调试：检查 set_index 后的索引重复情况 ---
@@ -270,7 +266,6 @@ class AdvancedChipMetricsService:
                             duplicate_indices = merged_realtime_df.index[merged_realtime_df.index.duplicated()].unique().tolist()
                             print(f"  [DEBUG_ERROR] _synthesize_and_forge_metrics: For stock {stock_code}, date {date_obj}, 'merged_realtime_df' has duplicate indices AFTER set_index: {duplicate_indices}")
                         # --- 调试信息结束 ---
-
                     column_rename_map = {
                         **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
                         **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
@@ -281,7 +276,6 @@ class AdvancedChipMetricsService:
             context_for_calc['tick_data'] = tick_data_map.get(date_obj, pd.DataFrame()) if tick_data_map else pd.DataFrame()
             context_for_calc['level5_data'] = level5_data_map.get(date_obj, pd.DataFrame()) if level5_data_map else pd.DataFrame()
             context_for_calc['realtime_data'] = merged_realtime_df # This is the DataFrame passed to ChipFeatureCalculator
-            
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:

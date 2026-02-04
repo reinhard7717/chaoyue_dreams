@@ -20,20 +20,16 @@ class FactorDao:
         model = get_chip_factor_model_by_code(stock_code)
         if not model:
             return pd.DataFrame()
-        
         end_date = trade_date or datetime.date.today()
         qs = model.objects.filter(
             stock__stock_code=stock_code,
             trade_time__lte=end_date
         ).order_by('-trade_time')[:limit]
-        
         df = await sync_to_async(lambda: pd.DataFrame.from_records(qs.values()))()
-        
         if not df.empty:
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df = df.set_index('trade_time')
             df = df.sort_index()
-            
         return df
 
     async def get_chip_holding_matrix_data(self, stock_code: str, trade_date: datetime.date, limit: int) -> pd.DataFrame:
@@ -43,20 +39,16 @@ class FactorDao:
         model = get_chip_holding_matrix_model_by_code(stock_code)
         if not model:
             return pd.DataFrame()
-            
         end_date = trade_date or datetime.date.today()
         qs = model.objects.filter(
             stock__stock_code=stock_code,
             trade_time__lte=end_date
         ).order_by('-trade_time')[:limit]
-        
         df = await sync_to_async(lambda: pd.DataFrame.from_records(qs.values()))()
-        
         if not df.empty:
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df = df.set_index('trade_time')
             df = df.sort_index()
-            
         return df
 
     async def get_fund_flow_factor_data(self, stock_code: str, trade_date: datetime.date, limit: int) -> pd.DataFrame:
@@ -66,20 +58,16 @@ class FactorDao:
         model = get_fundflow_factor_model_by_code(stock_code)
         if not model:
             return pd.DataFrame()
-            
         end_date = trade_date or datetime.date.today()
         qs = model.objects.filter(
             stock__stock_code=stock_code,
             trade_time__lte=end_date
         ).order_by('-trade_time')[:limit]
-        
         df = await sync_to_async(lambda: pd.DataFrame.from_records(qs.values()))()
-        
         if not df.empty:
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df = df.set_index('trade_time')
             df = df.sort_index()
-            
         return df
 
 

@@ -132,12 +132,10 @@ class IndicatorDAO(BaseDAO):
         """
         # 1. 解析目标时间级别
         target_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
-        
         # 2. 判断是否需要从1分钟数据聚合
         is_minute_aggregation = False
         aggregation_period = 1
         query_level_str = target_level_str # 默认查询级别等于目标级别
-        
         if (target_level_str.isdigit() and target_level_str != "1") or \
            (target_level_str.endswith("min") and target_level_str != "1min"):
             is_minute_aggregation = True
@@ -151,12 +149,10 @@ class IndicatorDAO(BaseDAO):
             else:
                 # 如果有 start_date，limit 主要用于最后的截取，这里记录原始需求即可
                 original_limit = limit
-
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
             logger.warning(f"无法找到股票信息: {stock_code}")
             return None
-            
         try:
             ModelClass: Optional[Type[models.Model]] = None
             # 3. 根据 query_level_str 选择模型
@@ -166,11 +162,9 @@ class IndicatorDAO(BaseDAO):
             elif query_level_str == "m": ModelClass = StockMonthlyData
             else:
                 ModelClass = get_minute_data_model_by_code_and_timelevel(stock_code, query_level_str)
-                
             if not ModelClass:
                 logger.error(f"未能为 {stock_code} 在时间级别 {query_level_str} 找到对应的数据库模型。")
                 return None
-                
             model_name = ModelClass._meta.db_table
             qs = ModelClass.objects.filter(stock=stock)
             # 时间过滤：截止时间
@@ -198,24 +192,20 @@ class IndicatorDAO(BaseDAO):
                 limited_qs = qs.order_by('-trade_time')[:50000] 
             else:
                 limited_qs = qs.order_by('-trade_time')[:limit]
-                
             data_values = await sync_to_async(list)(limited_qs.values(*fields))
             if not data_values:
                 # logger.warning(f"数据库未返回任何数据 for {stock_code} {query_level_str}")
                 return None
-                
             df = pd.DataFrame.from_records(data_values)
             df = df.iloc[::-1].reset_index(drop=True) # 反转顺序，变为按时间升序
             df.rename(columns=rename_map, inplace=True)
             if 'trade_time' not in df.columns:
                 return None
-                
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True, errors='coerce')
             df.dropna(subset=['trade_time'], inplace=True)
             df.set_index('trade_time', inplace=True)
             if df.empty:
                 return None
-                
             # 5. 执行分钟线聚合
             if is_minute_aggregation:
                 agg_dict = {
@@ -228,10 +218,8 @@ class IndicatorDAO(BaseDAO):
                 }
                 resample_rule = f"{aggregation_period}min"
                 valid_agg_dict = {k: v for k, v in agg_dict.items() if k in df.columns}
-                
                 df_resampled = df.resample(resample_rule, label='right', closed='right').agg(valid_agg_dict)
                 df_resampled.dropna(inplace=True)
-                
                 # 如果有 start_date，我们保留所有聚合后的数据（因为它们都在 start_date 之后）
                 # 如果没有 start_date，我们截取请求的 original_limit
                 if not start_date:
@@ -243,14 +231,11 @@ class IndicatorDAO(BaseDAO):
                     df = df_resampled
                     
                 logger.info(f"[{stock_code}] 已将 1分钟 数据聚合为 {target_level_str}分钟 数据，结果行数: {len(df)}")
-                
             # 6. 最终检查
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
                 return None
-                
             return df
-            
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {target_level_str} 数据失败: {e}", exc_info=True)
             return None

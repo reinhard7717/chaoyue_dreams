@@ -215,82 +215,110 @@ class ContextualAnalysisService:
 
     async def prepare_fused_industry_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
         """
-        【V1.1 向量化重构版】行业背景融合引擎
-        - 核心职责: 作为业务逻辑层，负责获取股票的多维行业归属及其原始生命周期数据，
-                    然后根据配置进行加权融合，最终生成统一的、数值化的行业背景信号。
-        - 优化: 完全重构了计算逻辑，使用pandas向量化操作和矩阵乘法替代原有的循环和apply，
-                大幅提升了计算效率，并减少了内存开销。
+        【V1.2 长表聚合版】行业背景融合引擎
+        - 核心优化: 彻底移除 pivot_table，改用长格式(Long Format)下的 GroupBy 聚合。
+        - 性能提升: 避免了生成稀疏矩阵的内存开销和行列转换的时间开销，处理速度提升显著。
+        - 逻辑优化: 统一了数值指标和分类指标的加权逻辑，代码更紧凑。
         """
-        # print(f"    - [行业背景融合引擎 V1.1] 启动，为 {stock_code} 生成数值化融合行业背景...")
         # 1. 从配置中获取来源权重
         source_weights = params.get('source_weights', {})
+        default_weight = 0.1
         # 2. 从DAO获取原始数据
         raw_lifecycle_df = await self.industry_dao.get_raw_lifecycle_data_for_stock(stock_code, start_date, end_date)
         if raw_lifecycle_df.empty:
             print(f"    - [行业背景融合引擎] 未获取到原始数据，无法进行融合。")
             return pd.DataFrame()
-        df = raw_lifecycle_df
+        df = raw_lifecycle_df.copy()
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
-        # 3. 数据透视
-        pivot_df = df.pivot_table(
-            index='trade_date',
-            columns='concept_code',
-            values=['strength_rank', 'rank_slope', 'rank_accel', 'breadth_score', 'leader_score']
-        )
-        final_df = pd.DataFrame(index=pivot_df.index)
-        # 建立 concept_code 到其来源权重的映射，为后续向量化计算做准备
-        concept_source_map = df[['concept_code', 'source']].drop_duplicates().set_index('concept_code')['source']
-        concept_weight_map = concept_source_map.map(source_weights).fillna(0.1)
-        # 4. 对数值型指标进行加权平均 (向量化优化)
+        # 3. 预计算权重列 (向量化映射)
+        # 直接在长表上映射权重，避免后续重复查找
+        df['weight'] = df['source'].map(source_weights).fillna(default_weight)
+        # 4. 准备聚合字典
+        # 我们将一次性计算所有指标的分子(weighted_sum)和分母(total_weight)
+        # 为了利用 groupby.sum 的高效性，我们需要先构造加权列
         numeric_metrics = ['strength_rank', 'rank_slope', 'rank_accel', 'breadth_score', 'leader_score']
+        agg_dict = {}
+        # 4.1 数值型指标处理
         for metric in numeric_metrics:
-            metric_df = pivot_df.get(metric)
-            if metric_df is None or metric_df.empty:
-                continue
-            # 创建与 metric_df 列对齐的权重Series
-            weights = metric_df.columns.to_series().map(concept_weight_map)
-            # 向量化计算加权值。直接用DataFrame乘以Series(权重)，pandas会自动按列广播
-            weighted_values = metric_df.mul(weights, axis=1)
-            # 向量化计算每日的加权总和
-            weighted_sum = weighted_values.sum(axis=1)
-            # 向量化计算每日的有效总权重。首先得到一个布尔矩阵(非空为True)，然后乘以权重，再求和
-            total_weight = metric_df.notna().mul(weights, axis=1).sum(axis=1)
-            final_df[f'industry_{metric}_D'] = (weighted_sum / total_weight.replace(0, np.nan)).fillna(0)
-        # 5. 对分类型指标(lifecycle_stage)进行处理，生成数值化分数 (向量化优化)
-        stage_df = df.pivot_table(index='trade_date', columns='concept_code', values='lifecycle_stage', aggfunc='first')
-        # 创建与 stage_df 列对齐的权重Series
-        aligned_weights = stage_df.columns.to_series().map(concept_weight_map)
-        # 使用矩阵乘法 (.dot product) 高效计算每日活跃概念的总权重
-        # stage_df.notna() 是一个布尔矩阵，.dot(aligned_weights) 等价于对每行中为True的列，查找其权重并求和
-        daily_total_weight = stage_df.notna().dot(aligned_weights)
-        # 为每个阶段计算加权置信度分数 (向量化)
+            # 构造加权值列: value * weight
+            w_col = f'{metric}_w'
+            df[w_col] = df[metric] * df['weight']
+            # 构造有效权重列: weight (if value is not NaN)
+            # 只有当指标值存在时，该权重才计入分母
+            v_col = f'{metric}_v'
+            df[v_col] = np.where(df[metric].notna(), df['weight'], 0.0)
+            agg_dict[w_col] = 'sum'
+            agg_dict[v_col] = 'sum'
+        # 4.2 分类型指标(lifecycle_stage)处理
+        # 计算每日总权重 (分母)
+        # 假设只要有 lifecycle_stage 数据，权重就有效
+        df['stage_total_w'] = np.where(df['lifecycle_stage'].notna(), df['weight'], 0.0)
+        agg_dict['stage_total_w'] = 'sum'
+        # 为每个阶段构造加权列 (分子)
         stages = ['PREHEAT', 'MARKUP', 'STAGNATION', 'DOWNTREND']
         for stage in stages:
-            # 使用矩阵乘法高效计算每个阶段的加权和
-            # (stage_df == stage) 是一个布尔矩阵，.dot(aligned_weights) 计算每日属于该阶段的板块的权重之和
-            stage_weight_sum = (stage_df == stage).dot(aligned_weights)
-            stage_score = (stage_weight_sum / daily_total_weight.replace(0, np.nan)).fillna(0)
-            final_df[f'industry_{stage.lower()}_score_D'] = stage_score
-        # print(f"    - [行业背景融合引擎 V1.1] 完成。已为 {stock_code} 生成 {len(final_df)} 天的数值化融合行业背景。")
+            s_col = f'stage_{stage}_w'
+            # 向量化布尔判断 * 权重
+            df[s_col] = (df['lifecycle_stage'] == stage) * df['weight']
+            agg_dict[s_col] = 'sum'
+        # 5. 执行一次性聚合 (核心优化点)
+        # GroupBy Sum 是非常底层的优化操作，比 Pivot 快得多
+        daily_agg = df.groupby('trade_date')[list(agg_dict.keys())].sum()
+        # 6. 计算最终加权平均值
+        final_df = pd.DataFrame(index=daily_agg.index)
+        # 数值指标归一化
+        for metric in numeric_metrics:
+            w_sum = daily_agg[f'{metric}_w']
+            v_sum = daily_agg[f'{metric}_v']
+            # 避免除以0
+            final_df[f'industry_{metric}_D'] = (w_sum / v_sum.replace(0, np.nan)).fillna(0)
+        # 阶段分数归一化
+        total_stage_w = daily_agg['stage_total_w']
+        for stage in stages:
+            s_sum = daily_agg[f'stage_{stage}_w']
+            final_df[f'industry_{stage.lower()}_score_D'] = (s_sum / total_stage_w.replace(0, np.nan)).fillna(0)
         return final_df
 
     async def prepare_hot_money_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:
-        """根据游资明细数据，生成一系列与日线数据对齐的原子信号。"""
+        """
+        【V1.1 向量化信号版】根据游资明细数据，生成一系列与日线数据对齐的原子信号。
+        - 核心优化: 使用 index.isin() 替代 Series 对齐，大幅提升布尔信号生成速度。
+        """
         hm_df = await self.fund_flow_dao.get_hm_detail_data(start_date, end_date, stock_codes=[stock_code])
-        if hm_df.empty: return pd.DataFrame()
+        # 预先构建全量日期索引，确保信号连续性
+        date_range_index = pd.date_range(start=start_date, end=end_date, freq='D', tz='UTC')
+        signals_df = pd.DataFrame(index=date_range_index)
+        if hm_df.empty: 
+            # 如果无数据，直接填充False
+            signals_df['HM_ACTIVE_ANY_D'] = False
+            signals_df['HM_ACTIVE_TOP_TIER_D'] = False
+            signals_df['HM_COORDINATED_ATTACK_D'] = False
+            return signals_df
         hm_df['trade_date'] = pd.to_datetime(hm_df['trade_date'], utc=True)
-        daily_summary = {}
-        any_buy_dates = hm_df[hm_df['net_amount'] > 0]['trade_date'].unique()
-        daily_summary['HM_ACTIVE_ANY_D'] = pd.Series(True, index=any_buy_dates)
+        # 1. 任意游资活跃信号 (向量化 isin)
+        # 筛选净买入 > 0 的日期
+        active_dates = hm_df.loc[hm_df['net_amount'] > 0, 'trade_date'].unique()
+        signals_df['HM_ACTIVE_ANY_D'] = signals_df.index.isin(active_dates)
+        # 2. 顶级游资活跃信号
         top_tier_list = params.get('top_tier_list', [])
-        top_tier_df = hm_df[hm_df['hm_name'].isin(top_tier_list)]
-        top_tier_buy_dates = top_tier_df[top_tier_df['net_amount'] > 0]['trade_date'].unique()
-        daily_summary['HM_ACTIVE_TOP_TIER_D'] = pd.Series(True, index=top_tier_buy_dates)
+        if top_tier_list:
+            # 使用 query 或 boolean indexing 筛选
+            mask = (hm_df['hm_name'].isin(top_tier_list)) & (hm_df['net_amount'] > 0)
+            top_tier_dates = hm_df.loc[mask, 'trade_date'].unique()
+            signals_df['HM_ACTIVE_TOP_TIER_D'] = signals_df.index.isin(top_tier_dates)
+        else:
+            signals_df['HM_ACTIVE_TOP_TIER_D'] = False
+        # 3. 游资协同攻击信号 (多人同时买入)
         coordination_threshold = params.get('coordination_threshold', 3)
-        buyers_count_daily = hm_df[hm_df['net_amount'] > 0].groupby('trade_date')['hm_name'].nunique()
-        coordinated_dates = buyers_count_daily[buyers_count_daily >= coordination_threshold].index
-        daily_summary['HM_COORDINATED_ATTACK_D'] = pd.Series(True, index=coordinated_dates)
-        return pd.DataFrame(daily_summary)
+        # 优化: 仅对买入记录进行 groupby
+        buy_records = hm_df[hm_df['net_amount'] > 0]
+        if not buy_records.empty:
+            buyers_count_daily = buy_records.groupby('trade_date')['hm_name'].nunique()
+            coordinated_dates = buyers_count_daily[buyers_count_daily >= coordination_threshold].index
+            signals_df['HM_COORDINATED_ATTACK_D'] = signals_df.index.isin(coordinated_dates)
+        else:
+            signals_df['HM_COORDINATED_ATTACK_D'] = False
+        return signals_df
 
     async def prepare_market_sentiment_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:
         """
@@ -437,8 +465,7 @@ class ContextualAnalysisService:
         # 先计算每个题材的热度分，生成一个新列
         zt_weight = params.get('zt_num_weight', 0.7)
         up_weight = params.get('up_num_weight', 0.3)
-        merged_df['daily_theme_hotness'] = (merged_df['z_t_num'].fillna(0) * zt_weight + 
-                                            merged_df['up_num'].fillna(0) * up_weight)
+        merged_df['daily_theme_hotness'] = (merged_df['z_t_num'].fillna(0) * zt_weight + merged_df['up_num'].fillna(0) * up_weight)
         # 然后按日期分组对新列求和，这比 groupby.apply 更高效
         daily_hotness = merged_df.groupby(level='trade_date')['daily_theme_hotness'].sum()
         if daily_hotness.empty:
@@ -487,51 +514,139 @@ class ContextualAnalysisService:
             return None
 
     def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
-        """计算动量分"""
+        """
+        【V1.1 无副作用版】计算动量分
+        - 核心优化: 避免在传入的 DataFrame 上创建新列(df['col'] = ...)，减少内存分配和副作用。
+        - 性能优化: 仅在 Series 层面进行计算，逻辑更纯粹。
+        """
         if df.empty or trade_date not in df.index: return 0.0
-        df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
-        df['ema60'] = df['close'].ewm(span=60, adjust=False).mean()
-        today = df.loc[trade_date]
-        price_above_ema20 = 1 if today['close'] > today['ema20'] else 0
-        price_above_ema60 = 1 if today['close'] > today['ema60'] else 0
-        ema_bullish = 1 if today['ema20'] > today['ema60'] else 0
-        pct_change_5d = (today['close'] / df['close'].shift(5).loc[trade_date]) - 1 if len(df) > 5 else 0
+        # 提取 Close Series，避免修改原 df
+        close_series = df['close']
+        # 计算 EMA (Pandas EWM 在 Series 上非常快，底层为 C)
+        ema20_series = close_series.ewm(span=20, adjust=False).mean()
+        ema60_series = close_series.ewm(span=60, adjust=False).mean()
+        # 获取当日数据 (标量)
+        try:
+            # 使用 at/loc 获取标量值，速度快
+            today_close = close_series.at[trade_date]
+            today_ema20 = ema20_series.at[trade_date]
+            today_ema60 = ema60_series.at[trade_date]
+            # 获取5日前数据
+            # 使用 get_loc 查找位置，避免 shift 整个 Series
+            loc_idx = df.index.get_loc(trade_date)
+            if isinstance(loc_idx, slice): loc_idx = loc_idx.stop - 1
+            prev_idx = loc_idx - 5
+            if prev_idx >= 0:
+                prev_close = close_series.iloc[prev_idx]
+                pct_change_5d = (today_close / prev_close) - 1
+            else:
+                pct_change_5d = 0.0
+                
+        except (KeyError, IndexError):
+            return 0.0
+        # 标量逻辑计算
+        price_above_ema20 = 1 if today_close > today_ema20 else 0
+        price_above_ema60 = 1 if today_close > today_ema60 else 0
+        ema_bullish = 1 if today_ema20 > today_ema60 else 0
         return (price_above_ema20 * 2 + price_above_ema60 * 1 + ema_bullish * 2 + (pct_change_5d * 10))
 
     def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
-        """计算资金流分"""
-        if df.empty or trade_date not in df.index: return 0.0
-        recent_df = df.loc[:trade_date].tail(self.fund_flow_lookback)
-        if recent_df.empty: return 0.0
-        net_inflow_sum = recent_df['net_amount'].sum()
-        inflow_days_ratio = (recent_df['net_amount'] > 0).sum() / len(recent_df)
-        return (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
+        """
+        【V1.1 切片优化版】计算资金流分
+        - 核心优化: 使用 index.get_loc 和 iloc 替代 loc + tail，避免基于标签的切片和额外的 DataFrame 复制。
+        """
+        if df.empty: return 0.0
+        try:
+            # 假设 df.index 是排序的 (通常行情数据都是按时间排序的)
+            # get_loc 在单调索引上是 O(logN) 或 O(1)
+            loc_idx = df.index.get_loc(trade_date)
+            # 处理 get_loc 返回 slice 或 boolean mask 的情况 (虽然对于唯一索引通常返回 int)
+            if isinstance(loc_idx, slice):
+                loc_idx = loc_idx.stop - 1
+            elif isinstance(loc_idx, np.ndarray): # boolean mask
+                loc_idx = np.where(loc_idx)[0][-1]
+            # 确定切片范围
+            start_idx = max(0, loc_idx - self.fund_flow_lookback + 1)
+            end_idx = loc_idx + 1
+            # 使用 iloc 切片，速度快
+            recent_net_amount = df['net_amount'].iloc[start_idx:end_idx]
+            if recent_net_amount.empty: return 0.0
+            # 向量化计算
+            net_inflow_sum = recent_net_amount.sum()
+            # 比较操作生成 boolean array，sum 计算 True 的个数
+            inflow_days_count = (recent_net_amount > 0).sum()
+            inflow_days_ratio = inflow_days_count / len(recent_net_amount)
+            return (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
+        except KeyError:
+            # trade_date 不在索引中
+            return 0.0
+        except Exception:
+            # 兜底逻辑
+            return 0.0
 
     async def _calculate_volume_profile_score(self, industry_daily_df: pd.DataFrame) -> float:
-        """计算行业成交活跃度得分。"""
+        """
+        【V1.1 无副作用版】计算行业成交活跃度得分。
+        - 核心优化: 避免修改原 DataFrame，使用临时 Series 计算。
+        """
         if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns or len(industry_daily_df) < 5:
             return 0.0
-        df = industry_daily_df.copy()
-        turnover_rank_60d = df['turnover_rate'].rolling(60, min_periods=20).rank(pct=True).iloc[-1]
-        df['turnover_ma5'] = df['turnover_rate'].rolling(5, min_periods=1).mean()
-        df['turnover_ma20'] = df['turnover_rate'].rolling(20, min_periods=1).mean()
-        was_below = df['turnover_ma5'].shift(1) < df['turnover_ma20'].shift(1)
-        is_above = df['turnover_ma5'] > df['turnover_ma20']
-        is_recent_cross = (was_below & is_above).rolling(3, min_periods=1).sum().iloc[-1] > 0
+        # 提取 Series
+        turnover = industry_daily_df['turnover_rate']
+        # 1. 计算 60日 Rank (仅需最后一个值)
+        # rolling rank 比较耗时，如果只关心最后一天，可以优化，但 rank 需要窗口内数据对比
+        # 这里保持 rolling 但只取最后一个值
+        try:
+            turnover_rank_60d = turnover.rolling(60, min_periods=20).rank(pct=True).iloc[-1]
+        except IndexError:
+            turnover_rank_60d = 0.0
+        # 2. 计算均线交叉
+        ma5 = turnover.rolling(5, min_periods=1).mean()
+        ma20 = turnover.rolling(20, min_periods=1).mean()
+        # 向量化比较
+        is_above = ma5 > ma20
+        # shift(1) 的比较等价于比较前一天的值
+        was_below = ma5.shift(1) < ma20.shift(1)
+        # 金叉信号
+        cross_signal = (was_below & is_above)
+        # 检查最近3天是否有金叉
+        # tail(3).any() 比 rolling(3).sum() 更快且直观
+        is_recent_cross = cross_signal.tail(3).any()
         score = 0.0
-        if pd.notna(turnover_rank_60d) and turnover_rank_60d > 0.9: score += 0.6
-        if is_recent_cross: score += 0.4
+        if pd.notna(turnover_rank_60d) and turnover_rank_60d > 0.9: 
+            score += 0.6
+        if is_recent_cross: 
+            score += 0.4
         return score
 
     async def _calculate_relative_strength_score(self, industry_daily_df: pd.DataFrame, market_daily_df: pd.DataFrame) -> float:
-        """计算行业相对大盘的强度得分。"""
-        if industry_daily_df.empty or market_daily_df.empty: return 0.0
-        df = pd.merge(industry_daily_df[['close']], market_daily_df, left_index=True, right_index=True, how='inner')
-        if df.empty: return 0.0
+        """
+        【V1.1 Join优化版】计算行业相对大盘的强度得分。
+        - 核心优化: 使用 join 替代 merge，利用索引对齐优势，减少开销。
+        """
+        if industry_daily_df.empty or market_daily_df.empty: 
+            return 0.0
+        # 确保只取需要的列进行 Join，减少内存占用
+        # 假设索引都是 trade_date 且格式一致
+        try:
+            # 使用 inner join 自动对齐日期
+            df = industry_daily_df[['close']].join(market_daily_df[['market_close']], how='inner')
+        except Exception:
+            # 如果索引未对齐或类型不一致，回退到 merge
+            df = pd.merge(industry_daily_df[['close']], market_daily_df[['market_close']], left_index=True, right_index=True, how='inner')
+        if df.empty: 
+            return 0.0
+        # 向量化计算 RS
         df['rs'] = df['close'] / df['market_close']
-        df['rs_ma20'] = df['rs'].rolling(20).mean()
-        latest = df.iloc[-1]
-        return 1.0 if latest['rs'] > latest['rs_ma20'] else 0.0
+        # 计算 RS 的移动平均
+        # 优化: 直接获取 Series 进行计算
+        rs_series = df['rs']
+        rs_ma20 = rs_series.rolling(20).mean()
+        # 获取最后一天的数据
+        latest_rs = rs_series.iloc[-1]
+        latest_ma20 = rs_ma20.iloc[-1]
+        # 简单的比较逻辑
+        return 1.0 if latest_rs > latest_ma20 else 0.0
 
     def _calculate_sentiment_hotness_score(self, sentiment_data: Optional[Dict]) -> float:
         """根据最强板块统计数据，计算板块的情绪热度分。"""
@@ -603,11 +718,9 @@ class ContextualAnalysisService:
         else:
             # 降级回退: 查询 DB
             limit_up_df = await self.industry_dao.get_limit_list_for_stocks(member_codes, trade_date, tag='涨停')
-
         if limit_up_df.empty:
             # print(f"      - [龙头分析] 板块 '{concept.name}' 内无涨停股。")
             return 0.0
-
         # 3. 根据涨停数量和质量进行评分
         score = 0.0
         limit_up_count = len(limit_up_df)
@@ -626,7 +739,6 @@ class ContextualAnalysisService:
                  score += 0.3
         else:
              score += 0.3 # 默认有涨停即加分
-
         # 根据涨停家数形成梯队效应加分
         if limit_up_count >= 3:
             score += 0.4

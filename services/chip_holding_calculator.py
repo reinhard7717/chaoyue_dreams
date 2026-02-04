@@ -65,7 +65,6 @@ class AdvancedChipDynamicsService:
             # PROBE: 检查数据获取结果
             history_len = len(chip_data['chip_history']) if chip_data else 0
             if not chip_data or len(chip_data['chip_history']) < 5:
-                print(f"⚠️ [PROBE-WARN] 数据不足 (历史天数 {history_len} < 5)，返回默认结果")
                 return self._get_default_result(stock_code, trade_date)
             # 2. 构建价格网格和归一化筹码矩阵
             price_grid, chip_matrix = self._build_normalized_chip_matrix(

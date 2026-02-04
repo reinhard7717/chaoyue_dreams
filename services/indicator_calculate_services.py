@@ -1161,7 +1161,6 @@ class IndicatorCalculator:
                 return final_result
             # 异步执行计算
             return await asyncio.to_thread(_sync_calc)
-            
         except Exception as e:
             logger.error(f"计算日内VWAP偏离指数时发生错误: {e}", exc_info=True)
             return None

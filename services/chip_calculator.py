@@ -1774,12 +1774,10 @@ class ChipFactorCalculator:
             # 3. 继续计算其他原有因子（时间序列、市场适应性等）
             # ... 原有逻辑 ...
             factors['calc_status'] = 'success'
-            
         except Exception as e:
             logger.error(f"计算完整筹码因子(tick版)失败: {e}", exc_info=True)
             factors['calc_status'] = 'failed'
             factors['error_message'] = str(e)
-        
         return factors
     
     @staticmethod
@@ -1823,7 +1821,6 @@ class ChipFactorCalculator:
                 if key not in factors:
                     factors[key] = value
             return factors
-        
         except Exception as e:
             logger.error(f"近似日内因子失败: {e}")
             return factors
@@ -1896,7 +1893,6 @@ class ChipFactorCalculator:
                 'missing_intervals': int(missing_intervals),
                 'recommendation': recommendation
             }
-            
         except Exception as e:
             logger.error(f"分析tick数据质量失败: {e}")
             return {
