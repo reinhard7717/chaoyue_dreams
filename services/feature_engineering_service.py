@@ -390,7 +390,6 @@ class FeatureEngineeringService:
                 slope_col_name = f'SLOPE_{lookback}_{col_pattern}'
                 if slope_col_name in df.columns:
                     continue
-                    
                 # 【Numba加速】直接调用编译好的滚动斜率函数
                 slope_values = _numba_rolling_slope(source_values, int(lookback))
                 # 【优化】NumPy 层面处理 NaN，避免 Pandas fillna 开销
@@ -422,11 +421,9 @@ class FeatureEngineeringService:
                 slope_col_name = f'SLOPE_{period}_{base_col_name}'
                 if slope_col_name not in df.columns:
                     continue
-                    
                 accel_col_name = f'ACCEL_{period}_{base_col_name}'
                 if accel_col_name in df.columns:
                     continue
-                    
                 # 提取斜率数据
                 slope_values = df[slope_col_name].values.astype(np.float64)
                 # 【Numba加速】计算加速度

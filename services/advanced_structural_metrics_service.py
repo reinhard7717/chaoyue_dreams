@@ -2733,7 +2733,6 @@ class MicrostructureDynamicsCalculators:
                     daily_vwap = np.sum(amounts) / total_volume
                 else:
                     daily_vwap = np.sum(amounts) / np.sum(volumes)
-                    
                 if pd.notna(daily_vwap) and daily_vwap > 0:
                     # 调用Numba函数一次性计算
                     corr = _numba_calculate_vwap_reversion_corr(amounts, volumes, daily_vwap)

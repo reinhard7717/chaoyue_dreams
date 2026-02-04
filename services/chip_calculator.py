@@ -1693,14 +1693,22 @@ class ChipFactorCalculator:
     def calculate_complete_factors_with_tick(chip_perf_data: Dict,chip_dist_data: pd.DataFrame,daily_basic_data: Dict,daily_kline_data: Dict,prev_chip_dist_data: pd.DataFrame = None,historical_prices: pd.Series = None,historical_chip_factors: List[Dict] = None,tick_data: pd.DataFrame = None) -> Dict:
         """
         计算完整的筹码因子（包含tick数据支持）
+        修复：复用 calculate_complete_factors 以确保均线、形态等所有因子都被计算
         """
         factors = {}
         try:
-            # 1. 先计算基础因子（原有逻辑）
-            base_factors = ChipFactorCalculator.calculate_all_factors(
-                chip_perf_data, chip_dist_data, daily_basic_data, daily_kline_data
+            # 1. 复用 calculate_complete_factors 计算所有标准因子
+            # 这包含了 calculate_all_factors 的结果，以及均线、多峰、趋势、流动等所有逻辑
+            factors = ChipFactorCalculator.calculate_complete_factors(
+                chip_perf_data, 
+                chip_dist_data, 
+                daily_basic_data, 
+                daily_kline_data, 
+                prev_chip_dist_data, 
+                historical_prices, 
+                historical_chip_factors
             )
-            factors.update(base_factors)
+
             # 2. 计算tick相关因子（如果tick数据可用）
             if tick_data is not None and not tick_data.empty:
                 # 预处理tick数据
@@ -1709,7 +1717,6 @@ class ChipFactorCalculator:
                 factors['intraday_factor_calc_method'] = 'tick_based'
                 if data_quality > 0.3:  # 数据质量阈值
                     close_price = factors.get('close', 0)
-                    # 计算各类tick因子
                     # a. 日内筹码分布统计
                     intraday_dist = ChipFactorCalculator.calculate_intraday_chip_distribution(
                         processed_tick
@@ -1724,6 +1731,10 @@ class ChipFactorCalculator:
                         factors['tick_level_chip_flow'] = intraday_flow.get('net_flow_ratio', 0.0)
                         factors['intraday_chip_turnover_intensity'] = intraday_flow.get('flow_intensity', 0.0)
                         factors['tick_clustering_index'] = intraday_flow.get('clustering_index', 0.0)
+                        # 计算筹码平衡比
+                        buy_ratio = intraday_flow.get('buy_ratio', 0.5)
+                        sell_ratio = intraday_flow.get('sell_ratio', 0.5)
+                        factors['tick_chip_balance_ratio'] = buy_ratio / sell_ratio if sell_ratio > 0 else 1.0
                     # c. 日内成本重心
                     cost_center = ChipFactorCalculator.calculate_intraday_cost_center(processed_tick)
                     if cost_center:
@@ -1754,11 +1765,6 @@ class ChipFactorCalculator:
                     # g. 筹码博弈指数
                     game_index = ChipFactorCalculator.calculate_intraday_chip_game_index(processed_tick)
                     factors['intraday_chip_game_index'] = game_index
-                    # h. 计算筹码平衡比
-                    if intraday_flow:
-                        buy_ratio = intraday_flow.get('buy_ratio', 0.5)
-                        sell_ratio = intraday_flow.get('sell_ratio', 0.5)
-                        factors['tick_chip_balance_ratio'] = buy_ratio / sell_ratio if sell_ratio > 0 else 1.0
                 else:
                     # 数据质量不足，使用日线近似
                     factors = ChipFactorCalculator._approximate_intraday_factors(
@@ -1771,8 +1777,7 @@ class ChipFactorCalculator:
                     factors, chip_dist_data, daily_kline_data
                 )
                 factors['intraday_factor_calc_method'] = 'daily_only'
-            # 3. 继续计算其他原有因子（时间序列、市场适应性等）
-            # ... 原有逻辑 ...
+
             factors['calc_status'] = 'success'
         except Exception as e:
             logger.error(f"计算完整筹码因子(tick版)失败: {e}", exc_info=True)

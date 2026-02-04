@@ -481,6 +481,7 @@ class ChipFactorBase(models.Model):
                     except (ValueError, TypeError):
                         pass
         super().save(*args, **kwargs)
+
     # ========== 计算聚散度的方法 ==========
     @classmethod
     def calculate_convergence_divergence(cls,chip_dynamics_result: Dict[str, any]) -> Dict[str, float]:

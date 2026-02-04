@@ -229,7 +229,6 @@ class IndicatorDAO(BaseDAO):
                         df = df_resampled
                 else:
                     df = df_resampled
-                    
                 logger.info(f"[{stock_code}] 已将 1分钟 数据聚合为 {target_level_str}分钟 数据，结果行数: {len(df)}")
             # 6. 最终检查
             required_cols = ['open', 'high', 'low', 'close', 'volume']

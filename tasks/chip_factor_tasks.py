@@ -442,10 +442,19 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     prev_chips_df = pd.DataFrame()
                 # 获取历史因子
                 historical_factors = await get_historical_chip_factors(chip_factor_model, stock, current_date, 5)
-                # 获取当日换手率 (从 historical_df 中获取)
+                # 获取当日换手率和量比 (从 historical_df 中获取)
                 current_turnover = 0.0
+                current_volume_ratio = None
                 if current_date in historical_df.index:
                     current_turnover = historical_df.loc[current_date, 'turnover_rate']
+                    if 'volume_ratio' in historical_df.columns:
+                        current_volume_ratio = historical_df.loc[current_date, 'volume_ratio']
+                        # 处理可能的NaN
+                        if pd.isna(current_volume_ratio):
+                            current_volume_ratio = None
+                        else:
+                            current_volume_ratio = float(current_volume_ratio)
+
                 # =================================================
                 # 新增：获取当日tick数据 (带探针)
                 # =================================================
@@ -496,8 +505,11 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     'amount': daily_kline.amount,
                     'pct_change': daily_kline.pct_change
                 }
-                # 传入换手率
-                daily_basic_dict = {'turnover_rate': current_turnover}
+                # 传入换手率和量比
+                daily_basic_dict = {
+                    'turnover_rate': current_turnover,
+                    'volume_ratio': current_volume_ratio
+                }
                 # =================================================
                 # 修改：调用带tick数据的完整因子计算函数
                 # =================================================
@@ -513,8 +525,7 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         historical_chip_factors=historical_factors,
                         tick_data=tick_data  # 传入tick数据
                     )
-                    print(f"✅ [单股计算] {stock_code} {current_date}: 使用tick增强计算完成")
-                    
+                    # print(f"✅ [单股计算] {stock_code} {current_date}: 使用tick增强计算完成")
                 except Exception as calc_error:
                     logger.error(f"使用tick数据计算因子失败，回退到原始计算: {calc_error}")
                     print(f"⚠️ [单股计算] {stock_code} {current_date}: tick计算失败，回退到原始计算")
@@ -563,6 +574,72 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         logger.error(f"计算股票 {stock_code} 筹码因子失败: {e}", exc_info=True)
         print(f"❌ [单股异常] {stock_code}: {e}")
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
+
+async def get_historical_prices_for_stock(stock_code: str, end_date: date, days: int) -> pd.DataFrame:
+    """
+    获取股票历史价格和换手率数据
+    返回DataFrame，包含 close_qfq, turnover_rate, volume_ratio
+    """
+    try:
+        # 1. 获取价格数据 (StockDailyData)
+        daily_data_model = get_daily_data_model_by_code(stock_code)
+        start_date = end_date - timedelta(days=days * 2)  # 多取一些数据以确保均线计算
+        price_data = await sync_to_async(list)(
+            daily_data_model.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).order_by('trade_time')
+            .values('trade_time', 'close_qfq')
+        )
+        if not price_data:
+            return pd.DataFrame()
+        df_price = pd.DataFrame(price_data)
+        df_price['trade_time'] = pd.to_datetime(df_price['trade_time']).dt.date
+        df_price.set_index('trade_time', inplace=True)
+        # 2. 获取换手率和量比数据 (StockDailyBasic)
+        try:
+            StockDailyBasic = apps.get_model('stock_models', 'StockDailyBasic')
+            basic_data = await sync_to_async(list)(
+                StockDailyBasic.objects.filter(
+                    stock__stock_code=stock_code,
+                    trade_time__gte=start_date,
+                    trade_time__lte=end_date
+                ).order_by('trade_time')
+                .values('trade_time', 'turnover_rate_f', 'volume_ratio') # 增加 volume_ratio
+            )
+            if basic_data:
+                df_basic = pd.DataFrame(basic_data)
+                df_basic['trade_time'] = pd.to_datetime(df_basic['trade_time']).dt.date
+                df_basic.set_index('trade_time', inplace=True)
+                # 重命名 turnover_rate_f 为 turnover_rate
+                df_basic.rename(columns={'turnover_rate_f': 'turnover_rate'}, inplace=True)
+                # 3. 合并数据
+                df_merged = df_price.join(df_basic, how='left')
+                # 处理数据类型
+                if 'turnover_rate' in df_merged.columns:
+                    df_merged['turnover_rate'] = df_merged['turnover_rate'].astype(float).fillna(0.0)
+                else:
+                    df_merged['turnover_rate'] = 0.0
+                if 'volume_ratio' in df_merged.columns:
+                    df_merged['volume_ratio'] = df_merged['volume_ratio'].astype(float) # 允许NaN
+                else:
+                    df_merged['volume_ratio'] = None
+                return df_merged
+            else:
+                # 如果没有基本面数据
+                df_price['turnover_rate'] = 0.0
+                df_price['volume_ratio'] = None
+                return df_price
+        except LookupError:
+            logger.error("无法找到 StockDailyBasic 模型")
+            df_price['turnover_rate'] = 0.0
+            df_price['volume_ratio'] = None
+            return df_price
+            
+    except Exception as e:
+        logger.error(f"获取股票 {stock_code} 历史数据失败: {e}")
+        return pd.DataFrame()
 
 def calculate_single_stock_holding_matrix_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
     """同步版本的单个股票持有矩阵计算函数（按股票循环）版本：重构适配AdvancedChipDynamicsService"""

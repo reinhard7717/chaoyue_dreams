@@ -92,7 +92,6 @@ class SupportResistanceCalculator:
                 mask = clusters == cluster_id
                 if np.sum(mask) < 3:  # 太小的簇忽略
                     continue
-                    
                 cluster_prices = price_series[mask]
                 cluster_volumes = volume_weights[mask]
                 # 计算簇的持久性（寿命）
@@ -145,7 +144,6 @@ class SupportResistanceCalculator:
             for scale in scales:
                 if scale > len(prices) // 4:
                     continue
-                    
                 # 使用墨西哥帽小波
                 wavelet = signal.ricker(min(200, len(prices)), scale)
                 # 卷积得到小波系数

@@ -83,7 +83,6 @@ class BaseDAO(Generic[T]):
                 data_dict = {}
                 for field in data._meta.fields:
                     field_name = field.name
-                    
                     # 处理外键
                     if field.is_relation:
                         if related_field_map and field_name in related_field_map:
