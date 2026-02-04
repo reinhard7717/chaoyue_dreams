@@ -33,82 +33,55 @@ logger = logging.getLogger("dao")
 
 def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
     """
-    【V2.0 向量化优化版】生成A股应有的K线标准结束时间点，基于实际交易日历。
-    - 核心优化: 对分钟级别('5', '15', '30', '60')的时间点生成逻辑进行了完全向量化重构。
-                通过Pandas和NumPy的广播机制，替代了原有的Python for循环，
-                一次性计算出所有交易日的所有分钟K线时间点，大幅提升了执行效率。
-    Args:
-        trade_days: list of datetime.date，实际交易日列表 (naive date)
-        time_level: 'd', 'w', 'm', '5', '15', '30', '60'
-    Returns:
-        list of pd.Timestamp (Asia/Shanghai)，按时间升序排列
+    【V2.1 - 全面向量化版】生成A股应有的K线标准结束时间点。
+    优化：
+    1. 分钟级逻辑保持原有的向量化广播机制。
+    2. 新增：日、周、月级别逻辑全部重构为 Pandas 向量化操作，移除 Python 循环。
+       利用 to_period 和 groupby 瞬间完成数千个交易日的周期聚合。
     """
-    times = []
-    default_tz = timezone.get_default_timezone() # 获取Django项目配置的默认时区 (通常是 Asia/Shanghai)
+    if not trade_days:
+        return []
+    default_tz = timezone.get_default_timezone()
+    # 统一转换为 DatetimeIndex，这是向量化的基础
+    trade_dates_ts = pd.to_datetime(trade_days)
     if time_level.lower() == 'd':
-        for day in trade_days:
-            # 日线数据的时间点通常设为当日开始（午夜 00:00:00），并标记为默认时区
-            times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz=default_tz))
+        # 向量化：直接添加时间部分并本地化时区
+        # normalize() 将时间置为 00:00:00
+        times_index = trade_dates_ts.normalize().tz_localize(default_tz)
+        return times_index.to_list()
     elif time_level.lower() == 'w':
-        # 只保留每周最后一个交易日的午夜时间点
-        week_map = {}
-        for day in trade_days:
-            # 使用 ISO 年份和周次作为 key
-            week = pd.Timestamp(day).isocalendar()[1]
-            year = pd.Timestamp(day).year
-            key = (year, week)
-            if key not in week_map or day > week_map[key]:
-                week_map[key] = day
-        # 按照日期排序，转换为时区感知的 Timestamp
-        for day in sorted(week_map.values()):
-            times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz=default_tz))
+        # 向量化：按周分组取最大值
+        # to_period('W') 将日期转换为周对象，groupby 取每组的 max (即本周最后一个交易日)
+        df = pd.DataFrame({'date': trade_dates_ts})
+        # 使用 'W-SUN' 确保周日为一周结束，与 isocalendar 逻辑一致
+        last_days = df.groupby(df['date'].dt.to_period('W-SUN'))['date'].max()
+        times_index = last_days.dt.normalize().dt.tz_localize(default_tz)
+        return sorted(times_index.to_list())
     elif time_level.lower() == 'm':
-        # 只保留每月最后一个交易日的午夜时间点
-        month_map = {}
-        for day in trade_days:
-            month = pd.Timestamp(day).month
-            year = pd.Timestamp(day).year
-            key = (year, month)
-            if key not in month_map or day > month_map[key]:
-                month_map[key] = day
-        # 按照日期排序，转换为时区感知的 Timestamp
-        for day in sorted(month_map.values()):
-            times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz=default_tz))
-    # 开始向量化处理分钟级别逻辑
+        # 向量化：按月分组取最大值
+        df = pd.DataFrame({'date': trade_dates_ts})
+        last_days = df.groupby(df['date'].dt.to_period('M'))['date'].max()
+        times_index = last_days.dt.normalize().dt.tz_localize(default_tz)
+        return sorted(times_index.to_list())
     elif time_level in ['5', '15', '30', '60']:
         freq = int(time_level)
-        if not trade_days:
-            return []
-        # 根据频率确定上午和下午的开始时间
         morning_start_map = {'5': '09:35:00', '15': '09:45:00', '30': '10:00:00', '60': '10:30:00'}
         afternoon_start_map = {'5': '13:05:00', '15': '13:15:00', '30': '13:30:00', '60': '14:00:00'}
         morning_start_str = morning_start_map.get(time_level)
         afternoon_start_str = afternoon_start_map.get(time_level)
         morning_end_str = '11:30:00'
         afternoon_end_str = '15:00:00'
-        # 1. 将交易日列表转换为Pandas的DatetimeIndex，这是向量化操作的基础
-        trade_dates_ts = pd.to_datetime(trade_days)
-        # 2. 生成一天内的标准时间点（不带日期），并合并
         morning_times_of_day = pd.date_range(start=f'1970-01-01 {morning_start_str}', end=f'1970-01-01 {morning_end_str}', freq=f'{freq}T').time
         afternoon_times_of_day = pd.date_range(start=f'1970-01-01 {afternoon_start_str}', end=f'1970-01-01 {afternoon_end_str}', freq=f'{freq}T').time
         all_times_of_day = np.union1d(morning_times_of_day, afternoon_times_of_day)
-        # 3. 将时间点转换为TimedeltaIndex，以便与日期进行向量化加法
         all_timedeltas = pd.to_timedelta([t.strftime('%H:%M:%S') for t in all_times_of_day])
-        # 4. 核心向量化操作：通过NumPy的广播机制，将每个交易日与所有日内时间点相加，生成所有时间戳
-        # trade_dates_ts.values[:, np.newaxis] 将日期数组变为 (N, 1) 的形状
-        # all_timedeltas.values 是 (M,) 的形状
-        # 两者相加会广播成 (N, M) 的结果，然后用 flatten() 展平成一维数组
+        # 广播加法：(N, 1) + (M,) -> (N, M) -> flatten
         all_timestamps_naive = (trade_dates_ts.values[:, np.newaxis] + all_timedeltas.values).flatten()
-        # 5. 转换为Pandas的DatetimeIndex并设置时区
         times_index = pd.to_datetime(all_timestamps_naive, errors='coerce').dropna()
         times_index_aware = times_index.tz_localize(default_tz)
-        # 6. 转换为列表并返回
         return times_index_aware.to_list()
-    # 结束向量化处理分钟级别逻辑
     else:
         raise ValueError(f"不支持的K线类型: {time_level}")
-    # 确保时间点是唯一的并排序
-    return sorted(list(set(times)))
 
 
 class IndicatorDAO(BaseDAO):
@@ -125,29 +98,25 @@ class IndicatorDAO(BaseDAO):
 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None, start_date: Optional[datetime.date] = None) -> Optional[pd.DataFrame]:
         """
-        【V118.13 交易日历增强版】
-        - 核心修复: 增加 start_date 参数支持。如果提供了 start_date，则优先使用日期过滤，
-                  并不再强制应用 limit 切片，以确保获取完整时间窗口的数据（包含服务层计算的缓冲）。
-        - 自动聚合: 保持分钟线自动聚合逻辑，且与 start_date 兼容。
+        【V118.14 - 类型向量化优化版】
+        优化：
+        1. 增加 Decimal -> float 的向量化转换，避免 object 类型导致的计算龟速。
+        2. 保持原有的聚合逻辑和时间过滤逻辑。
         """
-        # 1. 解析目标时间级别
         target_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
-        # 2. 判断是否需要从1分钟数据聚合
         is_minute_aggregation = False
         aggregation_period = 1
-        query_level_str = target_level_str # 默认查询级别等于目标级别
+        query_level_str = target_level_str
         if (target_level_str.isdigit() and target_level_str != "1") or \
            (target_level_str.endswith("min") and target_level_str != "1min"):
             is_minute_aggregation = True
             aggregation_period = int(''.join(filter(str.isdigit, target_level_str)))
-            query_level_str = "1" # 强制查询1分钟数据源
-            # 如果没有 start_date，我们需要放大 limit 以确保聚合后数量足够
+            query_level_str = "1"
             if not start_date:
                 original_limit = limit
                 limit = int(limit * aggregation_period * 1.2)
                 limit = min(limit, 50000)
             else:
-                # 如果有 start_date，limit 主要用于最后的截取，这里记录原始需求即可
                 original_limit = limit
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock:
@@ -155,7 +124,6 @@ class IndicatorDAO(BaseDAO):
             return None
         try:
             ModelClass: Optional[Type[models.Model]] = None
-            # 3. 根据 query_level_str 选择模型
             if query_level_str == "d":
                 ModelClass = get_daily_data_model_by_code(stock_code)
             elif query_level_str == "w": ModelClass = StockWeeklyData
@@ -163,19 +131,14 @@ class IndicatorDAO(BaseDAO):
             else:
                 ModelClass = get_minute_data_model_by_code_and_timelevel(stock_code, query_level_str)
             if not ModelClass:
-                logger.error(f"未能为 {stock_code} 在时间级别 {query_level_str} 找到对应的数据库模型。")
                 return None
-            model_name = ModelClass._meta.db_table
             qs = ModelClass.objects.filter(stock=stock)
-            # 时间过滤：截止时间
             if trade_time:
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-            # 时间过滤：开始时间 (新增)
             if start_date:
                 qs = qs.filter(trade_time__gte=start_date)
-            # 4. 定义字段
             if query_level_str == "d":
                 fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'pre_close_qfq', 'vol', 'amount']
                 rename_map = {'open_qfq': 'open', 'high_qfq': 'high', 'low_qfq': 'low', 'close_qfq': 'close', 'pre_close_qfq': 'pre_close', 'vol': 'volume'}
@@ -185,28 +148,31 @@ class IndicatorDAO(BaseDAO):
             else:
                 fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
                 rename_map = {'vol': 'volume'}
-            # 执行查询
-            # 如果提供了 start_date，我们信任该日期范围，不再使用 limit 切片（防止切掉缓冲数据）
-            # 除非数据量异常大（例如超过 50000），作为安全兜底
             if start_date:
                 limited_qs = qs.order_by('-trade_time')[:50000] 
             else:
                 limited_qs = qs.order_by('-trade_time')[:limit]
             data_values = await sync_to_async(list)(limited_qs.values(*fields))
             if not data_values:
-                # logger.warning(f"数据库未返回任何数据 for {stock_code} {query_level_str}")
                 return None
             df = pd.DataFrame.from_records(data_values)
-            df = df.iloc[::-1].reset_index(drop=True) # 反转顺序，变为按时间升序
+            df = df.iloc[::-1].reset_index(drop=True)
             df.rename(columns=rename_map, inplace=True)
             if 'trade_time' not in df.columns:
                 return None
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True, errors='coerce')
             df.dropna(subset=['trade_time'], inplace=True)
             df.set_index('trade_time', inplace=True)
+            # --- 核心优化：向量化类型转换 ---
+            # 识别数值列，将 Decimal (object) 转换为 float64
+            numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'volume', 'amount']
+            cols_to_convert = [c for c in numeric_cols if c in df.columns]
+            if cols_to_convert:
+                # astype(float) 能正确处理 Decimal 对象，比 apply(lambda) 快
+                df[cols_to_convert] = df[cols_to_convert].astype(float)
+            # ---------------------------
             if df.empty:
                 return None
-            # 5. 执行分钟线聚合
             if is_minute_aggregation:
                 agg_dict = {
                     'open': 'first',
@@ -220,8 +186,6 @@ class IndicatorDAO(BaseDAO):
                 valid_agg_dict = {k: v for k, v in agg_dict.items() if k in df.columns}
                 df_resampled = df.resample(resample_rule, label='right', closed='right').agg(valid_agg_dict)
                 df_resampled.dropna(inplace=True)
-                # 如果有 start_date，我们保留所有聚合后的数据（因为它们都在 start_date 之后）
-                # 如果没有 start_date，我们截取请求的 original_limit
                 if not start_date:
                     if len(df_resampled) > original_limit:
                         df = df_resampled.iloc[-original_limit:]
@@ -230,7 +194,6 @@ class IndicatorDAO(BaseDAO):
                 else:
                     df = df_resampled
                 logger.info(f"[{stock_code}] 已将 1分钟 数据聚合为 {target_level_str}分钟 数据，结果行数: {len(df)}")
-            # 6. 最终检查
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
                 return None
@@ -242,33 +205,26 @@ class IndicatorDAO(BaseDAO):
     # ▼▼▼ 行业分析相关的所有DAO方法 ▼▼▼
     async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
         """
+        【V1.1 - 日志规范化】
         获取所有同花顺行业指数的基本信息。
-       Args:
-            industry_type (str): 指数类型，默认为'行业'，也可以是'概念'。
-        Returns:
-            List[ThsIndex]: ThsIndex模型对象的列表。
+        优化：使用 logger 替代 print。
         """
-        print(f"    [DAO] Fetching all industries with type: {industry_type}...")
-        # 使用 Django ORM 的异步接口 afilter 和 alist
+        logger.info(f"正在获取所有类型为 '{industry_type}' 的行业信息...")
+        # 使用 Django ORM 的异步接口
         industries = await sync_to_async(list)(ThsIndex.objects.filter(type=industry_type))
-        print(f"    [DAO] Found {len(industries)} industries.")
+        logger.info(f"共找到 {len(industries)} 个行业。")
         return industries
+
     async def get_stocks_daily_close(self, stock_codes: List[str], trade_date: datetime.date) -> pd.DataFrame:
         """
-        获取一批股票在指定交易日的收盘价和前收盘价。
-        - 核心优化: 简化了DataFrame的创建过程，避免了不必要的数据复制。
-        Args:
-            stock_codes (List[str]): 股票代码列表。
-            trade_date (date): 交易日期。
-        Returns:
-            pd.DataFrame: 包含 'stock_code', 'close', 'pre_close' 的DataFrame。
+        【V2.0 - 类型优化版】获取一批股票在指定交易日的收盘价和前收盘价。
+        优化：将 Decimal 类型的价格数据强制转换为 float，提升计算性能。
         """
         print(f"    [DAO] Fetching daily close for {len(stock_codes)} stocks on {trade_date}...")
         query_set = StockDailyData.objects.filter(
             stock__stock_code__in=stock_codes,
             trade_time=trade_date
         )
-        # 使用 sync_to_async(list) 执行查询，结果 data 已经是 List[Dict] 类型
         data = await sync_to_async(list)(query_set.values(
             stock_code=F('stock__stock_code'),
             close=F('close'),
@@ -276,10 +232,15 @@ class IndicatorDAO(BaseDAO):
         ))
         if not data:
             return pd.DataFrame()
-        # 直接使用 data 创建DataFrame，无需再次调用 list()，避免了不必要的列表拷贝
         df = pd.DataFrame(data)
+        # 向量化类型转换
+        numeric_cols = ['close', 'pre_close']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = df[col].astype(float)
         print(f"    [DAO] Fetched close prices for {len(df)} stocks.")
         return df
+
     @sync_to_async
     def get_latest_industry_fund_flow(self, industry_code: str, trade_date: datetime.date) -> Optional[FundFlowIndustryTHS]:
         """
@@ -316,6 +277,7 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"查询行业 {industry_code} 最新资金流时出错: {e}")
             return None
+
     @sync_to_async
     def get_industry_members(self, industry_code: str) -> List[ThsIndexMember]:
         """
@@ -340,36 +302,36 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"查询行业 {industry_code} 成分股时出错: {e}")
             return []
+
     @sync_to_async
     def get_stocks_daily_basic(self, stock_codes: List[str], trade_date: datetime.date) -> List[StockDailyBasic]:
         """
-        【已实现】批量获取多支股票在指定日期的每日基本面指标（包含涨停状态）。
-        Args:
-            stock_codes (List[str]): 股票代码列表。
-            trade_date (datetime.date): 交易日期。
-        Returns:
-            List[StockDailyBasic]: 每日基本面指标模型实例列表。
+        【V1.1 - ORM优化版】
+        批量获取多支股票在指定日期的每日基本面指标（包含涨停状态）。
+        优化：增加 select_related('stock') 避免 N+1 查询问题。
         """
         if not stock_codes:
             return []
-        # print(f"    [DAO] 正在批量查询 {len(stock_codes)} 支股票在 {trade_date} 的基本面指标（含涨停状态）...")
         try:
             # 使用 __in 查询进行高效的批量获取
+            # select_related('stock') 确保在访问 stock 外键时不会触发额外查询
             basic_data = list(
                 StockDailyBasic.objects.filter(
                     stock__stock_code__in=stock_codes,
                     trade_time=trade_date
-                )
+                ).select_related('stock')
             )
-            # print(f"    [DAO] 成功查询到 {len(basic_data)} 条基本面指标数据。")
             return basic_data
         except Exception as e:
             logger.error(f"批量查询股票每日基本面指标时出错: {e}")
             return []
+
     @sync_to_async
     def get_industry_daily_data(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
-        """获取行业指数的历史日线行情"""
-        # print(f"    [DAO] 正在获取行业 {industry_code} 从 {start_date} 到 {end_date} 的指数行情...")
+        """
+        【V2.0 - 类型优化版】获取行业指数的历史日线行情
+        优化：确保返回的 DataFrame 中数值列为 float 类型。
+        """
         qs = ThsIndexDaily.objects.filter(
             ths_index__ts_code=industry_code,
             trade_time__gte=start_date,
@@ -379,48 +341,45 @@ class IndicatorDAO(BaseDAO):
         if not df.empty:
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
+            # 转换所有可能的数值列
+            numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'vol', 'amount', 'pct_chg']
+            cols_to_convert = [c for c in numeric_cols if c in df.columns]
+            if cols_to_convert:
+                df[cols_to_convert] = df[cols_to_convert].astype(float)
         return df
+
     @sync_to_async
     def get_market_index_daily_data(self, market_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """
-        【修改版】获取大盘基准指数的历史日线行情
-        修改点:
-        1. 查询的数据模型由 ThsIndexDaily 更改为 IndexDaily。
-        2. 查询条件根据 IndexDaily 的外键关系调整为 'index__index_code'。
+        【V2.0 - 类型优化版】获取大盘基准指数的历史日线行情
+        优化：确保 close 字段转换为 float。
         """
-        # print(f"    [DAO] 正在获取大盘指数 {market_code} 从 {start_date} 到 {end_date} 的行情...")
-        # 代码修改处: 使用新的 IndexDaily 模型进行查询
-        # 根据 IndexDaily 的外键 'index' 和其关联字段 'index_code' 进行过滤
         qs = IndexDaily.objects.filter(
-            index__index_code=market_code, # 代码修改处: 过滤条件从 ths_index__ts_code 调整为 index__index_code
+            index__index_code=market_code,
             trade_time__gte=start_date,
             trade_time__lte=end_date
         ).order_by('trade_time')
-        # 从查询结果中仅选择需要的字段，以提高效率
         df = pd.DataFrame(list(qs.values('trade_time', 'close')))
-        # 后续数据处理逻辑保持不变
         if not df.empty:
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'close': 'market_close'}, inplace=True)
-        # print(f"    [DAO] 获取到 {len(df)} 条指数 {market_code} 的行情数据。")
+            # 类型转换
+            if 'market_close' in df.columns:
+                df['market_close'] = df['market_close'].astype(float)
         return df
+
     @sync_to_async
     def get_cyq_perf_for_stock_and_dates(self, stock_code: str, trade_dates: List[pd.Timestamp]) -> Optional[pd.DataFrame]:
         """
-        获取指定股票在指定日期范围内的筹码表现数据(StockCyqPerf)。
-        Args:
-            stock_code (str): 股票代码。
-            trade_dates (List[pd.Timestamp]): 交易日期列表。
-        Returns:
-            Optional[pd.DataFrame]: 包含筹码表现数据的DataFrame，以trade_time为索引。如果无数据则返回None。
+        【V2.0 - 类型优化版】获取指定股票在指定日期范围内的筹码表现数据。
+        优化：将筹码成本和获利比例等字段强制转换为 float。
         """
         if not trade_dates:
             return None
         start_date = min(trade_dates).date()
         end_date = max(trade_dates).date()
         try:
-            # 使用Django ORM进行高效查询
             queryset = StockCyqPerf.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__range=(start_date, end_date)
@@ -433,72 +392,102 @@ class IndicatorDAO(BaseDAO):
             )
             if not queryset.exists():
                 return None
-            # 将查询结果转换为DataFrame
             df = pd.DataFrame.from_records(queryset)
-            # 将trade_time转换为datetime类型以便合并
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df = df.set_index('trade_time')
-            # 为列名添加前缀和后缀，以符合策略框架的规范
             df = df.rename(columns={
                 'cost_15pct': 'CYQ_cost_15pct_D',
                 'cost_85pct': 'CYQ_cost_85pct_D',
                 'weight_avg': 'CYQ_weight_avg_D',
                 'winner_rate': 'CYQ_winner_rate_D'
             })
+            # 向量化类型转换
+            numeric_cols = ['CYQ_cost_15pct_D', 'CYQ_cost_85pct_D', 'CYQ_weight_avg_D', 'CYQ_winner_rate_D']
+            cols_to_convert = [c for c in numeric_cols if c in df.columns]
+            if cols_to_convert:
+                df[cols_to_convert] = df[cols_to_convert].astype(float)
             return df
         except Exception as e:
             print(f"[错误] 在CyqDao中获取股票 {stock_code} 的筹码数据时出错: {e}")
             return None
+
     # 添加安全转换辅助函数（确保存在且正确）
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:
-        """将输入值安全转换为 Decimal 类型"""
+        """
+        【V1.1 - 标量转换优化】
+        将输入值安全转换为 Decimal 类型。
+        优化：针对 int 和 Decimal 类型增加快速路径，避免不必要的字符串转换。
+        """
         if value is None:
             return None
+        
+        # 快速路径
+        if isinstance(value, Decimal):
+            return value
+        if isinstance(value, int):
+            return Decimal(value)
+            
         try:
-            # 尝试直接转换 Decimal
-            # 避免科学计数法字符串问题，先尝试转为字符串再创建 Decimal
+            # 对于 float，为了避免精度问题 (如 1.1 -> 1.1000000000000000888)，通常建议先转 str
+            # 对于 string，直接转换
             return Decimal(str(value))
         except (InvalidOperation, ValueError, TypeError) as e:
-            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 Decimal: {e}", exc_info=True)
+            # 仅在转换失败时记录日志，减少正常流程开销
+            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 Decimal: {e}")
             return None
+
     def _safe_int(self, value: Any) -> Optional[int]:
-        """将输入值安全转换为 int 类型"""
+        """
+        【V1.1 - 标量转换优化】
+        将输入值安全转换为 int 类型。
+        优化：优先处理数字类型，减少异常捕获开销。
+        """
         if value is None:
             return None
+        
+        # 快速路径
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, Decimal):
+            return int(value)
+            
         try:
-            # 确保值是非空的字符串或数字
-            if isinstance(value, (str, int, float, Decimal)):
-                 # 如果是 Decimal，先转换为 float 再 int
-                 if isinstance(value, Decimal):
-                      value = float(value)
-                 # 尝试直接转换为 int，如果失败则尝试通过 float 转换
-                 try:
-                     return int(value)
-                 except (ValueError, TypeError):
-                     return int(float(value))
-            else:
-                 logger.warning(f"无法将非数字/字符串类型 '{type(value).__name__}' 的值 '{value}' 转换为 int。")
-                 return None
+            # 处理字符串
+            if isinstance(value, str):
+                # 处理 "100.0" 这种情况，直接 int("100.0") 会报错
+                if '.' in value:
+                    return int(float(value))
+                return int(value)
+            
+            # 其他情况尝试强转
+            return int(value)
         except (ValueError, TypeError) as e:
-            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 int: {e}", exc_info=True)
+            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 int: {e}")
             return None
+
     def _safe_float(self, value: Any) -> Optional[float]:
-        """将输入值安全转换为 float 类型"""
+        """
+        【V1.1 - 标量转换优化】
+        将输入值安全转换为 float 类型。
+        优化：优先处理数字类型，减少异常捕获开销。
+        """
         if value is None:
             return None
+            
+        # 快速路径
+        if isinstance(value, float):
+            return value
+        if isinstance(value, (int, Decimal)):
+            return float(value)
+            
         try:
-            # 确保值是非空的字符串或数字
-            if isinstance(value, (str, int, float, Decimal)):
-                 # 如果是 Decimal，直接转换为 float
-                 if isinstance(value, Decimal):
-                      return float(value)
-                 return float(value)
-            else:
-                 logger.warning(f"无法将非数字/字符串类型 '{type(value).__name__}' 的值 '{value}' 转换为 float。")
-                 return None
+            return float(value)
         except (ValueError, TypeError) as e:
-            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 float: {e}", exc_info=True)
+            logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 float: {e}")
             return None
+
     def _safe_datetime(self, value: Any) -> Optional[datetime.datetime]:
         """
         将输入值安全转换为时区感知的 datetime 对象 (目标时区为默认时区，通常为上海)。

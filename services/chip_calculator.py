@@ -1693,98 +1693,107 @@ class ChipFactorCalculator:
     def calculate_complete_factors_with_tick(chip_perf_data: Dict,chip_dist_data: pd.DataFrame,daily_basic_data: Dict,daily_kline_data: Dict,prev_chip_dist_data: pd.DataFrame = None,historical_prices: pd.Series = None,historical_chip_factors: List[Dict] = None,tick_data: pd.DataFrame = None) -> Dict:
         """
         计算完整的筹码因子（包含tick数据支持）
-        修复：复用 calculate_complete_factors 以确保均线、形态等所有因子都被计算
+        修改说明：
+        1. 基于 calculate_complete_factors 获取完整日线因子，确保基础数据不丢失。
+        2. 取消数据质量阈值限制，只要有tick数据即进行计算。
+        3. 不预设默认值，计算失败或无数据的字段保持为 None。
         """
         factors = {}
         try:
-            # 1. 复用 calculate_complete_factors 计算所有标准因子
-            # 这包含了 calculate_all_factors 的结果，以及均线、多峰、趋势、流动等所有逻辑
+            # 1. 复用已有逻辑计算所有日线级因子（包含基础、均线、形态、趋势等）
+            # 这样可以确保所有非Tick因子都被正确计算，避免代码重复和遗漏
             factors = ChipFactorCalculator.calculate_complete_factors(
-                chip_perf_data, 
-                chip_dist_data, 
-                daily_basic_data, 
-                daily_kline_data, 
-                prev_chip_dist_data, 
-                historical_prices, 
-                historical_chip_factors
+                chip_perf_data, chip_dist_data, daily_basic_data, daily_kline_data,
+                prev_chip_dist_data, historical_prices, historical_chip_factors
             )
-
+            
             # 2. 计算tick相关因子（如果tick数据可用）
             if tick_data is not None and not tick_data.empty:
                 # 预处理tick数据
                 processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
                 factors['tick_data_quality_score'] = data_quality
-                factors['intraday_factor_calc_method'] = 'tick_based'
-                if data_quality > 0.3:  # 数据质量阈值
+                
+                # 修改：只要预处理后的数据非空，就强制进行计算，不再判断 data_quality 阈值
+                if not processed_tick.empty:
+                    factors['intraday_factor_calc_method'] = 'tick_based'
                     close_price = factors.get('close', 0)
+                    
                     # a. 日内筹码分布统计
                     intraday_dist = ChipFactorCalculator.calculate_intraday_chip_distribution(
                         processed_tick
                     )
                     if intraday_dist:
-                        factors['intraday_chip_concentration'] = intraday_dist.get('concentration', 0.0)
-                        factors['intraday_chip_entropy'] = intraday_dist.get('entropy', 0.0)
-                        factors['intraday_price_distribution_skewness'] = intraday_dist.get('skewness', 0.0)
+                        factors['intraday_chip_concentration'] = intraday_dist.get('concentration')
+                        factors['intraday_chip_entropy'] = intraday_dist.get('entropy')
+                        factors['intraday_price_distribution_skewness'] = intraday_dist.get('skewness')
+                    
                     # b. 日内筹码流动
                     intraday_flow = ChipFactorCalculator.calculate_intraday_chip_flow(processed_tick)
                     if intraday_flow:
-                        factors['tick_level_chip_flow'] = intraday_flow.get('net_flow_ratio', 0.0)
-                        factors['intraday_chip_turnover_intensity'] = intraday_flow.get('flow_intensity', 0.0)
-                        factors['tick_clustering_index'] = intraday_flow.get('clustering_index', 0.0)
+                        factors['tick_level_chip_flow'] = intraday_flow.get('net_flow_ratio')
+                        factors['intraday_chip_turnover_intensity'] = intraday_flow.get('flow_intensity')
+                        factors['tick_clustering_index'] = intraday_flow.get('clustering_index')
                         # 计算筹码平衡比
                         buy_ratio = intraday_flow.get('buy_ratio', 0.5)
                         sell_ratio = intraday_flow.get('sell_ratio', 0.5)
                         factors['tick_chip_balance_ratio'] = buy_ratio / sell_ratio if sell_ratio > 0 else 1.0
+                    
                     # c. 日内成本重心
                     cost_center = ChipFactorCalculator.calculate_intraday_cost_center(processed_tick)
                     if cost_center:
-                        factors['intraday_cost_center_migration'] = cost_center.get('migration_ratio', 0.0)
-                        factors['intraday_cost_center_volatility'] = cost_center.get('volatility', 0.0)
+                        factors['intraday_cost_center_migration'] = cost_center.get('migration_ratio')
+                        factors['intraday_cost_center_volatility'] = cost_center.get('volatility')
+                    
                     # d. 日内支撑阻力测试
                     support_resistance = ChipFactorCalculator.identify_intraday_support_resistance(
                         processed_tick, chip_dist_data
                     )
                     if support_resistance:
-                        factors['intraday_support_test_count'] = support_resistance.get('support_test_count', 0)
-                        factors['intraday_resistance_test_count'] = support_resistance.get('resistance_test_count', 0)
-                        factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree', 0.0)
+                        factors['intraday_support_test_count'] = support_resistance.get('support_test_count')
+                        factors['intraday_resistance_test_count'] = support_resistance.get('resistance_test_count')
+                        factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree')
+                    
                     # e. 异常成交量
                     abnormal_volume = ChipFactorCalculator.calculate_intraday_abnormal_volume(processed_tick)
                     if abnormal_volume:
-                        factors['tick_abnormal_volume_ratio'] = abnormal_volume.get('abnormal_volume_ratio', 0.0)
-                        factors['tick_chip_transfer_efficiency'] = abnormal_volume.get('transfer_efficiency', 0.0)
+                        factors['tick_abnormal_volume_ratio'] = abnormal_volume.get('abnormal_volume_ratio')
+                        factors['tick_chip_transfer_efficiency'] = abnormal_volume.get('transfer_efficiency')
+                    
                     # f. 日内筹码锁定
                     chip_locking = ChipFactorCalculator.calculate_intraday_chip_locking(
                         processed_tick, close_price
                     )
                     if chip_locking:
-                        factors['intraday_low_lock_ratio'] = chip_locking.get('low_lock_ratio', 0.0)
-                        factors['intraday_high_lock_ratio'] = chip_locking.get('high_lock_ratio', 0.0)
-                        factors['intraday_peak_valley_ratio'] = chip_locking.get('peak_valley_ratio', 0.0)
-                        factors['intraday_trough_filling_degree'] = chip_locking.get('trough_filling', 0.0)
+                        factors['intraday_low_lock_ratio'] = chip_locking.get('low_lock_ratio')
+                        factors['intraday_high_lock_ratio'] = chip_locking.get('high_lock_ratio')
+                        factors['intraday_peak_valley_ratio'] = chip_locking.get('peak_valley_ratio')
+                        factors['intraday_trough_filling_degree'] = chip_locking.get('trough_filling')
+                    
                     # g. 筹码博弈指数
                     game_index = ChipFactorCalculator.calculate_intraday_chip_game_index(processed_tick)
                     factors['intraday_chip_game_index'] = game_index
                 else:
-                    # 数据质量不足，使用日线近似
-                    factors = ChipFactorCalculator._approximate_intraday_factors(
+                    # 预处理后数据为空，回退到日线近似
+                    approx_factors = ChipFactorCalculator._approximate_intraday_factors(
                         factors, chip_dist_data, daily_kline_data
                     )
+                    factors.update(approx_factors)
                     factors['intraday_factor_calc_method'] = 'daily_only'
             else:
                 # 无tick数据，使用日线近似
-                factors = ChipFactorCalculator._approximate_intraday_factors(
+                approx_factors = ChipFactorCalculator._approximate_intraday_factors(
                     factors, chip_dist_data, daily_kline_data
                 )
+                factors.update(approx_factors)
                 factors['intraday_factor_calc_method'] = 'daily_only'
-
+            
             factors['calc_status'] = 'success'
         except Exception as e:
             logger.error(f"计算完整筹码因子(tick版)失败: {e}", exc_info=True)
             factors['calc_status'] = 'failed'
             factors['error_message'] = str(e)
         return factors
-    
+
     @staticmethod
     def _approximate_intraday_factors(factors: Dict, chip_dist_data: pd.DataFrame,daily_kline_data: Dict) -> Dict:
         """

@@ -463,8 +463,8 @@ class IndexBasicDAO(BaseDAO):
 
     async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None, index_codes: list = None) -> Dict:
         """
-        【V2.1 向量化内循环优化版】保存指数每日指标到数据库
-        1. [优化] 增加数值列的显式转换。
+        【V2.2 类型降级优化版】保存指数每日指标到数据库
+        1. [优化] 对价格和涨跌幅字段使用 float32 进行降级，减少内存占用并提升计算效率。
         """
         BATCH_SAVE_SIZE = 100000
         API_REQUEST_LIMIT = 8000
@@ -502,11 +502,20 @@ class IndexBasicDAO(BaseDAO):
                     df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                     df['index'] = index_info
                     df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-                    # 批量数值转换
+                    
+                    # 1. 基础数值转换
                     numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount']
                     cols_to_convert = [c for c in numeric_cols if c in df.columns]
                     if cols_to_convert:
                         df[cols_to_convert] = df[cols_to_convert].apply(pd.to_numeric, errors='coerce')
+                    
+                    # 2. 类型降级优化 (float64 -> float32)
+                    # 价格和百分比通常不需要 float64 的精度，float32 足够且更省内存
+                    float32_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg']
+                    cols_to_downcast = [c for c in float32_cols if c in df.columns]
+                    if cols_to_downcast:
+                        df[cols_to_downcast] = df[cols_to_downcast].astype('float32')
+
                     model_cols = ['index', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount']
                     df_final = df[[col for col in model_cols if col in df.columns]]
                     new_dicts = df_final.where(pd.notnull(df_final), None).to_dict('records')
@@ -566,8 +575,8 @@ class IndexBasicDAO(BaseDAO):
 
     async def save_index_daily_basic_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
         """
-        【V2.1 向量化内循环优化版】保存历史大盘指数每日指标
-        1. [优化] 增加数值列的显式转换。
+        【V2.2 类型降级优化版】保存历史大盘指数每日指标
+        1. [优化] 对估值指标和换手率使用 float32 进行降级。
         """
         today = datetime.date.today()
         start_date_str = start_date.strftime('%Y%m%d') if start_date else '20040101'
@@ -607,7 +616,8 @@ class IndexBasicDAO(BaseDAO):
         if combined_df.empty:
             return {}
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date'], format='%Y%m%d').dt.date
-        # 批量数值转换
+        
+        # 1. 基础数值转换
         numeric_cols = [
             'total_mv', 'float_mv', 'total_share', 'float_share', 'free_share',
             'turnover_rate', 'turnover_rate_f', 'pe', 'pe_ttm', 'pb'
@@ -615,6 +625,14 @@ class IndexBasicDAO(BaseDAO):
         cols_to_convert = [c for c in numeric_cols if c in combined_df.columns]
         if cols_to_convert:
             combined_df[cols_to_convert] = combined_df[cols_to_convert].apply(pd.to_numeric, errors='coerce')
+            
+        # 2. 类型降级优化 (float64 -> float32)
+        # 换手率和估值指标不需要极高精度
+        float32_cols = ['turnover_rate', 'turnover_rate_f', 'pe', 'pe_ttm', 'pb']
+        cols_to_downcast = [c for c in float32_cols if c in combined_df.columns]
+        if cols_to_downcast:
+            combined_df[cols_to_downcast] = combined_df[cols_to_downcast].astype('float32')
+
         model_cols = ['index', 'trade_time', 'total_mv', 'float_mv', 'total_share', 'float_share', 'free_share', 'turnover_rate', 'turnover_rate_f', 'pe', 'pe_ttm', 'pb']
         final_df = combined_df[[col for col in model_cols if col in combined_df.columns]]
         data_list = final_df.where(pd.notnull(final_df), None).to_dict('records')
