@@ -1713,15 +1713,15 @@ class ChipFactorCalculator:
     def calculate_complete_factors_with_tick(chip_perf_data: Dict,chip_dist_data: pd.DataFrame,daily_basic_data: Dict,daily_kline_data: Dict,prev_chip_dist_data: pd.DataFrame = None,historical_prices: pd.Series = None,historical_chip_factors: List[Dict] = None,tick_data: pd.DataFrame = None) -> Dict:
         """
         计算完整的筹码因子（包含tick数据支持）
-        修改说明：
-        1. 只要 tick_data 非空，就强制进入 tick 计算流程。
-        2. 移除所有对 data_quality 的阈值判断。
-        3. 不设置默认值，计算失败的字段保持为 None (数据库中为 NULL)。
+        修复说明：
+        1. 修正方法调用错误：将 calculate_all_factors 改为 calculate_complete_factors。
+        2. calculate_complete_factors 支持7个参数（包含历史数据），而 calculate_all_factors 只支持4个。
         """
         factors = {}
         try:
-            # 1. 计算基础日线因子 (复用原有逻辑)
-            factors = ChipFactorCalculator.calculate_all_factors(
+            # 1. 计算基础日线因子 (使用 calculate_complete_factors 而不是 calculate_all_factors)
+            # 这里包含了均线、趋势、形态等所有非Tick因子
+            factors = ChipFactorCalculator.calculate_complete_factors(
                 chip_perf_data, chip_dist_data, daily_basic_data, daily_kline_data,
                 prev_chip_dist_data, historical_prices, historical_chip_factors
             )
@@ -1798,7 +1798,7 @@ class ChipFactorCalculator:
                     factors['intraday_chip_game_index'] = game_index
 
                 else:
-                    # 预处理后为空（例如缺少关键列），回退到日线近似
+                    # 预处理后为空，回退到日线近似
                     approx_factors = ChipFactorCalculator._approximate_intraday_factors(
                         factors, chip_dist_data, daily_kline_data
                     )

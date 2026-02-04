@@ -468,31 +468,30 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_member(self) -> Dict:
         """
-        【V3.0 终极建模版】获取同花顺概念板块成分列表并保存
-        - 核心修复:
-          1. [正确建模] 承认同花顺API只提供“当前快照”的现实。
-          2. [优雅代理] 在同步到 ConceptMember 时，将 in_date 设置为一个极早的日期(1990-01-01)，
-             将当前成员关系建模为“长期有效”，作为历史分析的最佳代理。
-          3. [数据完整性] 在 ths_index_member 表中，in_date 记录为数据获取当天，作为更新时间戳。
-        - 收益: 彻底解决在历史回溯时因 in_date 问题导致“未找到成分股”的致命错误。
+        【V3.1 - 向量化版】获取同花顺概念板块成分列表并保存
+        优化：
+        1. 使用 Pandas 向量化处理替代 Python 循环，大幅提升数据组装速度。
+        2. 保持“先删后插”的事务逻辑，确保数据一致性。
         """
-        # --- 1. 初始化和准备 ---
         final_result = {}
         limiter = rate_limiter_factory.get_limiter(name='api_ths_member')
-        today = datetime.now().date() # 数据获取日期，作为 ths_index_member 的时间戳
-        PROXY_IN_DATE = date(1990, 1, 1) # 用于 ConceptMember 的代理“纳入日期”
-        # --- 2. 获取所有概念板块信息 ---
+        today = datetime.now().date()
+        PROXY_IN_DATE = date(1990, 1, 1)
+        
+        # 1. 获取所有概念板块
         ths_index_list = await self.get_ths_index_list()
         if not ths_index_list:
             logger.warning("数据库中未找到任何同花顺概念板块信息，任务结束。")
             return {"status": "warning", "message": "No ThsIndex found."}
         logger.info(f"开始处理 {len(ths_index_list)} 个同花顺概念板块...")
-        # --- 3. 循环调用API，收集数据 ---
-        all_raw_members = []
-        all_stock_codes = set()
-        all_ths_index_codes = {idx.ts_code for idx in ths_index_list} # 收集所有板块代码用于清空操作
+        
+        all_dfs = []
+        all_ths_index_codes = set()
+        
+        # 2. 循环调用 API (IO密集型，保持循环)
         for i, ths_index in enumerate(ths_index_list):
-            print(f"进度: {i+1}/{len(ths_index_list)} | [同花顺概念]正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
+            print(f"进度: {i+1}/{len(ths_index_list)} | [同花顺概念] 获取 [{ths_index.name}] 成分...")
+            all_ths_index_codes.add(ths_index.ts_code)
             offset = 0
             limit = 6000
             while True:
@@ -502,52 +501,74 @@ class IndustryDao(BaseDAO):
                         await asyncio.sleep(20)
                     df = self.ts_pro.ths_member(ts_code=ths_index.ts_code, fields="ts_code,con_code,con_name", limit=limit, offset=offset)
                     if df is None or df.empty: break
-                    for row in df.itertuples(index=False):
-                        all_raw_members.append((ths_index, row))
-                        all_stock_codes.add(row.con_code)
+                    
+                    # 直接在 DF 中标记所属板块对象，避免后续查找
+                    df['ths_index'] = ths_index
+                    all_dfs.append(df)
+                    
                     if len(df) < limit: break
                     offset += limit
                 except Exception as e:
-                    logger.error(f"[同花顺概念]获取板块 [{ths_index.name}] 成分股时(offset={offset})发生API错误: {e}", exc_info=True)
+                    logger.error(f"获取板块 [{ths_index.name}] 成分失败: {e}")
                     break
-        logger.info(f"API数据获取完成，共 {len(all_raw_members)} 条成分股记录。")
-        # --- 4. 批量获取股票信息 ---
-        print("正在一次性获取所有涉及的股票信息...")
-        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(list(all_stock_codes))
-        print(f"成功获取并映射了 {len(stock_map)} 个股票的信息。")
-        # --- 5. 组装数据 ---
-        print("开始组装最终数据...")
-        data_to_save_ths = []
-        concept_member_sync_list = []
-        for ths_index, row_data in all_raw_members:
-            stock = stock_map.get(row_data.con_code)
-            if not stock: continue
-            # 为 ths_index_member 表准备数据 (in_date 是数据获取日期)
-            data_to_save_ths.append(ThsIndexMember(
-                ths_index=ths_index, stock=stock, weight=None,
-                in_date=today, out_date=None, is_new='Y'
-            ))
-            # 为 concept_member 表准备同步数据 (in_date 是代理日期)
-            concept_member_sync_list.append({
-                'concept_code': ths_index.ts_code, 'stock': stock, 'source': 'ths',
-                'in_date': PROXY_IN_DATE, 'out_date': None
-            })
-        # --- 6. 批量保存与同步 (采用“先删后插”策略) ---
+        
+        if not all_dfs:
+            return {"status": "completed", "saved_count": 0}
+            
+        # --- 向量化处理 ---
+        # 3. 合并数据
+        full_df = pd.concat(all_dfs, ignore_index=True)
+        full_df.replace([np.nan, 'nan', 'NaN', ''], None, inplace=True)
+        
+        # 4. 批量映射股票 (消除 N+1)
+        all_stock_codes = full_df['con_code'].unique().tolist()
+        print(f"正在映射 {len(all_stock_codes)} 个股票信息...")
+        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
+        
+        full_df['stock'] = full_df['con_code'].map(stock_map)
+        valid_df = full_df.dropna(subset=['stock']).copy()
+        
+        if valid_df.empty:
+            return {"status": "completed", "saved_count": 0}
+            
+        # 5. 准备 ThsIndexMember 数据
+        valid_df['weight'] = None
+        valid_df['in_date'] = today
+        valid_df['out_date'] = None
+        valid_df['is_new'] = 'Y'
+        
+        # 使用 to_dict 转为字典列表，再构建模型实例
+        ths_records = valid_df[['ths_index', 'stock', 'weight', 'in_date', 'out_date', 'is_new']].to_dict('records')
+        # 列表推导式构建实例比循环 append 快
+        data_to_save_ths = [ThsIndexMember(**record) for record in ths_records]
+        
+        # 6. 准备 ConceptMember 同步数据
+        sync_df = valid_df[['ts_code', 'stock']].copy()
+        sync_df.rename(columns={'ts_code': 'concept_code'}, inplace=True)
+        sync_df['source'] = 'ths'
+        sync_df['in_date'] = PROXY_IN_DATE
+        sync_df['out_date'] = None
+        
+        concept_member_sync_list = sync_df.to_dict('records')
+        
+        # 7. 执行数据库操作
         if data_to_save_ths:
             print(f"准备清空并写入 {len(data_to_save_ths)} 条最新的同花顺成分数据...")
-            # 事务性地执行删除和插入
-            # 1. 清空 ThsIndexMember 表中涉及的所有板块的旧数据
+            
+            # 清空旧数据
             await sync_to_async(ThsIndexMember.objects.filter(ths_index__ts_code__in=all_ths_index_codes).delete)()
             print("  - 旧的 ThsIndexMember 数据已清空。")
-            # 2. 批量插入新数据到 ThsIndexMember
+            
+            # 批量插入
             await ThsIndexMember.objects.abulk_create(data_to_save_ths, batch_size=5000)
-            print(f"  - 批量写入 {len(data_to_save_ths)} 条数据到 ths_index_member 完成。")
-            # 3. 同步到 ConceptMember (同样采用先删后插)
-            # 注意：这里的删除逻辑也需要调整，只删除 ths 来源的
+            print(f"  - 批量写入完成。")
+            
+            # 同步 ConceptMember
             await sync_to_async(ConceptMember.objects.filter(concept__code__in=all_ths_index_codes, source='ths').delete)()
             print("  - 旧的 ConceptMember (ths来源) 数据已清空。")
+            
             await self._sync_to_concept_member(concept_member_sync_list, 'ths')
-        logger.info("同花顺概念板块成分保存与同步任务全部完成。")
+            
         return {"status": "completed", "saved_count": len(data_to_save_ths)}
 
     # ============== 同花顺板块指数行情 ==============
@@ -751,54 +772,80 @@ class IndustryDao(BaseDAO):
 
     async def _save_ths_index_daily_history_by_index(self, start_date: date, end_date: date = None) -> Dict:
         """
-        接口：ths_daily
-        描述：获取同花顺板块指数行情。注：数据版权归属同花顺，如做商业用途，请主动联系同花顺，如需帮助请联系微信：waditu_a
-        限量：单次最大3000行数据（5000积分），可根据指数代码、日期参数循环提取。
-        Args:
-        Returns:
-            Dict: 保存结果
+        【V2.0 - 向量化版】接口：ths_daily
+        描述：获取同花顺板块指数历史行情。
+        优化：向量化处理，消除 N+1 查询。
         """
-        start_date_str = start_date.strftime.strftime('%Y%m%d')
-        if end_date is None:
-            end_date_str = ""
-        else:
-            end_date_str = end_date.strftime.strftime('%Y%m%d')
-        result = {}
-        # 拉取数据
+        start_date_str = start_date.strftime('%Y%m%d')
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+        
         offset = 0
         limit = 3000
-        # 拉取数据
-        ths_index_daily_dicts = []
+        all_dfs = []
+        
+        # 1. 循环拉取数据
         while True:
             if offset >= 100000:
                 logger.warning(f"同花顺板块指数行情 offset已达10万，停止拉取。")
                 break
-            df = self.ts_pro.ths_daily(**{
-                    "ts_code": "", "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
-                }, fields=[
-                    "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "avg_price", "change", "pct_change",
-                    "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"
-                ])
-            if df.empty:
+            try:
+                df = self.ts_pro.ths_daily(**{
+                        "ts_code": "", "trade_date": "", "start_date": start_date_str, "end_date": end_date_str, "limit": "", "offset": ""
+                    }, fields=[
+                        "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "avg_price", "change", "pct_change",
+                        "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"
+                    ])
+            except Exception as e:
+                logger.error(f"获取同花顺历史行情失败: {e}")
                 break
-            else:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    index_basic = await self.index_info_dao.get_index_by_code(row.ts_code)
-                    ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=index_basic,df_data=row)
-                    ths_index_daily_dicts.append(ths_index_daily_dict)
-            time.sleep(0.5)
+                
+            if df is None or df.empty:
+                break
+                
+            all_dfs.append(df)
+            
             if len(df) < limit:
                 break
             offset += limit
-        if ths_index_daily_dicts:
-            # 保存到数据库
-            result = await self._save_all_to_db_native_upsert(
-                model_class=ThsIndexDaily,
-                data_list=ths_index_daily_dicts,
-                unique_fields=['ths_index', 'trade_time']
-            )
+            await asyncio.sleep(0.5)
+            
+        if not all_dfs:
+            return {}
+            
+        # --- 向量化处理 ---
+        full_df = pd.concat(all_dfs, ignore_index=True)
+        full_df.replace([np.nan, 'nan', 'NaN', ''], None, inplace=True)
+        
+        # 2. 批量获取 ThsIndex 对象 (消除 N+1)
+        all_codes = full_df['ts_code'].unique().tolist()
+        ths_index_map = await self.get_ths_indices_by_codes(all_codes)
+        
+        full_df['ths_index'] = full_df['ts_code'].map(ths_index_map)
+        full_df.dropna(subset=['ths_index'], inplace=True)
+        
+        if full_df.empty:
+            return {}
+            
+        full_df['trade_time'] = pd.to_datetime(full_df['trade_date']).dt.date
+        
+        # 3. 数值转换
+        numeric_cols = ["open", "high", "low", "close", "pre_close", "avg_price", "change", "pct_change",
+                "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"]
+        for col in numeric_cols:
+            if col in full_df.columns:
+                full_df[col] = pd.to_numeric(full_df[col], errors='coerce')
+                
+        model_cols = ['ths_index', 'trade_time'] + numeric_cols
+        final_df = full_df[[c for c in model_cols if c in full_df.columns]]
+        
+        ths_index_daily_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
+        
+        # 4. 批量保存
+        result = await self._save_all_to_db_native_upsert(
+            model_class=ThsIndexDaily,
+            data_list=ths_index_daily_dicts,
+            unique_fields=['ths_index', 'trade_time']
+        )
         return result
 
     async def save_ths_index_daily_history(self, trade_dates: List[date]) -> Dict:
@@ -1411,32 +1458,48 @@ class IndustryDao(BaseDAO):
 
     async def _sync_to_concept_member(self, sync_list: List[Dict], source: str):
         """
-        将格式化后的成分股数据同步到统一的 ConceptMember 表。
+        【V2.0 - 向量化版】将格式化后的成分股数据同步到统一的 ConceptMember 表。
+        优化：使用 Pandas 向量化处理对象映射，提升大批量同步时的性能。
         """
         if not sync_list:
             return
+            
         print(f"    -> [同步任务] 开始同步 {len(sync_list)} 条 [{source.upper()}] 成分股数据到 [ConceptMember]...")
-        # 1. 批量获取所有需要的 ConceptMaster 对象
-        all_concept_codes = {item['concept_code'] for item in sync_list}
-        concept_map = await self.get_concepts_by_codes(list(all_concept_codes))
-        # 2. 组装最终数据，将 concept_code 替换为 concept_id
-        final_data_to_save = []
-        for item in sync_list:
-            concept_master = concept_map.get(item['concept_code'])
-            if concept_master:
-                item['concept'] = concept_master
-                item.pop('concept_code') # 移除临时的 code 字段
-                final_data_to_save.append(item)
-            else:
-                logger.warning(f"同步到 ConceptMember 时未找到代码为 {item['concept_code']} 的主概念记录，已跳过。")
-        # 3. 批量保存
-        if final_data_to_save:
-            await self._save_all_to_db_native_upsert(
-                model_class=ConceptMember,
-                data_list=final_data_to_save,
-                unique_fields=['concept', 'stock', 'in_date', 'source']
-            )
-            print(f"    -- [同步任务] 完成，成功处理 {len(final_data_to_save)} 条 [{source.upper()}] 成分股数据。")
+        
+        # 1. 转为 DataFrame
+        df = pd.DataFrame(sync_list)
+        if df.empty:
+            return
+            
+        # 2. 批量获取 ConceptMaster 对象
+        all_concept_codes = df['concept_code'].unique().tolist()
+        concept_map = await self.get_concepts_by_codes(all_concept_codes)
+        
+        # 3. 向量化映射
+        df['concept'] = df['concept_code'].map(concept_map)
+        
+        # 4. 过滤无效数据 (未找到对应 ConceptMaster 的记录)
+        valid_df = df.dropna(subset=['concept']).copy()
+        
+        if len(valid_df) < len(df):
+            logger.warning(f"同步过程中有 {len(df) - len(valid_df)} 条记录因未找到 ConceptMaster 而被忽略。")
+            
+        if valid_df.empty:
+            return
+            
+        # 5. 准备保存的数据
+        # 移除临时列 concept_code，保留模型所需字段
+        # 假设 sync_list 中已包含 stock, in_date, out_date, source 等字段
+        cols_to_keep = ['concept', 'stock', 'in_date', 'out_date', 'source']
+        final_data_to_save = valid_df[cols_to_keep].to_dict('records')
+        
+        # 6. 批量保存
+        await self._save_all_to_db_native_upsert(
+            model_class=ConceptMember,
+            data_list=final_data_to_save,
+            unique_fields=['concept', 'stock', 'in_date', 'source']
+        )
+        print(f"    -- [同步任务] 完成，成功处理 {len(final_data_to_save)} 条 [{source.upper()}] 成分股数据。")
 
     # ============== 市场情绪与涨跌停数据 ==============
     async def save_limit_list_ths_by_date(self, trade_date: date) -> Dict:
@@ -1926,31 +1989,41 @@ class IndustryDao(BaseDAO):
         return final_concepts
 
     async def _get_sw_concepts(self, stock_code: str) -> List[Dict[str, str]]:
-        """【V1.2 终极修复版】获取申万行业概念，修复 FieldError，并使用内存映射优化性能。"""
+        """
+        【V1.3 - 缓存优化版】获取申万行业概念。
+        优化：在实例层面缓存 SwIndustry 映射表，避免每次调用都全量查询数据库。
+        """
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'sw')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
+            
         concepts = []
         try:
-            # 步骤1: 获取该股票所属的L3行业成员关系
+            # 1. 获取该股票所属的L3行业成员关系
             memberships = SwIndustryMember.objects.filter(
                 stock__stock_code=stock_code, is_new='Y'
-            ).select_related('l3_industry') # 仅预加载直接关联的L3行业
-            # 步骤2: 一次性获取所有申万行业数据到内存字典中，以供快速查找
-            all_sw_industries_qs = await sync_to_async(list)(SwIndustry.objects.all())
-            sw_industry_map = {ind.index_code: ind for ind in all_sw_industries_qs}
+            ).select_related('l3_industry')
+            
+            # 2. 获取申万行业映射 (带实例级缓存)
+            if not hasattr(self, '_sw_industry_map_cache'):
+                all_sw = await sync_to_async(list)(SwIndustry.objects.all())
+                self._sw_industry_map_cache = {ind.index_code: ind for ind in all_sw}
+            sw_industry_map = self._sw_industry_map_cache
+            
             async for member in memberships:
                 l3 = member.l3_industry
                 if l3 and l3.index_code in sw_industry_map:
                     concepts.append({'code': l3.index_code, 'name': l3.industry_name, 'source': 'sw'})
-                    # 步骤3: 在内存中查找父级行业
+                    
+                    # 查找父级
                     l2 = sw_industry_map.get(l3.parent_code)
                     if l2:
                         concepts.append({'code': l2.index_code, 'name': l2.industry_name, 'source': 'sw'})
                         l1 = sw_industry_map.get(l2.parent_code)
                         if l1:
                             concepts.append({'code': l1.index_code, 'name': l1.industry_name, 'source': 'sw'})
+                            
             await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24)
             return concepts
         except Exception as e:
