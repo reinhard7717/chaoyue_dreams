@@ -633,7 +633,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                                 if field in micro:
                                     factors[field] = micro[field]
                         
-                        print(f"🔗 [因子同步] {stock_code} {current_date}: 成功从持有矩阵同步高级因子")
                 except Exception as sync_error:
                     logger.warning(f"从持有矩阵同步因子失败 {stock_code} {current_date}: {sync_error}")
                     print(f"⚠️ [因子同步] {stock_code} {current_date}: 同步失败 - {sync_error}")
@@ -976,10 +975,6 @@ async def save_chip_factors(chip_factor_model, stock, trade_date, factors):
             trade_time=trade_date,
             defaults=factors
         )
-        if created:
-            print(f"✅ [保存因子] {stock.stock_code} {trade_date}: 创建新记录")
-        else:
-            print(f"🔄 [保存因子] {stock.stock_code} {trade_date}: 更新记录")
         return obj
     except Exception as e:
         logger.error(f"保存筹码因子失败 {stock.stock_code} {trade_date}: {e}")
@@ -995,8 +990,6 @@ async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
             return {'status': 'failed', 'error': '股票不存在'}
         # 获取对应的因子模型
         chip_factor_model = get_chip_factor_model_by_code(stock_code)
-        print(f"🔍 [验证] 检查 {stock_code} {trade_date} 的筹码因子")
-        print(f"🔍 [验证] 使用模型: {chip_factor_model.__name__}")
         # 检查记录是否存在
         exists = await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=trade_date).exists)()
         if exists:

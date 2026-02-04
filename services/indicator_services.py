@@ -1161,7 +1161,7 @@ class IndicatorService:
         member_codes = [m.stock_id for m in members]
         # 2. 批量获取成分股当日行情
         # 假设 indicator_dao 有方法可以批量获取多只股票的单日行情
-        daily_data = await self.stock_trade_dao.get_stocks_daily_data(member_codes, trade_date)
+        daily_data = await self.stock_trade_dao.get_stocks_daily_data_async(member_codes, trade_date)
         if not daily_data:
             return 0.0
         total_count = len(members)
