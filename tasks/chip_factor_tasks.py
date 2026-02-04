@@ -4,7 +4,7 @@ from django.apps import apps
 from celery import group, chain, chord
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time as dt_time
 import asyncio
 from asgiref.sync import sync_to_async, async_to_sync
 import logging
@@ -452,8 +452,9 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 tick_data = None
                 try:
                     # 获取当日所有tick数据（按交易时间过滤）
-                    start_datetime = datetime.combine(current_date, time(9, 30))
-                    end_datetime = datetime.combine(current_date, time(15, 0))
+                    # 使用 dt_time 替代 time，避免与 time 模块冲突
+                    start_datetime = datetime.combine(current_date, dt_time(9, 30))
+                    end_datetime = datetime.combine(current_date, dt_time(15, 0))
                     tick_queryset = tick_model.objects.filter(
                         stock=stock,
                         trade_time__gte=start_datetime,

@@ -1112,7 +1112,6 @@ class DirectAccumulationDistributionCalculator:
                 'false_distribution_flag': False,
                 'breakout_acceleration': 1.0,
             }
-
         # 定义区间边界 [-0.12, -0.03, 0, 0.05, 0.12]
         # 0: deep_below (< -0.12)
         # 1: below (-0.12 ~ -0.03)

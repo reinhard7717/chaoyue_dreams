@@ -1176,7 +1176,6 @@ class ChipFactorCalculator:
         try:
             if chip_dist_current.empty or chip_dist_previous.empty:
                 return factors
-            
             def get_zone_sums(df_dist):
                 prices = df_dist['price'].values.astype(np.float32)
                 percents = df_dist['percent'].values.astype(np.float32)
@@ -1186,28 +1185,22 @@ class ChipFactorCalculator:
                     idx = np.argsort(prices)
                     prices = prices[idx]
                     percents = percents[idx]
-                
                 # 使用二分查找定位索引
                 idx_15 = np.searchsorted(prices, cost_15pct, side='right')
                 idx_85 = np.searchsorted(prices, cost_85pct, side='right')
-                
                 low_sum = np.sum(percents[:idx_15])
                 mid_sum = np.sum(percents[idx_15:idx_85])
                 high_sum = np.sum(percents[idx_85:])
                 return low_sum, mid_sum, high_sum
-
             low_curr, mid_curr, high_curr = get_zone_sums(chip_dist_current)
             low_prev, mid_prev, high_prev = get_zone_sums(chip_dist_previous)
-
             factors['low_zone_chip_flow'] = float(low_curr - low_prev)
             factors['middle_zone_chip_flow'] = float(mid_curr - mid_prev)
             factors['high_zone_chip_flow'] = float(high_curr - high_prev)
-            
             abs_low = abs(factors['low_zone_chip_flow'])
             abs_mid = abs(factors['middle_zone_chip_flow'])
             abs_high = abs(factors['high_zone_chip_flow'])
             total_change = abs_low + abs_mid + abs_high
-            
             if total_change > 1e-8:
                 max_change = max(abs_low, abs_mid, abs_high)
                 factors['main_force_control_ratio'] = float(max_change / total_change)
