@@ -345,7 +345,7 @@ def calculate_single_stock_chip_factors_sync(stock_code: str, start_date: date, 
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def calculate_single_stock_chip_factors_async(stock_code: str, start_date: date, end_date: date) -> Dict:
-    """异步版本的单个股票计算函数（按股票循环）- 集成tick数据"""
+    """异步版本的单个股票计算函数（按股票循环）- 集成tick数据与持有矩阵同步"""
     try:
         logger.debug(f"开始计算股票 {stock_code} 的筹码因子")
         print(f"🔴 [单股异步开始] {stock_code} {start_date} 到 {end_date}")
@@ -442,19 +442,10 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     prev_chips_df = pd.DataFrame()
                 # 获取历史因子
                 historical_factors = await get_historical_chip_factors(chip_factor_model, stock, current_date, 5)
-                # 获取当日换手率和量比 (从 historical_df 中获取)
+                # 获取当日换手率 (从 historical_df 中获取)
                 current_turnover = 0.0
-                current_volume_ratio = None
                 if current_date in historical_df.index:
                     current_turnover = historical_df.loc[current_date, 'turnover_rate']
-                    if 'volume_ratio' in historical_df.columns:
-                        current_volume_ratio = historical_df.loc[current_date, 'volume_ratio']
-                        # 处理可能的NaN
-                        if pd.isna(current_volume_ratio):
-                            current_volume_ratio = None
-                        else:
-                            current_volume_ratio = float(current_volume_ratio)
-
                 # =================================================
                 # 新增：获取当日tick数据 (带探针)
                 # =================================================
@@ -505,13 +496,10 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     'amount': daily_kline.amount,
                     'pct_change': daily_kline.pct_change
                 }
-                # 传入换手率和量比
-                daily_basic_dict = {
-                    'turnover_rate': current_turnover,
-                    'volume_ratio': current_volume_ratio
-                }
+                # 传入换手率
+                daily_basic_dict = {'turnover_rate': current_turnover}
                 # =================================================
-                # 修改：调用带tick数据的完整因子计算函数
+                # 计算基础因子
                 # =================================================
                 try:
                     # 使用新版本函数计算因子（支持tick数据）
@@ -525,7 +513,8 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         historical_chip_factors=historical_factors,
                         tick_data=tick_data  # 传入tick数据
                     )
-                    # print(f"✅ [单股计算] {stock_code} {current_date}: 使用tick增强计算完成")
+                    print(f"✅ [单股计算] {stock_code} {current_date}: 使用tick增强计算完成")
+                    
                 except Exception as calc_error:
                     logger.error(f"使用tick数据计算因子失败，回退到原始计算: {calc_error}")
                     print(f"⚠️ [单股计算] {stock_code} {current_date}: tick计算失败，回退到原始计算")
@@ -539,6 +528,77 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         historical_prices=historical_prices_series, 
                         historical_chip_factors=historical_factors
                     )
+                
+                # =================================================
+                # 关键步骤：从 ChipHoldingMatrix 同步高级动态因子
+                # =================================================
+                try:
+                    holding_matrix = await sync_to_async(HoldingMatrixModel.objects.filter(
+                        stock=stock,
+                        trade_time=current_date,
+                        calc_status='success'
+                    ).first)()
+
+                    if holding_matrix:
+                        # 1. 映射基础扁平字段
+                        factors['accumulation_signal_score'] = holding_matrix.behavior_accumulation
+                        factors['distribution_signal_score'] = holding_matrix.behavior_distribution
+                        factors['percent_change_convergence'] = holding_matrix.convergence_comprehensive
+                        if holding_matrix.convergence_comprehensive is not None:
+                            factors['percent_change_divergence'] = 1.0 - holding_matrix.convergence_comprehensive
+                        factors['migration_convergence_ratio'] = holding_matrix.convergence_migration
+
+                        # 2. 从 extra_metrics JSON 提取
+                        if holding_matrix.extra_metrics:
+                            migration = holding_matrix.extra_metrics.get('migration', {})
+                            factors['net_migration_direction'] = migration.get('net_migration_direction')
+                            
+                            behavior_meta = holding_matrix.extra_metrics.get('behavior_meta', {})
+                            factors['main_force_activity_index'] = behavior_meta.get('main_force_activity')
+                            
+                            pressure = holding_matrix.extra_metrics.get('pressure', {})
+                            factors['pressure_release_index'] = pressure.get('pressure_release')
+
+                        # 3. 从 chart_signals JSON 提取
+                        if holding_matrix.chart_signals:
+                            abs_signals = holding_matrix.chart_signals.get('absolute_signals', {})
+                            factors['signal_quality_score'] = abs_signals.get('signal_quality')
+                            
+                            # 计算 absolute_change_strength (绝对变化强度)
+                            increase_areas = abs_signals.get('significant_increase_areas', [])
+                            decrease_areas = abs_signals.get('significant_decrease_areas', [])
+                            total_increase = sum(abs(area.get('change', 0)) for area in increase_areas)
+                            total_decrease = sum(abs(area.get('change', 0)) for area in decrease_areas)
+                            factors['absolute_change_strength'] = (total_increase + total_decrease) / 100.0
+
+                        # 4. 计算衍生字段
+                        # 支撑阻力比
+                        res_strength = holding_matrix.resistance_strength
+                        sup_strength = holding_matrix.support_strength
+                        if res_strength and res_strength > 0:
+                            factors['support_resistance_ratio'] = (sup_strength or 0) / res_strength
+                        else:
+                            factors['support_resistance_ratio'] = 1.0 if (sup_strength or 0) > 0 else 0.0
+                        
+                        # 行为确认度 (Behavior Confirmation)
+                        conf_score = 0.0
+                        conf_count = 0
+                        if factors.get('accumulation_signal_score', 0) > 0:
+                            conf_score += factors['accumulation_signal_score']
+                            conf_count += 1
+                        if factors.get('distribution_signal_score', 0) > 0:
+                            conf_score += factors['distribution_signal_score']
+                            conf_count += 1
+                        if factors.get('net_migration_direction') and abs(factors['net_migration_direction']) > 0.1:
+                            conf_score += min(1.0, abs(factors['net_migration_direction']) / 10.0)
+                            conf_count += 1
+                        factors['behavior_confirmation'] = conf_score / conf_count if conf_count > 0 else 0.0
+                        
+                        print(f"🔗 [因子同步] {stock_code} {current_date}: 成功从持有矩阵同步高级因子")
+                except Exception as sync_error:
+                    logger.warning(f"从持有矩阵同步因子失败 {stock_code} {current_date}: {sync_error}")
+                    print(f"⚠️ [因子同步] {stock_code} {current_date}: 同步失败 - {sync_error}")
+
                 # =================================================
                 # 保存到数据库
                 await save_chip_factors(chip_factor_model, stock, current_date, factors)
