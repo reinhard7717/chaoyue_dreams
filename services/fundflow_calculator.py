@@ -1080,10 +1080,8 @@ class FundFlowFactorCalculator:
         for field in tick_fields:
             tick_metrics[field] = None
         tick_metrics['intraday_flow_distribution'] = None
-        
         if not hasattr(self, 'tick_data') or self.tick_data is None or self.tick_data.empty:
             return tick_metrics
-            
         try:
             df = self.tick_data.copy()
             # 基础列名标准化
@@ -1154,10 +1152,8 @@ class FundFlowFactorCalculator:
             tick_metrics.update(self._calculate_time_period_distribution(df))
             # 12. 主力隐蔽性指标
             tick_metrics.update(self._calculate_stealth_flow_indicators(df))
-            
         except Exception as e:
             logger.error(f"计算tick增强指标异常: {e}", exc_info=True)
-            
         return tick_metrics
 
     def _calculate_intraday_flow_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -1322,15 +1318,12 @@ class FundFlowFactorCalculator:
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         amounts = df['amount'].values
         types = df['type'].values
-        
         if len(times) == 0: return metrics
-        
         signed_amounts = np.where(types == 'B', amounts, -amounts)
         norm_times = times - times[0]
         # minlength 保证时间跨度正确
         max_minutes = int(np.max(norm_times)) + 1
         minute_flows = np.bincount(norm_times, weights=signed_amounts, minlength=max_minutes) / 10000.0
-        
         n = len(minute_flows)
         if n < 5: return metrics
 
@@ -1344,12 +1337,10 @@ class FundFlowFactorCalculator:
                 metrics['intraday_flow_momentum'] = float(np.clip(momentum, -100.0, 100.0))
             else:
                 metrics['intraday_flow_momentum'] = 0.0
-        
         # 2. 加速度 (Acceleration) - 修复逻辑
         # 剔除尾部的0值（应对14:57-15:00的集合竞价空档）
         active_flows = np.trim_zeros(minute_flows, 'b')
         n_active = len(active_flows)
-        
         if n_active >= 3:
             recent_3 = active_flows[-3:]
             # d[2] - 2d[1] + d[0]
@@ -1369,52 +1360,56 @@ class FundFlowFactorCalculator:
 
     def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.4: 优化尾盘判定逻辑，依赖上游的时间标准化。
+        v1.5: 优化尾盘资金特征计算
+        1. 修复强度计算逻辑：由固定绝对阈值(30万)改为动态相对阈值(占全天成交额的2%为满分)，
+           解决活跃股或集合竞价大单导致指标恒为100的问题。
+        2. 依赖上游的时间标准化处理，确保尾盘时间窗口识别正确。
         """
         metrics = {'closing_flow_ratio': None, 'closing_flow_intensity': None}
         # 这里已经是北京时间(Naive)的纳秒数值
         times = df['trade_time'].values.astype('int64') # ns
         amounts = df['amount'].values
         types = df['type'].values
-        
         if len(times) == 0: return metrics
 
         # A股尾盘定义：14:30:00
-        # 此时 times % 86400e9 得到的是北京时间当天过了多少纳秒
         # 14:30 = 14.5 * 3600 * 1e9 = 52,200,000,000,000
         ns_in_day = (times % 86400000000000)
         closing_threshold = 52200000000000 
-        
         closing_mask = ns_in_day >= closing_threshold
-        
+        # 如果没有尾盘数据，直接返回0
         if not np.any(closing_mask):
             metrics['closing_flow_ratio'] = 0.0
             metrics['closing_flow_intensity'] = 0.0
             return metrics
-            
         buy_mask = (types == 'B')
         sell_mask = (types == 'S')
-        
-        # 尾盘净流入
-        c_buy = np.sum(amounts[closing_mask & buy_mask])
-        c_sell = np.sum(amounts[closing_mask & sell_mask])
-        c_net = (c_buy - c_sell) / 10000.0
-        
-        # 全天净流入
-        t_buy = np.sum(amounts[buy_mask])
-        t_sell = np.sum(amounts[sell_mask])
-        t_net = (t_buy - t_sell) / 10000.0
-        
-        # 计算占比
-        if abs(t_net) > 1e-4:
-            metrics['closing_flow_ratio'] = float(abs(c_net) / abs(t_net) * 100.0)
+        # 尾盘净流入 (Raw Amount)
+        c_buy_raw = np.sum(amounts[closing_mask & buy_mask])
+        c_sell_raw = np.sum(amounts[closing_mask & sell_mask])
+        c_net_raw = c_buy_raw - c_sell_raw
+        # 全天净流入 (Raw Amount)
+        t_buy_raw = np.sum(amounts[buy_mask])
+        t_sell_raw = np.sum(amounts[sell_mask])
+        t_net_raw = t_buy_raw - t_sell_raw
+        # 全天总成交额
+        total_turnover = np.sum(amounts)
+        # 1. 计算占比 (尾盘净流入 / 全天净流入)
+        # 注意：如果全天净流入非常小，比例可能会非常大，这里不做硬性截断，保留真实比例特征
+        if abs(t_net_raw) > 1e-4:
+            metrics['closing_flow_ratio'] = float(abs(c_net_raw) / abs(t_net_raw) * 100.0)
         else:
-            # 如果全天净流入接近0，但尾盘有量，给一个相对高分或0
-            metrics['closing_flow_ratio'] = 100.0 if abs(c_net) > 10 else 0.0
-            
-        # 计算强度 (归一化参考值：30万净流入)
-        metrics['closing_flow_intensity'] = float(min(100.0, abs(c_net) / 30.0 * 50.0))
-        
+            # 如果全天净流入为0但尾盘有净流入，则视为100%由尾盘贡献
+            metrics['closing_flow_ratio'] = 100.0 if abs(c_net_raw) > 0 else 0.0
+        # 2. 计算强度 (改为动态阈值)
+        # 逻辑：如果尾盘净流入金额占全天总成交额的 2%，则得分为 100
+        # 比例 ratio = abs(c_net) / total_turnover
+        # 得分 = ratio / 0.02 * 100 = ratio * 5000
+        if total_turnover > 0:
+            ratio = abs(c_net_raw) / total_turnover
+            metrics['closing_flow_intensity'] = float(min(100.0, ratio * 5000.0))
+        else:
+            metrics['closing_flow_intensity'] = 0.0
         return metrics
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -1631,25 +1626,19 @@ class FundFlowFactorCalculator:
             metrics['morning_flow_ratio'] = None
             metrics['afternoon_flow_ratio'] = None
             return metrics
-            
         # 计算小时数 (基于北京时间 Naive)
         dates = times.astype('datetime64[D]')
         hours = (times - dates).astype('timedelta64[h]').astype(int)
-        
         # 掩码 (北京时间 12:00 前为上午，13:00 后为下午)
         morning_mask = hours < 12
         afternoon_mask = hours >= 13
-        
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
-        
         # 计算净流入
         morning_net = np.sum(signed_amounts[morning_mask]) / 10000.0
         afternoon_net = np.sum(signed_amounts[afternoon_mask]) / 10000.0
-        
         total_abs_net = abs(morning_net) + abs(afternoon_net)
-        
         # 使用绝对值占比，反映资金活跃时段
         if total_abs_net > 0:
             morning_ratio = abs(morning_net) / total_abs_net * 100.0
@@ -1657,10 +1646,8 @@ class FundFlowFactorCalculator:
         else:
             morning_ratio = 50.0
             afternoon_ratio = 50.0
-            
         metrics['morning_flow_ratio'] = float(morning_ratio)
         metrics['afternoon_flow_ratio'] = float(afternoon_ratio)
-        
         return metrics
 
     def _calculate_stealth_flow_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
