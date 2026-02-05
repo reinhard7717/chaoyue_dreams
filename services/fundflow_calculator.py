@@ -1053,11 +1053,10 @@ class FundFlowFactorCalculator:
     def calculate_tick_enhanced_metrics(self) -> Dict[str, Any]:
         """
         基于Tick数据计算增强的资金流向指标
-        版本: V1.2
+        版本: V1.3
         说明: 
-        1. 增加数据列名标准化，兼容常见数据源格式。
-        2. 增加买卖方向标准化。
-        3. 增加 amount 字段补全。
+        1. [关键修复] 增加时区标准化逻辑，统一转换为北京时间，解决时区比较错误。
+        2. 优化数据预处理流程。
         """
         tick_metrics = {}
         # 初始化所有字段为 None
@@ -1074,14 +1073,16 @@ class FundFlowFactorCalculator:
         for field in tick_fields:
             tick_metrics[field] = None
         tick_metrics['intraday_flow_distribution'] = None
+
         # 检查数据是否存在
         if not hasattr(self, 'tick_data') or self.tick_data is None or self.tick_data.empty:
             return tick_metrics
+
         try:
             # 预处理tick数据
             df = self.tick_data.copy()
-            # [新增] 列名标准化映射
-            # 常见映射: time->trade_time, vol->volume, price->price, type->type, amount->amount
+            
+            # 列名标准化映射
             col_map = {
                 'time': 'trade_time',
                 'vol': 'volume',
@@ -1091,54 +1092,66 @@ class FundFlowFactorCalculator:
                 'money': 'amount'
             }
             df.rename(columns=col_map, inplace=True)
-            # [新增] 确保必要列存在
+            
+            # 确保必要列存在
             if 'trade_time' not in df.columns:
-                # 尝试使用索引如果是datetime
                 if isinstance(df.index, pd.DatetimeIndex):
                     df['trade_time'] = df.index
                 else:
                     logger.warning(f"Tick数据缺少 trade_time 列且索引不是时间: {df.columns}")
                     return tick_metrics
+            
             if 'price' not in df.columns or 'volume' not in df.columns:
                 logger.warning(f"Tick数据缺少 price 或 volume 列: {df.columns}")
                 return tick_metrics
-            # [新增] 补全 amount (如果缺失)
+
+            # 补全 amount (如果缺失)
             if 'amount' not in df.columns:
-                # 假设 volume 单位是手(100股) 或 股，这里通常 tick 数据 volume 是手
-                # 如果 amount 缺失，粗略计算: price * volume * 100
-                # 注意：需确认 volume 单位，这里默认按 100 计算
                 df['amount'] = df['price'] * df['volume'] * 100
-            # [新增] 标准化买卖方向 type
-            # 目标: 'B' (买盘/主动买), 'S' (卖盘/主动卖)
+            
+            # 标准化买卖方向 type
             if 'type' in df.columns:
-                # 转换为字符串并大写
                 df['type'] = df['type'].astype(str).str.upper()
-                # 常见中文映射
                 type_map = {
                     '买盘': 'B', '卖盘': 'S', 
                     'BUY': 'B', 'SELL': 'S',
-                    '0': 'S', '1': 'B', # 某些数据源 0卖1买
-                    '2': 'M' # 中性盘
+                    '0': 'S', '1': 'B', 
+                    '2': 'M' 
                 }
                 df['type'] = df['type'].map(lambda x: type_map.get(x, x))
             else:
-                # 如果没有 type 列，尝试通过价格变化推导 (简单的 Tick 规则)
-                # 价格上涨或持平于卖一价 -> B，价格下跌或持平于买一价 -> S
-                # 这里简化处理：如果没有 type，无法准确计算资金流，返回空
                 logger.warning("Tick数据缺少 type 列，无法计算资金流方向")
                 return tick_metrics
-            # 再次过滤，确保只有 B 和 S 参与计算 (过滤中性盘)
+
+            # 过滤中性盘
             df = df[df['type'].isin(['B', 'S'])]
             if df.empty:
                 return tick_metrics
+
             # 确保 trade_time 是 datetime 类型
             df['trade_time'] = pd.to_datetime(df['trade_time'])
+            
+            # [新增] 时区标准化：统一转换为北京时间 (Asia/Shanghai)
+            # 解决 Invalid comparison between dtype=datetime64[ns, UTC] and Timestamp 问题
+            # 同时确保后续 dt.hour 等逻辑基于北京时间
+            import pytz
+            bj_tz = pytz.timezone('Asia/Shanghai')
+            
+            if df['trade_time'].dt.tz is not None:
+                # 如果已有时区 (如 UTC)，转换为北京时间
+                df['trade_time'] = df['trade_time'].dt.tz_convert(bj_tz)
+            else:
+                # 如果无时区，假定为北京时间并本地化
+                df['trade_time'] = df['trade_time'].dt.tz_localize(bj_tz)
+
             # 如果只有时间没有日期，加上当前日期
             if df['trade_time'].iloc[0].year == 1900:
                 current_date = self.context.trade_date
+                # 注意：这里替换年份后，时区信息会保留
                 df['trade_time'] = df['trade_time'].apply(
                     lambda t: t.replace(year=current_date.year, month=current_date.month, day=current_date.day)
                 )
+
             # 1. 计算日内资金流分布
             tick_metrics.update(self._calculate_intraday_flow_distribution(df))
             # 2. 高频大单识别
@@ -1163,33 +1176,51 @@ class FundFlowFactorCalculator:
             tick_metrics.update(self._calculate_time_period_distribution(df))
             # 12. 主力隐蔽性指标
             tick_metrics.update(self._calculate_stealth_flow_indicators(df))
+            
         except Exception as e:
             logger.error(f"计算tick增强指标时发生未捕获异常: {e}", exc_info=True)
-            # 保持 metrics 为 None
+            
         return tick_metrics
 
     def _calculate_intraday_flow_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算日内资金流分布特征"""
+        """
+        计算日内资金流分布特征
+        版本: V1.2
+        说明: 
+        1. 直接使用已标准化的 trade_time 列。
+        2. 优化分桶逻辑，匹配 A 股交易时段。
+        """
         distribution = {}
         # 按半小时划分交易时段
-        df['time_bucket'] = pd.cut(
-            pd.to_datetime(df['trade_time']).dt.hour * 60 + 
-            pd.to_datetime(df['trade_time']).dt.minute,
-            bins=[0, 30, 60, 90, 120, 150, 180, 210, 240],
-            labels=['9:30-10:00', '10:00-10:30', '10:30-11:00', '11:00-11:30',
-                    '13:00-13:30', '13:30-14:00', '14:00-14:30', '14:30-15:00']
-        )
+        # df['trade_time'] 已经是 datetime 类型且为北京时间
+        minutes_since_midnight = df['trade_time'].dt.hour * 60 + df['trade_time'].dt.minute
+        
+        # 定义 bins 和 labels
+        # 9:30=570, 10:00=600, 10:30=630, 11:00=660, 11:30=690
+        # 13:00=780, 13:30=810, 14:00=840, 14:30=870, 15:00=900
+        bins = [0, 570, 600, 630, 660, 690, 780, 810, 840, 870, 1440]
+        labels = ['Before', '9:30-10:00', '10:00-10:30', '10:30-11:00', '11:00-11:30', 
+                  'Noon', '13:00-13:30', '13:30-14:00', '14:00-14:30', '14:30-15:00']
+        
+        df['time_bucket'] = pd.cut(minutes_since_midnight, bins=bins, labels=labels, right=True)
+
         # 计算各时段资金净流入
-        bucket_flows = df.groupby('time_bucket').apply(
+        bucket_flows = df.groupby('time_bucket', observed=True).apply(
             lambda x: (x[x['type'] == 'B']['amount'].sum() - 
                       x[x['type'] == 'S']['amount'].sum()) / 10000  # 转换为万元
         ).to_dict()
+        
+        # 过滤掉非交易时段 (Before, Noon)
+        valid_buckets = [l for l in labels if ':' in l]
+        bucket_flows = {k: v for k, v in bucket_flows.items() if k in valid_buckets}
+
         # 计算各时段占比
         total_flow = sum([abs(v) for v in bucket_flows.values()])
         if total_flow > 0:
             bucket_ratios = {k: v/total_flow*100 for k, v in bucket_flows.items()}
         else:
             bucket_ratios = {k: 0 for k in bucket_flows.keys()}
+            
         distribution['intraday_flow_distribution'] = json.dumps({
             'bucket_flows': bucket_flows,
             'bucket_ratios': bucket_ratios,
@@ -1407,18 +1438,40 @@ class FundFlowFactorCalculator:
         return metrics
 
     def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算尾盘资金特征"""
+        """
+        计算尾盘资金特征
+        版本: V1.2
+        说明: 修复时区比较错误，确保收盘时间与数据时区一致。
+        """
         metrics = {}
-        # 识别尾盘时段（最后30分钟）
-        df['datetime'] = pd.to_datetime(df['trade_time'])
-        market_close = pd.Timestamp(df['datetime'].dt.date.iloc[0]) + pd.Timedelta(hours=15)
-        closing_start = market_close - pd.Timedelta(minutes=30)
-        closing_data = df[df['datetime'] >= closing_start]
-        other_data = df[df['datetime'] < closing_start]
-        if len(closing_data) == 0 or len(other_data) == 0:
+        if df.empty:
             metrics['closing_flow_ratio'] = None
             metrics['closing_flow_intensity'] = None
             return metrics
+
+        # 识别尾盘时段（最后30分钟）
+        # df['trade_time'] 已经是北京时间 (Aware)
+        
+        # 获取数据中的日期
+        current_date = df['trade_time'].iloc[0].date()
+        
+        # 构造收盘时间 (15:00) 并匹配 DataFrame 的时区
+        # 此时 df['trade_time'] 已经统一为 Asia/Shanghai，所以这里直接 localize 即可
+        # 使用 df['trade_time'].dt.tz 获取准确的时区对象
+        tz_info = df['trade_time'].dt.tz
+        market_close = pd.Timestamp(current_date).tz_localize(tz_info) + pd.Timedelta(hours=15)
+        
+        closing_start = market_close - pd.Timedelta(minutes=30)
+        
+        # 进行带时区的时间比较
+        closing_data = df[df['trade_time'] >= closing_start]
+        
+        if len(closing_data) == 0:
+            # 如果没有尾盘数据，可能全天都在尾盘前，或者数据缺失
+            metrics['closing_flow_ratio'] = 0.0
+            metrics['closing_flow_intensity'] = 0.0
+            return metrics
+
         # 计算尾盘资金净流入
         closing_buy = closing_data[closing_data['type'] == 'B']['amount'].sum()
         closing_sell = closing_data[closing_data['type'] == 'S']['amount'].sum()
@@ -1458,16 +1511,23 @@ class FundFlowFactorCalculator:
         return metrics
 
     def _calculate_time_period_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算资金时段分布"""
+        """
+        计算资金时段分布
+        版本: V1.2
+        说明: 直接使用已标准化的 trade_time 列。
+        """
         metrics = {}
         # 划分上午和下午
-        df['hour'] = pd.to_datetime(df['trade_time']).dt.hour
-        morning_data = df[df['hour'] < 12]  # 上午
-        afternoon_data = df[df['hour'] >= 13]  # 下午（跳过中午休市）
-        if len(morning_data) == 0 or len(afternoon_data) == 0:
+        # df['trade_time'] 已经是北京时间
+        hour = df['trade_time'].dt.hour
+        morning_data = df[hour < 12]  # 上午 (通常 9, 10, 11)
+        afternoon_data = df[hour >= 13]  # 下午 (通常 13, 14, 15)
+        
+        if len(morning_data) == 0 and len(afternoon_data) == 0:
             metrics['morning_flow_ratio'] = None
             metrics['afternoon_flow_ratio'] = None
             return metrics
+            
         # 计算上午资金净流入
         morning_buy = morning_data[morning_data['type'] == 'B']['amount'].sum()
         morning_sell = morning_data[morning_data['type'] == 'S']['amount'].sum()
@@ -1483,10 +1543,16 @@ class FundFlowFactorCalculator:
             morning_ratio = abs(morning_net) / abs(total_net) * 100
             afternoon_ratio = abs(afternoon_net) / abs(total_net) * 100
         else:
-            morning_ratio = 50.0
-            afternoon_ratio = 50.0
-        metrics['morning_flow_ratio'] = float(morning_ratio)
-        metrics['afternoon_flow_ratio'] = float(afternoon_ratio)
+            # 如果总净流入为0，但有交易，给个默认值
+            if len(df) > 0:
+                morning_ratio = 50.0
+                afternoon_ratio = 50.0
+            else:
+                morning_ratio = None
+                afternoon_ratio = None
+                
+        metrics['morning_flow_ratio'] = float(morning_ratio) if morning_ratio is not None else None
+        metrics['afternoon_flow_ratio'] = float(afternoon_ratio) if afternoon_ratio is not None else None
         return metrics
 
     def _calculate_stealth_flow_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
