@@ -1060,56 +1060,94 @@ class FeatureEngineeringService:
 
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.2 · 向量化优化版】均线系统势能分析引擎
-        - 优化: 移除 rolling().apply(lambda) 的低效实现，改用向量化的 rolling().mean() 和 std() 计算 Z-Score。
-        - 性能: 提升约 50-100 倍。
+        【V2.0 · 均线多维势能分析引擎】
+        - 核心优化:
+            1. 引入 "MA_FAN_EFFICIENCY" (均线发散效率): 衡量价格上涨单位带来的均线张开程度，识别 "强弩之末"。
+            2. 引入 "RUBBER_BAND_EXTENSION" (橡皮筋拉伸度): 基于价格对长期均线(EMA_144/89)的偏离，量化回归风险。
+            3. 引入 "COHERENCE_RESONANCE" (多周期共振): 向量化检测多条均线的同向加速状态。
+        - 判定逻辑: 势能不仅仅是乖离(Tension)，更是压缩(Compression)后的有序释放(Orderliness)。
         """
         if not params.get('enabled', False):
             return all_dfs
+        
+        # 定义核心均线组 (A股常用)
+        short_mas = [5, 13, 21]
+        long_mas = [55, 89, 144]
+        all_periods = sorted(list(set(short_mas + long_mas)))
+        
         for timeframe in params.get('apply_on', []):
             if timeframe not in all_dfs or all_dfs[timeframe] is None or all_dfs[timeframe].empty:
                 continue
             df = all_dfs[timeframe]
-            ma_periods = params.get('ma_periods', [])
-            ma_type = params.get('ma_type', 'EMA')
-            tension_short_period = params.get('tension_short_period', 5)
-            tension_long_period = params.get('tension_long_period', 55)
-            norm_window = params.get('norm_window', 55)
-            # 1. 军火库点验
-            ma_cols = [f"{ma_type}_{p}_{timeframe}" for p in ma_periods]
-            tension_cols = [f"{ma_type}_{tension_short_period}_{timeframe}", f"{ma_type}_{tension_long_period}_{timeframe}"]
-            atr_col = f"ATR_14_{timeframe}"
-            required_cols = list(set(ma_cols + tension_cols + [atr_col]))
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            if missing_cols:
-                logger.warning(f"均线系统势能分析失败({timeframe})：缺少核心数据列 {missing_cols}")
-                continue
+            # 1. 数据准备与清洗
+            ma_type = params.get('ma_type', 'EMA') # 默认使用EMA，对近期权重更高
+            cols_needed = [f"{ma_type}_{p}_{timeframe}" for p in all_periods] + \
+                          [f"ATR_14_{timeframe}", f"close_{timeframe}"]
+            # 检查缺失列
+            missing = [c for c in cols_needed if c not in df.columns]
+            if missing:
+                # 尝试现场计算缺失的MA
+                try:
+                    close_vals = df[f"close_{timeframe}"]
+                    for p in all_periods:
+                        col_name = f"{ma_type}_{p}_{timeframe}"
+                        if col_name not in df.columns:
+                            # 简单的EMA计算补充
+                            df[col_name] = close_vals.ewm(span=p, adjust=False).mean()
+                except Exception:
+                    logger.warning(f"均线势能计算缺少核心列: {missing}")
+                    continue
             try:
-                # 2. 计算势能大小 (张力)
-                tension_range = df[f"{ma_type}_{tension_short_period}_{timeframe}"] - df[f"{ma_type}_{tension_long_period}_{timeframe}"]
-                atr = df[atr_col].replace(0, np.nan)
-                raw_tension_index = tension_range / atr
-                # 【优化】向量化计算 Rolling Z-Score
-                roll_mean = raw_tension_index.rolling(window=norm_window).mean()
-                roll_std = raw_tension_index.rolling(window=norm_window).std()
-                # 避免除以零
-                z_score = (raw_tension_index - roll_mean) / (roll_std + 1e-9)
-                tension_index_series = (z_score.fillna(0).clip(-3, 3) / 3).astype(np.float32)
-                df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = tension_index_series
-                # 3. 计算势能方向 (有序性) - 【Numba 优化】
-                ma_df = df[ma_cols]
-                ma_values = ma_df.values.astype(np.float64)
-                periods_series = pd.Series(ma_periods)
-                ma_ranks_x = periods_series.rank(method='first').values.astype(np.float64)
-                orderliness_scores = _numba_spearman_orderliness(ma_values, ma_ranks_x)
-                df[f'MA_POTENTIAL_ORDERLINESS_SCORE_{timeframe}'] = orderliness_scores.astype(np.float32)
-                # 4. 计算势能变化率 (压缩率)
-                ma_std = ma_df.std(axis=1)
-                normalized_std = ma_std / atr
-                compression_rate = 1 - (normalized_std.rolling(window=norm_window).rank(pct=True)).fillna(0.5)
-                df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = compression_rate.astype(np.float32)
+                # 提取数据矩阵 (N_samples, N_periods)
+                ma_matrix = df[[f"{ma_type}_{p}_{timeframe}" for p in all_periods]].values
+                close_arr = df[f"close_{timeframe}"].values
+                atr_arr = df[f"ATR_14_{timeframe}"].replace(0, np.nan).fillna(method='bfill').values
+                # 2. 计算 MA_POTENTIAL_COMPRESSION_RATE (极致压缩率)
+                # 逻辑: 所有均线的标准差越小，压缩越紧。除以ATR进行归一化，消除股价绝对值影响。
+                ma_std = np.std(ma_matrix, axis=1)
+                normalized_spread = ma_std / atr_arr
+                # 使用Rank Percentile量化压缩程度 (0-1)，值越小代表越压缩
+                # 我们希望输出 "压缩率" (1 = 极致压缩, 0 = 极致发散)
+                spread_series = pd.Series(normalized_spread)
+                compression_rank = spread_series.rolling(window=120).rank(pct=True).fillna(0.5).values
+                df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = 1.0 - compression_rank
+                # 3. 计算 MA_RUBBER_BAND_EXTENSION (橡皮筋拉伸度 - 均值回归压力)
+                # 逻辑: 价格相对于最长周期均线(如144日)的偏离程度，经过ATR标准化
+                # 正值极大代表超买(回落风险)，负值极小代表超卖(反弹机会)
+                longest_ma = df[f"{ma_type}_{max(all_periods)}_{timeframe}"].values
+                extension_raw = (close_arr - longest_ma) / atr_arr
+                # Z-Score 标准化，便于跨标的比较
+                extension_series = pd.Series(extension_raw)
+                extension_z = (extension_series - extension_series.rolling(250).mean()) / extension_series.rolling(250).std()
+                df[f'MA_RUBBER_BAND_EXTENSION_{timeframe}'] = extension_z.fillna(0).clip(-3, 3)
+                # 4. 计算 MA_COHERENCE_RESONANCE (多均线共振度)
+                # 逻辑: 检查所有均线的瞬时斜率是否同向且加速
+                # 简化计算：当前值 > 昨日值 (Rising)
+                ma_df = df[[f"{ma_type}_{p}_{timeframe}" for p in all_periods]]
+                ma_rising = (ma_df > ma_df.shift(1)).astype(int).sum(axis=1)
+                # 均线多头排列得分 (Spearman秩相关系数逻辑的简化版，只看是否 strict order)
+                # 利用已有的 _numba_spearman_orderliness
+                ranks_x = np.arange(len(all_periods), dtype=np.float64) # 理想排名
+                orderliness = _numba_spearman_orderliness(ma_matrix, ranks_x)
+                # 共振度 = (上升均线数量占比 + 排列有序度) / 2
+                coherence = (ma_rising / len(all_periods) + orderliness) / 2
+                df[f'MA_COHERENCE_RESONANCE_{timeframe}'] = coherence
+                # 5. 计算 MA_FAN_EFFICIENCY (发散效率 - 识别诱多)
+                # 逻辑: 价格涨幅 / 均线组发散增量。
+                # 如果价格狂涨但均线没张开，说明是情绪博弈，根基不稳。
+                # 如果均线稳步张开配合价格上涨，是健康趋势。
+                spread_delta = spread_series.diff(3).fillna(0) # 3日发散增量
+                price_delta = df[f"close_{timeframe}"].diff(3).abs().fillna(0) / atr_arr
+                # 避免除以0
+                efficiency = np.where(spread_delta > 0.01, price_delta / spread_delta, 0)
+                df[f'MA_FAN_EFFICIENCY_{timeframe}'] = np.clip(efficiency, 0, 10)
+                # 6. 计算 MA_POTENTIAL_TENSION_INDEX (原有张力指标保留并增强)
+                # 使用短期均线(5)与中期均线(21)的距离作为"攻击张力"
+                short_term_tension = (df[f"{ma_type}_{short_mas[0]}_{timeframe}"] - df[f"{ma_type}_{short_mas[-1]}_{timeframe}"]) / atr_arr
+                df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = short_term_tension.fillna(0)
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
+                
         return all_dfs
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
@@ -1379,224 +1417,195 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality_score_v4(self, df_daily: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V4.1 · 向量化优化版】突破质量分计算核心逻辑
-        - 优化: 移除 breakout_type 计算中的 Python 循环，使用向量化 idxmax 和 np.select。
+        【V5.0 · 猎杀A股伪突破增强版】
+        - 核心逻辑升级: 针对A股 "缩量假突破"、"诱多杀"、"T+1闷杀" 特性进行深度建模。
+        - 优化维度:
+            1. 效率过滤器 (Efficiency Filter): 引入 'turnover_rate_f' (自由换手率)。真正的突破必须 "惜售" (低换手大涨) 或 "充分换手" (高换手封板)，中间态最危险。
+            2. 欺诈惩罚 (Deception Penalty): 强力应用 'deception_lure_long_intensity' 和 'large_order_anomaly'。
+            3. 集合竞价权重 (Call Auction): 重视 'opening_buy_strength'，A股强势股往往赢在起跑线。
+            4. 成本安全垫 (Cost Cushion): 结合 'weight_avg_cost'，突破点离成本区越近，爆发力越强且安全（黄金坑）。
         """
         df = df_daily.copy()
         results = pd.DataFrame(index=df.index)
-        # ==================== 1. 技术维度突破质量 ====================
-        technical_scores = pd.Series(0, index=df.index, dtype=float)
-        # 1.1 价格突破强度
-        if all(col in df.columns for col in ['high', 'low', 'close']):
-            # 计算真实波幅突破
-            atr_period = 14
-            tr = pd.concat([
-                df['high'] - df['low'],
-                (df['high'] - df['close'].shift()).abs(),
-                (df['low'] - df['close'].shift()).abs()
-            ], axis=1).max(axis=1)
-            atr = tr.rolling(atr_period).mean()
-            price_breakout_intensity = ((df['high'] - df['high'].rolling(20).max()) / atr).fillna(0)
-            technical_scores += np.clip(price_breakout_intensity * 10, 0, 20)
-        # 1.2 成交量确认
-        if all(col in df.columns for col in ['volume', 'VOL_MA_21']):
-            volume_breakout_ratio = df['volume'] / df['VOL_MA_21'].replace(0, 1)
-            volume_score = np.clip((volume_breakout_ratio - 1) * 15, 0, 20)
-            technical_scores += volume_score
-        # 1.3 VPA效率确认
-        if 'VPA_EFFICIENCY' in df.columns:
-            vpa_score = np.clip(df['VPA_EFFICIENCY'] * 10, 0, 15)
-            technical_scores += vpa_score
-        if 'VPA_BUY_EFFICIENCY' in df.columns:
-            vpa_buy_score = np.clip(df['VPA_BUY_EFFICIENCY'] * 12, 0, 15)
-            technical_scores += vpa_buy_score
-        # 1.4 执行强度
-        execution_indicators = [
-            'main_force_buy_execution_alpha',
-            'upward_impulse_strength',
-            'buy_order_book_clearing_rate',
-            'bid_side_liquidity',
-            'vwap_cross_up_intensity',
-            'opening_buy_strength'
-        ]
-        for indicator in execution_indicators:
-            if indicator in df.columns:
-                score = np.clip(df[indicator] * 5, 0, 10)
-                technical_scores += score
-        results['breakout_technical_score'] = np.clip(technical_scores, 0, 100)
-        # ==================== 2. 筹码维度突破质量 ====================
-        chip_scores = pd.Series(0, index=df.index, dtype=float)
-        # 2.1 胜率和获利比例（替代total_winner_rate）
-        if 'winner_rate' in df.columns:
-            winner_score = np.clip(df['winner_rate'] * 100, 0, 25)
-            chip_scores += winner_score
-        if 'profit_ratio' in df.columns:
-            profit_score = np.clip(df['profit_ratio'] * 100, 0, 20)
-            chip_scores += profit_score
-        # 2.2 筹码集中度
-        if 'chip_concentration_ratio' in df.columns:
-            concentration_score = np.clip(df['chip_concentration_ratio'] * 100, 0, 15)
-            chip_scores += concentration_score
-        # 2.3 筹码稳定性
-        if 'chip_stability' in df.columns:
-            stability_score = np.clip(df['chip_stability'] * 100, 0, 15)
-            chip_scores += stability_score
-        # 2.4 获利压力释放
-        if 'profit_pressure' in df.columns:
-            # 获利压力小，突破质量高
-            pressure_release_score = np.clip((1 - abs(df['profit_pressure'])) * 15, 0, 15)
-            chip_scores += pressure_release_score
-        # 2.5 套牢盘压力（替代total_winner_rate的另一个维度）
-        if 'pressure_trapped' in df.columns:
-            # 套牢盘压力小，突破阻力小
-            trapped_pressure_score = np.clip((1 - df['pressure_trapped']) * 10, 0, 10)
-            chip_scores += trapped_pressure_score
-        results['breakout_chip_score'] = np.clip(chip_scores, 0, 100)
-        # ==================== 3. 资金维度突破质量 ====================
-        fundflow_scores = pd.Series(0, index=df.index, dtype=float)
-        # 3.1 资金流强度（核心指标）
-        if 'flow_intensity' in df.columns:
-            flow_intensity_score = np.clip(df['flow_intensity'], 0, 25)
-            fundflow_scores += flow_intensity_score
-        # 3.2 行为模式（替代main_force_flow_directionality）
-        if 'accumulation_score' in df.columns:
-            accumulation_score = np.clip(df['accumulation_score'] * 0.2, 0, 15)
-            fundflow_scores += accumulation_score
-        if 'pushing_score' in df.columns:
-            pushing_score = np.clip(df['pushing_score'] * 0.2, 0, 15)
-            fundflow_scores += pushing_score
-        # 3.3 净流入占比
-        if 'net_amount_ratio' in df.columns:
-            net_ratio_score = np.clip(df['net_amount_ratio'] * 10, 0, 15)
-            fundflow_scores += net_ratio_score
-        # 3.4 资金动量（替代directionality的方向性）
-        if 'flow_momentum_5d' in df.columns:
-            momentum_score = np.clip(df['flow_momentum_5d'] * 100 + 50, 0, 15)
-            fundflow_scores += momentum_score
-        # 3.5 资金流稳定性
-        if 'flow_stability' in df.columns:
-            stability_score = np.clip(df['flow_stability'] * 0.5, 0, 10)
-            fundflow_scores += stability_score
-        # 3.6 大单异动过滤
-        if 'large_order_anomaly' in df.columns:
-            # 无大单异动时加分，有异动时扣分
-            anomaly_penalty = np.where(df['large_order_anomaly'], -10, 5)
-            fundflow_scores += anomaly_penalty
-        results['breakout_fundflow_score'] = np.clip(fundflow_scores, 0, 100)
-        # ==================== 4. 能量维度突破质量 ====================
-        energy_scores = pd.Series(0, index=df.index, dtype=float)
-        # 4.1 吸收能量（关键突破能量）
-        if 'absorption_energy' in df.columns:
-            absorption_score = np.clip(df['absorption_energy'], 0, 25)
-            energy_scores += absorption_score
-        # 4.2 净能量流向（替代directionality的能量视角）
-        if 'net_energy_flow' in df.columns:
-            net_energy_score = np.clip(df['net_energy_flow'] + 50, 0, 20)
-            energy_scores += net_energy_score
-        # 4.3 博弈强度
-        if 'game_intensity' in df.columns:
-            game_score = np.clip(df['game_intensity'] * 100, 0, 15)
-            energy_scores += game_score
-        # 4.4 突破势能
-        if 'breakout_potential' in df.columns:
-            potential_score = np.clip(df['breakout_potential'], 0, 20)
-            energy_scores += potential_score
-        # 4.5 能量集中度
-        if 'energy_concentration' in df.columns:
-            concentration_score = np.clip(df['energy_concentration'] * 100, 0, 10)
-            energy_scores += concentration_score
-        # 4.6 派发能量（负向指标）
-        if 'distribution_energy' in df.columns:
-            distribution_penalty = np.clip((100 - df['distribution_energy']) * 0.1, 0, 10)
-            energy_scores += distribution_penalty
-        results['breakout_energy_score'] = np.clip(energy_scores, 0, 100)
-        # ==================== 5. 综合突破质量分 ====================
-        # 5.1 计算各维度加权平均
-        weight_technical = params.get('weight_technical', 0.25)
-        weight_chip = params.get('weight_chip', 0.25)
-        weight_fundflow = params.get('weight_fundflow', 0.30)
-        weight_energy = params.get('weight_energy', 0.20)
-        breakout_scores = pd.Series(0, index=df.index, dtype=float)
-        if 'breakout_technical_score' in results.columns:
-            breakout_scores += results['breakout_technical_score'] * weight_technical
-        if 'breakout_chip_score' in results.columns:
-            breakout_scores += results['breakout_chip_score'] * weight_chip
-        if 'breakout_fundflow_score' in results.columns:
-            breakout_scores += results['breakout_fundflow_score'] * weight_fundflow
-        if 'breakout_energy_score' in results.columns:
-            breakout_scores += results['breakout_energy_score'] * weight_energy
-        results['breakout_quality_score'] = np.clip(breakout_scores, 0, 100)
-        # 5.2 突破质量分级
-        conditions = [
-            results['breakout_quality_score'] >= 80,
-            results['breakout_quality_score'] >= 65,
-            results['breakout_quality_score'] >= 50,
-            results['breakout_quality_score'] >= 35,
-            results['breakout_quality_score'] < 35
-        ]
-        choices = ['EXCELLENT', 'GOOD', 'MODERATE', 'WEAK', 'POOR']
-        results['breakout_quality_grade'] = np.select(conditions, choices, default='UNKNOWN')
-        # 5.3 突破类型识别 (向量化优化)
-        # 构建分数矩阵
-        score_cols = ['breakout_technical_score', 'breakout_chip_score', 'breakout_fundflow_score', 'breakout_energy_score']
-        # 映射列名到简写
-        col_mapping = {
-            'breakout_technical_score': 'TECH',
-            'breakout_chip_score': 'CHIP',
-            'breakout_fundflow_score': 'FUND',
-            'breakout_energy_score': 'ENERGY'
-        }
-        score_df = results[score_cols].fillna(0)
-        # 找到最大分数的列和值
-        max_vals = score_df.max(axis=1)
-        max_cols = score_df.idxmax(axis=1).map(col_mapping)
-        mean_vals = score_df.mean(axis=1)
-        # 向量化判断逻辑
-        cond_strong = max_vals > 70
-        cond_mod = max_vals > 50
-        cond_bal = mean_vals > 40
-        # 构建类型字符串
-        type_strong = 'STRONG_' + max_cols
-        type_mod = 'MODERATE_' + max_cols
-        # 使用 np.select 进行选择
-        breakout_types = np.select(
-            [cond_strong, cond_mod, cond_bal],
-            [type_strong, type_mod, 'BALANCED'],
-            default='NONE'
-        )
-        results['breakout_type'] = breakout_types
-        # 5.4 风险预警
-        results['breakout_risk_warning'] = False
-        # 检查高风险信号
-        risk_indicators = []
-        if 'deception_lure_long_intensity' in df.columns:
-            risk_indicators.append(df['deception_lure_long_intensity'] > 0.5)
-        if 'wash_trade_buy_volume' in df.columns:
-            risk_indicators.append(df['wash_trade_buy_volume'] > 0.3)
-        if 'large_order_anomaly' in df.columns:
-            risk_indicators.append(df['large_order_anomaly'] == True)
-        if 'distribution_score' in df.columns:
-            risk_indicators.append(df['distribution_score'] > 60)
-        if risk_indicators:
-            risk_mask = pd.concat(risk_indicators, axis=1).any(axis=1)
-            results['breakout_risk_warning'] = risk_mask
-        # ==================== 6. 置信度计算 ====================
-        # 计算数据完整性置信度
-        completeness_scores = []
-        required_categories = {
-            'technical': ['volume', 'high', 'low', 'close', 'VPA_EFFICIENCY'],
-            'chip': ['winner_rate', 'profit_ratio'],
-            'fundflow': ['flow_intensity', 'net_amount_ratio'],
-            'energy': ['absorption_energy', 'net_energy_flow']
-        }
-        for category, fields in required_categories.items():
-            available = sum(1 for f in fields if f in df.columns)
-            completeness = available / len(fields) if fields else 1.0
-            completeness_scores.append(completeness)
-        data_completeness = np.mean(completeness_scores) if completeness_scores else 0.5
-        results['breakout_confidence'] = np.clip(data_completeness * 100, 0, 100)
-        return results
+        
+        # --- 0. 基础数据清洗与对齐 ---
+        # 确保关键列存在，缺失则给默认值或进行安全处理
+        def get_series(col, default_val=0.0):
+            if col in df.columns:
+                return df[col].fillna(default_val)
+            return pd.Series(default_val, index=df.index)
 
+        pct_change = get_series('pct_change')
+        turnover_f = get_series('turnover_rate_f') # 自由换手率
+        volume = get_series('volume')
+        vol_ma21 = get_series('VOL_MA_21', default_val=1.0)
+        
+        # ==================== 1. 技术形态质量 (Technical Quality) ====================
+        tech_score = pd.Series(0.0, index=df.index)
+        
+        # 1.1 价格形态: 实体饱满度与上影线压力
+        # A股真突破通常是大阳线，上影线短
+        high = get_series('high')
+        low = get_series('low')
+        close = get_series('close')
+        open_p = get_series('open')
+        body_len = (close - open_p).abs()
+        upper_shadow = high - pd.concat([close, open_p], axis=1).max(axis=1)
+        total_len = high - low
+        # 实体占比 > 50% 且 上影线 < 实体的一半
+        solid_candle_score = np.where((total_len > 0) & (body_len / total_len > 0.6) & (upper_shadow < body_len * 0.5), 15, 0)
+        tech_score += solid_candle_score
+        
+        # 1.2 缺口动能 (Gap Momentum)
+        # 跳空高开不回补是极强信号
+        pre_close = get_series('pre_close')
+        gap_score = np.where((low > pre_close) & (pct_change > 2.0), 10, 0)
+        tech_score += gap_score
+
+        # 1.3 集合竞价抢筹 (Call Auction Attack)
+        # 开盘买入强度高，说明主力急不可耐
+        opening_strength = get_series('opening_buy_strength')
+        tech_score += np.clip(opening_strength * 2, 0, 15)
+
+        # 1.4 VPA 量价效率 (Volume Efficiency)
+        # 使用自由换手率修正的效率: 涨幅 / 换手率。比值越高，锁仓越好（缩量涨停是极致）
+        # 避免除以0
+        safe_to = turnover_f.replace(0, 1.0)
+        eff_ratio = pct_change / safe_to
+        # 正常突破: 效率系数 > 0.5 (例如 5%涨幅用 <10%换手)
+        tech_score += np.clip(eff_ratio * 5, 0, 20)
+
+        # ==================== 2. 筹码结构质量 (Chip Structure) ====================
+        chip_score = pd.Series(0.0, index=df.index)
+        
+        # 2.1 获利盘比例 (Winner Rate)
+        # 突破时获利盘应在 80%-90% 以上，解放所有套牢盘
+        winner_rate = get_series('winner_rate')
+        chip_score += np.clip(winner_rate * 25, 0, 25)
+        
+        # 2.2 成本乖离度 (Cost Deviation) - 黄金坑逻辑
+        # 股价刚突破平均成本线不远(0-15%)，是最佳买点。太远(>30%)则有获利回吐风险。
+        avg_cost = get_series('weight_avg_cost')
+        cost_bias = (close - avg_cost) / avg_cost.replace(0, 1)
+        # 0% - 10%: 满分; 10% - 20%: 减分; >30%: 0分
+        cost_score = np.where((cost_bias > 0) & (cost_bias <= 0.10), 25,
+                             np.where(cost_bias <= 0.20, 15, 0))
+        chip_score += cost_score
+        
+        # 2.3 筹码集中度 (Concentration)
+        # 集中度越高越好 (数值越小代表越集中，需反转)
+        conc = get_series('chip_concentration_ratio')
+        # 假设 conc < 0.1 为极度集中，> 0.3 为发散
+        chip_score += np.clip((0.25 - conc) * 100, 0, 20)
+        
+        # 2.4 套牢盘压力 (Trapped Pressure)
+        # 必须小
+        pressure = get_series('pressure_trapped')
+        chip_score += np.clip((1 - pressure) * 20, 0, 20)
+
+        # ==================== 3. 资金与博弈质量 (Flow & Game) ====================
+        flow_score = pd.Series(0.0, index=df.index)
+        
+        # 3.1 资金攻击强度 (Flow Intensity)
+        flow_int = get_series('flow_intensity')
+        flow_score += np.clip(flow_int, 0, 25)
+        
+        # 3.2 资金动量 (Momentum 5D)
+        flow_mom = get_series('flow_momentum_5d')
+        flow_score += np.clip(flow_mom * 50 + 10, 0, 15)
+        
+        # 3.3 主力建仓行为 (Accumulation)
+        acc_score = get_series('accumulation_score')
+        flow_score += np.clip(acc_score * 0.2, 0, 15)
+        
+        # 3.4 能量集中度 (Energy Concentration)
+        ene_conc = get_series('energy_concentration')
+        flow_score += np.clip(ene_conc * 100, 0, 15)
+
+        # ==================== 4. 风险惩罚因子 (Risk Penalty) ====================
+        # 这是 V4.1 的核心升级：扣分机制
+        penalty = pd.Series(0.0, index=df.index)
+        
+        # 4.1 诱多欺诈 (Deception Lure)
+        # 如果存在明显的诱多信号，直接扣重分
+        lure = get_series('deception_lure_long_intensity')
+        penalty += lure * 40 # 最高扣40分
+        
+        # 4.2 大单异常 (Large Order Anomaly)
+        # 某些大单可能是对倒
+        anomaly = get_series('large_order_anomaly')
+        penalty += np.where(anomaly > 0, 15, 0)
+        
+        # 4.3 尾盘偷袭 (Late Day Surprise)
+        # 全天没动静，尾盘拉升，通常是做图
+        # 如果 closing_flow_ratio 高 但 total volume 低
+        closing_ratio = get_series('closing_flow_ratio')
+        penalty += np.where((closing_ratio > 0.4) & (pct_change < 9.5), 20, 0)
+
+        # 4.4 换手率异常 (Turnover Extreme)
+        # 换手率过高 (>25%) 且未涨停，视为出货
+        up_limit = get_series('up_limit') # 涨停价
+        is_limit = (close >= up_limit * 0.99)
+        penalty += np.where((turnover_f > 25) & (~is_limit), 30, 0)
+
+        # ==================== 5. 综合合成 ====================
+        # 权重分配
+        w_tech = params.get('weight_technical', 0.3)
+        w_chip = params.get('weight_chip', 0.35) # A股筹码权重高
+        w_flow = params.get('weight_fundflow', 0.35)
+        
+        raw_score = (tech_score * w_tech) + (chip_score * w_chip) + (flow_score * w_flow)
+        
+        # 应用惩罚 (Penalty)
+        final_score = np.clip(raw_score - penalty, 0, 100)
+        
+        results['breakout_quality_score'] = final_score
+        
+        # 5.1 细分得分输出 (便于调试)
+        results['breakout_technical_score'] = np.clip(tech_score, 0, 100)
+        results['breakout_chip_score'] = np.clip(chip_score, 0, 100)
+        results['breakout_fundflow_score'] = np.clip(flow_score, 0, 100)
+        results['breakout_penalty_score'] = penalty # 新增
+        
+        # 5.2 质量评级
+        conditions = [
+            final_score >= 85,
+            final_score >= 70,
+            final_score >= 50,
+            final_score >= 30,
+            final_score < 30
+        ]
+        choices = ['LEGENDARY', 'EXCELLENT', 'GOOD', 'WEAK', 'TRAP']
+        results['breakout_quality_grade'] = np.select(conditions, choices, default='UNKNOWN')
+
+        # 5.3 类型判定 (Type Classification)
+        # 找出驱动因子
+        scores_df = results[['breakout_technical_score', 'breakout_chip_score', 'breakout_fundflow_score']]
+        max_col = scores_df.idxmax(axis=1)
+        
+        type_map = {
+            'breakout_technical_score': 'TECH_DRIVEN',
+            'breakout_chip_score': 'CHIP_LOCKED',
+            'breakout_fundflow_score': 'WHALE_ATTACK'
+        }
+        breakout_type = max_col.map(type_map)
+        
+        # 如果有严重惩罚，标记为 "HIGH_RISK"
+        breakout_type = np.where(penalty > 20, 'HIGH_RISK_' + breakout_type, breakout_type)
+        results['breakout_type'] = breakout_type
+
+        # 5.4 置信度 (Confidence)
+        # 基于数据完整性
+        completeness = np.mean([
+            pct_change.notna(), turnover_f.notna(), winner_rate.notna(), flow_int.notna()
+        ], axis=0)
+        results['breakout_confidence'] = completeness * 100
+        
+        # 5.5 风险预警布尔值
+        results['breakout_risk_warning'] = penalty > 15
+
+        return results
+    
     async def calculate_breakout_quality_score_v3(self, df_daily: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
         【V3.0】突破质量分计算降级版本 - 兼容旧逻辑
