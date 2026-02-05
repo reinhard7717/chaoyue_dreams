@@ -220,6 +220,13 @@
         "VOL_MA_5_D": [5, 13],
         "VOL_MA_13_D": [5, 13]
       }
+    },
+    "jerk_params": {
+        "enabled": true,
+        "series_to_jerk": {
+            "EMA_5_D": [5, 13],
+            "EMA_21_D": [13, 21]
+        }
     }
   },
   "cyclical_analysis_params": {

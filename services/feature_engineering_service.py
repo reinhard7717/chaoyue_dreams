@@ -347,6 +347,52 @@ def _numba_calculate_block_stats(
             
     return results
 
+@numba.njit(parallel=True, cache=True)
+def _numba_rolling_fractal_dimension(data: np.ndarray, window: int) -> np.ndarray:
+    """
+    【V1.0 · 新增】基于Sevcik算法的滚动分形维数计算
+    - 数学原理: 将每个窗口内的价格序列归一化到单位正方形中，计算波形长度，进而推导分形维数。
+    - A股意义: 
+        D -> 1.0: 强趋势 (主力合力拉升/出货，路径最短)。
+        D -> 1.5: 随机游走 (无主控盘)。
+        D > 1.5: 剧烈混沌 (主力宽幅震荡洗盘，制造恐慌)。
+    """
+    n = len(data)
+    result = np.full(n, np.nan, dtype=np.float64)
+    if n < window:
+        return result
+    # 预计算常数项: ln(2 * (window - 1))
+    denom = np.log(2.0 * (window - 1))
+    if denom == 0:
+        return result
+    # x轴归一化步长 (在单位正方形中，时间轴的总长为1)
+    x_step_sq = (1.0 / (window - 1)) ** 2
+    for i in prange(window - 1, n):
+        # 提取窗口数据
+        y_slice = data[i - window + 1 : i + 1]
+        y_min = np.min(y_slice)
+        y_max = np.max(y_slice)
+        y_range = y_max - y_min
+        # 如果极差为0（如一字板），维度为1.0
+        if y_range == 0:
+            result[i] = 1.0
+            continue
+        # 计算归一化后的波形长度 L
+        length = 0.0
+        for j in range(1, window):
+            # 归一化后的增量 dy
+            dy = (y_slice[j] - y_slice[j-1]) / y_range
+            # 欧几里得距离
+            dist = np.sqrt(x_step_sq + dy * dy)
+            length += dist
+        # Sevcik 分形维数公式
+        if length > 0:
+            d_val = 1.0 + np.log(length) / denom
+            result[i] = d_val
+        else:
+            result[i] = 1.0
+    return result
+
 class FeatureEngineeringService:
     """
     特征工程服务
@@ -429,502 +475,274 @@ class FeatureEngineeringService:
                 df[accel_col_name] = accel_values
         return all_dfs
 
-    async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+    async def calculate_all_jerks(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.1 · 向量化与NumPy优化版】VPA效率指标生产线重构
-        - 优化: 将核心计算下沉到 NumPy 层，使用 float32 降级，避免 Pandas Series 运算的索引对齐开销。
-        - 优化: 使用 np.divide 处理除零，替代慢速的 .replace(0, np.nan)。
+        【V1.0 · 新增】计算三阶项(Jerk/加加速度)特征。
+        - 逻辑: 对加速度(ACCEL)序列进行二次导数计算，捕捉主力在启动瞬间的力道突变。
+        - 性能: 延续Numba并行加速架构，确保万级数据量下的实时响应。
+        """
+        jerk_params = config.get('feature_engineering_params', {}).get('jerk_params', {})
+        if not jerk_params.get('enabled', False):
+            return all_dfs
+        series_to_jerk = jerk_params.get('series_to_jerk', {})
+        if not series_to_jerk:
+            return all_dfs
+        for base_col_name, periods in series_to_jerk.items():
+            if "说明" in base_col_name: continue
+            timeframe = base_col_name.split('_')[-1]
+            if timeframe not in all_dfs or all_dfs[timeframe] is None:
+                continue
+            df = all_dfs[timeframe]
+            for period in periods:
+                accel_col_name = f'ACCEL_{period}_{base_col_name}'
+                # 检查依赖的二阶项（加速度）是否存在
+                if accel_col_name not in df.columns:
+                    continue
+                jerk_col_name = f'JERK_{period}_{base_col_name}'
+                if jerk_col_name in df.columns:
+                    continue
+                # 提取加速度数据
+                accel_values = df[accel_col_name].values.astype(np.float64)
+                # 【Numba加速】计算三阶导数（Jerk）
+                jerk_values = _numba_rolling_slope(accel_values, int(period))
+                # NumPy 层面处理 NaN，保持内存连续性
+                jerk_values = np.nan_to_num(jerk_values, nan=0.0, copy=False)
+                df[jerk_col_name] = jerk_values
+        all_dfs[timeframe] = df
+        return all_dfs
+
+    async def calculate_jerk_momentum_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 · 新增】基于三阶项(Jerk)的动量爆发检测。
+        - 逻辑: 识别“加加速”状态。当 Jerk 与 Accel 发生共振时，判定为情绪极度亢奋或恐慌。
+        - 应用: 用于识别A股短线情绪标的的暴力主升浪起点。
         """
         timeframe = 'D'
-        if timeframe not in all_dfs:
-            return all_dfs
+        if timeframe not in all_dfs: return all_dfs
         df = all_dfs[timeframe]
-        # 关键依赖检查
-        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
-        if not all(col in df.columns for col in required_cols):
-            logger.warning(f"VPA效率生产线缺少基础数据，模块已跳过！")
-            return all_dfs
-        # 提取基础数据为 NumPy 数组 (float32)
+        # 选取核心均线的三阶项作为参考，例如 EMA_5 (反映最灵敏的价格动量)
+        jerk_col = f'JERK_5_EMA_5_D'
+        accel_col = f'ACCEL_5_EMA_5_D'
+        if jerk_col in df.columns and accel_col in df.columns:
+            # 核心判断逻辑：加速度在增加 (Jerk > 0)，且当前正处于加速状态 (Accel > 0)
+            # 这通常意味着价格正在经历“非线性”增长，是捕捉连板股的关键数学特征
+            jerk_val = df[jerk_col].values
+            accel_val = df[accel_col].values
+            # 向量化生成动量爆发信号
+            df['IS_NONLINEAR_IGNITION_D'] = (jerk_val > 0) & (accel_val > 0)
+            # 识别衰竭：速度极快但加速度开始减小 (Accel > 0 且 Jerk < 0)
+            df['IS_ACCELERATION_EXHAUSTION_D'] = (accel_val > 0) & (jerk_val < 0)
+        return all_dfs
+
+    async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V2.5 · A股换手率与主力成本增强版】
+        - 优化: 引入自由换手率(turnover_rate_f_D)作为效率分母的修正项，识别A股特有的“缩量涨停”高效率模式。
+        - 优化: 结合主力净额(net_mf_amount_D)对量价方向进行硬性归因。
+        """
+        timeframe = 'D'
+        if timeframe not in all_dfs: return all_dfs
+        df = all_dfs[timeframe]
+        required = ['pct_change_D', 'volume_D', 'VOL_MA_21_D', 'turnover_rate_f_D']
+        if not all(col in df.columns for col in required): return all_dfs
         pct_change = df['pct_change_D'].values.astype(np.float32)
         volume = df['volume_D'].values.astype(np.float32)
         vol_ma_21 = df['VOL_MA_21_D'].values.astype(np.float32)
-        # ==================== 1. 资金流向增强版VPA ====================
-        # 1.1 总VPA效率
-        # 优化除法：避免 replace(0, nan)
+        turnover_f = df['turnover_rate_f_D'].values.astype(np.float32)
+        # 1. 计算A股特有的“换手调整效率” (Turnover Adjusted Efficiency)
+        # 逻辑：在相同涨幅下，换手率越低，说明筹码锁定度越高，VPA攻击性越强
         with np.errstate(divide='ignore', invalid='ignore'):
-            volume_ratio = np.divide(volume, vol_ma_21)
-            # 处理 inf 和 nan (当 vol_ma_21 为 0 时)
-            volume_ratio[~np.isfinite(volume_ratio)] = 0.0
-            # 再次除法计算效率
-            vpa_efficiency = np.divide(pct_change, volume_ratio)
-            vpa_efficiency[~np.isfinite(vpa_efficiency)] = 0.0
-        df['VPA_EFFICIENCY_D'] = vpa_efficiency
-        # 1.2 使用资金流向因子替代幻方指标
-        has_fundflow_data = all(col in df.columns for col in ['flow_intensity_D', 'net_amount_ratio_D', 'large_order_anomaly_D'])
-        if has_fundflow_data:
-            # 2.1 主力行为增强VPA
-            if 'accumulation_score_D' in df.columns and 'distribution_score_D' in df.columns:
-                accum_score = df['accumulation_score_D'].fillna(0).values.astype(np.float32)
-                dist_score = df['distribution_score_D'].fillna(0).values.astype(np.float32)
-                accumulation_weight = accum_score / 100.0
-                distribution_weight = dist_score / 100.0
-                # 向量化计算
-                positive_change = np.maximum(pct_change, 0)
-                negative_change = np.minimum(pct_change, 0)
-                # 避免除零
-                safe_vol_ratio = np.where(volume_ratio == 0, 1.0, volume_ratio)
-                buy_eff = (positive_change / safe_vol_ratio) * accumulation_weight
-                sell_eff = (negative_change / safe_vol_ratio) * distribution_weight
-                df['VPA_BUY_ACCUM_EFF_D'] = np.nan_to_num(buy_eff)
-                df['VPA_SELL_DIST_EFF_D'] = np.nan_to_num(sell_eff)
-            # 2.2 大单异动增强VPA
-            if 'large_order_anomaly_D' in df.columns and 'anomaly_intensity_D' in df.columns:
-                anomaly_mask = df['large_order_anomaly_D'].values.astype(bool)
-                anomaly_weight = df['anomaly_intensity_D'].fillna(0).values.astype(np.float32) / 100.0
-                anomaly_vpa = vpa_efficiency * (1 + anomaly_weight)
-                # 使用 np.where 向量化选择
-                df['VPA_ANOMALY_ENHANCED_D'] = np.where(anomaly_mask, anomaly_vpa, vpa_efficiency)
-            # 2.3 净流入占比调整的VPA
-            if 'net_amount_ratio_D' in df.columns:
-                net_ratio = df['net_amount_ratio_D'].fillna(0).values.astype(np.float32) / 100.0
-                safe_vol_ratio = np.where(volume_ratio == 0, 1.0, volume_ratio)
-                buy_eff_adj = np.maximum(pct_change, 0) / safe_vol_ratio
-                sell_eff_adj = np.minimum(pct_change, 0) / safe_vol_ratio
-                df['VPA_BUY_NETFLOW_ADJ_D'] = np.nan_to_num(buy_eff_adj * (1 + np.maximum(net_ratio, 0)))
-                df['VPA_SELL_NETFLOW_ADJ_D'] = np.nan_to_num(sell_eff_adj * (1 + np.abs(np.minimum(net_ratio, 0))))
-            # 2.4 资金流向稳定性调整VPA
-            if 'flow_stability_D' in df.columns:
-                stability_weight = df['flow_stability_D'].fillna(50).values.astype(np.float32) / 100.0
-                df['VPA_STABILITY_WEIGHTED_D'] = vpa_efficiency * stability_weight
-        # ==================== 3. 筹码结构增强版VPA ====================
-        has_chip_data = all(col in df.columns for col in ['chip_concentration_ratio_D', 'winner_rate_D', 'turnover_rate_D'])
-        if has_chip_data:
-            # 3.1 筹码集中度调整
-            conc_weight = df['chip_concentration_ratio_D'].fillna(0.5).values.astype(np.float32)
-            df['VPA_CONCENTRATION_ADJ_D'] = vpa_efficiency * conc_weight
-            # 3.2 获利盘压力调整
-            if 'profit_pressure_D' in df.columns:
-                pressure = df['profit_pressure_D'].fillna(0).values.astype(np.float32)
-                pressure_adj = 1.0 / (1.0 + np.abs(pressure))
-                df['VPA_PROFIT_PRESSURE_ADJ_D'] = vpa_efficiency * pressure_adj
-            # 3.3 换手率调整
-            turnover = df['turnover_rate_D'].fillna(0).values.astype(np.float32) / 100.0
-            turnover_penalty = 1.0 / (1.0 + turnover * 5.0)
-            df['VPA_TURNOVER_ADJ_D'] = vpa_efficiency * turnover_penalty
-            # 3.4 筹码峰动态调整
-            if 'peak_migration_speed_5d' in df.columns:
-                speed = df['peak_migration_speed_5d'].fillna(0).values.astype(np.float32)
-                mig_factor = 1.0 / (1.0 + np.abs(speed) * 0.1)
-                df['VPA_MIGRATION_ADJ_D'] = vpa_efficiency * mig_factor
-        # ==================== 4. 筹码持有时间矩阵增强版VPA ====================
-        has_matrix_data = all(col in df.columns for col in ['short_term_ratio_D', 'long_term_ratio_D', 'absorption_energy_D', 'distribution_energy_D'])
-        if has_matrix_data:
-            # 4.1 短线筹码
-            short_ratio = df['short_term_ratio_D'].fillna(0.2).values.astype(np.float32)
-            short_penalty = 1.0 - short_ratio * 0.5
-            df['VPA_SHORT_TERM_ADJ_D'] = vpa_efficiency * short_penalty
-            # 4.2 长线筹码
-            long_ratio = df['long_term_ratio_D'].fillna(0.5).values.astype(np.float32)
-            long_boost = 1.0 + long_ratio * 0.3
-            df['VPA_LONG_TERM_ADJ_D'] = vpa_efficiency * long_boost
-            # 4.3 博弈能量场
-            absorb_energy = df['absorption_energy_D'].fillna(0).values.astype(np.float32) / 100.0
-            dist_energy = df['distribution_energy_D'].fillna(0).values.astype(np.float32) / 100.0
-            safe_vol_ratio = np.where(volume_ratio == 0, 1.0, volume_ratio)
-            buy_eff = np.maximum(pct_change, 0) / safe_vol_ratio
-            sell_eff = np.minimum(pct_change, 0) / safe_vol_ratio
-            df['VPA_ABSORPTION_ENHANCED_D'] = np.nan_to_num(buy_eff * (1 + absorb_energy))
-            df['VPA_DISTRIBUTION_ENHANCED_D'] = np.nan_to_num(sell_eff * (1 + dist_energy))
-            # 4.4 净能量流向
-            if 'net_energy_flow_D' in df.columns:
-                net_energy = df['net_energy_flow_D'].fillna(0).values.astype(np.float32) / 100.0
-                df['VPA_NET_ENERGY_ADJ_D'] = vpa_efficiency * (1 + net_energy * 0.5)
-        # ==================== 5. 复合VPA综合指标 ====================
-        # 5.1 综合VPA评分
-        vpa_cols_check = [
-            'VPA_EFFICIENCY_D', 'VPA_CONCENTRATION_ADJ_D', 'VPA_STABILITY_WEIGHTED_D',
-            'VPA_LONG_TERM_ADJ_D', 'VPA_NET_ENERGY_ADJ_D'
-        ]
-        valid_cols = [col for col in vpa_cols_check if col in df.columns]
-        if len(valid_cols) > 1:
-            # 提取矩阵并计算均值
-            vpa_matrix = df[valid_cols].fillna(0).values.astype(np.float32)
-            composite_score = np.mean(vpa_matrix, axis=1)
-            df['VPA_COMPOSITE_SCORE_D'] = composite_score
-            # 5.2 VPA效率分级 (向量化 np.select)
-            conds = [
-                composite_score > 2.0,
-                composite_score > 1.0,
-                composite_score > 0,
-                composite_score > -1.0,
-                composite_score > -2.0
-            ]
-            choices = [4, 3, 2, 1, 0]
-            df['VPA_EFFICIENCY_LEVEL_D'] = np.select(conds, choices, default=0)
-            # 5.3 VPA背离检测
-            # Rolling 仍需 Pandas，但只对单列操作
-            price_trend = df['pct_change_D'].rolling(window=5, min_periods=3).mean()
-            vpa_trend = df['VPA_COMPOSITE_SCORE_D'].rolling(window=5, min_periods=3).mean()
-            bullish_div = (price_trend < 0) & (vpa_trend > 0)
-            bearish_div = (price_trend > 0) & (vpa_trend < 0)
-            df['VPA_BULLISH_DIVERGENCE_D'] = bullish_div.astype(int)
-            df['VPA_BEARISH_DIVERGENCE_D'] = bearish_div.astype(int)
-            # 5.4 VPA动量
-            df['VPA_MOMENTUM_5D'] = df['VPA_COMPOSITE_SCORE_D'].diff(5)
-            df['VPA_MOMENTUM_10D'] = df['VPA_COMPOSITE_SCORE_D'].diff(10)
-        # ==================== 6. 信号质量评估 ====================
-        # 6.1 VPA信号置信度
-        conf_factors = []
-        if 'flow_stability_D' in df.columns: conf_factors.append(df['flow_stability_D'].fillna(50).values / 100.0)
-        if 'chip_stability_D' in df.columns: conf_factors.append(df['chip_stability_D'].fillna(0.5).values)
-        if 'validation_score_D' in df.columns: conf_factors.append(df['validation_score_D'].fillna(0.5).values)
-        if conf_factors:
-            # 堆叠并计算均值
-            conf_matrix = np.vstack(conf_factors)
-            df['VPA_SIGNAL_CONFIDENCE_D'] = np.mean(conf_matrix, axis=0)
-        # 6.2 VPA交易信号生成
-        if 'VPA_COMPOSITE_SCORE_D' in df.columns and 'VPA_MOMENTUM_5D' in df.columns:
-            comp = df['VPA_COMPOSITE_SCORE_D'].values
-            mom = df['VPA_MOMENTUM_5D'].fillna(0).values
-            conds = [
-                (comp > 1.5) & (mom > 0.1),
-                (comp > 0.5) & (mom > 0),
-                (comp < -0.5) & (mom < 0),
-                (comp < -1.5) & (mom < -0.1)
-            ]
-            choices = [2, 1, -1, -2]
-            signal = np.select(conds, choices, default=0)
-            df['VPA_TRADING_SIGNAL_D'] = signal
-            df['VPA_SIGNAL_STRENGTH_D'] = np.abs(signal)
-        # 最终清理：替换所有 VPA_ 开头列的 NaN 为 0
-        # 使用 NumPy 批量处理可能比较麻烦，这里用 Pandas 的 fillna 比较稳妥，
-        # 或者只对新生成的列处理。鉴于列数不多，Pandas fillna 可接受。
-        vpa_cols_all = [col for col in df.columns if col.startswith('VPA_')]
-        df[vpa_cols_all] = df[vpa_cols_all].fillna(0)
+            vol_ratio = np.divide(volume, vol_ma_21)
+            vol_ratio = np.where(vol_ratio == 0, 1.0, vol_ratio)
+            # 引入换手率惩罚系数: (1 + turnover_f / 100)
+            vpa_eff = pct_change / (vol_ratio * (1 + turnover_f / 5.0))
+            df['VPA_EFFICIENCY_D'] = np.nan_to_num(vpa_eff)
+        # 2. 结合主力净额修正方向
+        if 'net_mf_amount_D' in df.columns:
+            net_mf = df['net_mf_amount_D'].values.astype(np.float32)
+            # 若价格上涨但主力净流出，则判定为“诱多性效率”，打折扣
+            vpa_adj = np.where((pct_change > 0) & (net_mf < 0), vpa_eff * 0.3, vpa_eff)
+            df['VPA_MF_ADJUSTED_EFF_D'] = np.nan_to_num(vpa_adj)
+        # 3. 计算VPA加速度 (使用已有的SLOPE逻辑计算VPA的变化率)
+        vpa_values = df['VPA_EFFICIENCY_D'].values.astype(np.float64)
+        df['VPA_ACCELERATION_5D'] = _numba_rolling_slope(vpa_values, 5)
         all_dfs[timeframe] = df
         return all_dfs
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V6.1 · Numba加速版】基于市场阶段的多模式识别系统
-        - 优化: 使用 _numba_rolling_quantile 替代 Pandas 的 rolling().quantile()，大幅提升动态阈值计算速度。
-        - 优化: 修正了 fillna(method='ffill') 的废弃用法。
+        【V6.5 · 熵增与情绪周期识别版】
+        - 优化: 使用样本熵(chip_entropy_D)替代ADX判断市场状态。低熵值+高情绪=强趋势阶段。
+        - 优化: 引入主力控盘度(main_cost_range_ratio_D)动态调整突破信号的阈值。
         """
         timeframe = 'D'
-        if timeframe not in all_dfs:
-            return all_dfs
+        if timeframe not in all_dfs: return all_dfs
         df = all_dfs[timeframe].copy()
-        print(f"=== 模式识别引擎(V6.1 Numba加速版)开始分析，数据长度: {len(df)} ===")
-        # ==================== 1. 市场阶段判断 ====================
-        market_phase = 'CONSOLIDATING'
-        if 'flow_stability_D' in df.columns and 'ADX_14_D' in df.columns:
-            current_adx = df['ADX_14_D'].iloc[-1]
-            current_flow_stability = df['flow_stability_D'].iloc[-1] if not pd.isna(df['flow_stability_D'].iloc[-1]) else 50
-            if current_adx > 25 and current_flow_stability > 60:
-                market_phase = 'TRENDING'
-            else:
-                market_phase = 'CONSOLIDATING'
-        elif 'ADX_14_D' in df.columns:
-            current_adx = df['ADX_14_D'].iloc[-1]
-            market_phase = 'TRENDING' if current_adx > 25 else 'CONSOLIDATING'
-        # 处理百分比变化数据
-        if 'pct_change_D' in df.columns and (df['pct_change_D'].max() > 10 or df['pct_change_D'].min() < -10):
-            df['pct_change_D'] = df['pct_change_D'] / 100.0
-        # ==================== 2. 动态阈值计算 (Numba加速) ====================
-        rolling_window = min(120, len(df))
-        if rolling_window < 30:
-            return all_dfs
-        dynamic_thresholds = {}
-        # 配置定义 (保持原逻辑)
-        if market_phase == 'TRENDING':
-            threshold_config = {
-                'chip_stability_D': ('q30', 0.3), 'flow_stability_D': ('q40', 0.4),
-                'accumulation_score_D': ('q50', 0.5), 'distribution_score_D': ('q30', 0.3),
-                'flow_intensity_D': ('q40', 0.4), 'net_amount_ratio_D': ('q50', 0.5),
-                'chip_concentration_ratio_D': ('q60', 0.6), 'concentration_comprehensive_D': ('q50', 0.5),
-                'absorption_energy_D': ('q60', 0.6), 'distribution_energy_D': ('q30', 0.3),
-                'pct_change_D': ('q40', 0.4), 'uptrend_strength_D': ('q60', 0.6),
-                'downtrend_strength_D': ('q30', 0.3), 'chip_flow_intensity_D': ('q50', 0.5),
-                'long_term_chip_ratio_D': ('q60', 0.6),
-            }
+        # 1. 基于信息论的市场阶段判定
+        # 低熵代表趋势有序，高熵代表震荡混沌
+        if 'chip_entropy_D' in df.columns:
+            entropy_ma = df['chip_entropy_D'].rolling(20).mean()
+            is_trending = (df['chip_entropy_D'] < entropy_ma * 0.95).values
         else:
-            threshold_config = {
-                'chip_stability_D': ('q40', 0.4), 'flow_stability_D': ('q30', 0.3),
-                'accumulation_score_D': ('q60', 0.6), 'distribution_score_D': ('q40', 0.4),
-                'flow_intensity_D': ('q50', 0.5), 'net_amount_ratio_D': ('q60', 0.6),
-                'chip_concentration_ratio_D': ('q70', 0.7), 'concentration_comprehensive_D': ('q60', 0.6),
-                'absorption_energy_D': ('q70', 0.7), 'distribution_energy_D': ('q40', 0.4),
-                'pct_change_D': ('q60', 0.6), 'uptrend_strength_D': ('q70', 0.7),
-                'downtrend_strength_D': ('q40', 0.4), 'chip_flow_intensity_D': ('q60', 0.6),
-                'long_term_chip_ratio_D': ('q70', 0.7),
-            }
-        # 【优化】使用 Numba 计算滚动分位数
-        for col, (method, param) in threshold_config.items():
-            if col in df.columns:
-                # 提取 numpy 数组，处理 NaN
-                data_values = df[col].values.astype(np.float64)
-                if np.isnan(data_values).all():
-                    dynamic_thresholds[col] = pd.Series(0, index=df.index)
-                    continue
-                try:
-                    # 调用 Numba 函数
-                    quantile_values = _numba_rolling_quantile(data_values, rolling_window, param)
-                    # 转换为 Series 并填充
-                    threshold_series = pd.Series(quantile_values, index=df.index).ffill()
-                    dynamic_thresholds[col] = threshold_series
-                except Exception as e:
-                    logger.warning(f"Numba quantile calculation failed for {col}: {e}")
-                    # 降级处理
-                    dynamic_thresholds[col] = pd.Series(0, index=df.index)
-            else:
-                # 默认值处理
-                default_val = 0.5 if 'stability' in col or 'concentration' in col else 0
-                if 'score' in col or 'energy' in col: default_val = 50
-                dynamic_thresholds[col] = pd.Series(default_val, index=df.index)
-        # ==================== 3. 趋势市场信号识别 ====================
-        if market_phase == 'TRENDING':
-            df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = False
-            df['IS_ACCUMULATION_D'] = False
-            # 3.1 趋势延续信号 (向量化计算)
-            trend_score = np.zeros(len(df), dtype=np.float64)
-            if 'pct_change_D' in df.columns:
-                thresh = dynamic_thresholds.get('pct_change_D', 0).values
-                trend_score += np.where(df['pct_change_D'].values > thresh, 2.0, 0.0)
-            if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns:
-                trend_score += np.where(df['volume_D'].values > df['VOL_MA_21_D'].values * 1.2, 1.5, 0.0)
-            if 'flow_intensity_D' in df.columns:
-                thresh = dynamic_thresholds.get('flow_intensity_D', 0).values
-                trend_score += np.where(df['flow_intensity_D'].values > thresh, 1.5, 0.0)
-            if 'chip_stability_D' in df.columns:
-                thresh = dynamic_thresholds.get('chip_stability_D', 0.5).values
-                trend_score += np.where(df['chip_stability_D'].values > thresh, 1.2, 0.0)
-            if 'uptrend_strength_D' in df.columns:
-                thresh = dynamic_thresholds.get('uptrend_strength_D', 60).values
-                trend_score += np.where(df['uptrend_strength_D'].values > thresh, 1.5, 0.0)
-            df['IS_TREND_CONTINUATION_D'] = (trend_score >= 6.0)
-            # 3.2 趋势回调信号 (调用已优化的 Numba 函数)
-            if 'pct_change_D' in df.columns:
-                required_cols = ['pct_change_D', 'close_D', 'volume_D', 'VOL_MA_21_D', 
-                               'flow_intensity_D', 'chip_stability_D', 'long_term_chip_ratio_D']
-                if all(col in df.columns for col in required_cols):
-                    # 准备数据 (fillna 0 或 ffill)
-                    pct_change = df['pct_change_D'].fillna(0).values.astype(np.float32)
-                    close = df['close_D'].ffill().bfill().values.astype(np.float32)
-                    volume = df['volume_D'].fillna(0).values.astype(np.float32)
-                    vol_ma21 = df['VOL_MA_21_D'].fillna(0).values.astype(np.float32)
-                    flow_intensity = df['flow_intensity_D'].fillna(0).values.astype(np.float32)
-                    chip_stability = df['chip_stability_D'].fillna(0.5).values.astype(np.float32)
-                    long_term_ratio = df['long_term_chip_ratio_D'].fillna(0.5).values.astype(np.float32)
-                    is_correction_numba = calculate_correction_scores_v2_numba(
-                        pct_change, close, volume, vol_ma21, flow_intensity, 
-                        chip_stability, long_term_ratio,
-                        -0.008, -0.05
-                    )
-                    df['IS_TREND_CORRECTION_D'] = is_correction_numba
-                    # 互斥
-                    if 'IS_TREND_CONTINUATION_D' in df.columns:
-                        df['IS_TREND_CORRECTION_D'] = df['IS_TREND_CORRECTION_D'] & (~df['IS_TREND_CONTINUATION_D'])
-                else:
-                    df['IS_TREND_CORRECTION_D'] = False
-            # 3.3 趋势反转信号 (向量化)
-            if 'pct_change_D' in df.columns:
-                cond_sharp_drop = df['pct_change_D'] < -0.05
-                cond_volume_spike = (df['volume_D'] > df['VOL_MA_21_D'] * 1.5) if 'volume_D' in df.columns else False
-                cond_heavy_outflow = False
-                if 'net_amount_ratio_D' in df.columns:
-                    # 这里 rolling quantile 也可以优化，但只用一次，暂保留 Pandas
-                    net_ratio_low_q = df['net_amount_ratio_D'].rolling(20).quantile(0.2).ffill()
-                    cond_heavy_outflow = (df['net_amount_ratio_D'] < net_ratio_low_q)
-                cond_chip_deteriorate = False
-                if 'chip_stability_D' in df.columns:
-                    chip_stab_low_q = df['chip_stability_D'].rolling(20).quantile(0.3).ffill()
-                    cond_chip_deteriorate = (df['chip_stability_D'] < chip_stab_low_q)
-                cond_distribution_mode = False
-                if 'distribution_score_D' in df.columns:
-                    dist_thresh = dynamic_thresholds.get('distribution_score_D', 30)
-                    cond_distribution_mode = (df['distribution_score_D'] > dist_thresh)
-                df['IS_TREND_REVERSAL_D'] = cond_sharp_drop & (
-                    cond_volume_spike | cond_heavy_outflow | cond_distribution_mode
-                ) & cond_chip_deteriorate
-        # ==================== 4. 震荡市场信号识别 ====================
+            is_trending = (df['ADX_14_D'] > 25).values if 'ADX_14_D' in df.columns else np.zeros(len(df), dtype=bool)
+        # 2. 动态突破阈值修正
+        # 逻辑：主力控盘度越高，向上突破所需的成交量倍率可以适当放低
+        vol_break_ratio = 1.8 # 默认1.8倍
+        if 'main_cost_range_ratio_D' in df.columns:
+            # 控盘度从0.1-0.9映射到1.2-2.0倍量需求
+            dynamic_vol_req = 2.0 - (df['main_cost_range_ratio_D'] * 0.8)
+            vol_break_cond = (df['volume_D'] > df['VOL_MA_21_D'] * dynamic_vol_req)
         else:
-            df['IS_TREND_CONTINUATION_D'] = False
-            df['IS_TREND_CORRECTION_D'] = False
-            df['IS_TREND_REVERSAL_D'] = False
-            # 4.1 高潜力震荡 (向量化)
-            cons_score = np.zeros(len(df), dtype=int)
-            if 'chip_stability_D' in df.columns:
-                thresh = dynamic_thresholds.get('chip_stability_D', 0.5).values
-                cons_score += (df['chip_stability_D'].values > thresh).astype(int)
-            if 'flow_stability_D' in df.columns:
-                thresh = dynamic_thresholds.get('flow_stability_D', 50).values
-                cons_score += (df['flow_stability_D'].values > thresh).astype(int)
-            if 'BBW_21_2.0_D' in df.columns:
-                # 局部 rolling quantile
-                bbw_q = df['BBW_21_2.0_D'].rolling(rolling_window, min_periods=20).quantile(0.3).ffill()
-                cons_score += (df['BBW_21_2.0_D'] < bbw_q).astype(int)
-            if 'net_amount_ratio_D' in df.columns:
-                net_std = df['net_amount_ratio_D'].rolling(rolling_window, min_periods=20).std().fillna(0)
-                cons_score += (np.abs(df['net_amount_ratio_D']) < net_std * 0.5).astype(int)
-            df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = (cons_score >= 3) & (df['ADX_14_D'] < 25)
-            # 4.2 吸筹信号 (向量化)
-            accum_score = np.zeros(len(df), dtype=float)
-            if 'accumulation_score_D' in df.columns and 'net_amount_ratio_D' in df.columns:
-                net_q = df['net_amount_ratio_D'].rolling(rolling_window, min_periods=20).quantile(0.5).ffill()
-                accum_score += np.where((df['accumulation_score_D'] > 50) & (df['net_amount_ratio_D'] > net_q), 2.0, 0.0)
-            if 'absorption_energy_D' in df.columns:
-                thresh = dynamic_thresholds.get('absorption_energy_D', 70).values
-                accum_score += np.where(df['absorption_energy_D'].values > thresh, 1.5, 0.0)
-            if 'high_D' in df.columns:
-                high_20 = df['high_D'].rolling(20).max()
-                pct_cond = df['pct_change_D'].abs() < 0.02 if 'pct_change_D' in df.columns else False
-                accum_score += ((df['high_D'] < high_20 * 0.98) & pct_cond).astype(int)
-            if 'concentration_comprehensive_D' in df.columns:
-                thresh = dynamic_thresholds.get('concentration_comprehensive_D', 0.6).values
-                accum_score += (df['concentration_comprehensive_D'].values > thresh).astype(int)
-            df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & (accum_score >= 2.5)
-            # 4.3 突破信号 (向量化)
-            break_score = np.zeros(len(df), dtype=float)
-            mom_break = False
-            energy_break = False
-            if 'pct_change_D' in df.columns:
-                pct_q = df['pct_change_D'].rolling(rolling_window, min_periods=20).quantile(0.6).ffill()
-                mom_break = (df['pct_change_D'] > pct_q)
-                break_score += mom_break.astype(int) * 2.0
-            if 'volume_D' in df.columns and 'VOL_MA_21_D' in df.columns:
-                break_score += (df['volume_D'] > df['VOL_MA_21_D'] * 1.5).astype(int) * 1.5
-            if 'net_amount_ratio_D' in df.columns and 'flow_intensity_D' in df.columns:
-                thresh = dynamic_thresholds.get('net_amount_ratio_D', 0).values
-                break_score += ((df['net_amount_ratio_D'].values > thresh) & (df['flow_intensity_D'].values > 60)).astype(int) * 1.2
-            if 'absorption_energy_D' in df.columns:
-                thresh = dynamic_thresholds.get('absorption_energy_D', 70).values * 1.2
-                energy_break = (df['absorption_energy_D'].values > thresh)
-                break_score += energy_break.astype(int)
-            df['IS_BREAKOUT_D'] = (break_score >= 5) & (mom_break | energy_break)
-            # 4.4 派发信号 (向量化)
-            dist_score = np.zeros(len(df), dtype=float)
-            if 'distribution_score_D' in df.columns:
-                thresh = dynamic_thresholds.get('distribution_score_D', 40).values
-                dist_score += (df['distribution_score_D'].values > thresh).astype(int) * 1.5
-            if 'distribution_energy_D' in df.columns:
-                thresh = dynamic_thresholds.get('distribution_energy_D', 40).values
-                dist_score += (df['distribution_energy_D'].values > thresh).astype(int) * 1.2
-            if 'close_D' in df.columns and 'net_amount_ratio_D' in df.columns:
-                close_max = df['close_D'].rolling(20).max()
-                net_5 = df['net_amount_ratio_D'].rolling(5).mean()
-                net_20 = df['net_amount_ratio_D'].rolling(20).mean()
-                dist_score += ((df['close_D'] > close_max) & (net_5 < net_20)).astype(int)
-            if 'chip_stability_D' in df.columns and 'pct_change_D' in df.columns:
-                thresh = dynamic_thresholds.get('chip_stability_D', 0.5).values
-                dist_score += ((df['chip_stability_D'].values < thresh) & (df['pct_change_D'].values > 0.05)).astype(int)
-            df['IS_DISTRIBUTION_D'] = dist_score >= 3
-        # ==================== 5. 信号后处理 (向量化) ====================
-        # 信号平滑 (Rolling Sum)
-        cols_to_smooth = []
-        if market_phase == 'TRENDING':
-            cols_to_smooth = ['IS_TREND_CONTINUATION_D', 'IS_TREND_REVERSAL_D']
-        else:
-            cols_to_smooth = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
-        for col in cols_to_smooth:
-            if col in df.columns:
-                # 转换为 float 进行 rolling sum，再转回 bool
-                df[col] = (df[col].astype(float).rolling(2 if market_phase=='TRENDING' else 3, min_periods=2).sum() >= 2).fillna(False)
-        # 互斥逻辑 (使用 DataFrame 掩码操作)
-        if market_phase == 'TRENDING':
-            if 'IS_TREND_CONTINUATION_D' in df.columns and 'IS_TREND_REVERSAL_D' in df.columns:
-                df.loc[df['IS_TREND_CONTINUATION_D'], 'IS_TREND_REVERSAL_D'] = False
-            if 'IS_TREND_CORRECTION_D' in df.columns:
-                if 'IS_TREND_REVERSAL_D' in df.columns:
-                    df.loc[df['IS_TREND_CORRECTION_D'], 'IS_TREND_REVERSAL_D'] = False
-                if 'IS_TREND_CONTINUATION_D' in df.columns:
-                    df.loc[df['IS_TREND_CONTINUATION_D'], 'IS_TREND_CORRECTION_D'] = False
-        else:
-            if 'IS_BREAKOUT_D' in df.columns and 'IS_ACCUMULATION_D' in df.columns:
-                df.loc[df['IS_BREAKOUT_D'], 'IS_ACCUMULATION_D'] = False
-            if 'IS_DISTRIBUTION_D' in df.columns and 'IS_BREAKOUT_D' in df.columns:
-                df.loc[df['IS_DISTRIBUTION_D'], 'IS_BREAKOUT_D'] = False
-        df['MARKET_PHASE_D'] = market_phase
+            vol_break_cond = (df['volume_D'] > df['VOL_MA_21_D'] * vol_break_ratio)
+        # 3. 信号合成 (向量化)
+        df['IS_TRENDING_STAGE_D'] = is_trending
+        if 'VPA_EFFICIENCY_D' in df.columns and 'uptrend_strength_D' in df.columns:
+            # 强趋势+量价效率激增+能量集中
+            df['IS_BREAKOUT_CONFIRMED_D'] = is_trending & vol_break_cond & (df['VPA_EFFICIENCY_D'] > 0)
+        # 4. 反转警告逻辑优化
+        if 'reversal_warning_score_D' in df.columns:
+            # 结合换手率极值和乖离率判定A股特有的“情绪顶”
+            bias_extreme = (df['BIAS_5_D'] > 5) | (df['BIAS_5_D'] < -5)
+            df['IS_EMOTIONAL_EXTREME_D'] = bias_extreme & (df['turnover_rate_D'] > df['turnover_rate_D'].rolling(20).quantile(0.9))
         all_dfs[timeframe] = df
         return all_dfs
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 向量化重构版】计算突破就绪分数
-        - 优化: 移除 Python for 循环，完全使用 Pandas 向量化操作。
-        - 性能: 提升约 100 倍。
+        【V3.0 · A股板前蓄势模型】计算突破就绪分数
+        - 逻辑重构: 
+            1. 筹码锁定: 使用自由换手率(turnover_rate_f_D)替代单纯量比，捕捉"缩量锁仓"。
+            2. 筹码结构: 引入筹码集中度与稳定性，确认"单峰密集"。
+            3. 主力潜伏: 结合主力活跃度，识别"横盘暗建仓"。
         """
-        # 1. 平台质量分（基于平台振幅和持续时间）
-        # 使用 shift(1) 确保不包含当日数据，模拟 iloc[i-20:i]
-        recent_high = df['high_D'].shift(1).rolling(window=20).max()
-        recent_low = df['low_D'].shift(1).rolling(window=20).min()
-        # 避免除以零
-        platform_range = (recent_high - recent_low) / (recent_low + 1e-8)
-        # 2. 成交量收缩程度
-        # 近5日均量 (对应 iloc[i-5:i])
-        vol_recent = df['volume_D'].shift(1).rolling(window=5).mean()
-        # 过去5-20日均量 (对应 iloc[i-20:i-5]) -> shift(6) + rolling(15) 近似
-        vol_past = df['volume_D'].shift(6).rolling(window=15).mean()
-        # 避免除以零
-        volume_ratio = vol_recent / vol_past.replace(0, 1)
-        # 3. 波动率收缩
-        atr_ratio = pd.Series(1.0, index=df.index)
-        if 'ATR_14_D' in df.columns:
-            # 过去20日最大ATR
-            atr_max = df['ATR_14_D'].shift(1).rolling(window=20).max()
-            atr_ratio = df['ATR_14_D'] / (atr_max + 1e-8)
-        # 综合评分计算 (向量化)
-        score = 100 * (1 - platform_range.clip(upper=0.99)) * \
-                      (1 - volume_ratio.clip(upper=0.99)) * \
-                      (1 - atr_ratio.clip(upper=0.99))
-                      
-        # 处理前20个数据点 (因 rolling 导致 NaN)
-        return score.fillna(0).clip(0, 100)
+        # 1. 平台压缩度 (Platform Compression)
+        # A股突破前通常伴随极窄的波动 (Volatility Contraction)
+        # 使用 ATR 归一化幅度
+        atr = df['ATR_14_D'].replace(0, 1e-8) if 'ATR_14_D' in df.columns else df['high_D'] * 0.02
+        amplitude = (df['high_D'] - df['low_D']) / df['close_D'].replace(0, 1)
+        # 波动率越低分越高，A股妖股启动前常出现“心电图”
+        compression_score = (1 - (amplitude / (atr / df['close_D'] * 3)).clip(0, 1))
+        
+        # 2. 筹码锁定度 (Chip Locking)
+        # 核心：自由换手率越低，说明锁仓越好。阈值设定为 3% (0.03) 为极佳，10% 以上扣分
+        if 'turnover_rate_f_D' in df.columns:
+            to_f = df['turnover_rate_f_D']
+            # 3%以下满分，15%以上0分
+            locking_score = np.clip((15 - to_f) / 12, 0, 1)
+        else:
+            # 降级：使用量比
+            vol_ma5 = df['volume_D'].rolling(5).mean()
+            vol_ma20 = df['volume_D'].rolling(20).mean()
+            locking_score = np.clip(1 - (vol_ma5 / vol_ma20), 0, 1)
+
+        # 3. 筹码结构优势 (Chip Structure)
+        # 筹码越集中，稳定性越高，拉升越轻松
+        chip_score = pd.Series(0.5, index=df.index)
+        if 'chip_concentration_ratio_D' in df.columns and 'chip_stability_D' in df.columns:
+            # 集中度 > 0.7 (70%) 且 稳定性 > 4 为佳
+            conc_factor = df['chip_concentration_ratio_D'].clip(0, 1)
+            stab_factor = (df['chip_stability_D'] / 5.0).clip(0, 1) # 假设5是满分
+            chip_score = (conc_factor * 0.6 + stab_factor * 0.4)
+
+        # 4. 主力潜伏迹象 (Latent Main Force)
+        # 价格未涨但主力活跃
+        mf_score = pd.Series(0.5, index=df.index)
+        if 'main_force_activity_index_D' in df.columns:
+            mf_score = (df['main_force_activity_index_D'] / 100.0).clip(0, 1)
+
+        # 综合加权 (向量化)
+        # 权重：筹码锁定(30%) + 结构优势(30%) + 平台压缩(20%) + 主力潜伏(20%)
+        final_score = 100 * (
+            locking_score * 0.3 + 
+            chip_score * 0.3 + 
+            compression_score * 0.2 + 
+            mf_score * 0.2
+        )
+        
+        return final_score.fillna(0)
 
     def _calculate_structural_tension(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 向量化重构版】计算结构张力指数
-        - 优化: 移除 Python for 循环，完全使用 Pandas 向量化操作。
-        - 性能: 提升显著。
+        【V3.0 · A股成本胡克定律】计算结构张力
+        - 逻辑重构:
+            1. 成本乖离: 使用加权平均成本(weight_avg_cost_D)计算全市场获利盘抛压。
+            2. 资金背离: 修复缺失字段，用特大单+大单计算主力净流向与价格的背离。
+            3. 动力学极限: 结合加速度(ACCEL)判断超买/超卖极限。
         """
         tensions_list = []
-        # 1. 价格与均线张力
-        if 'MA_20_D' in df.columns and 'ATR_14_D' in df.columns:
-            # 向量化计算
-            ma_distance = (df['close_D'] - df['MA_20_D']).abs() / (df['ATR_14_D'] + 1e-8)
-            tensions_list.append(ma_distance)
-        # 2. 成交量与价格背离
-        # 价格变化率 (相对于5天前)
-        price_change = df['close_D'] / (df['close_D'].shift(5) + 1e-8) - 1
-        # 成交量均值 (前5天)
-        volume_mean = df['volume_D'].shift(1).rolling(window=5).mean()
-        # 成交量变化率 (当日 vs 前5天均值)
-        volume_change = df['volume_D'] / (volume_mean + 1) - 1
-        volume_tension = (price_change - volume_change).abs()
-        tensions_list.append(volume_tension)
-        # 3. 资金流分歧
-        if 'main_force_buy_ofi_D' in df.columns and 'main_force_sell_ofi_D' in df.columns:
-            flow_divergence = (df['main_force_buy_ofi_D'] - df['main_force_sell_ofi_D']).abs()
-            tensions_list.append(flow_divergence)
-        # 综合张力指数
+        # 1. 真实成本乖离张力
+        # 价格远离成本线 -> 获利回吐压力大
+        if 'weight_avg_cost_D' in df.columns:
+            cost = df['weight_avg_cost_D'].replace(0, np.nan).ffill()
+            cost_bias = (df['close_D'] - cost) / cost
+            # A股经验: 乖离率>20%张力极大
+            tension_cost = (cost_bias.abs() / 0.20).clip(0, 1)
+            tensions_list.append(tension_cost)
+        elif 'MA_20_D' in df.columns:
+            ma_dist = (df['close_D'] - df['MA_20_D']).abs() / (df['MA_20_D'] + 1e-8)
+            tensions_list.append((ma_dist / 0.15).clip(0, 1))
+        # 2. 资金-价格背离 (Flow-Price Divergence)
+        # 修复: 替换不存在的 OFI 字段，使用 elg/lg 数据
+        has_mf = all(c in df.columns for c in ['buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D'])
+        if has_mf:
+            net_mf_large = (df['buy_elg_amount_D'] + df['buy_lg_amount_D']) - \
+                           (df['sell_elg_amount_D'] + df['sell_lg_amount_D'])
+            flow_norm = net_mf_large.rolling(20).rank(pct=True).fillna(0.5)
+            price_norm = df['close_D'].rolling(20).rank(pct=True).fillna(0.5)
+            # 价格在高位但资金流出 -> 背离张力大
+            tension_flow = (price_norm - flow_norm).abs()
+            tensions_list.append(tension_flow)
+        # 3. 动力学极限 (利用已有ACCEL)
+        if 'MA_ACCELERATION_EMA_55_D' in df.columns:
+            accel = df['MA_ACCELERATION_EMA_55_D']
+            # Z-Score标准化
+            tension_accel = ((accel - accel.rolling(20).mean()).abs() / accel.rolling(20).std().replace(0, 1)).clip(0, 3) / 3.0
+            tensions_list.append(tension_accel)
+        # 综合合成
         if tensions_list:
-            # 将列表转换为 DataFrame 并计算行均值
             tensions_df = pd.concat(tensions_list, axis=1)
-            avg_tension = tensions_df.mean(axis=1)
-            # 历史最大值 (Expanding Max)
-            historical_max = avg_tension.expanding(min_periods=1).max().clip(lower=0.01)
-            # 归一化
-            tension_score = avg_tension / historical_max
-            # 处理前30个数据点 (模拟原逻辑)
-            tension_score.iloc[:30] = 0
-            return tension_score.clip(upper=1.0).fillna(0)
-        else:
-            return pd.Series(0, index=df.index)
+            return tensions_df.max(axis=1).fillna(0)
+        return pd.Series(0, index=df.index)
+
+    async def calculate_regime_switch_metrics(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 · 新增】市场环境切换熵模型 (Regime Switch)
+        - 核心职责: 计算价格序列的复杂度(分形维数)和无序度(样本熵)，作为识别"变盘点"的底层物理参数。
+        - 包含指标:
+            1. PRICE_FRACTAL_DIM_D: 价格分形维数，>1.5为洗盘，~1.0为趋势。
+            2. PRICE_ENTROPY_D: 价格样本熵，熵减代表合力形成。
+        """
+        timeframe = 'D'
+        if timeframe not in all_dfs: return all_dfs
+        df = all_dfs[timeframe]
+        if 'close_D' not in df.columns: return all_dfs
+        close_values = df['close_D'].values.astype(np.float64)
+        # 1. 计算分形维数 (Fractal Dimension)
+        # 窗口选择: 21天 (月度周期)
+        fractal_window = 21
+        fractal_dim = _numba_rolling_fractal_dimension(close_values, fractal_window)
+        df['PRICE_FRACTAL_DIM_D'] = np.nan_to_num(fractal_dim, nan=1.0)
+        # 2. 计算样本熵 (Sample Entropy)
+        # 动态计算容差 r: 使用滚动标准差的0.2倍
+        entropy_window = 21
+        rolling_std = df['close_D'].rolling(window=entropy_window).std().fillna(0).values.astype(np.float64)
+        sample_entropy = _numba_rolling_sample_entropy(close_values, entropy_window, 0.2, rolling_std)
+        df['PRICE_ENTROPY_D'] = np.nan_to_num(sample_entropy)
+        # 3. 衍生指标：熵的变化率 (Entropy Velocity)
+        # 熵减加速(Slope为负且绝对值大) -> 主力合力形成，变盘在即
+        entropy_slope = _numba_rolling_slope(df['PRICE_ENTROPY_D'].values, 5)
+        df['ENTROPY_VELOCITY_D'] = np.nan_to_num(entropy_slope)
+        all_dfs[timeframe] = df
+        return all_dfs
 
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.1 · Numba加速版】根据多因子共振识别盘整期
-        - 优化: 使用 _numba_calculate_block_stats 替代 groupby().transform()，消除分组开销。
-        - 优化: 优化 expanding quantile 计算。
+        【V4.1 · 熵与分形增强版】基于复杂性理论的盘整识别
+        - 核心逻辑:
+            1. 引入 'PRICE_FRACTAL_DIM_D'。高分形维数(>1.35)是A股主力"宽幅震荡洗盘"的数学铁证。
+            2. 引入 'PRICE_ENTROPY_D'。盘整末端通常伴随熵减(有序化)，作为质量评分核心。
+            3. 保留自由换手率方差逻辑，确保是"缩量控盘"的有效盘整。
+        - 性能: 向量化计算判定逻辑，Numba并行计算块统计特征。
         """
         if not params.get('enabled', False):
             return all_dfs
@@ -932,174 +750,164 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             return all_dfs
         df = all_dfs[timeframe].copy()
-        # 参数设置
-        boll_period = params.get('boll_period', 21)
-        boll_std = params.get('boll_std', 2.0)
-        roc_period = params.get('roc_period', 13)
-        vol_ma_period = params.get('vol_ma_period', 55)
-        bbw_col = f"BBW_{boll_period}_{float(boll_std)}_{timeframe}"
-        roc_col = f"ROC_{roc_period}_{timeframe}"
-        vol_ma_col = f"VOL_MA_{vol_ma_period}_{timeframe}"
-        # 基础检查
-        required_base_cols = [bbw_col, roc_col, vol_ma_col, f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}', f'close_{timeframe}']
-        if not all(col in df.columns for col in required_base_cols):
-            return all_dfs
-        # ==================== 2. 动态阈值计算 (优化) ====================
-        bbw_quantile = params.get('bbw_quantile', 0.25)
-        min_expanding_periods = boll_period * 2
-        # 优化：Expanding Quantile 较慢，使用大窗口 Rolling 近似或 Numba
-        # 这里使用 Pandas 的 expanding，但在数据量极大时应考虑 Numba
-        # 考虑到 expanding 必须依赖历史，无法简单并行，暂保持 Pandas 但确保数据类型正确
-        dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile).bfill()
-        df[f'dynamic_bbw_threshold_{timeframe}'] = dynamic_bbw_threshold
-        # ==================== 3. 三重盘整识别标准 (向量化) ====================
-        # 3.1 技术形态
-        cond_volatility = df[bbw_col] < df[f'dynamic_bbw_threshold_{timeframe}']
-        cond_trend = df[roc_col].abs() < params.get('roc_threshold', 5.0)
-        cond_volume = df[f'volume_{timeframe}'] < df[vol_ma_col]
-        is_classic = cond_volatility & cond_trend & cond_volume
-        # 3.2 筹码结构 (向量化)
-        is_chip = pd.Series(True, index=df.index)
-        if 'chip_concentration_ratio_D' in df.columns: is_chip &= (df['chip_concentration_ratio_D'] > 0.6)
-        if 'concentration_comprehensive_D' in df.columns: is_chip &= (df['concentration_comprehensive_D'] > 0.5)
-        if 'chip_stability_D' in df.columns: is_chip &= (df['chip_stability_D'] > 0.5)
-        if 'main_cost_range_ratio_D' in df.columns: is_chip &= (df['main_cost_range_ratio_D'] > 0.6)
-        # 3.3 资金意图 (向量化)
-        is_intent = pd.Series(True, index=df.index)
-        if 'accumulation_score_D' in df.columns: is_intent &= (df['accumulation_score_D'] > 50)
-        if 'distribution_score_D' in df.columns: is_intent &= (df['distribution_score_D'] < 40)
-        if 'flow_stability_D' in df.columns: is_intent &= (df['flow_stability_D'] > 60)
-        if 'flow_consistency_D' in df.columns: is_intent &= (df['flow_consistency_D'] > 70)
-        if 'large_order_anomaly_D' in df.columns: is_intent &= (df['large_order_anomaly_D'] == False)
-        # 3.4 能量场 (向量化)
-        is_energy = pd.Series(True, index=df.index)
-        if 'absorption_energy_D' in df.columns: is_energy &= (df['absorption_energy_D'] > 50)
-        if 'distribution_energy_D' in df.columns: is_energy &= (df['distribution_energy_D'] < 40)
-        if 'energy_concentration_D' in df.columns: is_energy &= (df['energy_concentration_D'] > 0.6)
-        # 综合判断
-        consolidation_scores = is_classic.astype(int) + is_chip.astype(int) + is_intent.astype(int) + is_energy.astype(int)
-        # 动态阈值
-        available_models = sum(1 for col in ['chip_concentration_ratio_D', 'accumulation_score_D', 'absorption_energy_D'] if col in df.columns) * 3 # 估算
-        score_threshold = 3 if available_models >= 8 else (2 if available_models >= 4 else 1)
-        is_consolidating = consolidation_scores >= score_threshold
+        # 0. 确保前置依赖指标已存在 (分形与熵)，若缺失则进行默认填充以防报错
+        if 'PRICE_FRACTAL_DIM_D' not in df.columns:
+             df['PRICE_FRACTAL_DIM_D'] = 1.5 # 默认为随机游走/震荡状态
+        if 'PRICE_ENTROPY_D' not in df.columns:
+             df['PRICE_ENTROPY_D'] = 0.0
+        # 1. 计算卡夫曼效率系数 (ER)
+        # 逻辑：ER = |位移| / 路径长度。值越小代表噪音越大(盘整)，A股典型盘整阈值 < 0.3
+        n = 10
+        direction = df['close_D'].diff(n).abs()
+        volatility = df['close_D'].diff(1).abs().rolling(n).sum()
+        with np.errstate(divide='ignore', invalid='ignore'):
+            er = direction / volatility
+        df['ER_10_D'] = er.fillna(0)
+        # 2. 计算自由换手率稳定性 (Turnover Stability Index)
+        # 逻辑：优质的蓄势盘整，换手率应稳定在低位。计算变异系数(CV) = Std / Mean
+        if 'turnover_rate_f_D' in df.columns:
+            to_f = df['turnover_rate_f_D']
+            to_std = to_f.rolling(10).std()
+            to_mean = to_f.rolling(10).mean()
+            to_cv = (to_std / to_mean.replace(0, np.nan)).fillna(1.0)
+            df['TURNOVER_STABILITY_INDEX_D'] = to_cv
+        else:
+            # 降级方案：使用成交量
+            vol_std = df['volume_D'].rolling(10).std()
+            vol_mean = df['volume_D'].rolling(10).mean()
+            df['TURNOVER_STABILITY_INDEX_D'] = (vol_std / vol_mean.replace(0, np.nan)).fillna(1.0)
+        # 3. 盘整状态多维判定
+        # 条件A: 效率系数低 (基础条件)
+        cond_er = df['ER_10_D'] < 0.30
+        # 条件B: 分形维数高 (宽幅震荡特征) 或 筹码极度稳定 (死鱼盘/锁仓特征)
+        # 分形维数 > 1.35 说明价格曲线填充了二维平面，主力在进行复杂的图形构造(洗盘)
+        cond_complex = df['PRICE_FRACTAL_DIM_D'] > 1.35
+        cond_stable = df['TURNOVER_STABILITY_INDEX_D'] < 0.45
+        # 综合判定: 效率低 且 (形态复杂 或 筹码稳定)
+        is_consolidating = cond_er & (cond_complex | cond_stable)
         df[f'is_consolidating_{timeframe}'] = is_consolidating
-        df[f'consolidation_strength_{timeframe}'] = consolidation_scores
-        # ==================== 5. 盘整期特征提取 (Numba加速) ====================
+        # 4. 盘整质量评分 (Quality Score)
+        # 仅对识别为盘整的区域评分
+        quality_score = np.zeros(len(df), dtype=np.float64)
         if is_consolidating.any():
-            # 准备 Numba 输入数据 (填充 NaN 为 0 或适当值)
+            # 维度1: 熵减趋势 (Entropy Ordering)
+            # 熵的变化率为负(熵减)，代表市场从混乱走向有序，合力即将形成
+            score_entropy = np.zeros(len(df))
+            if 'ENTROPY_VELOCITY_D' in df.columns:
+                # 限制在0-25分，熵速越负分越高
+                score_entropy = np.clip(df['ENTROPY_VELOCITY_D'] * -10, 0, 1) * 25
+            # 维度2: 缩量程度 (Volume Compression)
+            # 自由换手率越低越好，<3%为满分
+            score_vol = np.full(len(df), 15.0)
+            if 'turnover_rate_f_D' in df.columns:
+                score_vol = np.clip((3.0 - df['turnover_rate_f_D']) / 3.0, 0, 1) * 25.0
+            # 维度3: 分形复杂度 (Fractal Complexity)
+            # 维度越高代表洗盘越充分(支撑越强)
+            score_fractal = np.clip((df['PRICE_FRACTAL_DIM_D'] - 1.2) / 0.3, 0, 1) * 25.0
+            # 维度4: 筹码集中度 (Chip Concentration)
+            score_chip = np.zeros(len(df))
+            if 'chip_concentration_ratio_D' in df.columns:
+                score_chip = np.clip(df['chip_concentration_ratio_D'], 0, 1) * 25.0
+            # 合成总分
+            total_raw = score_entropy + score_vol + score_fractal + score_chip
+            quality_score = np.where(is_consolidating, total_raw, 0.0)
+        df[f'consolidation_quality_score_{timeframe}'] = quality_score
+        # 5. Numba加速计算盘整块统计特征
+        # 准备数据数组 (Float64, 处理NaN)
+        if is_consolidating.any():
             is_cons_arr = is_consolidating.values
-            high_arr = df[f'high_{timeframe}'].values.astype(np.float64)
-            low_arr = df[f'low_{timeframe}'].values.astype(np.float64)
-            vol_arr = df[f'volume_{timeframe}'].fillna(0).values.astype(np.float64)
-            # 可选列，不存在则传全NaN
+            high_arr = df['high_D'].values.astype(np.float64)
+            low_arr = df['low_D'].values.astype(np.float64)
+            vol_arr = df['volume_D'].fillna(0).values.astype(np.float64)
             def get_arr(col):
-                return df[col].values.astype(np.float64) if col in df.columns else np.full(len(df), np.nan)
+                return df[col].fillna(0).values.astype(np.float64) if col in df.columns else np.full(len(df), np.nan)
             chip_conc_arr = get_arr('chip_concentration_ratio_D')
             chip_stab_arr = get_arr('chip_stability_D')
             accum_arr = get_arr('accumulation_score_D')
             flow_stab_arr = get_arr('flow_stability_D')
             absorb_arr = get_arr('absorption_energy_D')
-            # 调用 Numba 函数一次性计算
+            # 调用Numba核心函数
             stats_matrix = _numba_calculate_block_stats(
                 is_cons_arr, high_arr, low_arr, vol_arr,
                 chip_conc_arr, chip_stab_arr, accum_arr, flow_stab_arr, absorb_arr
             )
-            # 回填结果 (使用 ffill 保持盘整期后的值，或者仅在盘整期内有效，原逻辑是 ffill)
-            # 原逻辑：grouped.transform('max') 会把整个组填满。Numba 函数也是填满整个组。
-            # 之后原逻辑做了 ffill()。
+            # 回填统计结果
             df[f'dynamic_consolidation_high_{timeframe}'] = stats_matrix[:, 0]
             df[f'dynamic_consolidation_low_{timeframe}'] = stats_matrix[:, 1]
             df[f'dynamic_consolidation_avg_vol_{timeframe}'] = stats_matrix[:, 2]
             df[f'dynamic_consolidation_duration_{timeframe}'] = stats_matrix[:, 3]
+            # 附加统计回填
             if 'chip_concentration_ratio_D' in df.columns: df[f'consolidation_chip_concentration_{timeframe}'] = stats_matrix[:, 4]
             if 'chip_stability_D' in df.columns: df[f'consolidation_chip_stability_{timeframe}'] = stats_matrix[:, 5]
             if 'accumulation_score_D' in df.columns: df[f'consolidation_accumulation_score_{timeframe}'] = stats_matrix[:, 6]
-            if 'flow_stability_D' in df.columns: df[f'consolidation_flow_stability_{timeframe}'] = stats_matrix[:, 7]
-            if 'absorption_energy_D' in df.columns: df[f'consolidation_absorption_energy_{timeframe}'] = stats_matrix[:, 8]
-            # 前向填充 (保持原逻辑)
+            # 前向填充逻辑，确保非盘整K线能获取最近一个盘整区的数据用于突破判定
             fill_cols = [
                 f'dynamic_consolidation_high_{timeframe}', f'dynamic_consolidation_low_{timeframe}',
-                f'dynamic_consolidation_avg_vol_{timeframe}', f'dynamic_consolidation_duration_{timeframe}',
-                f'consolidation_chip_concentration_{timeframe}', f'consolidation_chip_stability_{timeframe}',
-                f'consolidation_accumulation_score_{timeframe}', f'consolidation_flow_stability_{timeframe}',
-                f'consolidation_absorption_energy_{timeframe}'
+                f'dynamic_consolidation_duration_{timeframe}', f'consolidation_quality_score_{timeframe}'
             ]
-            existing_fill_cols = [col for col in fill_cols if col in df.columns]
-            df[existing_fill_cols] = df[existing_fill_cols].ffill()
-        # 缺失值处理
-        df[f'dynamic_consolidation_high_{timeframe}'] = df.get(f'dynamic_consolidation_high_{timeframe}', pd.Series(np.nan, index=df.index)).fillna(df[f'high_{timeframe}'])
-        df[f'dynamic_consolidation_low_{timeframe}'] = df.get(f'dynamic_consolidation_low_{timeframe}', pd.Series(np.nan, index=df.index)).fillna(df[f'low_{timeframe}'])
-        # ==================== 6. 盘整期质量评估 (向量化) ====================
-        if is_consolidating.any():
-            quality_score = np.zeros(len(df), dtype=float)
-            count = 0
-            if 'consolidation_chip_concentration_D' in df.columns:
-                quality_score += np.clip(df['consolidation_chip_concentration_D'] * 100, 0, 100); count += 1
-            if 'consolidation_accumulation_score_D' in df.columns:
-                quality_score += df['consolidation_accumulation_score_D']; count += 1
-            if 'consolidation_flow_stability_D' in df.columns:
-                quality_score += df['consolidation_flow_stability_D']; count += 1
-            if 'consolidation_absorption_energy_D' in df.columns:
-                quality_score += df['consolidation_absorption_energy_D']; count += 1
-            # BBW 质量
-            bbw_norm = 100 - np.clip(df[bbw_col] / df[f'dynamic_bbw_threshold_{timeframe}'] * 50, 0, 100)
-            quality_score += bbw_norm; count += 1
-            # 成交量质量
-            vol_ratio = df[f'volume_{timeframe}'] / df[vol_ma_col].replace(0, 1)
-            vol_score = 100 - np.clip(vol_ratio * 50, 0, 100)
-            quality_score += vol_score; count += 1
-            if count > 0:
-                df['consolidation_quality_score_D'] = quality_score / count
-                # 质量分级 (使用 np.searchsorted 或 cut)
-                df['consolidation_quality_grade_D'] = pd.cut(
-                    df['consolidation_quality_score_D'],
-                    bins=[-1, 30, 50, 70, 85, 101],
-                    labels=['POOR', 'FAIR', 'GOOD', 'EXCELLENT', 'OUTSTANDING']
-                )
+            for c in fill_cols:
+                if c in df.columns:
+                    df[c] = df[c].replace(0, np.nan).ffill().fillna(0)
+        # 6. 缺失值与默认值处理
+        if f'dynamic_consolidation_high_{timeframe}' not in df.columns:
+            df[f'dynamic_consolidation_high_{timeframe}'] = df['high_D']
+            df[f'dynamic_consolidation_low_{timeframe}'] = df['low_D']
+        else:
+            df[f'dynamic_consolidation_high_{timeframe}'] = df[f'dynamic_consolidation_high_{timeframe}'].fillna(df['high_D'])
+            df[f'dynamic_consolidation_low_{timeframe}'] = df[f'dynamic_consolidation_low_{timeframe}'].fillna(df['low_D'])
+        # 7. 质量分级 (Grade Categorization)
+        if f'consolidation_quality_score_{timeframe}' in df.columns:
+            df['consolidation_quality_grade_D'] = pd.cut(
+                df[f'consolidation_quality_score_{timeframe}'],
+                bins=[-1, 30, 50, 70, 85, 999],
+                labels=['POOR', 'FAIR', 'GOOD', 'EXCELLENT', 'OUTSTANDING']
+            )
         all_dfs[timeframe] = df
         return all_dfs
 
     async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.5 · 依赖注入修复版】形态增强信号编排器
-        - 核心修复: 移除 calculator 参数，改用 self.calculator，确保调用的是已初始化的实例。
-        - 核心修复: 调整了命名协议的强制执行逻辑，确保只对**不以 '_D' 结尾**的列添加 '_D' 后缀，避免重复。
+        【V2.0 · A股日内微观结构增强版】
+        - 优化思路:
+            1. 日内偏度(Skewness): 负偏度(尾部在左)意味着主力盘中打压吸筹或护盘，利好T+1。
+            2. 缺口动能: A股"缺口不补"是极强的溢价信号。
+            3. 尾盘抢筹: 结合close位置判断。
         """
         params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
-        if not params.get('enabled', False):
-            return all_dfs
-        df_daily = all_dfs.get('D')
-        if df_daily is None or df_daily.empty:
-            return all_dfs
-        minute_tf = params.get('minute_level_tf', '60')
-        df_minute = all_dfs.get(minute_tf)
-        tasks = []
-        vwap_params = params.get('intraday_vwap_divergence', {})
-        if vwap_params.get('enabled') and df_minute is not None:
-            tasks.append(self.calculator.calculate_intraday_vwap_divergence_index(df_minute))
-        exhaustion_params = params.get('counterparty_exhaustion', {})
-        if exhaustion_params.get('enabled') and df_minute is not None:
-            tasks.append(self.calculator.calculate_counterparty_exhaustion_index(df_minute, exhaustion_params.get('efficiency_window', 21)))
-        if not tasks:
-            return all_dfs
-        results = await asyncio.gather(*tasks)
-        new_cols_no_suffix = []
-        for res_df in results:
-            if res_df is not None and not res_df.empty:
-                new_cols_no_suffix.extend(res_df.columns)
-                res_df.index = pd.to_datetime(res_df.index, utc=True).normalize()
-                df_daily = df_daily.join(res_df, how='left')
-        # --- 命名协议强制执行 ---
-        # 为所有新合并的、不以 '_D' 结尾的列，强制添加 '_D' 后缀
-        rename_map = {col: f"{col}_D" for col in new_cols_no_suffix if col in df_daily.columns and not col.endswith('_D')}
-        if rename_map:
-            df_daily.rename(columns=rename_map, inplace=True)
-        # 对新合并的列（现在已带后缀）进行前向填充
-        final_new_cols = list(rename_map.values())
-        if final_new_cols:
-            df_daily[final_new_cols] = df_daily[final_new_cols].ffill()
-        all_dfs['D'] = df_daily
-        logger.info("分钟级形态增强信号计算完成并已集成。")
+        if not params.get('enabled', False): return all_dfs
+        timeframe = 'D'
+        if timeframe not in all_dfs or all_dfs[timeframe].empty: return all_dfs
+        df = all_dfs[timeframe]
+        # 1. 跳空缺口动能
+        if 'open_D' in df.columns and 'pre_close_D' in df.columns:
+            gap_pct = (df['open_D'] - df['pre_close_D']) / df['pre_close_D']
+            # 缺口未补 (最低价 > 昨收)
+            gap_held = (df['low_D'] > df['pre_close_D']) & (gap_pct > 0)
+            df['GAP_MOMENTUM_STRENGTH_D'] = np.where(gap_held, gap_pct * 100, 0)
+        else:
+            df['GAP_MOMENTUM_STRENGTH_D'] = 0.0
+        # 2. 日内微观结构分布 (Skewness)
+        # Skewness < 0: 价格集中在高位，下杀只是瞬间 -> 主力护盘/吸筹
+        if 'intraday_price_distribution_skewness_D' in df.columns:
+            skew = df['intraday_price_distribution_skewness_D'].fillna(0)
+            df['INTRADAY_SUPPORT_INTENT_D'] = np.clip(skew * -1, -1, 1)
+        else:
+            df['INTRADAY_SUPPORT_INTENT_D'] = 0.0
+        # 3. 尾盘抢筹特征
+        close_pos = (df['close_D'] - df['low_D']) / (df['high_D'] - df['low_D'].replace(0, np.nan))
+        df['CLOSING_STRENGTH_D'] = close_pos.fillna(0.5)
+        # 4. T+1 溢价预期合成
+        trend_factor = 0.5
+        if 'uptrend_strength_D' in df.columns:
+            trend_factor = df['uptrend_strength_D'] / 100.0
+        premium_score = (
+            df['GAP_MOMENTUM_STRENGTH_D'].clip(0, 5) * 6 +
+            (df['INTRADAY_SUPPORT_INTENT_D'] + 1) * 15 +
+            df['CLOSING_STRENGTH_D'] * 20 +
+            trend_factor * 20
+        )
+        df['T1_PREMIUM_EXPECTATION_D'] = np.clip(premium_score, 0, 100)
+        all_dfs[timeframe] = df
         return all_dfs
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict) -> Dict:

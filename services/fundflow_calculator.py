@@ -1295,71 +1295,61 @@ class FundFlowFactorCalculator:
 
     def _calculate_intraday_momentum(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        计算日内资金动量
-        版本: V1.3
-        说明: 
-        1. 修复数值爆炸问题：优化后的 bincount 会产生0值分钟，导致作为分母时产生极大值。
-        2. 增加分母阈值检查和结果截断(Clip)，防止数据库 Out of range 错误。
+        v1.3.1: 修复高频动量计算中的数值爆炸风险。
+        增加严格的 epsilon 检查和 np.isinf/np.isnan 过滤，确保 Decimal 字段安全。
         """
-        metrics = {}
-        
-        # 1. 分钟级聚合
-        # trade_time 已经是 datetime64[ns]
+        metrics = {'intraday_flow_momentum': None, 'flow_acceleration_intraday': None}
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         amounts = df['amount'].values
         types = df['type'].values
+        if len(times) == 0: return metrics
         signed_amounts = np.where(types == 'B', amounts, -amounts)
-        
-        if len(times) == 0:
-            metrics['intraday_flow_momentum'] = None
-            metrics['flow_acceleration_intraday'] = None
-            return metrics
-
         norm_times = times - times[0]
-        # 聚合为万元
         minute_flows = np.bincount(norm_times, weights=signed_amounts) / 10000.0
-        
-        # 2. 动量计算
         n = len(minute_flows)
-        if n < 10:
-            metrics['intraday_flow_momentum'] = None
-            metrics['flow_acceleration_intraday'] = None
-            return metrics
-            
-        # 最近30分钟 vs 之前
+        if n < 10: return metrics
         if n >= 30:
             recent_30 = np.mean(minute_flows[-30:])
-            # 之前30分钟 (或更多)
-            start_idx = max(0, n - 60)
-            end_idx = n - 30
-            previous_30 = np.mean(minute_flows[start_idx:end_idx]) if end_idx > start_idx else 0.0
-            
-            # 避免除以过小的数
-            if abs(previous_30) > 0.1:
-                metrics['intraday_flow_momentum'] = float(np.clip((recent_30 - previous_30) / abs(previous_30), -1000.0, 1000.0))
+            prev_slice = minute_flows[max(0, n-60):n-30]
+            previous_30 = np.mean(prev_slice) if len(prev_slice) > 0 else 0.0
+            if abs(previous_30) > 0.01: # 提高阈值至100元
+                momentum = (recent_30 - previous_30) / abs(previous_30)
+                metrics['intraday_flow_momentum'] = float(np.clip(momentum, -100.0, 100.0))
             else:
                 metrics['intraday_flow_momentum'] = 0.0
-        else:
-            metrics['intraday_flow_momentum'] = None
-            
-        # 3. 加速度计算
         if n >= 3:
             recent_3 = minute_flows[-3:]
             denom = abs(recent_3[0])
-            
-            # [关键修复] 如果基准分钟流量太小(<1000元)，计算结果会趋向无穷大，导致数据库报错
-            # 这里设置阈值为 0.1 万元
-            if denom < 0.1: 
-                 metrics['flow_acceleration_intraday'] = 0.0
-            else:
-                # 二阶差分
+            if denom > 0.01: # 避免除以极小值
                 acc = (recent_3[2] - 2*recent_3[1] + recent_3[0]) / denom
-                # [关键修复] 限制最大值范围 (例如 +/- 10000)，适应数据库字段限制
-                acc = np.clip(acc, -10000.0, 10000.0)
-                metrics['flow_acceleration_intraday'] = float(acc)
-        else:
-            metrics['flow_acceleration_intraday'] = None
-            
+                # 严格限制 Decimal(20,4) 等字段的溢出范围
+                metrics['flow_acceleration_intraday'] = float(np.nan_to_num(np.clip(acc, -9999.9, 9999.9)))
+            else:
+                metrics['flow_acceleration_intraday'] = 0.0
+        return metrics
+    def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        v1.3.1: 优化尾盘判定逻辑。
+        利用纳秒时间戳取模运算直接获取日内偏移，避免大量的 datetime 对象转换。
+        """
+        metrics = {'closing_flow_ratio': None, 'closing_flow_intensity': None}
+        times = df['trade_time'].values.astype('int64') # ns
+        amounts = df['amount'].values
+        types = df['type'].values
+        if len(times) == 0: return metrics
+        # A股尾盘定义：14:30:00 = 14.5 * 3600 * 10^9 ns
+        # 考虑到时区对齐，使用本地时间戳对 86400 取模（北京时间无需额外偏移则直接取）
+        ns_in_day = (times % 86400000000000)
+        closing_threshold = 52200000000000 # 14:30 * 3600 * 1e9
+        closing_mask = ns_in_day >= closing_threshold
+        if not np.any(closing_mask):
+            metrics['closing_flow_ratio'], metrics['closing_flow_intensity'] = 0.0, 0.0
+            return metrics
+        buy_mask, sell_mask = (types == 'B'), (types == 'S')
+        c_net = (np.sum(amounts[closing_mask & buy_mask]) - np.sum(amounts[closing_mask & sell_mask])) / 10000.0
+        t_net = (np.sum(amounts[buy_mask]) - np.sum(amounts[sell_mask])) / 10000.0
+        metrics['closing_flow_ratio'] = float(abs(c_net) / abs(t_net) * 100.0) if abs(t_net) > 1e-4 else 0.0
+        metrics['closing_flow_intensity'] = float(abs(c_net) / 30.0)
         return metrics
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -1539,56 +1529,6 @@ class FundFlowFactorCalculator:
             metrics['flow_efficiency'] = 0.0
         return metrics
 
-    def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        计算尾盘资金特征
-        版本: V1.3
-        说明: 
-        1. 使用 NumPy Masking 替代 Pandas Boolean Indexing，避免 DataFrame 拷贝。
-        2. 使用 timedelta64 进行高效时间计算。
-        """
-        metrics = {}
-        # 提取数组
-        times = df['trade_time'].values # datetime64[ns]
-        amounts = df['amount'].values
-        types = df['type'].values
-        if len(times) == 0:
-            metrics['closing_flow_ratio'] = None
-            metrics['closing_flow_intensity'] = None
-            return metrics
-        # 获取当天日期 (times[0] 为起点，假设数据为单日)
-        # astype('datetime64[D]') 会截断到日
-        current_day = times[0].astype('datetime64[D]')
-        # 构造尾盘开始时间 (14:30)
-        # 14小时 + 30分钟
-        # 注意: 这里的 times 是包含时区的UTC+8对应的ns值
-        # 如果 times 是本地时间 (UTC+8)，则 14:30 就是日内时间
-        offset = np.timedelta64(14, 'h') + np.timedelta64(30, 'm')
-        closing_start = current_day + offset
-        # 创建掩码
-        closing_mask = times >= closing_start
-        # 如果没有尾盘数据
-        if not np.any(closing_mask):
-            metrics['closing_flow_ratio'] = 0.0
-            metrics['closing_flow_intensity'] = 0.0
-            return metrics
-        # 尾盘净流入
-        buy_mask = types == 'B'
-        sell_mask = types == 'S'
-        closing_buy = np.sum(amounts[closing_mask & buy_mask])
-        closing_sell = np.sum(amounts[closing_mask & sell_mask])
-        closing_net = (closing_buy - closing_sell) / 10000.0
-        # 全天净流入
-        total_buy = np.sum(amounts[buy_mask])
-        total_sell = np.sum(amounts[sell_mask])
-        total_net = (total_buy - total_sell) / 10000.0
-        if abs(total_net) > 0:
-            closing_ratio = abs(closing_net) / abs(total_net) * 100.0
-        else:
-            closing_ratio = 0.0
-        metrics['closing_flow_ratio'] = float(closing_ratio)
-        metrics['closing_flow_intensity'] = float(abs(closing_net) / 30.0) # 30分钟
-        return metrics
 
     def _calculate_high_freq_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
         """

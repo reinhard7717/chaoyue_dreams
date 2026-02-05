@@ -172,75 +172,70 @@ async def _process_stock_factors_async(stock_code: str, start_date_str: str = No
 
 async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date], factor_model, stock_basic_dao, stock_time_trade_dao, realtime_dao) -> Tuple[int, List[date]]:
     """
-    [Async] 批量计算
-    版本: V1.2
-    说明: 接收 realtime_dao 参数。
+    v1.3.0: 升级为累积实例后批量入库模式。
+    通过 _calculate_single_date_factor_async 获取实例，由 save_factors_bulk 统一提交。
     """
-    calculated = 0
     failed_dates = []
+    instances_to_save = []
     for trade_date in trade_dates:
         try:
-            success = await _calculate_single_date_factor_async(
+            # 修改单日计算方法，使其返回模型实例
+            instance = await _calculate_single_date_factor_async(
                 stock_code, trade_date, factor_model,
                 stock_basic_dao, stock_time_trade_dao, realtime_dao
             )
-            if success:
-                calculated += 1
+            if instance:
+                instances_to_save.append(instance)
             else:
                 failed_dates.append(trade_date)
         except Exception as e:
-            logger.error(f"计算股票 {stock_code} 在 {trade_date} 的资金流向因子失败: {e}")
+            logger.error(f"准备股票 {stock_code} 在 {trade_date} 的因子实例失败: {e}")
             failed_dates.append(trade_date)
-    return calculated, failed_dates
+    # 批量入库
+    if instances_to_save:
+        try:
+            await sync_to_async(save_factors_bulk)(factor_model, instances_to_save)
+        except Exception as e:
+            logger.error(f"股票 {stock_code} 批量入库失败: {e}")
+            return 0, trade_dates
+    return len(instances_to_save), failed_dates
 
-async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao, realtime_dao) -> bool:
+async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao, realtime_dao) -> Optional[Any]:
     """
-    [Async] 计算单个日期因子
-    版本: V1.6
-    说明: 使用 realtime_dao 获取 Tick 数据。
+    v1.7.0: 修改为返回模型对象而不直接触发 DB 写入。
+    配合批量入库流程，降低数据库压力。
     """
     try:
-        # 异步获取股票信息
         stock_info = await stock_basic_dao.get_stock_by_code(stock_code)
-        if not stock_info:
-            return False
-        # 异步获取历史数据
-        historical_flow_data = await _get_historical_flow_data_async(
-            stock_code, trade_date, stock_time_trade_dao, days=120
-        )
-        if not historical_flow_data or len(historical_flow_data) < 10:
-            return False
-        # 获取当日资金流向 (涉及 DB，需 sync_to_async)
+        if not stock_info: return None
+        historical_flow_data = await _get_historical_flow_data_async(stock_code, trade_date, stock_time_trade_dao, days=120)
+        if not historical_flow_data or len(historical_flow_data) < 10: return None
         current_flow_data = await sync_to_async(get_current_flow_data)(stock_code, trade_date)
-        if not current_flow_data:
-            return False
-        # 异步获取日线基本数据
+        if not current_flow_data: return None
         daily_basic_data = await _get_daily_basic_data_async(stock_code, trade_date, stock_time_trade_dao)
-        # 异步获取分钟数据
         minute_data = await _get_1min_data_async(stock_code, trade_date, stock_time_trade_dao)
-        # [修正] 使用 realtime_dao 异步获取Tick数据
-        tick_data = None
-        if realtime_dao:
-            tick_data = await realtime_dao.get_daily_real_ticks(stock_code, trade_date)
-        # 构建上下文 (同步操作)
+        tick_data = await realtime_dao.get_daily_real_ticks(stock_code, trade_date) if realtime_dao else None
         context = CalculationContext(
-            stock_code=stock_code,
-            trade_date=trade_date,
-            current_flow_data=current_flow_data,
-            historical_flow_data=historical_flow_data,
-            daily_basic_data=daily_basic_data,
-            minute_data_1min=minute_data,
-            tick_data=tick_data  # 传入Tick数据
+            stock_code=stock_code, trade_date=trade_date, current_flow_data=current_flow_data,
+            historical_flow_data=historical_flow_data, daily_basic_data=daily_basic_data,
+            minute_data_1min=minute_data, tick_data=tick_data
         )
-        # 执行计算 (CPU 密集型，直接运行)
         calculator = FundFlowFactorCalculator(context)
-        all_metrics = calculator.calculate_all_metrics()
-        # 保存结果 (DB 操作，需 sync_to_async)
-        await sync_to_async(save_factor_to_db)(stock_info, trade_date, all_metrics, factor_model)
-        return True
+        metrics = calculator.calculate_all_metrics()
+        # 构造实例，但不保存
+        defaults = {k: _safe_decimal(v) for k, v in metrics.items() if not isinstance(v, (str, bool, type(None)))}
+        defaults.update({
+            'stock': stock_info, 'trade_time': trade_date,
+            'behavior_pattern': metrics.get('behavior_pattern'),
+            'divergence_type': metrics.get('divergence_type'),
+            'trading_signal': metrics.get('trading_signal'),
+            'feature_vector': metrics.get('feature_vector'),
+            'intraday_flow_distribution': metrics.get('intraday_flow_distribution'),
+        })
+        return factor_model(**defaults)
     except Exception as e:
-        logger.error(f"计算股票 {stock_code} 在 {trade_date} 的资金流向因子失败: {e}", exc_info=True)
-        return False
+        logger.error(f"构建因子实例失败 {stock_code} @ {trade_date}: {e}")
+        return None
 
 async def _get_tick_data_async(stock_code: str, trade_date: date, stock_time_trade_dao) -> Optional[pd.DataFrame]:
     """[Async] 获取Tick数据"""
@@ -465,83 +460,63 @@ def get_earliest_flow_date(stock_code: str) -> Optional[date]:
         logger.error(f"获取股票 {stock_code} 最早资金流向日期失败: {e}")
         return None
 
-def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_model,
-                          stock_basic_dao: StockBasicInfoDao,
-                          stock_time_trade_dao: StockTimeTradeDAO) -> Tuple[int, List[date]]:
+def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_model, stock_basic_dao, stock_time_trade_dao) -> Tuple[int, List[date]]:
     """
-    批量计算资金流向因子
-    版本: V1.1
-    说明: 接收并传递 DAO 实例。
+    v1.2.0: 同步版批量计算优化。
+    采用列表推导式收集实例并调用批量保存。
     """
-    calculated = 0
+    instances = []
     failed_dates = []
     for trade_date in trade_dates:
         try:
-            # 传递 DAO 实例
-            success = calculate_single_date_factor(
-                stock_code, trade_date, factor_model,
-                stock_basic_dao=stock_basic_dao,
-                stock_time_trade_dao=stock_time_trade_dao
-            )
-            if success:
-                calculated += 1
+            # 调用修改后的同步单日计算方法
+            instance = calculate_single_date_factor(stock_code, trade_date, factor_model, stock_basic_dao, stock_time_trade_dao)
+            if instance:
+                instances.append(instance)
             else:
                 failed_dates.append(trade_date)
         except Exception as e:
-            logger.error(f"计算股票 {stock_code} 在 {trade_date} 的资金流向因子失败: {e}")
             failed_dates.append(trade_date)
-    return calculated, failed_dates
+    if instances:
+        save_factors_bulk(factor_model, instances)
+    return len(instances), failed_dates
 
-def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model,stock_basic_dao: StockBasicInfoDao,stock_time_trade_dao: StockTimeTradeDAO) -> bool:
+def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao) -> Optional[Any]:
     """
-    计算单个日期的资金流向因子 (同步版)
-    版本: V1.6
-    说明: 内部初始化 StockRealtimeDAO 并同步调用获取 Tick 数据。
+    v1.7.0: 同步版单日计算，返回模型实例。
     """
     try:
-        # 使用传入的 stock_basic_dao
         stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
-        if not stock_info:
-            logger.warning(f"股票 {stock_code} 不存在")
-            return False
-        # 传递 stock_time_trade_dao
-        historical_flow_data = get_historical_flow_data(
-            stock_code, trade_date, 
-            stock_time_trade_dao=stock_time_trade_dao, stock_info=stock_info,
-            days=120
-        )
-        if not historical_flow_data or len(historical_flow_data) < 10:
-            logger.warning(f"股票 {stock_code} 在 {trade_date} 的历史数据不足 (Len: {len(historical_flow_data) if historical_flow_data else 0})")
-            return False
+        if not stock_info: return None
+        historical_flow_data = get_historical_flow_data(stock_code, trade_date, stock_time_trade_dao, stock_info, days=120)
+        if not historical_flow_data or len(historical_flow_data) < 10: return None
         current_flow_data = get_current_flow_data(stock_code, trade_date)
-        if not current_flow_data:
-            logger.warning(f"股票 {stock_code} 在 {trade_date} 的资金流向数据缺失")
-            return False
-        # 传递 stock_time_trade_dao
+        if not current_flow_data: return None
         daily_basic_data = get_daily_basic_data(stock_code, trade_date, stock_time_trade_dao)
         minute_data = get_1min_data(stock_code, trade_date, stock_time_trade_dao)
-        # [新增] 获取Tick数据 (同步调用)
         from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
-        # 复用 stock_basic_dao 的 cache_manager
         realtime_dao = StockRealtimeDAO(stock_basic_dao.cache_manager)
         tick_data = async_to_sync(realtime_dao.get_daily_real_ticks)(stock_code, trade_date)
         context = CalculationContext(
-            stock_code=stock_code,
-            trade_date=trade_date,
-            current_flow_data=current_flow_data,
-            historical_flow_data=historical_flow_data,
-            daily_basic_data=daily_basic_data,
-            minute_data_1min=minute_data,
-            tick_data=tick_data  # 传入Tick数据
+            stock_code=stock_code, trade_date=trade_date, current_flow_data=current_flow_data,
+            historical_flow_data=historical_flow_data, daily_basic_data=daily_basic_data,
+            minute_data_1min=minute_data, tick_data=tick_data
         )
         calculator = FundFlowFactorCalculator(context)
-        all_metrics = calculator.calculate_all_metrics()
-        save_factor_to_db(stock_info, trade_date, all_metrics, factor_model)
-        logger.debug(f"成功计算股票 {stock_code} 在 {trade_date} 的资金流向因子")
-        return True
+        metrics = calculator.calculate_all_metrics()
+        defaults = {k: _safe_decimal(v) for k, v in metrics.items() if not isinstance(v, (str, bool, type(None)))}
+        defaults.update({
+            'stock': stock_info, 'trade_time': trade_date,
+            'behavior_pattern': metrics.get('behavior_pattern'),
+            'divergence_type': metrics.get('divergence_type'),
+            'trading_signal': metrics.get('trading_signal'),
+            'feature_vector': metrics.get('feature_vector'),
+            'intraday_flow_distribution': metrics.get('intraday_flow_distribution'),
+        })
+        return factor_model(**defaults)
     except Exception as e:
-        logger.error(f"计算股票 {stock_code} 在 {trade_date} 的资金流向因子失败: {e}", exc_info=True)
-        return False
+        logger.error(f"同步构建因子实例失败 {stock_code} @ {trade_date}: {e}")
+        return None
 
 def get_historical_flow_data(stock_code: str, end_date: date, 
                             stock_time_trade_dao: StockTimeTradeDAO, stock_info: StockInfo,
@@ -721,125 +696,71 @@ def get_1min_data(stock_code: str, trade_date: date,
 
 def save_factor_to_db(stock_info: StockInfo, trade_date: date, metrics: Dict, factor_model):
     """
-    保存因子到数据库
-    版本: V1.4
-    说明: 增加 Tick 增强指标的字段映射
+    v1.4.1: 增强型入库逻辑。
+    引入 select_for_update 配合 atomic 降低死锁概率，并对 Decimal 转换进行极致容错。
     """
+    from django.db import transaction
     from django.db.utils import OperationalError
     import time
-    max_retries = 5
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             with transaction.atomic():
-                # 创建或更新因子记录
+                # 先尝试锁定行，减少 update_or_create 内部竞争导致的死锁
+                factor_model.objects.select_for_update().filter(
+                    stock=stock_info, trade_time=trade_date
+                ).first()
+                # 数据清理：确保所有存入 Decimal 的值不是 NaN 或 Inf
+                defaults = {k: _safe_decimal(v) for k, v in metrics.items() if not isinstance(v, (str, bool, type(None)))}
+                # 补充非数值字段
+                defaults.update({
+                    'behavior_pattern': metrics.get('behavior_pattern'),
+                    'divergence_type': metrics.get('divergence_type'),
+                    'trading_signal': metrics.get('trading_signal'),
+                    'feature_vector': metrics.get('feature_vector'),
+                    'intraday_flow_distribution': metrics.get('intraday_flow_distribution'),
+                })
                 factor_obj, created = factor_model.objects.update_or_create(
-                    stock=stock_info,
-                    trade_time=trade_date,
-                    defaults={
-                        # 绝对量级指标
-                        'total_net_amount_3d': _safe_decimal(metrics.get('total_net_amount_3d')),
-                        'total_net_amount_5d': _safe_decimal(metrics.get('total_net_amount_5d')),
-                        'total_net_amount_10d': _safe_decimal(metrics.get('total_net_amount_10d')),
-                        'total_net_amount_20d': _safe_decimal(metrics.get('total_net_amount_20d')),
-                        'avg_daily_net_5d': _safe_decimal(metrics.get('avg_daily_net_5d')),
-                        'avg_daily_net_10d': _safe_decimal(metrics.get('avg_daily_net_10d')),
-                        'avg_daily_net_20d': _safe_decimal(metrics.get('avg_daily_net_20d')),
-                        'total_volume_5d': _safe_decimal(metrics.get('total_volume_5d')),
-                        'total_volume_10d': _safe_decimal(metrics.get('total_volume_10d')),
-                        # 相对强度指标
-                        'net_amount_ratio': _safe_decimal(metrics.get('net_amount_ratio')),
-                        'net_amount_ratio_ma5': _safe_decimal(metrics.get('net_amount_ratio_ma5')),
-                        'net_amount_ratio_ma10': _safe_decimal(metrics.get('net_amount_ratio_ma10')),
-                        'flow_intensity': _safe_decimal(metrics.get('flow_intensity')),
-                        'intensity_level': metrics.get('intensity_level'),
-                        # 主力行为模式识别
-                        'accumulation_score': _safe_decimal(metrics.get('accumulation_score')),
-                        'pushing_score': _safe_decimal(metrics.get('pushing_score')),
-                        'distribution_score': _safe_decimal(metrics.get('distribution_score')),
-                        'shakeout_score': _safe_decimal(metrics.get('shakeout_score')),
-                        'behavior_pattern': metrics.get('behavior_pattern'),
-                        'pattern_confidence': _safe_decimal(metrics.get('pattern_confidence')),
-                        # 资金流向质量评估
-                        'outflow_quality': _safe_decimal(metrics.get('outflow_quality')),
-                        'inflow_persistence': metrics.get('inflow_persistence'),
-                        'large_order_anomaly': metrics.get('large_order_anomaly'),
-                        'anomaly_intensity': _safe_decimal(metrics.get('anomaly_intensity')),
-                        'flow_consistency': _safe_decimal(metrics.get('flow_consistency')),
-                        'flow_stability': _safe_decimal(metrics.get('flow_stability')),
-                        # 多周期资金共振指标
-                        'daily_weekly_sync': _safe_decimal(metrics.get('daily_weekly_sync')),
-                        'daily_monthly_sync': _safe_decimal(metrics.get('daily_monthly_sync')),
-                        'short_mid_sync': _safe_decimal(metrics.get('short_mid_sync')),
-                        'mid_long_sync': _safe_decimal(metrics.get('mid_long_sync')),
-                        # 趋势动量指标
-                        'flow_momentum_5d': _safe_decimal(metrics.get('flow_momentum_5d')),
-                        'flow_momentum_10d': _safe_decimal(metrics.get('flow_momentum_10d')),
-                        'flow_acceleration': _safe_decimal(metrics.get('flow_acceleration')),
-                        'uptrend_strength': _safe_decimal(metrics.get('uptrend_strength')),
-                        'downtrend_strength': _safe_decimal(metrics.get('downtrend_strength')),
-                        # 量价背离指标
-                        'price_flow_divergence': _safe_decimal(metrics.get('price_flow_divergence')),
-                        'divergence_type': metrics.get('divergence_type'),
-                        'divergence_strength': _safe_decimal(metrics.get('divergence_strength')),
-                        # 结构分析指标
-                        'flow_peak_value': _safe_decimal(metrics.get('flow_peak_value')),
-                        'days_since_last_peak': metrics.get('days_since_last_peak'),
-                        'flow_support_level': _safe_decimal(metrics.get('flow_support_level')),
-                        'flow_resistance_level': _safe_decimal(metrics.get('flow_resistance_level')),
-                        # 统计特征指标
-                        'flow_zscore': _safe_decimal(metrics.get('flow_zscore')),
-                        'flow_percentile': _safe_decimal(metrics.get('flow_percentile')),
-                        'flow_volatility_10d': _safe_decimal(metrics.get('flow_volatility_10d')),
-                        'flow_volatility_20d': _safe_decimal(metrics.get('flow_volatility_20d')),
-                        # 预测指标
-                        'expected_flow_next_1d': _safe_decimal(metrics.get('expected_flow_next_1d')),
-                        'flow_forecast_confidence': _safe_decimal(metrics.get('flow_forecast_confidence')),
-                        'uptrend_continuation_prob': _safe_decimal(metrics.get('uptrend_continuation_prob')),
-                        'reversal_prob': _safe_decimal(metrics.get('reversal_prob')),
-                        # 复合综合指标
-                        'comprehensive_score': _safe_decimal(metrics.get('comprehensive_score')),
-                        'trading_signal': metrics.get('trading_signal'),
-                        'signal_strength': _safe_decimal(metrics.get('signal_strength')),
-                        # 原始数据快照
-                        'feature_vector': metrics.get('feature_vector'),
-                        # [新增] 基于Tick数据的资金流向增强指标
-                        'intraday_flow_distribution': metrics.get('intraday_flow_distribution'),
-                        'tick_large_order_net': _safe_decimal(metrics.get('tick_large_order_net')),
-                        'tick_large_order_count': metrics.get('tick_large_order_count'),
-                        'flow_impact_ratio': _safe_decimal(metrics.get('flow_impact_ratio')),
-                        'flow_persistence_minutes': metrics.get('flow_persistence_minutes'),
-                        'intraday_flow_momentum': _safe_decimal(metrics.get('intraday_flow_momentum')),
-                        'flow_acceleration_intraday': _safe_decimal(metrics.get('flow_acceleration_intraday')),
-                        'flow_cluster_intensity': _safe_decimal(metrics.get('flow_cluster_intensity')),
-                        'flow_cluster_duration': metrics.get('flow_cluster_duration'),
-                        'high_freq_flow_divergence': _safe_decimal(metrics.get('high_freq_flow_divergence')),
-                        'vwap_deviation': _safe_decimal(metrics.get('vwap_deviation')),
-                        'flow_efficiency': _safe_decimal(metrics.get('flow_efficiency')),
-                        'closing_flow_ratio': _safe_decimal(metrics.get('closing_flow_ratio')),
-                        'closing_flow_intensity': _safe_decimal(metrics.get('closing_flow_intensity')),
-                        'high_freq_flow_skewness': _safe_decimal(metrics.get('high_freq_flow_skewness')),
-                        'high_freq_flow_kurtosis': _safe_decimal(metrics.get('high_freq_flow_kurtosis')),
-                        'morning_flow_ratio': _safe_decimal(metrics.get('morning_flow_ratio')),
-                        'afternoon_flow_ratio': _safe_decimal(metrics.get('afternoon_flow_ratio')),
-                        'stealth_flow_ratio': _safe_decimal(metrics.get('stealth_flow_ratio')),
-                    }
+                    stock=stock_info, trade_time=trade_date, defaults=defaults
                 )
-                logger.debug(f"{'创建' if created else '更新'}股票 {stock_info.stock_code} "
-                            f"在 {trade_date} 的资金流向因子")
                 return factor_obj
         except OperationalError as e:
-            error_code = e.args[0] if e.args else None
-            if error_code == 1213:
-                if attempt < max_retries - 1:
-                    wait_time = 0.2 * (2 ** attempt)
-                    logger.warning(f"保存股票 {stock_info.stock_code} 在 {trade_date} 时发生死锁 (1213)，"
-                                 f"正在重试 ({attempt + 1}/{max_retries})，等待 {wait_time:.2f}s...")
-                    time.sleep(wait_time)
-                    continue
-            logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 时发生数据库错误: {e}")
+            if e.args[0] == 1213 and attempt < max_retries - 1:
+                time.sleep(0.2 * (attempt + 1))
+                continue
             raise
-        except Exception as e:
-            logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 的资金流向因子失败: {e}")
+
+def save_factors_bulk(factor_model, objects_to_save: List[Any]):
+    """
+    v2.0.0: 基于 bulk_create 的批量入库方法。
+    利用 Django 5.0 的 update_conflicts 特性，实现高性能的 '存在即更新' 逻辑。
+    """
+    if not objects_to_save:
+        return
+    from django.db import transaction
+    from django.db.utils import OperationalError
+    import time
+    # 获取所有非主键和非关联键的待更新字段
+    # 排除 'id', 'stock', 'trade_time' (作为唯一索引项)
+    all_fields = [f.name for f in factor_model._meta.fields]
+    exclude_fields = {'id', 'stock', 'trade_time'}
+    update_fields = [f for f in all_fields if f not in exclude_fields]
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with transaction.atomic():
+                factor_model.objects.bulk_create(
+                    objects_to_save,
+                    batch_size=500,
+                    update_conflicts=True,
+                    unique_fields=['stock', 'trade_time'],
+                    update_fields=update_fields
+                )
+            break
+        except OperationalError as e:
+            if e.args[0] == 1213 and attempt < max_retries - 1:
+                time.sleep(0.5 * (attempt + 1))
+                continue
             raise
 
 def _safe_decimal(value):
