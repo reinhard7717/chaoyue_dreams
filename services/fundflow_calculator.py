@@ -1682,12 +1682,13 @@ class FundFlowFactorCalculator:
     def calculate_tick_enhanced_metrics(self) -> Dict[str, Any]:
         """
         基于Tick数据计算增强的资金流向指标
-        版本: V1.6
+        版本: V1.7
         说明:
         1. [关键修复] 强制将时间转换为北京时间(Asia/Shanghai)并去除时区(Naive)，
            确保 .values 底层数值对应北京时间，解决下午/尾盘数据识别为0的问题。
         2. [关键修复] 显式转换数值列为 float64，避免 Decimal/String 导致的计算错误。
         3. [新增] 集成基于信号处理的资金持续性算法。
+        4. [Bug修复] 重置索引以消除 'trade_time' 列名与索引名的歧义，解决 sort_values 报错。
         """
         tick_metrics = {}
         # 初始化字段
@@ -1723,6 +1724,11 @@ class FundFlowFactorCalculator:
                 time_series = time_series.dt.tz_convert('Asia/Shanghai').dt.tz_localize(None)
             df['trade_time'] = time_series
             df = df.dropna(subset=['trade_time'])
+            
+            # [关键修复] 重置索引，防止索引名与列名 'trade_time' 冲突导致后续 sort_values 报错
+            # 这步操作会丢弃原有索引，确保 DataFrame 只有唯一的 RangeIndex
+            df.reset_index(drop=True, inplace=True)
+            
             if df.empty:
                 return tick_metrics
             # 2. 类型标准化
@@ -1741,12 +1747,14 @@ class FundFlowFactorCalculator:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype(np.float64)
             if 'amount' not in df.columns:
                 df['amount'] = df['price'] * df['volume'] * 100
+            
             # --- 开始各项指标计算 ---
             tick_metrics.update(self._calculate_intraday_flow_distribution(df))
             tick_metrics.update(self._detect_high_freq_large_orders(df))
             tick_metrics.update(self._calculate_flow_impact_features(df))
             tick_metrics.update(self._calculate_intraday_momentum(df))
             tick_metrics.update(self._calculate_flow_cluster_features(df))
+            # 之前报错的方法：_calculate_high_freq_divergence
             tick_metrics.update(self._calculate_high_freq_divergence(df))
             tick_metrics.update(self._calculate_vwap_deviation(df))
             tick_metrics.update(self._calculate_flow_efficiency(df))
@@ -1754,8 +1762,10 @@ class FundFlowFactorCalculator:
             tick_metrics.update(self._calculate_high_freq_statistics(df))
             tick_metrics.update(self._calculate_time_period_distribution(df))
             tick_metrics.update(self._calculate_stealth_flow_indicators(df))
+            
             # [新增] 深度资金持续性计算
             tick_metrics['flow_persistence_minutes'] = self._calculate_flow_persistence_minutes(df)
+
         except Exception as e:
             logger.error(f"计算tick增强指标异常: {e}", exc_info=True)
         return tick_metrics
