@@ -1059,11 +1059,11 @@ class FundFlowFactorCalculator:
     def calculate_tick_enhanced_metrics(self) -> Dict[str, Any]:
         """
         基于Tick数据计算增强的资金流向指标
-        版本: V1.4
+        版本: V1.5
         说明: 
-        1. 优化时间处理：将Pandas Timestamp转换为NumPy datetime64[ns]，大幅提升后续计算速度。
-        2. 统一处理时区为UTC+8，避免Pandas层面的循环转换。
-        3. 增加异常捕获和None值检查。
+        1. [关键修复] 强制将时间转换为北京时间(Asia/Shanghai)并去除时区(Naive)，
+           确保 .values 底层数值对应北京时间，解决下午/尾盘数据识别为0的问题。
+        2. [关键修复] 显式转换数值列为 float64，避免 Decimal/String 导致的计算错误。
         """
         tick_metrics = {}
         # 初始化字段
@@ -1080,48 +1080,65 @@ class FundFlowFactorCalculator:
         for field in tick_fields:
             tick_metrics[field] = None
         tick_metrics['intraday_flow_distribution'] = None
+        
         if not hasattr(self, 'tick_data') or self.tick_data is None or self.tick_data.empty:
             return tick_metrics
+            
         try:
             df = self.tick_data.copy()
             # 基础列名标准化
             col_map = {'time': 'trade_time', 'vol': 'volume', 'v': 'volume', 'p': 'price', 'amt': 'amount', 'money': 'amount'}
             df.rename(columns=col_map, inplace=True)
+            # 确保 trade_time 存在
             if 'trade_time' not in df.columns:
                 if isinstance(df.index, pd.DatetimeIndex):
                     df['trade_time'] = df.index
                 else:
                     return tick_metrics
-            # 类型标准化
+            # 1. 关键：时间标准化处理 (解决时区导致的时间判断错误)
+            # 统一转换为 datetime 对象
+            time_series = pd.to_datetime(df['trade_time'], errors='coerce')
+            # 如果存在时区信息，转换为上海时间后去除时区（变成 Naive Beijing Time）
+            if time_series.dt.tz is not None:
+                time_series = time_series.dt.tz_convert('Asia/Shanghai').dt.tz_localize(None)
+            # 赋值回 df，并获取 values (datetime64[ns])
+            df['trade_time'] = time_series
+            # 过滤掉无效时间
+            df = df.dropna(subset=['trade_time'])
+            if df.empty:
+                return tick_metrics
+            # 2. 类型标准化
             if 'type' in df.columns:
-                df['type'] = df['type'].astype(str).str.upper()
+                # 统一转换为字符串并大写，去除空格
+                df['type'] = df['type'].astype(str).str.upper().str.strip()
                 type_map = {'买盘': 'B', '卖盘': 'S', 'BUY': 'B', 'SELL': 'S', '0': 'S', '1': 'B', '2': 'M'}
                 df['type'] = df['type'].map(lambda x: type_map.get(x, x))
             else:
                 return tick_metrics
+            # 仅保留买卖盘
             df = df[df['type'].isin(['B', 'S'])]
             if df.empty:
                 return tick_metrics
-            # 关键优化：转换为NumPy datetime64并统一到UTC+8（北京时间）
-            # 直接操作 values 避免 pandas Series 的 overhead
-            time_values = pd.to_datetime(df['trade_time']).values
-            # 假设输入可能是UTC或者无时区，这里做简化处理：
-            # 如果是无时区，默认为本地（北京），如果是UTC，需要+8小时
-            # 为保证效率，这里假设数据源已经是北京时间或无时区时间
+            # 3. 数值类型强制转换 (防止 Decimal 或 String 导致计算异常)
+            for col in ['price', 'volume', 'amount']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype(np.float64)
             # 补充 Amount
             if 'amount' not in df.columns:
                 df['amount'] = df['price'] * df['volume'] * 100
-            # 将 df['trade_time'] 更新为强类型的 datetime
-            df['trade_time'] = time_values
-            # 1. 计算日内资金流分布 (优化版)
+            # 再次确保 numpy values 的时间是正确的
+            # 此时 time_values 的底层 int64 对应的是北京时间的纳秒数
+            time_values = df['trade_time'].values
+            # --- 开始各项指标计算 ---
+            # 1. 计算日内资金流分布
             tick_metrics.update(self._calculate_intraday_flow_distribution(df))
             # 2. 高频大单识别
             tick_metrics.update(self._detect_high_freq_large_orders(df))
             # 3. 资金冲击特征
             tick_metrics.update(self._calculate_flow_impact_features(df))
-            # 4. 日内资金动量
+            # 4. 日内资金动量 (含加速度修复)
             tick_metrics.update(self._calculate_intraday_momentum(df))
-            # 5. 资金聚类特征 (优化版)
+            # 5. 资金聚类特征
             tick_metrics.update(self._calculate_flow_cluster_features(df))
             # 6. 高频资金分歧度
             tick_metrics.update(self._calculate_high_freq_divergence(df))
@@ -1129,16 +1146,18 @@ class FundFlowFactorCalculator:
             tick_metrics.update(self._calculate_vwap_deviation(df))
             # 8. 资金流入效率
             tick_metrics.update(self._calculate_flow_efficiency(df))
-            # 9. 尾盘资金特征
+            # 9. 尾盘资金特征 (含时区修复)
             tick_metrics.update(self._calculate_closing_flow_features(df))
             # 10. 高频统计特征
             tick_metrics.update(self._calculate_high_freq_statistics(df))
-            # 11. 资金时段分布
+            # 11. 资金时段分布 (含时区修复)
             tick_metrics.update(self._calculate_time_period_distribution(df))
             # 12. 主力隐蔽性指标
             tick_metrics.update(self._calculate_stealth_flow_indicators(df))
+            
         except Exception as e:
             logger.error(f"计算tick增强指标异常: {e}", exc_info=True)
+            
         return tick_metrics
 
     def _calculate_intraday_flow_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -1295,61 +1314,107 @@ class FundFlowFactorCalculator:
 
     def _calculate_intraday_momentum(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.3.1: 修复高频动量计算中的数值爆炸风险。
-        增加严格的 epsilon 检查和 np.isinf/np.isnan 过滤，确保 Decimal 字段安全。
+        v1.4: 修复高频加速度计算中的数值为0问题。
+        说明：A股14:57-15:00为集合竞价，无成交量。直接取最后3分钟会导致分母为0。
+        修复逻辑：使用 np.trim_zeros 剔除尾部空数据，取最近有效的连续交易分钟计算。
         """
         metrics = {'intraday_flow_momentum': None, 'flow_acceleration_intraday': None}
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         amounts = df['amount'].values
         types = df['type'].values
+        
         if len(times) == 0: return metrics
+        
         signed_amounts = np.where(types == 'B', amounts, -amounts)
         norm_times = times - times[0]
-        minute_flows = np.bincount(norm_times, weights=signed_amounts) / 10000.0
+        # minlength 保证时间跨度正确
+        max_minutes = int(np.max(norm_times)) + 1
+        minute_flows = np.bincount(norm_times, weights=signed_amounts, minlength=max_minutes) / 10000.0
+        
         n = len(minute_flows)
-        if n < 10: return metrics
+        if n < 5: return metrics
+
+        # 1. 动量 (Momentum) - 保持原逻辑
         if n >= 30:
             recent_30 = np.mean(minute_flows[-30:])
             prev_slice = minute_flows[max(0, n-60):n-30]
             previous_30 = np.mean(prev_slice) if len(prev_slice) > 0 else 0.0
-            if abs(previous_30) > 0.01: # 提高阈值至100元
+            if abs(previous_30) > 0.01: 
                 momentum = (recent_30 - previous_30) / abs(previous_30)
                 metrics['intraday_flow_momentum'] = float(np.clip(momentum, -100.0, 100.0))
             else:
                 metrics['intraday_flow_momentum'] = 0.0
-        if n >= 3:
-            recent_3 = minute_flows[-3:]
+        
+        # 2. 加速度 (Acceleration) - 修复逻辑
+        # 剔除尾部的0值（应对14:57-15:00的集合竞价空档）
+        active_flows = np.trim_zeros(minute_flows, 'b')
+        n_active = len(active_flows)
+        
+        if n_active >= 3:
+            recent_3 = active_flows[-3:]
+            # d[2] - 2d[1] + d[0]
             denom = abs(recent_3[0])
-            if denom > 0.01: # 避免除以极小值
+            if denom > 0.01:
                 acc = (recent_3[2] - 2*recent_3[1] + recent_3[0]) / denom
-                # 严格限制 Decimal(20,4) 等字段的溢出范围
+                # 严格限制数值范围
                 metrics['flow_acceleration_intraday'] = float(np.nan_to_num(np.clip(acc, -9999.9, 9999.9)))
             else:
-                metrics['flow_acceleration_intraday'] = 0.0
+                # 分母极小，尝试用绝对量判断方向
+                acc_abs = recent_3[2] - 2*recent_3[1] + recent_3[0]
+                metrics['flow_acceleration_intraday'] = float(np.clip(acc_abs / 100.0, -100.0, 100.0))
+        else:
+             metrics['flow_acceleration_intraday'] = 0.0
+             
         return metrics
+
     def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.3.1: 优化尾盘判定逻辑。
-        利用纳秒时间戳取模运算直接获取日内偏移，避免大量的 datetime 对象转换。
+        v1.4: 优化尾盘判定逻辑，依赖上游的时间标准化。
         """
         metrics = {'closing_flow_ratio': None, 'closing_flow_intensity': None}
+        # 这里已经是北京时间(Naive)的纳秒数值
         times = df['trade_time'].values.astype('int64') # ns
         amounts = df['amount'].values
         types = df['type'].values
+        
         if len(times) == 0: return metrics
-        # A股尾盘定义：14:30:00 = 14.5 * 3600 * 10^9 ns
-        # 考虑到时区对齐，使用本地时间戳对 86400 取模（北京时间无需额外偏移则直接取）
+
+        # A股尾盘定义：14:30:00
+        # 此时 times % 86400e9 得到的是北京时间当天过了多少纳秒
+        # 14:30 = 14.5 * 3600 * 1e9 = 52,200,000,000,000
         ns_in_day = (times % 86400000000000)
-        closing_threshold = 52200000000000 # 14:30 * 3600 * 1e9
+        closing_threshold = 52200000000000 
+        
         closing_mask = ns_in_day >= closing_threshold
+        
         if not np.any(closing_mask):
-            metrics['closing_flow_ratio'], metrics['closing_flow_intensity'] = 0.0, 0.0
+            metrics['closing_flow_ratio'] = 0.0
+            metrics['closing_flow_intensity'] = 0.0
             return metrics
-        buy_mask, sell_mask = (types == 'B'), (types == 'S')
-        c_net = (np.sum(amounts[closing_mask & buy_mask]) - np.sum(amounts[closing_mask & sell_mask])) / 10000.0
-        t_net = (np.sum(amounts[buy_mask]) - np.sum(amounts[sell_mask])) / 10000.0
-        metrics['closing_flow_ratio'] = float(abs(c_net) / abs(t_net) * 100.0) if abs(t_net) > 1e-4 else 0.0
-        metrics['closing_flow_intensity'] = float(abs(c_net) / 30.0)
+            
+        buy_mask = (types == 'B')
+        sell_mask = (types == 'S')
+        
+        # 尾盘净流入
+        c_buy = np.sum(amounts[closing_mask & buy_mask])
+        c_sell = np.sum(amounts[closing_mask & sell_mask])
+        c_net = (c_buy - c_sell) / 10000.0
+        
+        # 全天净流入
+        t_buy = np.sum(amounts[buy_mask])
+        t_sell = np.sum(amounts[sell_mask])
+        t_net = (t_buy - t_sell) / 10000.0
+        
+        # 计算占比
+        if abs(t_net) > 1e-4:
+            metrics['closing_flow_ratio'] = float(abs(c_net) / abs(t_net) * 100.0)
+        else:
+            # 如果全天净流入接近0，但尾盘有量，给一个相对高分或0
+            metrics['closing_flow_ratio'] = 100.0 if abs(c_net) > 10 else 0.0
+            
+        # 计算强度 (归一化参考值：30万净流入)
+        metrics['closing_flow_intensity'] = float(min(100.0, abs(c_net) / 30.0 * 50.0))
+        
         return metrics
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -1529,7 +1594,6 @@ class FundFlowFactorCalculator:
             metrics['flow_efficiency'] = 0.0
         return metrics
 
-
     def _calculate_high_freq_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算高频统计特征
@@ -1559,10 +1623,7 @@ class FundFlowFactorCalculator:
     def _calculate_time_period_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算资金时段分布
-        版本: V1.3
-        说明: 
-        1. 使用 NumPy 广播计算小时数，移除 Pandas .dt.hour 访问器。
-        2. 纯数组掩码操作。
+        v1.4: 依赖上游的时间标准化，确保 morning/afternoon 掩码正确。
         """
         metrics = {}
         times = df['trade_time'].values
@@ -1570,33 +1631,36 @@ class FundFlowFactorCalculator:
             metrics['morning_flow_ratio'] = None
             metrics['afternoon_flow_ratio'] = None
             return metrics
-        # 计算小时数
-        # (Time - Date) -> Timedelta -> Hours
+            
+        # 计算小时数 (基于北京时间 Naive)
         dates = times.astype('datetime64[D]')
-        # 得到小时数 (int)
         hours = (times - dates).astype('timedelta64[h]').astype(int)
-        # 掩码
+        
+        # 掩码 (北京时间 12:00 前为上午，13:00 后为下午)
         morning_mask = hours < 12
         afternoon_mask = hours >= 13
-        if not np.any(morning_mask) and not np.any(afternoon_mask):
-            metrics['morning_flow_ratio'] = None
-            metrics['afternoon_flow_ratio'] = None
-            return metrics
+        
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
+        
         # 计算净流入
         morning_net = np.sum(signed_amounts[morning_mask]) / 10000.0
         afternoon_net = np.sum(signed_amounts[afternoon_mask]) / 10000.0
-        total_net = morning_net + afternoon_net
-        if abs(total_net) > 0:
-            morning_ratio = abs(morning_net) / abs(total_net) * 100.0
-            afternoon_ratio = abs(afternoon_net) / abs(total_net) * 100.0
+        
+        total_abs_net = abs(morning_net) + abs(afternoon_net)
+        
+        # 使用绝对值占比，反映资金活跃时段
+        if total_abs_net > 0:
+            morning_ratio = abs(morning_net) / total_abs_net * 100.0
+            afternoon_ratio = abs(afternoon_net) / total_abs_net * 100.0
         else:
-            morning_ratio = 50.0 if len(times) > 0 else None
-            afternoon_ratio = 50.0 if len(times) > 0 else None
-        metrics['morning_flow_ratio'] = float(morning_ratio) if morning_ratio is not None else None
-        metrics['afternoon_flow_ratio'] = float(afternoon_ratio) if afternoon_ratio is not None else None
+            morning_ratio = 50.0
+            afternoon_ratio = 50.0
+            
+        metrics['morning_flow_ratio'] = float(morning_ratio)
+        metrics['afternoon_flow_ratio'] = float(afternoon_ratio)
+        
         return metrics
 
     def _calculate_stealth_flow_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
