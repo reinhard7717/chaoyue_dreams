@@ -372,7 +372,6 @@ class ContextualAnalysisService:
                 hottest_industry_daily = cpt_df_filtered.loc[cpt_df_filtered.groupby('trade_date')['rank'].idxmin()]
                 hottest_industry_daily = hottest_industry_daily.set_index('trade_date')
                 signals_df['industry_hotness_rank_D'] = hottest_industry_daily['rank']
-                
         return signals_df
 
     async def prepare_smart_money_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
@@ -541,7 +540,6 @@ class ContextualAnalysisService:
                 pct_change_5d = (today_close / prev_close) - 1
             else:
                 pct_change_5d = 0.0
-                
         except (KeyError, IndexError):
             return 0.0
         # 标量逻辑计算

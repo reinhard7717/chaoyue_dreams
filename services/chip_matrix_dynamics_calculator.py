@@ -288,7 +288,6 @@ class ChipMatrixDynamicsCalculator:
                         })
             for key in ['integer_support_levels', 'integer_resistance_levels', 'technical_levels']:
                 analysis[key] = sorted(analysis[key], key=lambda x: abs(x['strength']), reverse=True)[:5]
-                
         except Exception as e:
             print(f"关键价格位分析异常: {e}")
         return analysis

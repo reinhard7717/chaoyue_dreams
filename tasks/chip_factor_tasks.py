@@ -349,11 +349,9 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
     try:
         logger.debug(f"开始计算股票 {stock_code} 的筹码因子")
         print(f"🔴 [单股异步开始] {stock_code} {start_date} 到 {end_date}")
-        
         # 初始化 CacheManager 和 DAO
         cm = CacheManager()
         realtime_dao = StockRealtimeDAO(cm)
-
         # 检查持有矩阵数据是否已存在
         HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
         holding_count = await sync_to_async(HoldingMatrixModel.objects.filter(
@@ -366,41 +364,34 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             print(f"⚠️ [单股检查] {stock_code} 在日期范围内无持有矩阵数据，将尝试降级计算")
         else:
             print(f"✅ [单股检查] {stock_code} 已有 {holding_count} 天的持有矩阵数据")
-            
         # 获取对应的模型
         chip_factor_model = get_chip_factor_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
         daily_data_model = get_daily_data_model_by_code(stock_code)
         # tick_model = get_stock_tick_data_model_by_code(stock_code) # 不再需要直接使用模型
-        
         # 获取股票基本信息
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock:
             print(f"❌ [单股错误] {stock_code} 股票不存在")
             return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
-            
         # 获取历史价格数据用于计算MA
         historical_df = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
         if historical_df.empty:
             print(f"❌ [单股错误] {stock_code} 历史价格数据不足")
             return {'status': 'failed', 'error': f'股票 {stock_code} 历史价格数据不足', 'processed_dates': 0}
         print(f"📊 [单股数据] 历史价格: {len(historical_df)} 条")
-        
         # 提取 close Series 用于传给 calculate_complete_factors
         historical_prices_series = historical_df['close_qfq'] if 'close_qfq' in historical_df else pd.Series()
-        
         # 获取日期范围内的所有交易日（异步调用）
         get_dates_between_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_between_func(start_date, end_date)
         if not trade_dates:
             print(f"⚠️ [单股警告] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
             return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
-            
         processed_dates = 0
         saved_dates = []
         failed_dates = []
         date_progress_interval = max(1, len(trade_dates) // 10)
-        
         # 按日期循环处理当前股票
         for date_index, current_date in enumerate(trade_dates):
             try:
@@ -435,7 +426,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 if not chips_data:
                     continue
                 chips_df = pd.DataFrame(chips_data)
-                
                 # 获取日K线数据
                 daily_kline = await sync_to_async(daily_data_model.objects.filter(
                     stock=stock, 
@@ -460,7 +450,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     
                 # 获取历史因子
                 historical_factors = await get_historical_chip_factors(chip_factor_model, stock, current_date, 5)
-                
                 # 获取当日换手率 (从 historical_df 中获取)
                 current_turnover = 0.0
                 if current_date in historical_df.index:
@@ -505,7 +494,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 }
                 # 传入换手率
                 daily_basic_dict = {'turnover_rate': current_turnover}
-                
                 # =================================================
                 # 计算基础因子
                 # =================================================
@@ -536,7 +524,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         historical_prices=historical_prices_series, 
                         historical_chip_factors=historical_factors
                     )
-                
                 # =================================================
                 # 关键步骤：从 ChipHoldingMatrix 同步高级动态因子
                 # =================================================
@@ -546,7 +533,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         trade_time=current_date,
                         calc_status='success'
                     ).first)()
-
                     if holding_matrix:
                         # 1. 映射基础扁平字段
                         factors['accumulation_signal_score'] = holding_matrix.behavior_accumulation
@@ -555,7 +541,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         if holding_matrix.convergence_comprehensive is not None:
                             factors['percent_change_divergence'] = 1.0 - holding_matrix.convergence_comprehensive
                         factors['migration_convergence_ratio'] = holding_matrix.convergence_migration
-
                         # 2. 从 extra_metrics JSON 提取
                         if holding_matrix.extra_metrics:
                             migration = holding_matrix.extra_metrics.get('migration', {})
@@ -566,7 +551,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                             
                             pressure = holding_matrix.extra_metrics.get('pressure', {})
                             factors['pressure_release_index'] = pressure.get('pressure_release')
-
                         # 3. 从 chart_signals JSON 提取
                         if holding_matrix.chart_signals:
                             abs_signals = holding_matrix.chart_signals.get('absolute_signals', {})
@@ -578,7 +562,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                             total_increase = sum(abs(area.get('change', 0)) for area in increase_areas)
                             total_decrease = sum(abs(area.get('change', 0)) for area in decrease_areas)
                             factors['absolute_change_strength'] = (total_increase + total_decrease) / 100.0
-
                         # 4. 计算衍生字段
                         # 支撑阻力比
                         res_strength = holding_matrix.resistance_strength
@@ -636,7 +619,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 except Exception as sync_error:
                     logger.warning(f"从持有矩阵同步因子失败 {stock_code} {current_date}: {sync_error}")
                     print(f"⚠️ [因子同步] {stock_code} {current_date}: 同步失败 - {sync_error}")
-
                 # =================================================
                 # 保存到数据库
                 await save_chip_factors(chip_factor_model, stock, current_date, factors)
@@ -651,10 +633,8 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             except Exception as e:
                 logger.warning(f"股票 {stock_code} 日期 {current_date} 计算失败: {e}")
                 failed_dates.append(current_date)
-        
         # 打印最终结果
         print(f"📊 [单股统计] 成功: {len(saved_dates)} 天, 失败: {len(failed_dates)} 天")
-        
         tick_stats = {
             'total_dates': len(trade_dates),
             'tick_available_dates': 0,

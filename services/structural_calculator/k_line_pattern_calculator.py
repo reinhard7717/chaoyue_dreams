@@ -203,7 +203,6 @@ class KLinePatternCalculator:
                     'close': chunk[-1]['close'],
                     'volume': sum(d['volume'] for d in chunk),
                 })
-                
         return resampled
     
     def _calculate_adaptive_trend(self, data: List[Dict]) -> Dict:

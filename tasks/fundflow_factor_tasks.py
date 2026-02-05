@@ -203,6 +203,8 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         daily_basic_data = await _get_daily_basic_data_async(stock_code, trade_date, stock_time_trade_dao)
         # 异步获取分钟数据
         minute_data = await _get_1min_data_async(stock_code, trade_date, stock_time_trade_dao)
+        # [新增] 异步获取Tick数据
+        tick_data = await _get_tick_data_async(stock_code, trade_date, stock_time_trade_dao)
         # 构建上下文 (同步操作)
         context = CalculationContext(
             stock_code=stock_code,
@@ -210,7 +212,8 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
             current_flow_data=current_flow_data,
             historical_flow_data=historical_flow_data,
             daily_basic_data=daily_basic_data,
-            minute_data_1min=minute_data
+            minute_data_1min=minute_data,
+            tick_data=tick_data  # [新增] 传入Tick数据
         )
         # 执行计算 (CPU 密集型，直接运行)
         calculator = FundFlowFactorCalculator(context)
@@ -221,6 +224,32 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
     except Exception as e:
         logger.error(f"计算股票 {stock_code} 在 {trade_date} 的资金流向因子失败: {e}", exc_info=True)
         return False
+
+async def _get_tick_data_async(stock_code: str, trade_date: date, stock_time_trade_dao) -> Optional[pd.DataFrame]:
+    """[Async] 获取Tick数据"""
+    try:
+        # 尝试调用 DAO 获取 tick 数据
+        # 假设 DAO 中存在 get_tick_data_by_day 方法，如果不存在则返回 None
+        if hasattr(stock_time_trade_dao, 'get_tick_data_by_day'):
+            return await stock_time_trade_dao.get_tick_data_by_day(stock_code, trade_date)
+        return None
+    except Exception as e:
+        logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的Tick数据失败: {e}")
+        return None
+
+def get_tick_data(stock_code: str, trade_date: date, stock_time_trade_dao: StockTimeTradeDAO) -> Optional[pd.DataFrame]:
+    """
+    获取Tick数据
+    版本: V1.0
+    """
+    try:
+        # 使用传入的 stock_time_trade_dao
+        if hasattr(stock_time_trade_dao, 'get_tick_data_by_day'):
+            return async_to_sync(stock_time_trade_dao.get_tick_data_by_day)(stock_code, trade_date)
+        return None
+    except Exception as e:
+        logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的Tick数据失败: {e}")
+        return None
 
 async def _get_historical_flow_data_async(stock_code: str, end_date: date, 
                                         stock_time_trade_dao, days: int = 120) -> List[Dict]:
@@ -446,15 +475,11 @@ def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_mode
             failed_dates.append(trade_date)
     return calculated, failed_dates
 
-def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model,
-                                stock_basic_dao: StockBasicInfoDao,
-                                stock_time_trade_dao: StockTimeTradeDAO) -> bool:
+def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model, stock_basic_dao: StockBasicInfoDao, stock_time_trade_dao: StockTimeTradeDAO) -> bool:
     """
     计算单个日期的资金流向因子
-    版本: V1.4
-    说明: 
-    1. 使用传入的 DAO 实例，不再内部实例化 CacheManager。
-    2. 将 stock_time_trade_dao 传递给数据获取函数。
+    版本: V1.5
+    说明: 增加 Tick 数据获取逻辑
     """
     try:
         # 使用传入的 stock_basic_dao
@@ -478,13 +503,16 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         # 传递 stock_time_trade_dao
         daily_basic_data = get_daily_basic_data(stock_code, trade_date, stock_time_trade_dao)
         minute_data = get_1min_data(stock_code, trade_date, stock_time_trade_dao)
+        # [新增] 获取Tick数据
+        tick_data = get_tick_data(stock_code, trade_date, stock_time_trade_dao)
         context = CalculationContext(
             stock_code=stock_code,
             trade_date=trade_date,
             current_flow_data=current_flow_data,
             historical_flow_data=historical_flow_data,
             daily_basic_data=daily_basic_data,
-            minute_data_1min=minute_data
+            minute_data_1min=minute_data,
+            tick_data=tick_data  # [新增] 传入Tick数据
         )
         calculator = FundFlowFactorCalculator(context)
         all_metrics = calculator.calculate_all_metrics()
@@ -674,10 +702,8 @@ def get_1min_data(stock_code: str, trade_date: date,
 def save_factor_to_db(stock_info: StockInfo, trade_date: date, metrics: Dict, factor_model):
     """
     保存因子到数据库
-    版本: V1.3
-    说明: 
-    1. 增加死锁 (Deadlock) 重试机制，解决高并发下的 MySQL 1213 错误。
-    2. 引入指数退避策略，缓解数据库锁竞争。
+    版本: V1.4
+    说明: 增加 Tick 增强指标的字段映射
     """
     from django.db.utils import OperationalError
     import time
@@ -686,7 +712,6 @@ def save_factor_to_db(stock_info: StockInfo, trade_date: date, metrics: Dict, fa
         try:
             with transaction.atomic():
                 # 创建或更新因子记录
-                # update_or_create 内部会使用 select_for_update，容易在高并发下产生死锁
                 factor_obj, created = factor_model.objects.update_or_create(
                     stock=stock_info,
                     trade_time=trade_date,
@@ -757,23 +782,40 @@ def save_factor_to_db(stock_info: StockInfo, trade_date: date, metrics: Dict, fa
                         'signal_strength': _safe_decimal(metrics.get('signal_strength')),
                         # 原始数据快照
                         'feature_vector': metrics.get('feature_vector'),
+                        # [新增] 基于Tick数据的资金流向增强指标
+                        'intraday_flow_distribution': metrics.get('intraday_flow_distribution'),
+                        'tick_large_order_net': _safe_decimal(metrics.get('tick_large_order_net')),
+                        'tick_large_order_count': metrics.get('tick_large_order_count'),
+                        'flow_impact_ratio': _safe_decimal(metrics.get('flow_impact_ratio')),
+                        'flow_persistence_minutes': metrics.get('flow_persistence_minutes'),
+                        'intraday_flow_momentum': _safe_decimal(metrics.get('intraday_flow_momentum')),
+                        'flow_acceleration_intraday': _safe_decimal(metrics.get('flow_acceleration_intraday')),
+                        'flow_cluster_intensity': _safe_decimal(metrics.get('flow_cluster_intensity')),
+                        'flow_cluster_duration': metrics.get('flow_cluster_duration'),
+                        'high_freq_flow_divergence': _safe_decimal(metrics.get('high_freq_flow_divergence')),
+                        'vwap_deviation': _safe_decimal(metrics.get('vwap_deviation')),
+                        'flow_efficiency': _safe_decimal(metrics.get('flow_efficiency')),
+                        'closing_flow_ratio': _safe_decimal(metrics.get('closing_flow_ratio')),
+                        'closing_flow_intensity': _safe_decimal(metrics.get('closing_flow_intensity')),
+                        'high_freq_flow_skewness': _safe_decimal(metrics.get('high_freq_flow_skewness')),
+                        'high_freq_flow_kurtosis': _safe_decimal(metrics.get('high_freq_flow_kurtosis')),
+                        'morning_flow_ratio': _safe_decimal(metrics.get('morning_flow_ratio')),
+                        'afternoon_flow_ratio': _safe_decimal(metrics.get('afternoon_flow_ratio')),
+                        'stealth_flow_ratio': _safe_decimal(metrics.get('stealth_flow_ratio')),
                     }
                 )
                 logger.debug(f"{'创建' if created else '更新'}股票 {stock_info.stock_code} "
                             f"在 {trade_date} 的资金流向因子")
                 return factor_obj
         except OperationalError as e:
-            # 检查是否为死锁错误 (MySQL Error 1213)
-            # e.args 通常为 (code, message)
             error_code = e.args[0] if e.args else None
             if error_code == 1213:
                 if attempt < max_retries - 1:
-                    wait_time = 0.2 * (2 ** attempt) # 指数退避: 0.2s, 0.4s, 0.8s, 1.6s
+                    wait_time = 0.2 * (2 ** attempt)
                     logger.warning(f"保存股票 {stock_info.stock_code} 在 {trade_date} 时发生死锁 (1213)，"
                                  f"正在重试 ({attempt + 1}/{max_retries})，等待 {wait_time:.2f}s...")
                     time.sleep(wait_time)
                     continue
-            # 如果不是死锁或重试耗尽，记录错误并抛出
             logger.error(f"保存股票 {stock_info.stock_code} 在 {trade_date} 时发生数据库错误: {e}")
             raise
         except Exception as e:

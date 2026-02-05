@@ -89,10 +89,8 @@ class IndexBasicDAO(BaseDAO):
                 ).order_by('-cal_date').values_list('cal_date', flat=True)
             )
         )()
-        
         if not trade_days_raw:
             return []
-            
         # 向量化转换，确保返回的是 date 对象列表
         return pd.to_datetime(trade_days_raw).date.tolist()
 
@@ -103,9 +101,7 @@ class IndexBasicDAO(BaseDAO):
         """
         if not trade_date:
             trade_date = datetime.date.today()
-        
         trade_date_str = trade_date.strftime('%Y%m%d')
-        
         # 获取原始数据列表 (可能是 str 也可能是 date，取决于数据库后端)
         trade_days_raw = await sync_to_async(
             lambda: list(
@@ -115,10 +111,8 @@ class IndexBasicDAO(BaseDAO):
                 ).order_by('-cal_date').values_list('cal_date', flat=True)[:n]
             )
         )()
-        
         if not trade_days_raw:
             return []
-
         # 向量化转换：pd.to_datetime 能自动处理 str 和 date 混合的情况
         # .date 将 Timestamp 对象转换为 python datetime.date 对象
         # tolist() 将 numpy array 转换为 python list
@@ -185,24 +179,19 @@ class IndexBasicDAO(BaseDAO):
         1. [优化] 使用 asyncio.gather 并发执行单个指数的缓存写入，大幅提升缓存预热速度。
         """
         return_data = await sync_to_async(lambda: list(IndexInfo.objects.all()))()
-        
         if return_data:
             data_to_cache = []
             cache_tasks = []
-            
             for index in return_data:
                 index_dict = self.data_format_process.set_index_info_data(index)
                 data_to_cache.append(index_dict)
                 # 收集单个缓存任务，不立即 await
                 cache_tasks.append(self.index_cache_set.index_info(index.index_code, index_dict))
-            
             # 并发执行所有单个缓存任务
             if cache_tasks:
                 await asyncio.gather(*cache_tasks)
-            
             # 批量设置总缓存
             await self.index_cache_set.all_indexes(data_to_cache)
-            
         return return_data
 
     async def get_index_by_code(self, index_code) -> Optional['IndexInfo']:
@@ -225,12 +214,10 @@ class IndexBasicDAO(BaseDAO):
         """
         if not index_codes:
             return {}
-        
         # 优化：一次性将 QuerySet 转换为列表，避免在 async 循环中逐个 fetch
         indices = await sync_to_async(list)(
             IndexInfo.objects.filter(index_code__in=index_codes)
         )
-        
         # 内存中构建字典
         return {index.index_code: index for index in indices}
 
@@ -397,35 +384,26 @@ class IndexBasicDAO(BaseDAO):
         if not index_info:
             logger.warning(f"未找到指数 {index_code} 的基础信息，无法保存权重。")
             return {}
-
         df = self.ts_pro.index_weight(**{
             "index_code": index_code, "trade_date": "", "start_date": "", "end_date": "", "ts_code": "", "limit": "", "offset": ""
         }, fields=["index_code", "con_code", "trade_date", "weight"])
-        
         if df is None or df.empty:
             return {}
-
         # 向量化处理
         df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         df.dropna(subset=['con_code', 'trade_date'], inplace=True)
-        
         df['index'] = index_info
         df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
         if 'weight' in df.columns:
             df['weight'] = pd.to_numeric(df['weight'], errors='coerce')
-        
         df.rename(columns={'con_code': 'stock_code'}, inplace=True)
-        
         final_cols = ['index', 'stock_code', 'trade_time', 'weight']
         # 确保列存在
         valid_cols = [c for c in final_cols if c in df.columns]
         df_final = df[valid_cols]
-        
         data_list = df_final.where(pd.notnull(df_final), None).to_dict('records')
-        
         if not data_list:
             return {}
-
         result = await self._save_all_to_db_native_upsert(
             model_class=IndexWeight,
             data_list=data_list,
@@ -515,7 +493,6 @@ class IndexBasicDAO(BaseDAO):
                     cols_to_downcast = [c for c in float32_cols if c in df.columns]
                     if cols_to_downcast:
                         df[cols_to_downcast] = df[cols_to_downcast].astype('float32')
-
                     model_cols = ['index', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount']
                     df_final = df[[col for col in model_cols if col in df.columns]]
                     new_dicts = df_final.where(pd.notnull(df_final), None).to_dict('records')
@@ -616,7 +593,6 @@ class IndexBasicDAO(BaseDAO):
         if combined_df.empty:
             return {}
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date'], format='%Y%m%d').dt.date
-        
         # 1. 基础数值转换
         numeric_cols = [
             'total_mv', 'float_mv', 'total_share', 'float_share', 'free_share',
@@ -625,14 +601,12 @@ class IndexBasicDAO(BaseDAO):
         cols_to_convert = [c for c in numeric_cols if c in combined_df.columns]
         if cols_to_convert:
             combined_df[cols_to_convert] = combined_df[cols_to_convert].apply(pd.to_numeric, errors='coerce')
-            
         # 2. 类型降级优化 (float64 -> float32)
         # 换手率和估值指标不需要极高精度
         float32_cols = ['turnover_rate', 'turnover_rate_f', 'pe', 'pe_ttm', 'pb']
         cols_to_downcast = [c for c in float32_cols if c in combined_df.columns]
         if cols_to_downcast:
             combined_df[cols_to_downcast] = combined_df[cols_to_downcast].astype('float32')
-
         model_cols = ['index', 'trade_time', 'total_mv', 'float_mv', 'total_share', 'float_share', 'free_share', 'turnover_rate', 'turnover_rate_f', 'pe', 'pe_ttm', 'pb']
         final_df = combined_df[[col for col in model_cols if col in combined_df.columns]]
         data_list = final_df.where(pd.notnull(final_df), None).to_dict('records')

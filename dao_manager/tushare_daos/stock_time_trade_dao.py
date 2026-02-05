@@ -53,29 +53,24 @@ class StockTimeTradeDAO(BaseDAO):
         """
         if not stock_codes:
             return []
-        
         # 1. 按模型分组
         model_to_codes_map = defaultdict(list)
         for code in stock_codes:
             model_class = get_daily_data_model_by_code(code)
             model_to_codes_map[model_class].append(code)
-            
         # 2. 定义单个查询任务
         def fetch_batch(model, codes):
             return list(model.objects.filter(
                 stock__stock_code__in=codes,
                 trade_time=trade_date
             ))
-
         # 3. 并发执行所有查询 (注意：这里是在 sync_to_async 内部，需要用线程池或转为 async)
         # 由于外层已经是 sync_to_async，这里直接串行执行即可，或者重构为 async def
         # 考虑到 Django ORM 的同步特性，在 sync_to_async 内部再开线程池可能复杂化
         # 但为了极致性能，我们可以手动管理线程
-        
         # 修正：由于方法被 @sync_to_async 装饰，它运行在线程池中。
         # 在线程池中再开并发比较困难。建议移除 @sync_to_async，改为 async def，
         # 并在内部使用 sync_to_async 包装每个查询。
-        
         # 这里保持原签名，但在内部优化逻辑
         all_daily_data = []
         for model_class, codes in model_to_codes_map.items():
@@ -85,7 +80,6 @@ class StockTimeTradeDAO(BaseDAO):
             except Exception as e:
                 logger.error(f"查询模型 {model_class.__name__} 失败: {e}")
                 continue
-                
         return all_daily_data
 
     # 重新定义为 async 版本以支持真正的并发
@@ -98,15 +92,12 @@ class StockTimeTradeDAO(BaseDAO):
         for code in stock_codes:
             model_class = get_daily_data_model_by_code(code)
             model_to_codes_map[model_class].append(code)
-            
         async def fetch_one(model, codes):
             return await sync_to_async(list)(
                 model.objects.filter(stock__stock_code__in=codes, trade_time=trade_date)
             )
-            
         tasks = [fetch_one(m, c) for m, c in model_to_codes_map.items()]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
         all_data = []
         for res in results:
             if isinstance(res, list):
@@ -301,72 +292,56 @@ class StockTimeTradeDAO(BaseDAO):
             api_params['end_date'] = end_date.strftime('%Y%m%d')
         else:
             return {"status": "error", "message": "必须提供 trade_date 或 start_date/end_date"}
-
         # 2. 获取全市场股票映射 (用于外键关联)
         all_stocks = await self.stock_basic_dao.get_stock_list()
         if not all_stocks:
             return {"status": "error", "message": "无股票基础数据"}
         stock_map = {s.stock_code: s for s in all_stocks}
-
         # 3. 调用 API (全市场)
         while not await limiter.acquire():
             await asyncio.sleep(5)
-            
         try:
             # Tushare daily 接口不传 ts_code 即为全市场
             df = self.ts_pro.daily(**api_params)
         except Exception as e:
             logger.error(f"Tushare daily API 调用失败: {e}")
             return {"status": "error", "message": str(e)}
-
         if df.empty:
             return {"status": "success", "message": "无数据", "创建/更新成功": 0}
-
         # 4. 向量化处理
         df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         df['stock'] = df['ts_code'].map(stock_map)
         df.dropna(subset=['stock', 'trade_date'], inplace=True)
-        
         if df.empty:
             return {"status": "success", "message": "清洗后无数据", "创建/更新成功": 0}
-
         df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-        
         # 预计算模型映射
         unique_codes = df['ts_code'].unique()
         model_map = {code: get_daily_data_model_by_code(code) for code in unique_codes}
         df['model_class'] = df['ts_code'].map(model_map)
-        
         # 处理 amount 单位 (千元 -> 元 ? Tushare daily amount 单位通常是千元)
         if 'amount' in df.columns:
             df['amount'] = pd.to_numeric(df['amount'], errors='coerce') * 1000
-
         # 5. 分组保存
         total_saved = 0
         columns_to_keep = ['stock', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount']
-        
         for model_class, group_df in df.groupby('model_class'):
             if group_df.empty: continue
-            
             # 重命名 pct_chg -> pct_change
             final_df = group_df.rename(columns={'pct_chg': 'pct_change'})
-            
             # 筛选列
             valid_cols = [c for c in columns_to_keep if c in final_df.columns or c == 'pct_change']
             # 注意：上面 rename 后 pct_chg 变成了 pct_change
             valid_cols = [c if c != 'pct_chg' else 'pct_change' for c in valid_cols]
             # 去重
             valid_cols = list(set(valid_cols) & set(final_df.columns))
-            
             data_list = final_df[valid_cols].where(pd.notnull(final_df[valid_cols]), None).to_dict('records')
-            
             res = await self._save_all_to_db_native_upsert(
                 model_class=model_class,
                 data_list=data_list,
                 unique_fields=['stock', 'trade_time']
             )
             total_saved += res.get("创建/更新成功", 0)
-
         return {"status": "success", "message": f"Saved {total_saved}", "创建/更新成功": total_saved}
 
     async def save_daily_time_trade_history_by_stock_codes(
@@ -384,48 +359,37 @@ class StockTimeTradeDAO(BaseDAO):
         if not stock_codes:
             logger.warning("传入的stock_codes列表为空，任务终止。")
             return {}
-            
         # 1. 一次性获取股票信息
         all_stocks = await self.stock_basic_dao.get_stock_list()
         stock_map = {stock.stock_code: stock for stock in all_stocks if stock.stock_code in stock_codes}
-        
         if not stock_map:
             logger.warning(f"提供的stock_codes: {stock_codes} 在数据库中均未找到对应的StockInfo。")
             return {}
-            
         stock_codes_str = ",".join(stock_codes)
         data_dicts_by_model = defaultdict(list)
-        
         # 预计算模型映射
         model_map = {code: get_daily_data_model_by_code(code) for code in stock_codes}
-
         # 内部函数优化
         def process_dataframe(df: pd.DataFrame):
             if df.empty: return
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
-            
             df['stock'] = df['ts_code'].map(stock_map)
             df.dropna(subset=['stock'], inplace=True)
-            
             if df.empty: return
-            
             # 指定格式加速
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
             # 使用 map 替代 apply
             df['model_class'] = df['ts_code'].map(model_map)
-            
             columns_to_keep = [
                 'stock', 'trade_time', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_change', 'vol',
                 'amount', 'adj_factor', 'open_hfq', 'open_qfq', 'close_hfq', 'close_qfq', 'high_hfq', 'high_qfq', 'low_hfq',
                 'low_qfq', 'pre_close_hfq', 'pre_close_qfq'
             ]
-            
             for model_class, group_df in df.groupby('model_class', sort=False):
                 final_cols = [col for col in columns_to_keep if col in group_df.columns]
                 data_to_save = group_df[final_cols].where(pd.notnull(group_df[final_cols]), None).to_dict('records')
                 data_dicts_by_model[model_class].extend(data_to_save)
-
         # 2. 准备API参数
         api_params = {
             "ts_code": stock_codes_str,
@@ -435,7 +399,6 @@ class StockTimeTradeDAO(BaseDAO):
                 "low_qfq", "pre_close_hfq", "pre_close_qfq"
             ]
         }
-
         # 3. API 调用逻辑
         if start_date and (end_date is None or start_date == end_date):
             logger.info(f"执行单日查询: date={start_date}, stocks={len(stock_codes)}个")
@@ -450,7 +413,6 @@ class StockTimeTradeDAO(BaseDAO):
             else:
                 logger.info(f"执行历史查询 (无日期范围): stocks={len(stock_codes)}个")
                 api_params["start_date"] = "20000101"
-                
             offset = 0
             limit = 6000
             while True:
@@ -466,7 +428,6 @@ class StockTimeTradeDAO(BaseDAO):
                 if len(df) < limit:
                     break
                 offset += limit
-
         # 4. 批量保存
         result = {}
         for model_class, data_list in data_dicts_by_model.items():
@@ -478,7 +439,6 @@ class StockTimeTradeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_time']
             )
             result[model_class.__name__] = res
-            
         return result
 
     # =============== A股分钟行情 ===============
@@ -568,7 +528,6 @@ class StockTimeTradeDAO(BaseDAO):
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map: return
         stock_codes_str = ",".join(stock_codes)
-        
         # 预计算模型映射 (针对所有时间级别)
         model_maps = {}
         for time_level in ['1', '5', '15', '30', '60']:
@@ -576,13 +535,11 @@ class StockTimeTradeDAO(BaseDAO):
                 code: get_minute_data_model_by_code_and_timelevel(code, time_level) 
                 for code in stock_codes
             }
-
         for time_level in ['1', '5', '15', '30', '60']:
             offset = 0
             limit = 8000
             while True:
                 if offset >= 100000: break
-                
                 while not await limiter.acquire():
                     await asyncio.sleep(10)
                     
@@ -595,28 +552,21 @@ class StockTimeTradeDAO(BaseDAO):
                 except Exception:
                     await asyncio.sleep(5)
                     df = pd.DataFrame()
-                
                 if df.empty: break
-                
                 # 向量化处理
                 df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                 df.dropna(subset=['ts_code', 'trade_time'], inplace=True)
-                
                 df['stock'] = df['ts_code'].map(stock_map)
                 df.dropna(subset=['stock'], inplace=True)
-                
                 if df.empty:
                     if len(df) < limit: break
                     offset += limit
                     continue
-
                 # 优化时区转换：一次性完成
                 # 假设 trade_time 是字符串，先转 datetime，再本地化，再转 UTC，再转 naive
                 df['trade_time'] = pd.to_datetime(df['trade_time']).dt.tz_localize('Asia/Shanghai').dt.tz_convert('UTC').dt.tz_localize(None)
-                
                 # 使用预计算的 map
                 df['model_class'] = df['ts_code'].map(model_maps[time_level])
-                
                 for model_class, group_df in df.groupby('model_class'):
                     if group_df.empty: continue
                     data_list = group_df[["stock", "trade_time", "close", "open", "high", "low", "vol", "amount"]].to_dict('records')
@@ -625,7 +575,6 @@ class StockTimeTradeDAO(BaseDAO):
                         data_list=data_list,
                         unique_fields=['stock', 'trade_time']
                     )
-                
                 if len(df) < limit: break
                 offset += limit
 
@@ -639,31 +588,22 @@ class StockTimeTradeDAO(BaseDAO):
         """
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock: return 0
-        
         model_class = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
         if not model_class: return 0
-        
         total_saved_count = 0
         reference_date = datetime.now().date()
         stop_date = date(2019, 3, 1)
-        
         while True:
             get_trade_dates_async = sync_to_async(TradeCalendar.get_latest_n_trade_dates, thread_sensitive=True)
             trade_dates = await get_trade_dates_async(n=33, reference_date=reference_date)
-            
             if not trade_dates: break
-            
             end_date_obj = trade_dates[0]
             start_date_obj = trade_dates[-1]
-            
             if start_date_obj < stop_date: break
-            
             start_date_str = f"{start_date_obj.strftime('%Y-%m-%d')} 00:00:00"
             end_date_str = f"{end_date_obj.strftime('%Y-%m-%d')} 23:59:59"
-            
             while not await limiter.acquire():
                 await asyncio.sleep(10)
-                
             try:
                 df = self.ts_pro.stk_mins(
                     ts_code=stock_code, freq='1min',
@@ -672,32 +612,24 @@ class StockTimeTradeDAO(BaseDAO):
             except Exception:
                 await asyncio.sleep(60)
                 continue
-                
             if df.empty: break
-            
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['trade_time'], inplace=True)
-            
             if df.empty:
                 reference_date = start_date_obj - timedelta(days=1)
                 continue
-                
             df['stock'] = stock
             # 优化：指定格式 + 链式时区转换
             df['trade_time'] = pd.to_datetime(df['trade_time'], format='%Y-%m-%d %H:%M:%S').dt.tz_localize('Asia/Shanghai').dt.tz_convert('UTC').dt.tz_localize(None)
-            
             data_list = df[["stock", "trade_time", "close", "open", "high", "low", "vol", "amount"]].to_dict('records')
-            
             result_dict = await self._save_all_to_db_native_upsert(
                 model_class=model_class,
                 data_list=data_list,
                 unique_fields=['stock', 'trade_time']
             )
-            
             total_saved_count += result_dict.get("创建/更新成功", 0)
             reference_date = start_date_obj - timedelta(days=1)
             await asyncio.sleep(0.2)
-            
         return total_saved_count
 
     async def save_minute_time_trade_history_by_stock_code_and_time_level(self, stock_code: str, time_level: str, trade_date: date=None, start_date: date=None, end_date: date=None) -> int:
@@ -707,43 +639,33 @@ class StockTimeTradeDAO(BaseDAO):
         """
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock: return 0
-        
         model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
         if not model_class: return 0
-        
         start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S') if start_date else "2020-01-01 00:00:00"
         end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S') if end_date else ""
-        
         all_data_dicts = []
         total_saved_count = 0
         offset = 0
         limit = 8000
-        
         while True:
             if offset >= 100000: break
-            
             df = self.ts_pro.stk_mins(**{
                 "ts_code": stock_code, "freq": time_level + "min", 
                 "start_date": start_date_str, "end_date": end_date_str, 
                 "limit": limit, "offset": offset
             }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
-            
             if df.empty: break
-            
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['trade_time'], inplace=True)
-            
             if not df.empty:
                 df['stock'] = stock
                 # 优化：指定格式
                 df['trade_time'] = pd.to_datetime(df['trade_time'], format='%Y-%m-%d %H:%M:%S')
                 df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai').dt.tz_convert('UTC').dt.tz_localize(None)
-                
                 final_df = df[[
                     "stock", "trade_time", "close", "open", "high", "low", "vol", "amount"
                 ]]
                 all_data_dicts.extend(final_df.to_dict('records'))
-            
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
                 result_dict = await self._save_all_to_db_native_upsert(
                     model_class=model_class,
@@ -752,11 +674,9 @@ class StockTimeTradeDAO(BaseDAO):
                 )
                 total_saved_count += result_dict.get("创建/更新成功", 0)
                 all_data_dicts = []
-                
             time.sleep(0.2)
             if len(df) < limit: break
             offset += limit
-            
         if all_data_dicts:
             result_dict = await self._save_all_to_db_native_upsert(
                 model_class=model_class,
@@ -764,7 +684,6 @@ class StockTimeTradeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_time']
             )
             total_saved_count += result_dict.get("创建/更新成功", 0)
-            
         return total_saved_count
 
     # =============== A股分钟行情(实时) ===============
@@ -777,75 +696,59 @@ class StockTimeTradeDAO(BaseDAO):
         """
         if not stock_codes:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-            
         stock_codes_str = ",".join(stock_codes)
         df = self.ts_pro.rt_min(ts_code=stock_codes_str, freq=f"{time_level}MIN", fields=[
             "ts_code", "time", "open", "close", "high", "low", "vol", "amount"
         ])
-        
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-            
         # 1. 预处理
         df.dropna(subset=['time', 'ts_code'], inplace=True)
         # 指定格式加速解析
         df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
         df.dropna(subset=['trade_time'], inplace=True)
-        
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
         # 2. 准备映射数据
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         # 预计算模型映射
         model_map = {code: get_minute_data_model_by_code_and_timelevel(code, time_level) for code in stock_codes}
-        
         # 3. 向量化映射
         df['stock'] = df['ts_code'].map(stock_map)
         df['model_class'] = df['ts_code'].map(model_map)
-        
         # 过滤无效行
         df.dropna(subset=['stock', 'model_class'], inplace=True)
-        
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
         # 4. 准备数据库载荷 (PostgreSQL)
         # 时区转换: Naive -> Shanghai -> UTC -> Naive (适配原生SQL)
         df['db_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai').dt.tz_convert('UTC').dt.tz_localize(None)
-        
         db_save_tasks = []
         # 按模型分组构建任务
         for model_class, group_df in df.groupby('model_class'):
             # 构造字典列表，重命名 db_time -> trade_time
             payload_df = group_df[['stock', 'db_time', 'open', 'close', 'high', 'low', 'vol', 'amount']].rename(columns={'db_time': 'trade_time'})
             data_list = payload_df.to_dict('records')
-            
             task = self._save_all_to_db_native_upsert(
                 model_class=model_class,
                 data_list=data_list,
                 unique_fields=['stock', 'trade_time']
             )
             db_save_tasks.append(task)
-
         # 5. 准备缓存载荷 (Redis ZSET)
         # 构造 {stock_code: [record]} 格式
         # 缓存需要原始 trade_time (datetime对象)
         cache_cols = ['open', 'high', 'low', 'close', 'vol', 'amount', 'trade_time']
         # 重命名 vol -> volume
         cache_df = df[['ts_code'] + [c if c != 'vol' else 'vol' for c in cache_cols]].rename(columns={'vol': 'volume'})
-        
         # 使用 groupby 构建字典，虽然这里有循环，但比逐行循环快得多
         cache_payload = {}
         for ts_code, group in cache_df.groupby('ts_code'):
             cache_payload[ts_code] = group[['open', 'high', 'low', 'close', 'volume', 'amount', 'trade_time']].to_dict('records')
-
         # 6. 并发执行
         cache_save_task = self.cache_set.batch_set_intraday_minute_kline(cache_payload, time_level)
         all_tasks = db_save_tasks + [cache_save_task]
-        
         results = await asyncio.gather(*all_tasks, return_exceptions=True)
-        
         # 7. 统计结果
         final_result = {"尝试处理": len(df), "失败": 0, "创建/更新成功": 0}
         for res in results[:-1]: # 排除最后一个 cache 结果
@@ -854,7 +757,6 @@ class StockTimeTradeDAO(BaseDAO):
                 final_result["失败"] += res.get("失败", 0)
             elif isinstance(res, Exception):
                 final_result["失败"] += 1 
-                
         return final_result
 
     async def get_minute_kline_by_daterange(self, stock_code: str, time_level: str, start_dt: datetime, end_dt: datetime) -> Optional[pd.DataFrame]:
@@ -961,7 +863,6 @@ class StockTimeTradeDAO(BaseDAO):
         all_data_dicts = []
         offset = 0
         limit = 6000
-        
         while True:
             df = self.ts_pro.stk_week_month_adj(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, 
@@ -970,37 +871,27 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", 
                 "change", "pct_chg", "vol", "amount"
             ])
-            
             if df is None or df.empty: break
-            
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
-            
             unique_ts_codes = df['ts_code'].unique().tolist()
             stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
-            
             df['stock'] = df['ts_code'].map(stock_map)
             df.dropna(subset=['stock'], inplace=True)
-            
             if df.empty:
                 if len(df) < limit: break
                 offset += limit
                 continue
-                
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
             df.rename(columns={'pct_chg': 'pct_change'}, inplace=True)
-            
             # 强制类型转换
             numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
             for col in numeric_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-            
             model_cols = ['stock', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
             final_df = df[model_cols]
-            
             all_data_dicts.extend(final_df.where(pd.notnull(final_df), None).to_dict('records'))
-            
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
                 await self._save_all_to_db_native_upsert(
                     model_class=StockWeeklyData,
@@ -1008,11 +899,9 @@ class StockTimeTradeDAO(BaseDAO):
                     unique_fields=['stock', 'trade_time']
                 )
                 all_data_dicts = []
-                
             if len(df) < limit: break
             offset += limit
             await asyncio.sleep(0.5)
-            
         if all_data_dicts:
             await self._save_all_to_db_native_upsert(
                 model_class=StockWeeklyData,
@@ -1056,53 +945,41 @@ class StockTimeTradeDAO(BaseDAO):
                 logger.error(f"Tushare API调用失败 (offset: {offset}): {e}", exc_info=True)
                 await asyncio.sleep(5)
                 break
-            
             if df.empty:
                 logger.info("Tushare未返回更多数据，拉取完成。")
                 break
-            
             # 1. 数据清洗
             df.replace(['', 'null', 'None', 'nan', 'NaN'], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
-            
             if df.empty:
                 if len(df) < limit: break
                 offset += limit
                 continue
-
             # 2. 批量获取关联对象
             unique_ts_codes = df['ts_code'].unique().tolist()
             stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
-            
             df['stock'] = df['ts_code'].map(stock_map)
             df.dropna(subset=['stock'], inplace=True)
-            
             if df.empty:
                 if len(df) < limit: break
                 offset += limit
                 continue
-
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
             df.rename(columns={'pct_chg': 'pct_change', 'open_qfq': 'open', 'high_qfq': 'high', 'low_qfq': 'low', 'close_qfq': 'close'}, inplace=True)
-            
             # 3. 向量化数值类型转换 (使用 astype float)
             numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
             # 确保列存在
             valid_numeric_cols = [c for c in numeric_cols if c in df.columns]
             if valid_numeric_cols:
                 df[valid_numeric_cols] = df[valid_numeric_cols].astype(float)
-            
             # amount 单位转换 (千元 -> 元)
             if 'amount' in df.columns:
                 df['amount'] = df['amount'] * 1000
-            
             # 4. 导出
             model_cols = ['stock', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
             final_df = df[[col for col in model_cols if col in df.columns]]
-            
             records = final_df.where(pd.notnull(final_df), None).to_dict('records')
             all_data_to_save.extend(records)
-            
             if len(all_data_to_save) >= BATCH_SAVE_SIZE:
                 await self._save_all_to_db_native_upsert(
                     model_class=StockMonthlyData,
@@ -1110,11 +987,9 @@ class StockTimeTradeDAO(BaseDAO):
                     unique_fields=['stock', 'trade_time']
                 )
                 all_data_to_save = []
-            
             await asyncio.sleep(0.6)
             if len(df) < limit: break
             offset += len(df)
-            
         if all_data_to_save:
             logger.info(f"正在保存最后一批剩余的 {len(all_data_to_save)} 条月线数据...")
             await self._save_all_to_db_native_upsert(
@@ -1156,30 +1031,22 @@ class StockTimeTradeDAO(BaseDAO):
             "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps",
             "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
         ]
-        
         df = self.ts_pro.daily_basic(**params, fields=fields_to_fetch)
         if df.empty:
             return {"status": "success", "message": "No data", "创建/更新成功": 0}
-            
         df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-        
         unique_ts_codes = df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
-        
         df['stock'] = df['ts_code'].map(stock_map)
         df.dropna(subset=['trade_date', 'stock'], inplace=True)
-        
         df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-        
         model_columns = [
             "stock", "trade_time", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps",
             "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
         ]
-        
         final_df = df[model_columns]
         # 使用 where 替换 NaN 为 None
         data_dicts_to_save = final_df.where(pd.notnull(final_df), None).to_dict('records')
-        
         saved_count = 0
         if data_dicts_to_save:
             result = await self._save_all_to_db_native_upsert(
@@ -1188,7 +1055,6 @@ class StockTimeTradeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_time']
             )
             saved_count = result.get("创建/更新成功", 0)
-            
         return {"status": "success", "message": f"Processed {saved_count}", "创建/更新成功": saved_count}
 
     async def save_stock_daily_basic_history_by_stock_codes(self, stock_codes: List[str], trade_date: date = None, start_date: date = None, end_date: date=None) -> None:
@@ -1199,23 +1065,17 @@ class StockTimeTradeDAO(BaseDAO):
         2. 保持批量 DB 保存的高效性。
         """
         if not stock_codes: return []
-        
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map: return []
-        
         stock_codes_str = ",".join(stock_codes)
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-        
         all_data_dicts_for_db = []
-        
         offset = 0
         limit = 6000
-        
         while True:
             if offset >= 100000: break
-            
             df = self.ts_pro.daily_basic(**{
                 "ts_code": stock_codes_str, "trade_date": trade_date_str, 
                 "start_date": start_date_str, "end_date": end_date_str, 
@@ -1224,28 +1084,21 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "trade_date", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps",
                 "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
             ])
-            
             if df.empty: break
-            
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df['stock'] = df['ts_code'].map(stock_map)
             df.dropna(subset=['trade_date', 'stock'], inplace=True)
-            
             if not df.empty:
                 df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
-                
                 final_df = df[[
                     "stock", "trade_time", "close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps",
                     "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv", "limit_status"
                 ]]
-                
                 # DB 数据
                 page_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
                 all_data_dicts_for_db.extend(page_dicts)
-
             if len(df) < limit: break
             offset += limit
-            
         result = []
         if all_data_dicts_for_db:
             result = await self._save_all_to_db_native_upsert(
@@ -1253,7 +1106,6 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=all_data_dicts_for_db,
                 unique_fields=['stock', 'trade_time']
             )
-            
         return result
 
     async def get_stock_daily_basic(self, stock_code: str) -> None:
@@ -1301,20 +1153,15 @@ class StockTimeTradeDAO(BaseDAO):
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20240101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-        
         print("正在预加载所有股票基础信息...")
         all_stocks = await self.stock_basic_dao.get_stock_list()
         if not all_stocks: return
-        
         stock_map = {stock.stock_code: stock for stock in all_stocks}
-        
         all_data_dicts = []
         offset = 0
         limit = 6000
-        
         while True:
             if offset >= 100000: break
-            
             df = self.ts_pro.cyq_perf(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, 
                 "end_date": end_date_str, "limit": limit, "offset": offset
@@ -1322,24 +1169,18 @@ class StockTimeTradeDAO(BaseDAO):
                 "ts_code", "trade_date", "his_low", "his_high", "cost_5pct", "cost_15pct", "cost_50pct", "cost_85pct",
                 "cost_95pct", "weight_avg", "winner_rate"
             ])
-            
             if df.empty: break
-            
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df['stock'] = df['ts_code'].map(stock_map)
             df.dropna(subset=['ts_code', 'trade_date', 'stock'], inplace=True)
-            
             if not df.empty:
                 # 优化：指定格式
                 df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-                
                 final_df = df[[
                     "stock", "trade_time", "his_low", "his_high", "cost_5pct", "cost_15pct",
                     "cost_50pct", "cost_85pct", "cost_95pct", "weight_avg", "winner_rate"
                 ]]
-                
                 all_data_dicts.extend(final_df.to_dict('records'))
-            
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
                 await self._save_all_to_db_native_upsert(
                     model_class=StockCyqPerf,
@@ -1347,10 +1188,8 @@ class StockTimeTradeDAO(BaseDAO):
                     unique_fields=['stock', 'trade_time']
                 )
                 all_data_dicts = []
-                
             if len(df) < limit: break
             offset += limit
-            
         if all_data_dicts:
             await self._save_all_to_db_native_upsert(
                 model_class=StockCyqPerf,
@@ -1655,32 +1494,24 @@ class StockTimeTradeDAO(BaseDAO):
             api_params['start_date'] = start_date.strftime('%Y%m%d')
         if end_date:
             api_params['end_date'] = end_date.strftime('%Y%m%d')
-            
         if not api_params:
             return {"status": "error", "message": "Date parameter is required."}
-            
         try:
             while not await limiter.acquire():
                 await asyncio.sleep(10)
-                
             df = self.ts_pro.stk_limit(**api_params)
             if df.empty:
                 return {"status": "success", "message": "No data", "saved_count": 0}
-                
             df.rename(columns={'ts_code': 'stock_code'}, inplace=True)
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-            
             unique_codes = df['stock_code'].unique().tolist()
             stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_codes)
-            
             df['stock'] = df['stock_code'].map(stock_map)
             df.dropna(subset=['stock'], inplace=True)
-            
             # 向量化模型映射
             model_map = {code: get_stk_limit_model_by_code(code) for code in unique_codes}
             df['model_class'] = df['stock_code'].map(model_map)
             df.dropna(subset=['model_class'], inplace=True)
-            
             save_tasks = []
             # 使用 groupby 替代循环
             for model_class, group_df in df.groupby('model_class'):
@@ -1691,10 +1522,8 @@ class StockTimeTradeDAO(BaseDAO):
                     unique_fields=['stock', 'trade_time']
                 )
                 save_tasks.append(task)
-                
             results = await asyncio.gather(*save_tasks)
             total_saved = sum(res.get("创建/更新成功", 0) for res in results if isinstance(res, dict))
-            
             return {"status": "success", "message": f"Saved {total_saved}", "saved_count": total_saved}
         except Exception as e:
             logger.error(f"保存每日涨跌停价格时发生错误: {e}", exc_info=True)

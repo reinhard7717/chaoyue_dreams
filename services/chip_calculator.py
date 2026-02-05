@@ -1301,10 +1301,8 @@ class ChipFactorCalculator:
         try:
             if tick_data.empty:
                 return pd.DataFrame(), 0.0
-            
             # 拷贝数据以避免修改原始数据
             df = tick_data.copy()
-            
             # 1. 索引与列名标准化
             # 尝试从索引恢复 trade_time
             if 'trade_time' not in df.columns:
@@ -1313,7 +1311,6 @@ class ChipFactorCalculator:
                     # 如果reset_index后列名为index，重命名为trade_time
                     if 'trade_time' not in df.columns and 'index' in df.columns:
                         df.rename(columns={'index': 'trade_time'}, inplace=True)
-            
             # 如果仍然没有trade_time，但有数据，尝试构造一个虚拟时间或报错
             # 这里为了保证计算，如果真的缺时间，可能无法进行时间相关计算，但价格分布仍可计算
             # 但后续逻辑强依赖trade_time排序，所以必须检查
@@ -1324,7 +1321,6 @@ class ChipFactorCalculator:
                 else:
                     # 确实无法处理时间，返回空
                     return pd.DataFrame(), 0.0
-
             # 2. 类型转换 (使用 float32 节省内存)
             numeric_cols = ['price', 'volume', 'amount', 'price_change']
             for col in numeric_cols:
@@ -1334,13 +1330,11 @@ class ChipFactorCalculator:
                     except Exception:
                         # 强制转换，无法转换的设为0
                         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype(np.float32)
-            
             # 3. 确保按时间排序
             try:
                 df = df.sort_values('trade_time')
             except Exception:
                 pass # 如果排序失败，保持原样
-            
             # 4. 计算数据质量评分 (仅作为参考指标，不作为计算门槛)
             try:
                 total_rows = len(df)
@@ -1355,9 +1349,7 @@ class ChipFactorCalculator:
                     data_quality = 0.0
             except Exception:
                 data_quality = 0.0
-            
             return df, max(0.0, float(data_quality))
-            
         except Exception as e:
             logger.error(f"预处理tick数据失败: {e}", exc_info=True)
             # 发生异常时，如果df还存在，尽量返回df
@@ -1725,13 +1717,11 @@ class ChipFactorCalculator:
                 chip_perf_data, chip_dist_data, daily_basic_data, daily_kline_data,
                 prev_chip_dist_data, historical_prices, historical_chip_factors
             )
-            
             # 2. 计算 Tick 相关因子
             if tick_data is not None and not tick_data.empty:
                 # 预处理
                 processed_tick, data_quality = ChipFactorCalculator.preprocess_tick_data(tick_data)
                 factors['tick_data_quality_score'] = data_quality
-                
                 # 只要预处理后有数据，就强制计算
                 if not processed_tick.empty:
                     factors['intraday_factor_calc_method'] = 'tick_based'
@@ -1747,7 +1737,6 @@ class ChipFactorCalculator:
                         price_range = intraday_dist.get('price_range')
                         if price_range and close_price > 0:
                             factors['intraday_price_range_ratio'] = (price_range[1] - price_range[0]) / close_price
-
                     # --- B. 日内筹码流动 ---
                     intraday_flow = ChipFactorCalculator.calculate_intraday_chip_flow(processed_tick)
                     if intraday_flow:
@@ -1761,13 +1750,11 @@ class ChipFactorCalculator:
                             factors['tick_chip_balance_ratio'] = buy / sell
                         else:
                             factors['tick_chip_balance_ratio'] = 1.0 if buy > 0 else 0.0
-
                     # --- C. 成本重心 ---
                     cost_center = ChipFactorCalculator.calculate_intraday_cost_center(processed_tick)
                     if cost_center:
                         factors['intraday_cost_center_migration'] = cost_center.get('migration_ratio')
                         factors['intraday_cost_center_volatility'] = cost_center.get('volatility')
-
                     # --- D. 支撑阻力测试 ---
                     support_resistance = ChipFactorCalculator.identify_intraday_support_resistance(
                         processed_tick, chip_dist_data
@@ -1776,13 +1763,11 @@ class ChipFactorCalculator:
                         factors['intraday_support_test_count'] = support_resistance.get('support_test_count')
                         factors['intraday_resistance_test_count'] = support_resistance.get('resistance_test_count')
                         factors['intraday_chip_consolidation_degree'] = support_resistance.get('consolidation_degree')
-
                     # --- E. 异常成交量 ---
                     abnormal_volume = ChipFactorCalculator.calculate_intraday_abnormal_volume(processed_tick)
                     if abnormal_volume:
                         factors['tick_abnormal_volume_ratio'] = abnormal_volume.get('abnormal_volume_ratio')
                         factors['tick_chip_transfer_efficiency'] = abnormal_volume.get('transfer_efficiency')
-
                     # --- F. 筹码锁定 ---
                     chip_locking = ChipFactorCalculator.calculate_intraday_chip_locking(
                         processed_tick, close_price
@@ -1792,11 +1777,9 @@ class ChipFactorCalculator:
                         factors['intraday_high_lock_ratio'] = chip_locking.get('high_lock_ratio')
                         factors['intraday_peak_valley_ratio'] = chip_locking.get('peak_valley_ratio')
                         factors['intraday_trough_filling_degree'] = chip_locking.get('trough_filling')
-
                     # --- G. 博弈指数 ---
                     game_index = ChipFactorCalculator.calculate_intraday_chip_game_index(processed_tick)
                     factors['intraday_chip_game_index'] = game_index
-
                 else:
                     # 预处理后为空，回退到日线近似
                     approx_factors = ChipFactorCalculator._approximate_intraday_factors(
@@ -1811,9 +1794,7 @@ class ChipFactorCalculator:
                 )
                 factors.update(approx_factors)
                 factors['intraday_factor_calc_method'] = 'daily_only'
-
             factors['calc_status'] = 'success'
-            
         except Exception as e:
             logger.error(f"计算完整筹码因子(tick版)失败: {e}", exc_info=True)
             factors['calc_status'] = 'failed'

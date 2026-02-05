@@ -420,13 +420,11 @@ class IndicatorDAO(BaseDAO):
         """
         if value is None:
             return None
-        
         # 快速路径
         if isinstance(value, Decimal):
             return value
         if isinstance(value, int):
             return Decimal(value)
-            
         try:
             # 对于 float，为了避免精度问题 (如 1.1 -> 1.1000000000000000888)，通常建议先转 str
             # 对于 string，直接转换
@@ -444,7 +442,6 @@ class IndicatorDAO(BaseDAO):
         """
         if value is None:
             return None
-        
         # 快速路径
         if isinstance(value, int):
             return value
@@ -452,7 +449,6 @@ class IndicatorDAO(BaseDAO):
             return int(value)
         if isinstance(value, Decimal):
             return int(value)
-            
         try:
             # 处理字符串
             if isinstance(value, str):
@@ -460,7 +456,6 @@ class IndicatorDAO(BaseDAO):
                 if '.' in value:
                     return int(float(value))
                 return int(value)
-            
             # 其他情况尝试强转
             return int(value)
         except (ValueError, TypeError) as e:
@@ -475,13 +470,11 @@ class IndicatorDAO(BaseDAO):
         """
         if value is None:
             return None
-            
         # 快速路径
         if isinstance(value, float):
             return value
         if isinstance(value, (int, Decimal)):
             return float(value)
-            
         try:
             return float(value)
         except (ValueError, TypeError) as e:

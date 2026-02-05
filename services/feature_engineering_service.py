@@ -36,7 +36,6 @@ def _numba_rolling_slope(data: np.ndarray, window: int) -> np.ndarray:
     for i in prange(window - 1, n):
         # 提取当前窗口 (注意：切片在 Numba 中通常不产生拷贝，但在并行中是安全的)
         y_slice = data[i - window + 1 : i + 1]
-        
         # 检查 NaN (手动循环检查比 np.isnan(slice).any() 更快且兼容性更好)
         has_nan = False
         for k in range(window):
@@ -113,7 +112,6 @@ def _numba_rolling_sample_entropy(data: np.ndarray, window: int, tol_ratio: floa
         # 获取当前窗口数据
         window_data = data[i - window + 1 : i + 1]
         r = std_val * tol_ratio
-        
         # 调用核心计算函数 (核心函数保持串行，在每个线程中运行)
         se = _numba_sample_entropy_core(window_data, 2, r)
         result[i] = se
@@ -136,7 +134,6 @@ def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -
     # 并行循环处理每一行
     for i in prange(n_rows):
         row = ma_values[i, :]
-        
         # 检查 NaN
         has_nan = False
         for k in range(n_cols):
@@ -150,7 +147,6 @@ def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -
         # argsort().argsort() 获取排名 (0-based)
         temp_args = np.argsort(row)
         ranks_y = np.empty(n_cols, dtype=np.int64)
-        
         # 填充排名
         for r in range(n_cols):
             ranks_y[temp_args[r]] = r + 1 # 1-based rank
@@ -431,7 +427,6 @@ class FeatureEngineeringService:
                 # 【优化】NumPy 层面处理 NaN
                 accel_values = np.nan_to_num(accel_values, nan=0.0, copy=False)
                 df[accel_col_name] = accel_values
-                
         return all_dfs
 
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
@@ -444,7 +439,6 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe]
-        
         # 关键依赖检查
         required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
         if not all(col in df.columns for col in required_cols):
@@ -454,7 +448,6 @@ class FeatureEngineeringService:
         pct_change = df['pct_change_D'].values.astype(np.float32)
         volume = df['volume_D'].values.astype(np.float32)
         vol_ma_21 = df['VOL_MA_21_D'].values.astype(np.float32)
-        
         # ==================== 1. 资金流向增强版VPA ====================
         # 1.1 总VPA效率
         # 优化除法：避免 replace(0, nan)
@@ -468,7 +461,6 @@ class FeatureEngineeringService:
         df['VPA_EFFICIENCY_D'] = vpa_efficiency
         # 1.2 使用资金流向因子替代幻方指标
         has_fundflow_data = all(col in df.columns for col in ['flow_intensity_D', 'net_amount_ratio_D', 'large_order_anomaly_D'])
-        
         if has_fundflow_data:
             # 2.1 主力行为增强VPA
             if 'accumulation_score_D' in df.columns and 'distribution_score_D' in df.columns:
@@ -554,7 +546,6 @@ class FeatureEngineeringService:
             'VPA_LONG_TERM_ADJ_D', 'VPA_NET_ENERGY_ADJ_D'
         ]
         valid_cols = [col for col in vpa_cols_check if col in df.columns]
-        
         if len(valid_cols) > 1:
             # 提取矩阵并计算均值
             vpa_matrix = df[valid_cols].fillna(0).values.astype(np.float32)
@@ -587,7 +578,6 @@ class FeatureEngineeringService:
         if 'flow_stability_D' in df.columns: conf_factors.append(df['flow_stability_D'].fillna(50).values / 100.0)
         if 'chip_stability_D' in df.columns: conf_factors.append(df['chip_stability_D'].fillna(0.5).values)
         if 'validation_score_D' in df.columns: conf_factors.append(df['validation_score_D'].fillna(0.5).values)
-        
         if conf_factors:
             # 堆叠并计算均值
             conf_matrix = np.vstack(conf_factors)
@@ -611,7 +601,6 @@ class FeatureEngineeringService:
         # 或者只对新生成的列处理。鉴于列数不多，Pandas fillna 可接受。
         vpa_cols_all = [col for col in df.columns if col.startswith('VPA_')]
         df[vpa_cols_all] = df[vpa_cols_all].fillna(0)
-        
         all_dfs[timeframe] = df
         return all_dfs
 
@@ -1329,7 +1318,6 @@ class FeatureEngineeringService:
             return all_dfs
         df = all_dfs[timeframe]
         n_rows = len(df)
-        
         # 辅助函数：直接获取 float32 NumPy 数组，处理 NaN，避免 Series 开销
         def _get_safe_array(col_name, default_val=0.0):
             if col_name not in df.columns:
@@ -1378,16 +1366,13 @@ class FeatureEngineeringService:
         # rank(pct=True) 依然依赖 Pandas，因为 NumPy 没有直接的 rank pct
         peak_kurtosis_series = df.get('primary_peak_kurtosis_D', pd.Series(np.full(n_rows, 3.0)))
         normalized_kurtosis = peak_kurtosis_series.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5).values.astype(np.float32)
-        
         peak_solidity = _get_safe_array('dominant_peak_solidity_D', 0.5)
         peak_volume_ratio = _get_safe_array('dominant_peak_volume_ratio_D', 0.5)
         chip_fault = _get_safe_array('chip_fault_blockage_ratio_D', 0.0)
-        
         # 向量化计算
         concentration_health = np.clip(1 - cost_gini, 0, 1)
         peak_quality = np.clip(peak_solidity * peak_volume_ratio * normalized_kurtosis, 0, 1)
         blockage_penalty = 1 - chip_fault
-        
         concentration_scores = {
             'concentration_health': concentration_health, 
             'peak_quality': peak_quality, 
@@ -1411,7 +1396,6 @@ class FeatureEngineeringService:
         loser_support = total_loser_rate * loser_loss_margin * (1 - loser_capitulation_pressure) + \
                         dip_buy * 0.5 + panic_buy * 0.5
         cost_advantage_score = np.clip(mf_cost_advantage - cost_divergence, -1, 1)
-        
         cost_structure_scores = {
             'loser_support': loser_support, 
             'cost_advantage_score': cost_advantage_score, 
@@ -1424,7 +1408,6 @@ class FeatureEngineeringService:
         chip_fatigue = _get_safe_array('chip_fatigue_index_D', 0.0)
         locked_profit = winner_conviction # 复用
         locked_loss = 1.0 - _get_safe_array('capitulation_flow_ratio_D', 0.0)
-        
         # 复合指标计算 (向量化加权求和)
         buy_side_absorption_composite = np.clip(
             _get_safe_array('capitulation_absorption_index_D') * 0.2 +
@@ -1441,7 +1424,6 @@ class FeatureEngineeringService:
             _get_safe_array('vwap_buy_control_strength_D') * 0.05,
             0, 1
         )
-        
         sell_side_pressure_composite = np.clip(
             _get_safe_array('active_selling_pressure_D') * 0.1 +
             rally_sell * 0.1 +
@@ -1457,12 +1439,10 @@ class FeatureEngineeringService:
             _get_safe_array('vwap_sell_control_strength_D') * 0.05,
             0, 1
         )
-        
         combat_intensity = _get_safe_array('mf_retail_battle_intensity_D', 0.0)
         conviction_lock_score = np.clip(winner_conviction + locked_profit - chip_fatigue - locked_loss, -1, 1)
         absorption_support_score = np.clip(buy_side_absorption_composite - sell_side_pressure_composite, -1, 1)
         wash_trade_penalty = np.clip(_get_safe_array('wash_trade_buy_volume_D') + _get_safe_array('wash_trade_sell_volume_D'), 0, 1) * 0.1
-        
         sentiment_scores = {
             'conviction_lock_score': (conviction_lock_score + 1) / 2,
             'absorption_support_score': (absorption_support_score + 1) / 2,
@@ -1474,11 +1454,9 @@ class FeatureEngineeringService:
         # --- 4. 主力控盘与意图 ---
         mf_control_leverage = _get_safe_array('control_solidity_index_D', 0.0)
         mf_on_peak_flow_composite = _get_safe_array('main_force_on_peak_buy_flow_D') - _get_safe_array('main_force_on_peak_sell_flow_D')
-        
         # Rank pct 依然需要 Pandas Series
         mf_on_peak_flow_normalized = pd.Series(mf_on_peak_flow_composite).rank(pct=True).fillna(0.5).values.astype(np.float32)
         mf_on_peak_flow_normalized = np.clip(mf_on_peak_flow_normalized * 2 - 1, 0, 1)
-        
         mf_intent_composite = np.clip(
             _get_safe_array('main_force_flow_directionality_D') * 0.2 +
             (_get_safe_array('main_force_buy_execution_alpha_D') - _get_safe_array('main_force_sell_execution_alpha_D')) * 0.2 +
@@ -1489,12 +1467,10 @@ class FeatureEngineeringService:
             (_get_safe_array('buy_flow_efficiency_index_D') - _get_safe_array('sell_flow_efficiency_index_D')) * 0.1,
             -1, 1
         )
-        
         mf_vpoc_premium = _get_safe_array('mf_vpoc_premium_D', 0.0)
         vwap_control_composite = _get_safe_array('vwap_buy_control_strength_D') - _get_safe_array('vwap_sell_control_strength_D')
         control_strength = mf_control_leverage * ((vwap_control_composite + 1) / 2)
         mf_cost_advantage_final = (mf_vpoc_premium + 1) / 2
-        
         turnover_rate_f = _get_safe_array('turnover_rate_f_D', 0.0)
         turnover_health = np.ones(n_rows, dtype=np.float32)
         # 向量化条件赋值
@@ -1503,9 +1479,7 @@ class FeatureEngineeringService:
         mask_high = turnover_rate_f > 15
         turnover_health[mask_high] = 1 - (turnover_rate_f[mask_high] - 15) / 10
         turnover_health = np.clip(turnover_health, 0, 1)
-        
         distribution_penalty = np.clip(_get_safe_array('covert_distribution_signal_D') + _get_safe_array('supportive_distribution_intensity_D'), 0, 1) * 0.1
-        
         main_force_scores = {
             'control_strength': control_strength, 
             'mf_on_peak_flow_normalized': mf_on_peak_flow_normalized, 
@@ -1527,12 +1501,9 @@ class FeatureEngineeringService:
             'main_force_score': main_force_score
         }
         och_weights = {'concentration_score': 0.25, 'cost_structure_score': 0.25, 'sentiment_score': 0.25, 'main_force_score': 0.25}
-        
         och_score = _nonlinear_fusion_optimized(och_scores, och_weights) * 2 - 1
-        
         # 赋值回 DataFrame
         df['OCH_D'] = och_score
-        
         all_dfs[timeframe] = df
         logger.info("OCH 指标计算完成 (向量化优化版)。")
         return all_dfs

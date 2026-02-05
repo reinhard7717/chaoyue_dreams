@@ -33,7 +33,6 @@ def _load_dynamic_scoring_map() -> dict:
         for key, value in metadata.items():
             if isinstance(value, dict) and 'cn_name' in value:
                 dynamic_map[key] = value['cn_name']
-                
         logger.info(f"成功从JSON配置中动态加载了 {len(dynamic_map)} 个评分项的中文名称。")
         return dynamic_map
     except Exception as e:

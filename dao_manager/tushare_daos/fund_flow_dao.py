@@ -51,13 +51,10 @@ class FundFlowDao(BaseDAO):
                 stock__stock_code=stock_code,
                 trade_time__lte=trade_date
             ).order_by('-trade_time')[:limit]
-            
             # 优化点：将 QuerySet 的求值和列表构建放入同步线程，避免逐行 await
             data_list = await sync_to_async(list)(qs.values())
-            
             if not data_list:
                 return pd.DataFrame()
-            
             df = pd.DataFrame(data_list)
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
@@ -183,13 +180,10 @@ class FundFlowDao(BaseDAO):
                 stock__stock_code=stock_code,
                 trade_time__lte=trade_date
             ).order_by('-trade_time')[:limit]
-            
             # 优化点：批量获取
             data_list = await sync_to_async(list)(qs.values())
-            
             if not data_list:
                 return pd.DataFrame()
-            
             df = pd.DataFrame(data_list)
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
@@ -307,13 +301,10 @@ class FundFlowDao(BaseDAO):
                 stock__stock_code=stock_code,
                 trade_time__lte=trade_date
             ).order_by('-trade_time')[:limit]
-            
             # 优化点：批量获取
             data_list = await sync_to_async(list)(qs.values())
-            
             if not data_list:
                 return pd.DataFrame()
-            
             df = pd.DataFrame(data_list)
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
@@ -818,13 +809,10 @@ class FundFlowDao(BaseDAO):
             'trade_date', 'stock__stock_code',
             'net_amount', 'l_buy', 'l_sell'
         ]
-        
         # 优化点：批量获取
         data_list = await sync_to_async(list)(qs.values(*fields_to_get))
-        
         if not data_list:
             return pd.DataFrame()
-        
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         return df
@@ -918,13 +906,10 @@ class FundFlowDao(BaseDAO):
         fields_to_get = [
             'trade_date', 'stock__stock_code', 'net_buy'
         ]
-        
         # 优化点：批量获取
         data_list = await sync_to_async(list)(qs.values(*fields_to_get))
-        
         if not data_list:
             return pd.DataFrame()
-        
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         return df
@@ -945,10 +930,8 @@ class FundFlowDao(BaseDAO):
         except Exception as e:
             logger.error(f"初始化Redis客户端失败: {e}", exc_info=True)
             return
-
         api_limit_key = f"api_limit:hm_detail:{date.today().isoformat()}"
         API_DAILY_LIMIT = 2
-        
         all_dfs = []
         offset = 0
         limit = 2000
@@ -965,7 +948,6 @@ class FundFlowDao(BaseDAO):
             except Exception as e:
                 logger.error(f"Redis API限制检查出错: {e}")
                 break
-
             try:
                 df = self.ts_pro.hm_detail(**{
                     "trade_date": "", "start_date": "", "end_date": "", "limit": limit, "offset": offset
@@ -975,22 +957,18 @@ class FundFlowDao(BaseDAO):
                 logger.error(f"Tushare API调用失败 (hm_detail): {e}")
                 await asyncio.sleep(5)
                 df = pd.DataFrame()
-            
             if df.empty: break
             all_dfs.append(df)
             if len(df) < limit: break
             offset += limit
-
         if not all_dfs:
             logger.info("未获取到任何游资明细数据。")
             return
-
         print("DAO: 数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs, ignore_index=True)
         combined_df.drop_duplicates(subset=['trade_date', 'ts_code', 'hm_name'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', 'None', ''], np.nan, inplace=True)
         combined_df.dropna(subset=['ts_code', 'trade_date', 'hm_name'], inplace=True)
-
         # 更新游资名录
         hm_list_df = combined_df[['hm_name', 'hm_orgs']].copy()
         hm_list_df.drop_duplicates(subset=['hm_name'], keep='first', inplace=True)
@@ -1003,7 +981,6 @@ class FundFlowDao(BaseDAO):
                 data_list=hm_list_data,
                 unique_fields=['name']
             )
-
         # 处理明细数据
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
@@ -1012,9 +989,7 @@ class FundFlowDao(BaseDAO):
         if combined_df.empty:
             logger.info("游资数据关联股票基础信息后为空，任务结束。")
             return
-
         combined_df['trade_date'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        
         # 优化：全向量化数值处理 (转换 -> 填充 -> 运算)
         amount_cols = ['buy_amount', 'sell_amount', 'net_amount']
         # 确保列存在
@@ -1022,14 +997,11 @@ class FundFlowDao(BaseDAO):
         if valid_cols:
             # 一次性处理所有金额列：转数字 -> 填0 -> 乘10000 (单位：万 -> 元)
             combined_df[valid_cols] = combined_df[valid_cols].apply(pd.to_numeric, errors='coerce').fillna(0) * 10000
-
         final_df = combined_df.drop(columns=['ts_code'])
         # 将 NaN 替换为 None (针对非金额列)
         final_df = final_df.where(pd.notnull(final_df), None)
-        
         data_list = final_df.to_dict('records')
         if not data_list: return
-
         await self._save_all_to_db_native_upsert(
             model_class=HmDetail,
             data_list=data_list,
@@ -1048,20 +1020,16 @@ class FundFlowDao(BaseDAO):
             qs = qs.filter(stock__stock_code__in=stock_codes)
         if hm_names:
             qs = qs.filter(hm_name__in=hm_names)
-        
         qs = qs.select_related('stock')
         fields_to_get = [
             'trade_date', 'stock__stock_code', 'ts_name',
             'buy_amount', 'sell_amount', 'net_amount',
             'hm_name', 'hm_orgs'
         ]
-        
         # 优化点：批量获取
         data_list = await sync_to_async(list)(qs.values(*fields_to_get))
-        
         if not data_list:
             return pd.DataFrame()
-        
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         return df

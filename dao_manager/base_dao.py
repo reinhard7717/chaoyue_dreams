@@ -144,7 +144,6 @@ class BaseDAO(Generic[T]):
         """
         if not instances:
             return []
-        
         try:
             model_class = instances[0].__class__
             fields = model_class._meta.fields
@@ -179,7 +178,6 @@ class BaseDAO(Generic[T]):
             # 4. 清洗 NaN 并转回字典列表
             # where(pd.notnull(df), None) 将 NaN 替换为 None
             return df.where(pd.notnull(df), None).to_dict(orient='records')
-            
         except Exception as e:
             logger.error(f"批量准备缓存数据失败: {e}", exc_info=True)
             # 降级处理：如果批量处理失败，回退到逐个处理
@@ -195,7 +193,6 @@ class BaseDAO(Generic[T]):
         """
         if not cached_list:
             return []
-            
         try:
             # 1. 转为 DataFrame
             df = pd.DataFrame(cached_list)
@@ -288,7 +285,6 @@ class BaseDAO(Generic[T]):
         if not cached_data or not isinstance(cached_data, dict):
             logger.debug(f"无效的缓存数据用于构建 {model_class.__name__}: {cached_data}")
             return None
-        
         model_data = {}
         try:
             # 1. 获取缓存的字段映射表 (O(1) 访问)
@@ -391,7 +387,6 @@ class BaseDAO(Generic[T]):
             return data.item()
         if pd.isna(data):
             return None
-        
         # 其他类型原样返回
         return data
 
@@ -523,12 +518,10 @@ class BaseDAO(Generic[T]):
         """
         if self.model_class is None:
             raise TypeError("model_class 未在 BaseDAO 初始化时设置，无法执行 get_all")
-        
         instances = []
         cache_hit = False
         self._ensure_cache_objects()
         cache_key = self._get_cache_key("all")
-        
         # 1. 先从缓存获取
         try:
             cached_list = await self.cache_manager.get(key=cache_key)
@@ -546,7 +539,6 @@ class BaseDAO(Generic[T]):
                 logger.debug(f"缓存未命中: {cache_key}")
         except Exception as e:
             logger.error(f"从缓存获取所有 {self.model_name} 时发生异常: {e}", exc_info=True)
-        
         # 2. 从数据库获取
         if not cache_hit:
             try:
@@ -852,11 +844,9 @@ class BaseDAO(Generic[T]):
                     )
                     raise ValueError(error_msg)
                 prepared_data[fk_field_name] = fk_instance
-        
         # 2. 过滤非模型字段
         # 优化：直接获取缓存的 frozenset，O(1) 获取，O(1) 查找
         model_field_names = self._get_model_field_names_set(model_class)
-        
         cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
         return cleaned_data
 
@@ -887,7 +877,6 @@ class BaseDAO(Generic[T]):
         【V1.0 - 向量化外键解析】
         批量准备模型数据，核心解决外键的批量解析问题 (Bulk Resolve)。
         替代循环调用 _prepare_model_instance，将 N 次 DB 查询降低为 1 次。
-        
         Args:
             model_class: 目标模型类
             data_list: 原始数据字典列表
@@ -1080,14 +1069,12 @@ class BaseDAO(Generic[T]):
             value = value.strip()
             if value in ['', '-', 'N/A', '暂无', 'null', 'None']:
                 return None
-        
         # 2. 快速处理已有对象
         if isinstance(value, datetime):
             if settings.USE_TZ:
                 return timezone.make_aware(value, tz) if timezone.is_naive(value) else value.astimezone(tz)
             else:
                 return timezone.make_naive(value, tz) if timezone.is_aware(value) else value
-        
         if isinstance(value, date):
             dt = datetime.combine(value, datetime.min.time())
             if settings.USE_TZ:
@@ -1132,20 +1119,17 @@ class BaseDAO(Generic[T]):
         """
         if value is None:
             return default
-        
         # 1. 快速路径：直接是数字类型
         if isinstance(value, (int, float)):
             return Decimal(str(value)) # 转 str 再转 Decimal 避免 float 精度问题
         if isinstance(value, Decimal):
             return value
-            
         # 2. 字符串预处理
         value_str = str(value).strip()
         if not value_str or value_str in ['-', 'N/A', '暂无', 'null', 'None']:
             return default
         # 移除千位分隔符
         value_str = value_str.replace(',', '')
-        
         # 3. 尝试直接转换 (最常见情况)
         try:
             # 处理百分号

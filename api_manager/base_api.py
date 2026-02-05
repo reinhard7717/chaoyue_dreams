@@ -77,7 +77,6 @@ class BaseAPI:
         for pattern in self.rate_limit_patterns:
             if re.search(pattern, response_text, re.IGNORECASE):
                 return True
-                
         return False
     def _get_licence(self, api_type: str) -> Optional[str]:
         """获取当前可用的license"""

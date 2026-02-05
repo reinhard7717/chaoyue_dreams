@@ -601,7 +601,6 @@ class FibonacciPriceCalculator:
                             support_levels.append(float(price))
                 result['kde_support_levels'] = sorted(support_levels)[-3:]  # 最近3个
                 result['kde_resistance_levels'] = sorted(resistance_levels)[:3]  # 最近3个
-                
         except:
             pass
         # 基于分形维度的支撑阻力

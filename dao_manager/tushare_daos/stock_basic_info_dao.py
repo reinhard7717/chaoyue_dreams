@@ -54,33 +54,26 @@ class StockBasicInfoDao(BaseDAO):
             # 使用 values() 获取字典列表，直接转换为 DataFrame，比 list(objects) 更快
             qs = StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').order_by('stock_code').values()
             stock_list = await sync_to_async(list)(qs)
-            
             if stock_list:
                 # 转换为 DataFrame 进行批量处理
                 df = pd.DataFrame(stock_list)
-                
                 # 处理日期列 (转为字符串以存入缓存)
                 date_cols = ['list_date', 'delist_date']
                 for col in date_cols:
                     if col in df.columns:
                         df[col] = df[col].astype(str).replace({'NaT': None, 'nan': None, 'None': None})
-
                 # 转换为字典列表
                 data_to_cache = df.where(pd.notnull(df), None).to_dict('records')
-                
                 # 批量写入缓存
                 # 注意：stock_cache_set.stock_basic_info 是单条写入，这里可以使用 pipeline 或并发
                 # 为了保持接口一致性，这里使用 asyncio.gather 并发写入单条缓存
                 # 但更优的是实现一个 mset 方法
                 cache_tasks = [self.stock_cache_set.stock_basic_info(d['stock_code'], d) for d in data_to_cache]
                 await asyncio.gather(*cache_tasks)
-                
                 # 写入全量列表缓存
                 await self.stock_cache_set.all_stocks(data_to_cache)
-                
                 # 重建模型对象列表返回
                 return_data = [StockInfo(**d) for d in stock_list] # 注意这里用原始 list 重建，避免日期格式问题
-                
         except Exception as e:
             logger.error(f"从数据库读取股票列表失败: {e}", exc_info=True)
         return return_data
@@ -144,15 +137,11 @@ class StockBasicInfoDao(BaseDAO):
                 stock_code_val=F('stock__stock_code'),
                 stock_name_val=F('stock__stock_name')
             )
-            
             raw_data = await sync_to_async(list)(qs)
-            
             if not raw_data:
                 print("调试: 数据库中没有找到任何自选股记录。")
                 return []
-                
             print(f"调试: 从数据库成功获取 {len(raw_data)} 条自选股记录。")
-            
             # 快速重构字典键名以匹配前端需求
             fav_datas = [
                 {
@@ -189,15 +178,11 @@ class StockBasicInfoDao(BaseDAO):
                 stock_code_val=F('stock__stock_code'),
                 stock_name_val=F('stock__stock_name')
             ).order_by('-is_pinned', '-added_at') # 保持默认排序
-            
             raw_data = await sync_to_async(list)(qs)
-            
             if not raw_data:
                 print(f"调试: 用户 {user.username} 没有任何自选股记录。")
                 return []
-                
             print(f"调试: 成功为用户 {user.username} 获取 {len(raw_data)} 条自选股记录。")
-            
             fav_datas = [
                 {
                     "id": item['id'],
@@ -230,14 +215,11 @@ class StockBasicInfoDao(BaseDAO):
         ])
         if df is None or df.empty:
             return {}
-        
         # 向量化清洗
         df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-        
         # 日期转换
         df['list_date'] = pd.to_datetime(df['list_date'], format='%Y%m%d', errors='coerce').dt.date
         df['delist_date'] = pd.to_datetime(df['delist_date'], format='%Y%m%d', errors='coerce').dt.date
-        
         rename_map = {
             'ts_code': 'stock_code',
             'name': 'stock_name',
@@ -250,25 +232,20 @@ class StockBasicInfoDao(BaseDAO):
             'act_ent_type': 'actual_controller_type'
         }
         df.rename(columns=rename_map, inplace=True)
-        
         # 筛选数据库字段
         model_fields = {f.name for f in StockInfo._meta.get_fields()}
         db_cols = [col for col in df.columns if col in model_fields]
         db_df = df[db_cols]
-        
         # 转换为字典列表，并将 NaN 替换为 None
         stock_dicts = db_df.where(pd.notnull(db_df), None).to_dict('records')
-        
         # 准备缓存数据
         cache_cols = ['stock_code', 'stock_name', 'list_status', 'list_date', 'delist_date', 'exchange', 'market_type', 'is_hs', 'industry']
         cache_df = df[[col for col in cache_cols if col in df.columns]]
         cache_dicts = cache_df.where(pd.notnull(cache_df), None).to_dict('records')
-        
         # 并发写入缓存
         cache_tasks = [self.stock_cache_set.stock_basic_info(d['stock_code'], d) for d in cache_dicts if d.get('stock_code')]
         await asyncio.gather(*cache_tasks)
         await self.stock_cache_set.all_stocks(cache_dicts)
-        
         if stock_dicts:
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockInfo,
@@ -297,38 +274,29 @@ class StockBasicInfoDao(BaseDAO):
             if df.empty:
                 logger.info("Tushare API没有返回任何公司信息，任务提前结束。")
                 return {"status": "success", "message": "No data returned from API.", "saved_count": 0}
-            
             # 数据清洗
             df = df.replace(['nan', 'NaN', ''], np.nan)
-            
             # 批量获取 StockInfo 对象
             unique_ts_codes = df['ts_code'].unique().tolist()
             print(f"调试: 从API获取了 {len(df)} 条公司数据，涉及 {len(unique_ts_codes)} 个独立股票代码。")
             stock_map = await self.get_stocks_by_codes(unique_ts_codes)
             print(f"调试: 批量从数据库获取了 {len(stock_map)} 个股票对象。")
-            
             # 向量化映射 Stock 对象
             df['stock'] = df['ts_code'].map(stock_map)
-            
             # 过滤无效数据 (无对应股票或无公司名)
             df = df.dropna(subset=['stock', 'com_name'])
-            
             if df.empty:
                 logger.info("经过筛选后，没有需要保存到数据库的公司数据。")
                 return {"status": "success", "message": "No new data to save.", "saved_count": 0}
-            
             # 字段重命名以匹配模型 (假设模型字段名与API字段名有对应关系，这里需根据实际模型调整)
             # StockCompany 模型字段通常与 API 字段一致，除了外键 'stock'
             # 如果有不一致，需在此处 rename
-            
             # 转换为字典列表
             # 注意：这里假设 DataFrame 列名与 StockCompany 模型字段名一致
             # 排除 ts_code 列，因为已经映射为 stock 对象
             cols_to_keep = [c for c in df.columns if c != 'ts_code']
             final_df = df[cols_to_keep]
-            
             data_dicts_to_save = final_df.where(pd.notnull(final_df), None).to_dict('records')
-            
             print(f"调试: 准备批量保存 {len(data_dicts_to_save)} 条公司数据到数据库...")
             result = await self._save_all_to_db_native_upsert(
                 model_class=StockCompany,
@@ -338,7 +306,6 @@ class StockBasicInfoDao(BaseDAO):
             saved_count = len(data_dicts_to_save)
             logger.info(f"成功批量保存 {saved_count} 条公司信息。")
             return result
-            
         except Exception as e:
             logger.error(f"保存公司信息时发生严重错误: {e}", exc_info=True)
             raise
@@ -353,31 +320,23 @@ class StockBasicInfoDao(BaseDAO):
         df = pd.concat([df_sh, df_sz], ignore_index=True)
         if df is None or df.empty:
             return {}
-        
         df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         df.dropna(subset=['ts_code'], inplace=True)
         if df.empty:
             return {}
-            
         unique_ts_codes = df['ts_code'].unique().tolist()
         stock_map = await self.get_stocks_by_codes(unique_ts_codes)
-        
         df['stock'] = df['ts_code'].map(stock_map)
         df.dropna(subset=['stock'], inplace=True)
-        
         if df.empty:
             logger.warning("所有沪深港通成分股都无法关联到已知的股票信息，任务终止。")
             return {}
-            
         df['in_date'] = pd.to_datetime(df['in_date'], format='%Y%m%d', errors='coerce').dt.date
         df['out_date'] = pd.to_datetime(df['out_date'], format='%Y%m%d', errors='coerce').dt.date
         df.rename(columns={'hs_type': 'hs_type_code'}, inplace=True)
-        
         final_df = df[['stock', 'in_date', 'out_date', 'is_new', 'hs_type_code']]
-        
         # 转换为字典列表，处理 NaN -> None
         stock_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
-        
         if stock_dicts:
             result = await self._save_all_to_db_native_upsert(
                 model_class=HSConst,

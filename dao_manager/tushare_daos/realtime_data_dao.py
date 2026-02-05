@@ -229,7 +229,6 @@ class StockRealtimeDAO(BaseDAO):
             if df is None or df.empty:
                 logger.warning(f"未能从 Tushare 获取实时市场快照 (src={src})。")
                 return None
-            
             # 向量化类型转换
             # 识别常见的数值列名 (Tushare 返回的列名可能是大写或小写)
             numeric_cols_candidates = [
@@ -237,12 +236,10 @@ class StockRealtimeDAO(BaseDAO):
                 'VOL', 'VOLUME', 'AMOUNT', 'CHANGE', 'PCT_CHANGE', 'PCT_CHG',
                 'BID', 'ASK'
             ]
-            
             # 遍历列名，如果匹配则尝试转换为数值
             for col in df.columns:
                 if col.upper() in numeric_cols_candidates:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-            
             return df
         except Exception as e:
             logger.error(f"获取实时市场快照 (realtime_list) 失败: {e}", exc_info=True)
@@ -407,7 +404,6 @@ class StockRealtimeDAO(BaseDAO):
                 'current_price', 'high_price', 'low_price', 'open_price', 
                 'prev_close_price', 'trade_time', 'turnover_value', 'volume'
             ).first())()
-            
             if latest_data:
                 # 计算涨跌幅
                 current = latest_data['current_price']
@@ -420,7 +416,6 @@ class StockRealtimeDAO(BaseDAO):
                         change_pct = round(change_pct, 2)
                     except Exception:
                         change_pct = None
-
                 return {
                     'code': stock_code,
                     'current_price': str(latest_data['current_price']),
