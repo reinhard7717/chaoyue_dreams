@@ -519,10 +519,11 @@ class StockTimeTradeDAO(BaseDAO):
     @with_rate_limit(name='api_stk_mins')
     async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="", *, limiter) -> None:
         """
-        【V5.2 - 极致优化版】保存股票的历史分钟级交易数据
+        【V5.3 - 修复排序Bug版】保存股票的历史分钟级交易数据
         优化：
-        1. 优化时区转换链，减少中间对象创建。
-        2. 使用 map 替代 apply 进行模型匹配。
+        1. groupby 增加 sort=False，防止对 Model 类进行排序导致 TypeError。
+        2. 优化时区转换链，减少中间对象创建。
+        3. 使用 map 替代 apply 进行模型匹配。
         """
         if not stock_codes: return
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
@@ -542,7 +543,6 @@ class StockTimeTradeDAO(BaseDAO):
                 if offset >= 100000: break
                 while not await limiter.acquire():
                     await asyncio.sleep(10)
-                    
                 try:
                     df = self.ts_pro.stk_mins(**{
                         "ts_code": stock_codes_str, "freq": time_level + "min", 
@@ -567,7 +567,8 @@ class StockTimeTradeDAO(BaseDAO):
                 df['trade_time'] = pd.to_datetime(df['trade_time']).dt.tz_localize('Asia/Shanghai').dt.tz_convert('UTC').dt.tz_localize(None)
                 # 使用预计算的 map
                 df['model_class'] = df['ts_code'].map(model_maps[time_level])
-                for model_class, group_df in df.groupby('model_class'):
+                # [Fix] 添加 sort=False，避免对 ModelBase 进行比较
+                for model_class, group_df in df.groupby('model_class', sort=False):
                     if group_df.empty: continue
                     data_list = group_df[["stock", "trade_time", "close", "open", "high", "low", "vol", "amount"]].to_dict('records')
                     await self._save_all_to_db_native_upsert(
