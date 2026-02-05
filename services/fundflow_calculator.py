@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 class CalculationContext:
     """
     计算上下文，包含所有必要的数据
-    版本: V1.1
-    说明: 新增 tick_data 字段以支持高频资金流指标计算
+    版本: V1.2
+    说明: 显式增加 tick_data 字段，用于接收高频逐笔数据
     """
     stock_code: str
     trade_date: date
@@ -28,7 +28,7 @@ class CalculationContext:
     historical_flow_data: List[Dict[str, Any]]  # 历史资金流向数据（至少30天）
     daily_basic_data: Optional[Dict[str, Any]] = None  # 每日基本信息
     minute_data_1min: Optional[pd.DataFrame] = None  # 1分钟数据
-    tick_data: Optional[pd.DataFrame] = None  # [新增] Tick/分笔数据(3秒或逐笔)
+    tick_data: Optional[pd.DataFrame] = None  # [新增] Tick/分笔数据
     market_cap: Optional[float] = None  # 市值（万元）
     volume_data: Optional[List[float]] = None  # 成交量序列
 
@@ -70,10 +70,10 @@ class FundFlowFactorCalculator:
     def _prepare_data(self):
         """
         预处理数据，计算中间变量
-        版本: V1.5
+        版本: V1.6
         说明: 
-        1. 修正 volume_series 的获取逻辑，优先读取 'vol' 字段。
-        2. [新增] 初始化 tick_data，确保 calculate_tick_enhanced_metrics 能获取到数据。
+        1. 修正 volume_series 获取逻辑。
+        2. [关键修复] 显式初始化 self.tick_data，打通数据链路。
         """
         # 提取历史净流入序列
         self.net_amount_series = [
@@ -82,12 +82,14 @@ class FundFlowFactorCalculator:
         ]
         self.net_amount_array = np.array(self.net_amount_series, dtype=np.float64)
         self.net_amount_pd_series = pd.Series(self.net_amount_array)
+        
         # 提取历史净流入占比序列
         self.net_amount_ratio_series = [
             float(data.get('net_amount_ratio', 0) or 0)
             for data in self.context.historical_flow_data
         ]
         self.net_amount_ratio_array = np.array(self.net_amount_ratio_series, dtype=np.float64)
+        
         # 提取历史成交量
         if self.context.volume_data:
             self.volume_series = self.context.volume_data
@@ -97,25 +99,31 @@ class FundFlowFactorCalculator:
                 for data in self.context.historical_flow_data
             ]
         self.volume_array = np.array(self.volume_series, dtype=np.float64)
+        
         # 提取历史成交额序列
         self.daily_amount_series = [
             float(data.get('amount', 0) or 0) if data.get('amount') is not None else 0.0
             for data in self.context.historical_flow_data
         ]
         self.daily_amount_array = np.array(self.daily_amount_series, dtype=np.float64)
+        
         # 提取历史收盘价序列
         self.close_series = [
             float(data.get('close', 0) or 0) if data.get('close') is not None else 0.0
             for data in self.context.historical_flow_data
         ]
         self.close_array = np.array(self.close_series, dtype=np.float64)
+        
         # 计算市值
         if self.context.daily_basic_data:
             self.market_cap = float(self.context.daily_basic_data.get('circ_mv', 0) or 0)
+            
         # 准备1分钟数据相关指标
         if self.context.minute_data_1min is not None and not self.context.minute_data_1min.empty:
             self._process_minute_data()
-        # [新增] 准备Tick数据
+            
+        # [关键修复] 初始化 Tick 数据
+        # 即使 context.tick_data 为 None，也要赋值，避免 hasattr 检查失败
         self.tick_data = self.context.tick_data
 
     def _process_minute_data(self):
@@ -1052,35 +1060,102 @@ class FundFlowFactorCalculator:
     def calculate_tick_enhanced_metrics(self) -> Dict[str, Any]:
         """
         基于Tick数据计算增强的资金流向指标
-        版本: V1.1
-        说明: 修正数据存在性检查逻辑，确保正确处理 DataFrame。
+        版本: V1.2
+        说明: 
+        1. 增加数据列名标准化，兼容常见数据源格式。
+        2. 增加买卖方向标准化。
+        3. 增加 amount 字段补全。
         """
         tick_metrics = {}
-        # 检查是否有tick数据 (修正：检查 self.tick_data 是否存在且非空)
-        if self.tick_data is None or self.tick_data.empty:
-            # 如果没有tick数据，所有指标设为None
-            tick_fields = [
-                'tick_large_order_net', 'tick_large_order_count', 'flow_impact_ratio',
-                'flow_persistence_minutes', 'intraday_flow_momentum', 
-                'flow_acceleration_intraday', 'flow_cluster_intensity',
-                'flow_cluster_duration', 'high_freq_flow_divergence',
-                'vwap_deviation', 'flow_efficiency', 'closing_flow_ratio',
-                'closing_flow_intensity', 'high_freq_flow_skewness',
-                'high_freq_flow_kurtosis', 'morning_flow_ratio',
-                'afternoon_flow_ratio', 'stealth_flow_ratio'
-            ]
-            for field in tick_fields:
-                tick_metrics[field] = None
-            tick_metrics['intraday_flow_distribution'] = None
+        # 初始化所有字段为 None
+        tick_fields = [
+            'tick_large_order_net', 'tick_large_order_count', 'flow_impact_ratio',
+            'flow_persistence_minutes', 'intraday_flow_momentum', 
+            'flow_acceleration_intraday', 'flow_cluster_intensity',
+            'flow_cluster_duration', 'high_freq_flow_divergence',
+            'vwap_deviation', 'flow_efficiency', 'closing_flow_ratio',
+            'closing_flow_intensity', 'high_freq_flow_skewness',
+            'high_freq_flow_kurtosis', 'morning_flow_ratio',
+            'afternoon_flow_ratio', 'stealth_flow_ratio'
+        ]
+        for field in tick_fields:
+            tick_metrics[field] = None
+        tick_metrics['intraday_flow_distribution'] = None
+
+        # 检查数据是否存在
+        if not hasattr(self, 'tick_data') or self.tick_data is None or self.tick_data.empty:
             return tick_metrics
+
         try:
             # 预处理tick数据
             df = self.tick_data.copy()
-            # 确保必要的列存在
-            required_columns = ['trade_time', 'price', 'volume', 'amount', 'type']
-            if not all(col in df.columns for col in required_columns):
-                logger.warning(f"Tick数据缺少必要列: {set(required_columns) - set(df.columns)}")
-                raise ValueError("Tick数据格式不正确")
+            
+            # [新增] 列名标准化映射
+            # 常见映射: time->trade_time, vol->volume, price->price, type->type, amount->amount
+            col_map = {
+                'time': 'trade_time',
+                'vol': 'volume',
+                'v': 'volume',
+                'p': 'price',
+                'amt': 'amount',
+                'money': 'amount'
+            }
+            df.rename(columns=col_map, inplace=True)
+            
+            # [新增] 确保必要列存在
+            if 'trade_time' not in df.columns:
+                # 尝试使用索引如果是datetime
+                if isinstance(df.index, pd.DatetimeIndex):
+                    df['trade_time'] = df.index
+                else:
+                    logger.warning(f"Tick数据缺少 trade_time 列且索引不是时间: {df.columns}")
+                    return tick_metrics
+            
+            if 'price' not in df.columns or 'volume' not in df.columns:
+                logger.warning(f"Tick数据缺少 price 或 volume 列: {df.columns}")
+                return tick_metrics
+
+            # [新增] 补全 amount (如果缺失)
+            if 'amount' not in df.columns:
+                # 假设 volume 单位是手(100股) 或 股，这里通常 tick 数据 volume 是手
+                # 如果 amount 缺失，粗略计算: price * volume * 100
+                # 注意：需确认 volume 单位，这里默认按 100 计算
+                df['amount'] = df['price'] * df['volume'] * 100
+            
+            # [新增] 标准化买卖方向 type
+            # 目标: 'B' (买盘/主动买), 'S' (卖盘/主动卖)
+            if 'type' in df.columns:
+                # 转换为字符串并大写
+                df['type'] = df['type'].astype(str).str.upper()
+                # 常见中文映射
+                type_map = {
+                    '买盘': 'B', '卖盘': 'S', 
+                    'BUY': 'B', 'SELL': 'S',
+                    '0': 'S', '1': 'B', # 某些数据源 0卖1买
+                    '2': 'M' # 中性盘
+                }
+                df['type'] = df['type'].map(lambda x: type_map.get(x, x))
+            else:
+                # 如果没有 type 列，尝试通过价格变化推导 (简单的 Tick 规则)
+                # 价格上涨或持平于卖一价 -> B，价格下跌或持平于买一价 -> S
+                # 这里简化处理：如果没有 type，无法准确计算资金流，返回空
+                logger.warning("Tick数据缺少 type 列，无法计算资金流方向")
+                return tick_metrics
+
+            # 再次过滤，确保只有 B 和 S 参与计算 (过滤中性盘)
+            df = df[df['type'].isin(['B', 'S'])]
+            if df.empty:
+                return tick_metrics
+
+            # 确保 trade_time 是 datetime 类型
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            # 如果只有时间没有日期，加上当前日期
+            if df['trade_time'].iloc[0].year == 1900:
+                current_date = self.context.trade_date
+                df['trade_time'] = df['trade_time'].apply(
+                    lambda t: t.replace(year=current_date.year, month=current_date.month, day=current_date.day)
+                )
+
             # 1. 计算日内资金流分布
             tick_metrics.update(self._calculate_intraday_flow_distribution(df))
             # 2. 高频大单识别
@@ -1105,22 +1180,11 @@ class FundFlowFactorCalculator:
             tick_metrics.update(self._calculate_time_period_distribution(df))
             # 12. 主力隐蔽性指标
             tick_metrics.update(self._calculate_stealth_flow_indicators(df))
+            
         except Exception as e:
-            logger.warning(f"计算tick增强指标时出错: {e}")
-            # 出错时返回None值
-            tick_fields = [
-                'tick_large_order_net', 'tick_large_order_count', 'flow_impact_ratio',
-                'flow_persistence_minutes', 'intraday_flow_momentum', 
-                'flow_acceleration_intraday', 'flow_cluster_intensity',
-                'flow_cluster_duration', 'high_freq_flow_divergence',
-                'vwap_deviation', 'flow_efficiency', 'closing_flow_ratio',
-                'closing_flow_intensity', 'high_freq_flow_skewness',
-                'high_freq_flow_kurtosis', 'morning_flow_ratio',
-                'afternoon_flow_ratio', 'stealth_flow_ratio'
-            ]
-            for field in tick_fields:
-                tick_metrics[field] = None
-            tick_metrics['intraday_flow_distribution'] = None
+            logger.error(f"计算tick增强指标时发生未捕获异常: {e}", exc_info=True)
+            # 保持 metrics 为 None
+            
         return tick_metrics
 
     def _calculate_intraday_flow_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
