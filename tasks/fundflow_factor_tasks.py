@@ -26,6 +26,7 @@ from utils.model_helpers import (
 from services.fundflow_calculator import FundFlowFactorCalculator, CalculationContext
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from utils.cache_manager import CacheManager
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockDailyBasic
@@ -99,11 +100,17 @@ def calculate_fundflow_factors_for_stock(self, stock_code: str, start_date_str: 
 async def _process_stock_factors_async(stock_code: str, start_date_str: str = None, incremental: bool = True):
     """
     [Async] 核心处理逻辑
+    版本: V1.6
+    说明: 引入 StockRealtimeDAO 并传递给计算流程，确保Tick数据可获取。
     """
     # 初始化共享的 CacheManager 和 DAO (在当前事件循环中)
     cache_mgr = CacheManager()
     stock_basic_dao = StockBasicInfoDao(cache_mgr)
     stock_time_trade_dao = StockTimeTradeDAO(cache_mgr)
+    
+    # [新增] 初始化 StockRealtimeDAO 用于获取Tick数据
+    realtime_dao = StockRealtimeDAO(cache_mgr)
+
     try:
         # 1. 确定计算开始日期
         start_date = None
@@ -136,10 +143,10 @@ async def _process_stock_factors_async(stock_code: str, start_date_str: str = No
             batch_start = batch_idx * batch_size
             batch_end = min((batch_idx + 1) * batch_size, len(trade_dates))
             batch_dates = trade_dates[batch_start:batch_end]
-            # 调用异步批量计算
+            # 调用异步批量计算，传入 realtime_dao
             batch_calculated, batch_failed = await _calculate_factor_batch_async(
                 stock_code, batch_dates, factor_model,
-                stock_basic_dao, stock_time_trade_dao
+                stock_basic_dao, stock_time_trade_dao, realtime_dao
             )
             calculated_count += batch_calculated
             failed_dates.extend(batch_failed)
@@ -163,15 +170,19 @@ async def _process_stock_factors_async(stock_code: str, start_date_str: str = No
         if hasattr(cache_mgr, 'close'):
             await cache_mgr.close()
 
-async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date], factor_model, stock_basic_dao, stock_time_trade_dao) -> Tuple[int, List[date]]:
-    """[Async] 批量计算"""
+async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date], factor_model, stock_basic_dao, stock_time_trade_dao, realtime_dao) -> Tuple[int, List[date]]:
+    """
+    [Async] 批量计算
+    版本: V1.2
+    说明: 接收 realtime_dao 参数。
+    """
     calculated = 0
     failed_dates = []
     for trade_date in trade_dates:
         try:
             success = await _calculate_single_date_factor_async(
                 stock_code, trade_date, factor_model,
-                stock_basic_dao, stock_time_trade_dao
+                stock_basic_dao, stock_time_trade_dao, realtime_dao
             )
             if success:
                 calculated += 1
@@ -182,8 +193,12 @@ async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date]
             failed_dates.append(trade_date)
     return calculated, failed_dates
 
-async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao) -> bool:
-    """[Async] 计算单个日期因子"""
+async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao, realtime_dao) -> bool:
+    """
+    [Async] 计算单个日期因子
+    版本: V1.6
+    说明: 使用 realtime_dao 获取 Tick 数据。
+    """
     try:
         # 异步获取股票信息
         stock_info = await stock_basic_dao.get_stock_by_code(stock_code)
@@ -203,8 +218,12 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         daily_basic_data = await _get_daily_basic_data_async(stock_code, trade_date, stock_time_trade_dao)
         # 异步获取分钟数据
         minute_data = await _get_1min_data_async(stock_code, trade_date, stock_time_trade_dao)
-        # [新增] 异步获取Tick数据
-        tick_data = await _get_tick_data_async(stock_code, trade_date, stock_time_trade_dao)
+        
+        # [修正] 使用 realtime_dao 异步获取Tick数据
+        tick_data = None
+        if realtime_dao:
+            tick_data = await realtime_dao.get_daily_real_ticks(stock_code, trade_date)
+
         # 构建上下文 (同步操作)
         context = CalculationContext(
             stock_code=stock_code,
@@ -213,7 +232,7 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
             historical_flow_data=historical_flow_data,
             daily_basic_data=daily_basic_data,
             minute_data_1min=minute_data,
-            tick_data=tick_data  # [新增] 传入Tick数据
+            tick_data=tick_data  # 传入Tick数据
         )
         # 执行计算 (CPU 密集型，直接运行)
         calculator = FundFlowFactorCalculator(context)
@@ -475,11 +494,11 @@ def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_mode
             failed_dates.append(trade_date)
     return calculated, failed_dates
 
-def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model, stock_basic_dao: StockBasicInfoDao, stock_time_trade_dao: StockTimeTradeDAO) -> bool:
+def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model,stock_basic_dao: StockBasicInfoDao,stock_time_trade_dao: StockTimeTradeDAO) -> bool:
     """
-    计算单个日期的资金流向因子
-    版本: V1.5
-    说明: 增加 Tick 数据获取逻辑
+    计算单个日期的资金流向因子 (同步版)
+    版本: V1.6
+    说明: 内部初始化 StockRealtimeDAO 并同步调用获取 Tick 数据。
     """
     try:
         # 使用传入的 stock_basic_dao
@@ -503,8 +522,13 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         # 传递 stock_time_trade_dao
         daily_basic_data = get_daily_basic_data(stock_code, trade_date, stock_time_trade_dao)
         minute_data = get_1min_data(stock_code, trade_date, stock_time_trade_dao)
-        # [新增] 获取Tick数据
-        tick_data = get_tick_data(stock_code, trade_date, stock_time_trade_dao)
+        
+        # [新增] 获取Tick数据 (同步调用)
+        from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
+        # 复用 stock_basic_dao 的 cache_manager
+        realtime_dao = StockRealtimeDAO(stock_basic_dao.cache_manager)
+        tick_data = async_to_sync(realtime_dao.get_daily_real_ticks)(stock_code, trade_date)
+
         context = CalculationContext(
             stock_code=stock_code,
             trade_date=trade_date,
@@ -512,7 +536,7 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
             historical_flow_data=historical_flow_data,
             daily_basic_data=daily_basic_data,
             minute_data_1min=minute_data,
-            tick_data=tick_data  # [新增] 传入Tick数据
+            tick_data=tick_data  # 传入Tick数据
         )
         calculator = FundFlowFactorCalculator(context)
         all_metrics = calculator.calculate_all_metrics()
@@ -843,10 +867,19 @@ def update_fundflow_factors_daily(self):
         raise self.retry(exc=e)
 
 async def _update_fundflow_factors_daily_async():
-    """[Async] 每日更新逻辑"""
+    """
+    [Async] 每日更新逻辑
+    版本: V1.2
+    说明: 引入 StockRealtimeDAO。
+    """
     cache_mgr = CacheManager()
     stock_basic_dao = StockBasicInfoDao(cache_mgr)
     stock_time_trade_dao = StockTimeTradeDAO(cache_mgr)
+    
+    # [新增] 初始化 StockRealtimeDAO
+    from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
+    realtime_dao = StockRealtimeDAO(cache_mgr)
+
     try:
         latest_dates = await sync_to_async(TradeCalendar.get_latest_n_trade_dates)(n=1, reference_date=timezone.now().date())
         latest_trade_date = latest_dates[0] if latest_dates else None
@@ -869,9 +902,10 @@ async def _update_fundflow_factors_daily_async():
                     if existing:
                         successful += 1
                         continue
+                    # 传入 realtime_dao
                     success = await _calculate_single_date_factor_async(
                         stock_code, latest_trade_date, factor_model,
-                        stock_basic_dao, stock_time_trade_dao
+                        stock_basic_dao, stock_time_trade_dao, realtime_dao
                     )
                     if success:
                         successful += 1
@@ -896,10 +930,16 @@ def test_fundflow_factor_calculation(self, stock_code: str = '000001.SZ', test_d
     return async_to_sync(_test_fundflow_factor_calculation_async)(stock_code, test_date_str)
 
 async def _test_fundflow_factor_calculation_async(stock_code: str, test_date_str: str = None):
-    """[Async] 测试逻辑"""
+    """
+    [Async] 测试逻辑
+    版本: V1.2
+    说明: 引入 StockRealtimeDAO。
+    """
     cache_mgr = CacheManager()
     stock_basic_dao = StockBasicInfoDao(cache_mgr)
-    stock_time_trade_dao = StockTimeTradeDAO(cache_mgr)
+    stock_time_trade_dao = StockTimeTradeDAO(cache_mgr)    
+    realtime_dao = StockRealtimeDAO(cache_mgr)
+
     try:
         if test_date_str:
             test_date = datetime.strptime(test_date_str, '%Y-%m-%d').date()
@@ -909,9 +949,10 @@ async def _test_fundflow_factor_calculation_async(stock_code: str, test_date_str
         if not test_date:
             return {'status': 'failed', 'message': '无法获取测试日期'}
         factor_model = await sync_to_async(get_fundflow_factor_model_by_code)(stock_code)
+        # 传入 realtime_dao
         success = await _calculate_single_date_factor_async(
             stock_code, test_date, factor_model,
-            stock_basic_dao, stock_time_trade_dao
+            stock_basic_dao, stock_time_trade_dao, realtime_dao
         )
         return {
             'status': 'success' if success else 'failed',
