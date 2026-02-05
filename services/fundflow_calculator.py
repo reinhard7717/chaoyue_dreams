@@ -70,10 +70,10 @@ class FundFlowFactorCalculator:
     def _prepare_data(self):
         """
         预处理数据，计算中间变量
-        版本: V1.6
+        版本: V1.7
         说明: 
-        1. 修正 volume_series 获取逻辑。
-        2. [关键修复] 显式初始化 self.tick_data，打通数据链路。
+        1. 移除不再需要的 net_amount_pd_series，减少 Pandas 对象创建开销。
+        2. 确保所有数值序列统一转换为 float64 类型的 NumPy 数组。
         """
         # 提取历史净流入序列
         self.net_amount_series = [
@@ -81,7 +81,6 @@ class FundFlowFactorCalculator:
             for data in self.context.historical_flow_data
         ]
         self.net_amount_array = np.array(self.net_amount_series, dtype=np.float64)
-        self.net_amount_pd_series = pd.Series(self.net_amount_array)
         # 提取历史净流入占比序列
         self.net_amount_ratio_series = [
             float(data.get('net_amount_ratio', 0) or 0)
@@ -115,8 +114,7 @@ class FundFlowFactorCalculator:
         # 准备1分钟数据相关指标
         if self.context.minute_data_1min is not None and not self.context.minute_data_1min.empty:
             self._process_minute_data()
-        # [关键修复] 初始化 Tick 数据
-        # 即使 context.tick_data 为 None，也要赋值，避免 hasattr 检查失败
+        # 初始化 Tick 数据
         self.tick_data = self.context.tick_data
 
     def _process_minute_data(self):
@@ -536,11 +534,16 @@ class FundFlowFactorCalculator:
             return len(arr)
 
     def _detect_large_order_anomaly(self) -> Tuple[bool, float]:
-        """检测大单异动"""
-        if len(self.net_amount_series) < 10:
+        """
+        检测大单异动
+        版本: V1.1
+        说明: 使用 NumPy 数组切片，避免 List 转换。
+        """
+        arr = self.net_amount_array
+        if len(arr) < 10:
             return False, 0
         # 使用3倍标准差原则检测异常
-        recent_nets = self.net_amount_series[-10:]
+        recent_nets = arr[-10:]
         mean_val = np.mean(recent_nets)
         std_val = np.std(recent_nets)
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
@@ -549,8 +552,8 @@ class FundFlowFactorCalculator:
         is_anomaly = abs(z_score) > 3
         # 异动强度
         anomaly_intensity = min(100, abs(z_score) * 20)
-        return is_anomaly, anomaly_intensity
-    
+        return bool(is_anomaly), float(anomaly_intensity)
+
     def _calculate_flow_consistency(self) -> float:
         """
         计算分档资金一致性
@@ -635,50 +638,65 @@ class FundFlowFactorCalculator:
     def calculate_multi_period_sync(self) -> Dict[str, float]:
         """
         计算多周期资金共振指标
-        版本: V1.1
-        说明: 复用预处理的 Pandas Series 对象，减少对象创建开销。
+        版本: V1.2
+        说明: 
+        1. 使用 np.convolve 替代 pd.Series.rolling 计算移动平均，大幅降低开销。
+        2. 直接操作 numpy array，避免 pandas 对象创建。
         """
         sync_metrics = {}
-        if len(self.net_amount_series) < 20:
+        # 使用预处理的 numpy array
+        arr = self.net_amount_array
+        n = len(arr)
+        if n < 20:
             for key in ['daily_weekly_sync', 'daily_monthly_sync', 
                        'short_mid_sync', 'mid_long_sync']:
                 sync_metrics[key] = None
             return sync_metrics
+
         # 日线数据（最近5天）
-        daily_data = self.net_amount_series[-5:]
-        # 优化：复用 self.net_amount_pd_series
-        pd_series = self.net_amount_pd_series
+        daily_data = arr[-5:]
+        # 辅助函数：使用卷积计算移动平均 (mode='valid' 自动去除无效的边缘数据)
+        def moving_average(a, window):
+            if len(a) < window:
+                return np.array([])
+            return np.convolve(a, np.ones(window)/window, mode='valid')
+
         # 周线数据（5日移动平均）
-        # 注意：rolling(5) 前面会有4个NaN，dropna() 会去掉它们
-        weekly_data = pd_series.rolling(5).mean().dropna().tolist()[-20:] # 取最近20个有效值
+        # convolve 'valid' 结果长度为 N - W + 1，相当于 dropna 后的 rolling
+        ma5_full = moving_average(arr, 5)
+        weekly_data = ma5_full[-20:] if len(ma5_full) > 0 else np.array([])
+
         # 月线数据（20日移动平均）
-        monthly_data = pd_series.rolling(20).mean().dropna().tolist()[-60:] # 取最近60个有效值
+        ma20_full = moving_average(arr, 20)
+        monthly_data = ma20_full[-60:] if len(ma20_full) > 0 else np.array([])
+
         # 计算同步度
-        # 确保数据长度足够
+        # 确保数据长度足够 (取最后3个点比较)
         if len(daily_data) >= 3 and len(weekly_data) >= 3:
             sync_metrics['daily_weekly_sync'] = self._calculate_sync_score(daily_data[-3:], weekly_data[-3:])
         else:
             sync_metrics['daily_weekly_sync'] = None
+
         if len(daily_data) >= 3 and len(monthly_data) >= 3:
             sync_metrics['daily_monthly_sync'] = self._calculate_sync_score(daily_data[-3:], monthly_data[-3:])
         else:
             sync_metrics['daily_monthly_sync'] = None
+
         # 短中期（5日 vs 20日）
-        # 5日均线序列
-        short_term_series = pd_series.rolling(5).mean()
-        short_term = short_term_series.dropna().tolist()[-3:]
-        # 20日均线序列
-        mid_term_series = pd_series.rolling(20).mean()
-        mid_term = mid_term_series.dropna().tolist()[-3:]
+        # 取最后3个有效值
+        short_term = ma5_full[-3:] if len(ma5_full) >= 3 else np.array([])
+        mid_term = ma20_full[-3:] if len(ma20_full) >= 3 else np.array([])
         if len(short_term) >= 3 and len(mid_term) >= 3:
             sync_metrics['short_mid_sync'] = self._calculate_sync_score(short_term, mid_term)
         else:
             sync_metrics['short_mid_sync'] = None
+
         # 中长期（20日 vs 60日）
-        mid_term_long = mid_term_series.dropna().tolist()[-3:]
-        long_term = pd_series.rolling(60).mean().dropna().tolist()[-3:]
-        if len(mid_term_long) >= 3 and len(long_term) >= 3:
-            sync_metrics['mid_long_sync'] = self._calculate_sync_score(mid_term_long, long_term)
+        # 60日均线
+        ma60_full = moving_average(arr, 60)
+        long_term = ma60_full[-3:] if len(ma60_full) >= 3 else np.array([])
+        if len(mid_term) >= 3 and len(long_term) >= 3:
+            sync_metrics['mid_long_sync'] = self._calculate_sync_score(mid_term, long_term)
         else:
             sync_metrics['mid_long_sync'] = None
         return sync_metrics
@@ -721,110 +739,128 @@ class FundFlowFactorCalculator:
 
     # ==================== 6. 趋势动量指标 ====================
     def calculate_trend_momentum(self) -> Dict[str, float]:
-        """计算趋势动量指标"""
+        """
+        计算趋势动量指标
+        版本: V1.2
+        说明: 使用 NumPy 数组替代 List 进行索引和计算，提升效率。
+        """
         momentum = {}
-        if len(self.net_amount_series) < 5:
+        arr = self.net_amount_array
+        n = len(arr)
+        if n < 5:
             for key in ['flow_momentum_5d', 'flow_momentum_10d', 'flow_acceleration',
                        'uptrend_strength', 'downtrend_strength']:
                 momentum[key] = None
             return momentum
         # 5日动量
-        if len(self.net_amount_series) >= 5:
-            momentum['flow_momentum_5d'] = (self.net_amount_series[-1] - self.net_amount_series[-5]) / (abs(self.net_amount_series[-5]) + 1e-6)
+        if n >= 5:
+            momentum['flow_momentum_5d'] = float((arr[-1] - arr[-5]) / (abs(arr[-5]) + 1e-6))
         # 10日动量
-        if len(self.net_amount_series) >= 10:
-            momentum['flow_momentum_10d'] = (self.net_amount_series[-1] - self.net_amount_series[-10]) / (abs(self.net_amount_series[-10]) + 1e-6)
+        if n >= 10:
+            momentum['flow_momentum_10d'] = float((arr[-1] - arr[-10]) / (abs(arr[-10]) + 1e-6))
         # 加速度（二阶导数）
-        if len(self.net_amount_series) >= 3:
-            recent = self.net_amount_series[-3:]
+        if n >= 3:
+            recent = arr[-3:]
             acceleration = (recent[2] - 2*recent[1] + recent[0]) / (abs(recent[0]) + 1e-6)
-            momentum['flow_acceleration'] = acceleration
+            momentum['flow_acceleration'] = float(acceleration)
         # 趋势强度
         momentum['uptrend_strength'], momentum['downtrend_strength'] = self._calculate_trend_strength()
         return momentum
-    
+
     def _calculate_trend_strength(self) -> Tuple[float, float]:
         """
         计算趋势强度
-        版本: V1.1
+        版本: V1.2
         说明: 
-        1. 替换 scipy.stats.linregress 为 numpy.polyfit 和 numpy.corrcoef。
-        2. 避免计算不需要的 p-value 和 stderr，提高计算效率。
+        1. 移除 np.polyfit 和 np.corrcoef。
+        2. 使用最小二乘法公式直接计算斜率和 R^2，避免 SVD 分解和矩阵运算开销。
         """
-        if len(self.net_amount_series) < 10:
+        if len(self.net_amount_array) < 10:
             return 0.0, 0.0
         # 获取最近10天数据
-        y = np.array(self.net_amount_series[-10:])
-        x = np.arange(len(y))
-        # 优化：使用 numpy 计算斜率和相关系数
-        # polyfit(deg=1) 返回 [slope, intercept]
-        try:
-            slope, _ = np.polyfit(x, y, 1)
-            # 计算相关系数矩阵，取 [0,1] 元素
-            r_matrix = np.corrcoef(x, y)
-            # 处理常数序列导致的相关系数为 NaN 的情况
-            if np.isnan(r_matrix).any():
-                r_value = 0
-            else:
-                r_value = r_matrix[0, 1]
-        except Exception:
+        y = self.net_amount_array[-10:]
+        n = len(y)
+        x = np.arange(n, dtype=np.float64)
+        # 手动计算线性回归统计量
+        sum_x = np.sum(x)
+        sum_y = np.sum(y)
+        sum_xy = np.sum(x * y)
+        sum_xx = np.sum(x * x)
+        # 计算斜率 Slope
+        # slope = (N*Σxy - Σx*Σy) / (N*Σx^2 - (Σx)^2)
+        denominator = n * sum_xx - sum_x * sum_x
+        if denominator == 0:
             return 0.0, 0.0
-        # 上升趋势强度
-        if slope > 0:
-            uptrend_strength = min(100, r_value**2 * 100)
-            downtrend_strength = 0.0
+        numerator_slope = n * sum_xy - sum_x * sum_y
+        slope = numerator_slope / denominator
+        # 计算 R^2 (决定系数)
+        # R^2 = (N*Σxy - Σx*Σy)^2 / ([N*Σx^2 - (Σx)^2] * [N*Σy^2 - (Σy)^2])
+        sum_yy = np.sum(y * y)
+        denom_r = denominator * (n * sum_yy - sum_y * sum_y)
+        if denom_r <= 0:
+            r_squared = 0.0
         else:
-            uptrend_strength = 0.0
-            downtrend_strength = min(100, r_value**2 * 100)
-        return float(uptrend_strength), float(downtrend_strength)
+            r_squared = (numerator_slope ** 2) / denom_r
+        # 转换为强度 (0-100)
+        strength = min(100.0, r_squared * 100.0)
+        if slope > 0:
+            return float(strength), 0.0
+        else:
+            return 0.0, float(strength)
 
     # ==================== 7. 量价背离指标 ====================
     def calculate_divergence_metrics(self) -> Dict[str, Any]:
         """
         计算量价背离指标
-        版本: V1.1
-        说明: 利用预处理的 close_series 优化计算效率，避免循环内字典查找。
+        版本: V1.2
+        说明: 
+        1. 使用 NumPy 布尔掩码 (Boolean Masking) 替代列表推导式。
+        2. 直接操作 self.close_array 和 self.net_amount_array。
         """
         divergence = {}
-        # 需要价格数据
-        if not self.context.daily_basic_data or 'close' not in self.context.daily_basic_data:
+        # 检查数据可用性
+        if len(self.close_array) == 0 or len(self.net_amount_array) == 0:
             divergence['price_flow_divergence'] = None
             divergence['divergence_type'] = 'NONE'
             divergence['divergence_strength'] = 0
             return divergence
-        # 获取历史价格和资金流数据
-        # 优化：直接使用预处理的序列，取最近10天
-        # 注意：close_series 和 net_amount_series 是对齐的
+
         limit = 10
-        price_history = self.close_series[-limit:]
-        flow_history = self.net_amount_series[-limit:]
-        # 过滤掉价格为0的数据（如果有）
-        valid_indices = [i for i, p in enumerate(price_history) if p > 0]
-        if len(valid_indices) < 3:
+        # 切片获取最近数据
+        price_slice = self.close_array[-limit:]
+        flow_slice = self.net_amount_array[-limit:]
+        # 向量化过滤：只保留价格 > 0 的数据
+        valid_mask = price_slice > 0
+        # 如果有效数据太少
+        if np.sum(valid_mask) < 3:
             divergence['price_flow_divergence'] = None
             divergence['divergence_type'] = 'NONE'
             divergence['divergence_strength'] = 0
             return divergence
-        price_history = [price_history[i] for i in valid_indices]
-        flow_history = [flow_history[i] for i in valid_indices]
-        # 计算价格和资金流的趋势
+        # 应用掩码
+        price_history = price_slice[valid_mask]
+        flow_history = flow_slice[valid_mask]
+        # 计算趋势 (取最后3个有效点)
         price_trend = self._calculate_trend_direction(price_history[-3:])
         flow_trend = self._calculate_trend_direction(flow_history[-3:])
         # 判断背离类型
+        # 优化：减少 abs 调用次数
+        abs_p = abs(price_trend)
+        abs_f = abs(flow_trend)
         if price_trend < 0 and flow_trend > 0:  # 价格下跌但资金流入
             divergence_type = 'BULLISH'
-            divergence_strength = abs(price_trend) * abs(flow_trend) * 25
+            divergence_strength = abs_p * abs_f * 25
         elif price_trend > 0 and flow_trend < 0:  # 价格上涨但资金流出
             divergence_type = 'BEARISH'
-            divergence_strength = abs(price_trend) * abs(flow_trend) * 25
+            divergence_strength = abs_p * abs_f * 25
         else:
             divergence_type = 'NONE'
             divergence_strength = 0
         # 计算背离度
         divergence_score = abs(price_trend - flow_trend) * 50
-        divergence['price_flow_divergence'] = divergence_score
+        divergence['price_flow_divergence'] = float(divergence_score)
         divergence['divergence_type'] = divergence_type
-        divergence['divergence_strength'] = min(100, divergence_strength)
+        divergence['divergence_strength'] = float(min(100, divergence_strength))
         return divergence
 
     def _calculate_trend_direction(self, series: List[float]) -> float:
@@ -846,41 +882,51 @@ class FundFlowFactorCalculator:
 
     # ==================== 8. 结构分析指标 ====================
     def calculate_structure_metrics(self) -> Dict[str, Any]:
-        """计算结构分析指标"""
+        """
+        计算结构分析指标
+        版本: V1.2
+        说明: 
+        1. 使用 NumPy 数组直接计算，避免 List 转换。
+        2. 移除 sorted() 调用，直接使用 np.percentile 计算分位数。
+        """
         structure = {}
-        if len(self.net_amount_series) < 10:
+        arr = self.net_amount_array
+        n = len(arr)
+        if n < 10:
             structure['flow_peak_value'] = None
             structure['days_since_last_peak'] = None
             structure['flow_support_level'] = None
             structure['flow_resistance_level'] = None
             return structure
-        # 寻找峰值
-        peaks, properties = find_peaks(self.net_amount_series, height=0)
+        # 寻找峰值 (直接传入 array)
+        peaks, properties = find_peaks(arr, height=0)
         if len(peaks) > 0:
             last_peak_idx = peaks[-1]
-            structure['flow_peak_value'] = self.net_amount_series[last_peak_idx]
-            structure['days_since_last_peak'] = len(self.net_amount_series) - 1 - last_peak_idx
+            structure['flow_peak_value'] = float(arr[last_peak_idx])
+            structure['days_since_last_peak'] = int(n - 1 - last_peak_idx)
         else:
-            structure['flow_peak_value'] = max(self.net_amount_series) if self.net_amount_series else None
+            structure['flow_peak_value'] = float(np.max(arr)) if n > 0 else None
             structure['days_since_last_peak'] = None
         # 计算支撑位和阻力位（使用分位数）
-        sorted_flows = sorted(self.net_amount_series[-20:])
-        if len(sorted_flows) >= 5:
-            structure['flow_support_level'] = np.percentile(sorted_flows, 20)  # 20%分位数作为支撑
-            structure['flow_resistance_level'] = np.percentile(sorted_flows, 80)  # 80%分位数作为阻力
+        # 取最近20天
+        recent_flows = arr[-20:]
+        if len(recent_flows) >= 5:
+            # np.percentile 不需要预排序
+            structure['flow_support_level'] = float(np.percentile(recent_flows, 20))
+            structure['flow_resistance_level'] = float(np.percentile(recent_flows, 80))
         else:
             structure['flow_support_level'] = None
             structure['flow_resistance_level'] = None
         return structure
-    
+
     # ==================== 9. 统计特征指标 ====================
     def calculate_statistical_metrics(self) -> Dict[str, float]:
         """
         计算统计特征指标
-        版本: V1.1
+        版本: V1.2
         说明: 
-        1. 消除重复计算：复用20日窗口的均值和标准差计算 Z-score 和波动率。
-        2. 统一处理除零保护。
+        1. 移除 scipy.stats 依赖，使用 NumPy 纯算实现 percentileofscore，提升效率。
+        2. 保持原有复用逻辑。
         """
         stats_metrics = {}
         if len(self.net_amount_series) < 10:
@@ -888,24 +934,24 @@ class FundFlowFactorCalculator:
                 stats_metrics[key] = None
             return stats_metrics
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
-        # 优化：预先计算20日统计量，供 Z-score 和 Volatility-20d 复用
-        recent_20 = self.net_amount_series[-20:]
+        # 优化：预先计算20日统计量
+        recent_20 = self.net_amount_array[-20:] # 使用 array
         mean_20 = np.mean(recent_20)
         std_20 = np.std(recent_20)
         abs_mean_20 = abs(mean_20) + 1e-6
-        # Z分数 (使用20日均值和标准差)
+        # Z分数
         stats_metrics['flow_zscore'] = (current_net - mean_20) / (std_20 + 1e-6) if std_20 > 0 else 0
-        # 百分位
-        stats_metrics['flow_percentile'] = stats.percentileofscore(recent_20, current_net)
+        # 百分位 (NumPy 向量化实现)
+        # 计算小于当前值的比例
+        stats_metrics['flow_percentile'] = np.mean(recent_20 < current_net) * 100.0
         # 波动率 10d
-        if len(self.net_amount_series) >= 10:
-            recent_10 = self.net_amount_series[-10:]
-            # 10日波动率仍需单独计算
+        if len(self.net_amount_array) >= 10:
+            recent_10 = self.net_amount_array[-10:]
             stats_metrics['flow_volatility_10d'] = np.std(recent_10) / (abs(np.mean(recent_10)) + 1e-6)
         else:
             stats_metrics['flow_volatility_10d'] = None
-        # 波动率 20d (复用之前的计算结果)
-        if len(self.net_amount_series) >= 20:
+        # 波动率 20d
+        if len(self.net_amount_array) >= 20:
             stats_metrics['flow_volatility_20d'] = std_20 / abs_mean_20
         else:
             stats_metrics['flow_volatility_20d'] = None
@@ -913,22 +959,28 @@ class FundFlowFactorCalculator:
 
     # ==================== 10. 预测指标 ====================
     def calculate_prediction_metrics(self) -> Dict[str, float]:
-        """计算预测指标"""
+        """
+        计算预测指标
+        版本: V1.2
+        说明: 使用 NumPy 数组切片和向量化计算。
+        """
         prediction = {}
-        if len(self.net_amount_series) < 10:
+        arr = self.net_amount_array
+        n = len(arr)
+        if n < 10:
             for key in ['expected_flow_next_1d', 'flow_forecast_confidence',
                        'uptrend_continuation_prob', 'reversal_prob']:
                 prediction[key] = None
             return prediction
         # 使用简单移动平均预测明日净流入
-        recent_nets = self.net_amount_series[-5:]
-        prediction['expected_flow_next_1d'] = np.mean(recent_nets)
+        recent_nets = arr[-5:]
+        prediction['expected_flow_next_1d'] = float(np.mean(recent_nets))
         # 预测置信度（基于近期稳定性）
         volatility = np.std(recent_nets) / (abs(np.mean(recent_nets)) + 1e-6)
-        prediction['flow_forecast_confidence'] = max(0, 100 - volatility * 50)
+        prediction['flow_forecast_confidence'] = float(max(0, 100 - volatility * 50))
         # 趋势延续概率
-        if len(self.net_amount_series) >= 3:
-            recent_trend = self.net_amount_series[-3:]
+        if n >= 3:
+            recent_trend = arr[-3:]
             is_uptrend = recent_trend[-1] > recent_trend[0]
             # 计算历史趋势延续概率
             historical_continuation = self._calculate_historical_continuation_prob()
@@ -942,23 +994,18 @@ class FundFlowFactorCalculator:
             prediction['uptrend_continuation_prob'] = 50
             prediction['reversal_prob'] = 50
         return prediction
-    
+
     def _calculate_historical_continuation_prob(self) -> float:
         """
         计算历史趋势延续概率
-        版本: V1.1
-        说明: 
-        1. 使用 Numpy 向量化操作替代 Python 循环，提高计算效率。
-        2. 逻辑：计算相邻两天资金流向乘积，大于0表示同向（延续）。
+        版本: V1.2
+        说明: 直接使用 self.net_amount_array，避免重复创建数组。
         """
-        if len(self.net_amount_series) < 10:
+        arr = self.net_amount_array
+        if len(arr) < 10:
             return 50.0
-        # 转换为 numpy 数组 (如果还不是)
-        series = np.array(self.net_amount_series)
-        # 优化：向量化计算
-        # series[1:] * series[:-1] 计算相邻元素的乘积
-        # > 0 表示同号（同向）
-        consecutive_products = series[1:] * series[:-1]
+        # 向量化计算：相邻两天资金流向乘积 > 0 表示同向
+        consecutive_products = arr[1:] * arr[:-1]
         continuation_count = np.sum(consecutive_products > 0)
         total_count = len(consecutive_products)
         if total_count > 0:
@@ -1053,10 +1100,11 @@ class FundFlowFactorCalculator:
     def calculate_tick_enhanced_metrics(self) -> Dict[str, Any]:
         """
         基于Tick数据计算增强的资金流向指标
-        版本: V1.3
+        版本: V1.4
         说明: 
-        1. [关键修复] 增加时区标准化逻辑，统一转换为北京时间，解决时区比较错误。
-        2. 优化数据预处理流程。
+        1. 引入向量化预处理：将 type 映射为整数 sign (1/-1)，预计算 signed_amount。
+        2. 统一时间索引处理，避免在子方法中重复转换。
+        3. 优化数据类型，减少内存占用和计算开销。
         """
         tick_metrics = {}
         # 初始化所有字段为 None
@@ -1079,82 +1127,74 @@ class FundFlowFactorCalculator:
             return tick_metrics
 
         try:
-            # 预处理tick数据
+            # 预处理tick数据 (使用 copy 避免影响原始数据)
             df = self.tick_data.copy()
-            
             # 列名标准化映射
             col_map = {
-                'time': 'trade_time',
-                'vol': 'volume',
-                'v': 'volume',
-                'p': 'price',
-                'amt': 'amount',
-                'money': 'amount'
+                'time': 'trade_time', 'vol': 'volume', 'v': 'volume',
+                'p': 'price', 'amt': 'amount', 'money': 'amount'
             }
             df.rename(columns=col_map, inplace=True)
-            
             # 确保必要列存在
             if 'trade_time' not in df.columns:
                 if isinstance(df.index, pd.DatetimeIndex):
                     df['trade_time'] = df.index
                 else:
-                    logger.warning(f"Tick数据缺少 trade_time 列且索引不是时间: {df.columns}")
                     return tick_metrics
-            
             if 'price' not in df.columns or 'volume' not in df.columns:
-                logger.warning(f"Tick数据缺少 price 或 volume 列: {df.columns}")
                 return tick_metrics
 
-            # 补全 amount (如果缺失)
+            # 补全 amount
             if 'amount' not in df.columns:
                 df['amount'] = df['price'] * df['volume'] * 100
-            
-            # 标准化买卖方向 type
+            # 标准化买卖方向 type -> sign (向量化)
             if 'type' in df.columns:
-                df['type'] = df['type'].astype(str).str.upper()
-                type_map = {
-                    '买盘': 'B', '卖盘': 'S', 
-                    'BUY': 'B', 'SELL': 'S',
-                    '0': 'S', '1': 'B', 
-                    '2': 'M' 
-                }
-                df['type'] = df['type'].map(lambda x: type_map.get(x, x))
+                # 统一转大写字符串
+                type_series = df['type'].astype(str).str.upper()
+                # 使用 np.select 进行向量化映射
+                conditions = [
+                    type_series.isin(['买盘', 'BUY', '1', 'B']),
+                    type_series.isin(['卖盘', 'SELL', '0', 'S'])
+                ]
+                choices = [1, -1]
+                # 默认为0 (中性盘)
+                df['sign'] = np.select(conditions, choices, default=0)
             else:
-                logger.warning("Tick数据缺少 type 列，无法计算资金流方向")
                 return tick_metrics
 
-            # 过滤中性盘
-            df = df[df['type'].isin(['B', 'S'])]
+            # 过滤中性盘 (sign != 0)
+            df = df[df['sign'] != 0].copy()
             if df.empty:
                 return tick_metrics
 
-            # 确保 trade_time 是 datetime 类型
+            # 计算带符号的金额 (Buy为正, Sell为负)
+            df['signed_amount'] = df['amount'] * df['sign']
+
+            # 时间处理
             df['trade_time'] = pd.to_datetime(df['trade_time'])
-            
-            # [新增] 时区标准化：统一转换为北京时间 (Asia/Shanghai)
-            # 解决 Invalid comparison between dtype=datetime64[ns, UTC] and Timestamp 问题
-            # 同时确保后续 dt.hour 等逻辑基于北京时间
+            # 时区标准化
             import pytz
             bj_tz = pytz.timezone('Asia/Shanghai')
-            
             if df['trade_time'].dt.tz is not None:
-                # 如果已有时区 (如 UTC)，转换为北京时间
                 df['trade_time'] = df['trade_time'].dt.tz_convert(bj_tz)
             else:
-                # 如果无时区，假定为北京时间并本地化
                 df['trade_time'] = df['trade_time'].dt.tz_localize(bj_tz)
 
-            # 如果只有时间没有日期，加上当前日期
+            # 日期修正
             if df['trade_time'].iloc[0].year == 1900:
                 current_date = self.context.trade_date
-                # 注意：这里替换年份后，时区信息会保留
+                # 向量化替换日期部分 (较快方式: 替换 timestamp 的年月日)
+                # 但由于时区问题，apply 比较稳妥，或者构造新的 datetime index
+                # 这里保持 apply，因为通常数据量不大 (几千行)
                 df['trade_time'] = df['trade_time'].apply(
                     lambda t: t.replace(year=current_date.year, month=current_date.month, day=current_date.day)
                 )
+            # 设置 trade_time 为索引，便于 resample
+            df.set_index('trade_time', inplace=True, drop=False)
 
             # 1. 计算日内资金流分布
             tick_metrics.update(self._calculate_intraday_flow_distribution(df))
-            # 2. 高频大单识别
+            # 2. 高频大单识别 (向量化)
             tick_metrics.update(self._detect_high_freq_large_orders(df))
             # 3. 资金冲击特征
             tick_metrics.update(self._calculate_flow_impact_features(df))
@@ -1176,51 +1216,41 @@ class FundFlowFactorCalculator:
             tick_metrics.update(self._calculate_time_period_distribution(df))
             # 12. 主力隐蔽性指标
             tick_metrics.update(self._calculate_stealth_flow_indicators(df))
-            
         except Exception as e:
             logger.error(f"计算tick增强指标时发生未捕获异常: {e}", exc_info=True)
-            
         return tick_metrics
 
     def _calculate_intraday_flow_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算日内资金流分布特征
-        版本: V1.2
+        版本: V1.3
         说明: 
-        1. 直接使用已标准化的 trade_time 列。
-        2. 优化分桶逻辑，匹配 A 股交易时段。
+        1. 利用预计算的 signed_amount 进行聚合，避免重复筛选。
+        2. 使用 groupby 向量化求和。
         """
         distribution = {}
-        # 按半小时划分交易时段
-        # df['trade_time'] 已经是 datetime 类型且为北京时间
+        # df['trade_time'] 已经是北京时间
         minutes_since_midnight = df['trade_time'].dt.hour * 60 + df['trade_time'].dt.minute
-        
-        # 定义 bins 和 labels
-        # 9:30=570, 10:00=600, 10:30=630, 11:00=660, 11:30=690
-        # 13:00=780, 13:30=810, 14:00=840, 14:30=870, 15:00=900
         bins = [0, 570, 600, 630, 660, 690, 780, 810, 840, 870, 1440]
         labels = ['Before', '9:30-10:00', '10:00-10:30', '10:30-11:00', '11:00-11:30', 
                   'Noon', '13:00-13:30', '13:30-14:00', '14:00-14:30', '14:30-15:00']
-        
-        df['time_bucket'] = pd.cut(minutes_since_midnight, bins=bins, labels=labels, right=True)
-
-        # 计算各时段资金净流入
-        bucket_flows = df.groupby('time_bucket', observed=True).apply(
-            lambda x: (x[x['type'] == 'B']['amount'].sum() - 
-                      x[x['type'] == 'S']['amount'].sum()) / 10000  # 转换为万元
-        ).to_dict()
-        
-        # 过滤掉非交易时段 (Before, Noon)
+        # 创建分桶列
+        time_bucket = pd.cut(minutes_since_midnight, bins=bins, labels=labels, right=True)
+        # 向量化聚合：直接对 signed_amount 分组求和
+        # observed=True 提升 Categorical 分组性能
+        bucket_sums = df.groupby(time_bucket, observed=True)['signed_amount'].sum()
+        # 转换为万元并构建字典
+        bucket_flows = {k: float(v) / 10000 for k, v in bucket_sums.items()}
+        # 过滤掉非交易时段
         valid_buckets = [l for l in labels if ':' in l]
         bucket_flows = {k: v for k, v in bucket_flows.items() if k in valid_buckets}
 
-        # 计算各时段占比
+        # 计算占比
         total_flow = sum([abs(v) for v in bucket_flows.values()])
         if total_flow > 0:
             bucket_ratios = {k: v/total_flow*100 for k, v in bucket_flows.items()}
         else:
             bucket_ratios = {k: 0 for k in bucket_flows.keys()}
-            
         distribution['intraday_flow_distribution'] = json.dumps({
             'bucket_flows': bucket_flows,
             'bucket_ratios': bucket_ratios,
@@ -1229,92 +1259,114 @@ class FundFlowFactorCalculator:
         return distribution
 
     def _detect_high_freq_large_orders(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """高频大单识别"""
+        """
+        高频大单识别
+        版本: V1.1
+        说明: 使用向量化布尔索引和预计算的 sign 列。
+        """
         metrics = {}
-        # 定义大单阈值（可根据市值调整）
         large_order_threshold = 100000  # 10万元
-        # 识别大单
-        large_buy_orders = df[(df['type'] == 'B') & (df['amount'] >= large_order_threshold)]
-        large_sell_orders = df[(df['type'] == 'S') & (df['amount'] >= large_order_threshold)]
-        # 计算大单净流入
-        total_large_buy = large_buy_orders['amount'].sum() / 10000  # 转换为万元
-        total_large_sell = large_sell_orders['amount'].sum() / 10000
-        large_order_net = total_large_buy - total_large_sell
+        # 向量化筛选
+        is_large = df['amount'] >= large_order_threshold
+        large_orders = df[is_large]
+        if large_orders.empty:
+            metrics['tick_large_order_net'] = 0.0
+            metrics['tick_large_order_count'] = 0
+            return metrics
+        # 计算净流入: sum(amount * sign)
+        large_order_net = large_orders['signed_amount'].sum() / 10000
         metrics['tick_large_order_net'] = float(large_order_net)
-        metrics['tick_large_order_count'] = int(len(large_buy_orders) + len(large_sell_orders))
+        metrics['tick_large_order_count'] = int(len(large_orders))
         return metrics
 
     def _calculate_flow_impact_features(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算资金冲击特征"""
+        """
+        计算资金冲击特征
+        版本: V1.1
+        说明: 
+        1. 优化 groupby 操作。
+        2. 使用 NumPy 向量化计算连续同向分钟数。
+        """
         metrics = {}
         if len(df) < 10:
             metrics['flow_impact_ratio'] = None
             metrics['flow_persistence_minutes'] = 0
             return metrics
-        # 计算资金冲击系数（单位资金对价格的影响）
-        df = df.copy()
+        # 计算价格变化 (diff)
+        # 注意：df 已经是 copy，可以直接操作
         df['price_change'] = df['price'].diff()
-        # 按资金方向分组计算
-        buy_orders = df[df['type'] == 'B']
-        sell_orders = df[df['type'] == 'S']
-        if len(buy_orders) > 5 and len(sell_orders) > 5:
-            # 买盘冲击系数
-            buy_impact = abs(buy_orders['price_change'].mean()) / (buy_orders['amount'].mean() / 1e6 + 1e-6)
-            # 卖盘冲击系数
-            sell_impact = abs(sell_orders['price_change'].mean()) / (sell_orders['amount'].mean() / 1e6 + 1e-6)
-            metrics['flow_impact_ratio'] = float((buy_impact + sell_impact) / 2)
+        # 1. 冲击系数计算
+        # 按 sign 分组计算均值
+        # group 1 (Buy), -1 (Sell)
+        groups = df.groupby('sign')
+        impacts = []
+        for sign, group in groups:
+            if len(group) > 5:
+                avg_amt_million = group['amount'].mean() / 1e6
+                avg_price_chg = group['price_change'].abs().mean()
+                if avg_amt_million > 0:
+                    impacts.append(avg_price_chg / avg_amt_million)
+        if impacts:
+            metrics['flow_impact_ratio'] = float(np.mean(impacts))
         else:
             metrics['flow_impact_ratio'] = None
-        # 计算资金持续性
-        df['minute'] = pd.to_datetime(df['trade_time']).dt.floor('T')
-        minute_flow = df.groupby('minute').apply(
-            lambda x: (x[x['type'] == 'B']['amount'].sum() - 
-                      x[x['type'] == 'S']['amount'].sum())
-        )
-        # 计算连续同向的分钟数
-        consecutive_minutes = 0
-        current_sign = 0
-        max_consecutive = 0
-        for flow in minute_flow:
-            if flow == 0:
-                continue
-            sign = 1 if flow > 0 else -1
-            if sign == current_sign:
-                consecutive_minutes += 1
-                max_consecutive = max(max_consecutive, consecutive_minutes)
-            else:
-                current_sign = sign
-                consecutive_minutes = 1
-        metrics['flow_persistence_minutes'] = max_consecutive
+        # 2. 资金持续性计算
+        # 按分钟重采样求净流入
+        minute_flow = df['signed_amount'].resample('1min').sum()
+        # 移除0值
+        minute_flow = minute_flow[minute_flow != 0]
+        if len(minute_flow) == 0:
+            metrics['flow_persistence_minutes'] = 0
+            return metrics
+        # 向量化计算最大连续同号长度
+        signs = np.sign(minute_flow.values)
+        # 找变化点
+        # diff != 0 表示符号变化 (因为没有0值)
+        change_indices = np.where(np.diff(signs) != 0)[0] + 1
+        # 计算各段长度
+        # 加上起点0和终点len
+        split_indices = np.concatenate(([0], change_indices, [len(signs)]))
+        lengths = np.diff(split_indices)
+        if len(lengths) > 0:
+            metrics['flow_persistence_minutes'] = int(np.max(lengths))
+        else:
+            metrics['flow_persistence_minutes'] = 0
         return metrics
 
     def _calculate_intraday_momentum(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算日内资金动量"""
+        """
+        计算日内资金动量
+        版本: V1.1
+        说明: 使用 resample 替代 groupby，提升效率。
+        """
         metrics = {}
-        # 按分钟聚合
-        df['minute'] = pd.to_datetime(df['trade_time']).dt.floor('T')
-        minute_flow = df.groupby('minute').apply(
-            lambda x: (x[x['type'] == 'B']['amount'].sum() - 
-                      x[x['type'] == 'S']['amount'].sum()) / 10000  # 万元
-        )
+        # 按分钟重采样
+        minute_flow = df['signed_amount'].resample('1min').sum() / 10000  # 万元
         if len(minute_flow) < 10:
             metrics['intraday_flow_momentum'] = None
             metrics['flow_acceleration_intraday'] = None
             return metrics
-        # 计算日内动量（最近30分钟 vs 之前）
+        # 填充空缺分钟为0
+        minute_flow = minute_flow.fillna(0)
+        # 计算日内动量
         if len(minute_flow) >= 30:
-            recent_30 = minute_flow[-30:].mean()
-            previous_30 = minute_flow[-60:-30].mean() if len(minute_flow) >= 60 else minute_flow[:-30].mean()
+            recent_30 = minute_flow.iloc[-30:].mean()
+            # 之前30分钟 (即 -60 到 -30)
+            if len(minute_flow) >= 60:
+                previous_30 = minute_flow.iloc[-60:-30].mean()
+            else:
+                previous_30 = minute_flow.iloc[:-30].mean()
+                
             if abs(previous_30) > 0:
                 metrics['intraday_flow_momentum'] = float((recent_30 - previous_30) / abs(previous_30))
             else:
                 metrics['intraday_flow_momentum'] = 0.0
         else:
             metrics['intraday_flow_momentum'] = None
-        # 计算日内加速度
+        # 计算日内加速度 (最近3分钟)
         if len(minute_flow) >= 3:
-            recent_3 = minute_flow[-3:].values
-            # 二阶差分近似加速度
+            recent_3 = minute_flow.iloc[-3:].values
+            # 二阶差分
             acceleration = (recent_3[2] - 2*recent_3[1] + recent_3[0]) / (abs(recent_3[0]) + 1e-6)
             metrics['flow_acceleration_intraday'] = float(acceleration)
         else:
@@ -1322,66 +1374,96 @@ class FundFlowFactorCalculator:
         return metrics
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算资金聚类特征"""
+        """
+        计算资金聚类特征
+        版本: V1.1
+        说明: 
+        1. 使用 resample 替代 groupby(dt.floor)，效率更高。
+        2. 使用 NumPy 向量化逻辑计算聚类持续时间，替代 Python 循环。
+        """
         metrics = {}
-        # 按3秒间隔计算资金流
-        df['time_group'] = pd.to_datetime(df['trade_time']).dt.floor('3S')
-        cluster_flow = df.groupby('time_group').apply(
-            lambda x: (x[x['type'] == 'B']['amount'].sum() - 
-                      x[x['type'] == 'S']['amount'].sum())
-        )
+        # 按3秒重采样求和
+        # df 索引已设为 trade_time
+        cluster_flow = df['signed_amount'].resample('3s').sum()
         if len(cluster_flow) < 10:
             metrics['flow_cluster_intensity'] = None
             metrics['flow_cluster_duration'] = 0
             return metrics
-        # 计算聚类强度（资金流的标准差/均值）
+        # 计算聚类强度
         mean_flow = cluster_flow.abs().mean()
         std_flow = cluster_flow.std()
         if mean_flow > 0:
             metrics['flow_cluster_intensity'] = float(std_flow / mean_flow)
         else:
             metrics['flow_cluster_intensity'] = 0.0
-        # 计算聚类持续时间
-        # 寻找连续的资金流入/流出时段
-        threshold = cluster_flow.abs().mean() * 0.5  # 阈值
-        significant_flows = cluster_flow[cluster_flow.abs() > threshold]
-        if len(significant_flows) > 0:
-            # 计算最大连续时段
-            times = pd.Series(significant_flows.index).sort_values()
-            time_diffs = times.diff().dt.total_seconds()
-            # 寻找连续的时间段（间隔小于6秒视为连续）
-            cluster_duration = 0
-            current_cluster = 0
-            for diff in time_diffs:
-                if diff <= 6:  # 6秒内视为同一聚类
-                    current_cluster += diff
-                    cluster_duration = max(cluster_duration, current_cluster)
-                else:
-                    current_cluster = 0
-            metrics['flow_cluster_duration'] = int(cluster_duration / 60)  # 转换为分钟
-        else:
+        # 计算聚类持续时间 (向量化实现)
+        threshold = mean_flow * 0.5
+        # 找出显著流动的点
+        significant_mask = cluster_flow.abs() > threshold
+        if not significant_mask.any():
             metrics['flow_cluster_duration'] = 0
+            return metrics
+        # 获取显著点的时间戳
+        sig_times = cluster_flow.index[significant_mask]
+        # 计算相邻时间差 (秒)
+        time_diffs = np.diff(sig_times.astype(np.int64)) // 10**9
+        # 寻找连续段 (间隔 <= 6秒)
+        # 构造 gap 掩码: True 表示断开
+        gaps = time_diffs > 6
+        # 如果没有断开，说明全程连续
+        if not gaps.any():
+            # 持续时间 = 最后时间 - 开始时间
+            duration = (sig_times[-1] - sig_times[0]).total_seconds()
+            metrics['flow_cluster_duration'] = int(duration / 60)
+            return metrics
+        # 寻找最大连续段
+        # 插入 True 到开头和结尾，方便 diff 找索引
+        # gaps 索引 i 对应 sig_times[i] 和 sig_times[i+1] 之间的间隔
+        # 我们需要找到连续 False 的最长区间对应的 sum(time_diffs)
+        # 使用 split 方法
+        # indices where gaps occur
+        split_indices = np.where(gaps)[0] + 1
+        # split sig_times into clusters
+        clusters = np.split(sig_times, split_indices)
+        max_duration = 0
+        for cluster in clusters:
+            if len(cluster) > 1:
+                duration = (cluster[-1] - cluster[0]).total_seconds()
+                if duration > max_duration:
+                    max_duration = duration
+                    
+        metrics['flow_cluster_duration'] = int(max_duration / 60)
         return metrics
 
     def _calculate_high_freq_divergence(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算高频资金分歧度"""
+        """
+        计算高频资金分歧度
+        版本: V1.1
+        说明: 使用 resample 和 pivot/unstack 思想进行向量化计算。
+        """
         metrics = {}
         if len(df) < 20:
             metrics['high_freq_flow_divergence'] = None
             return metrics
-        # 计算买卖盘资金流的相关系数
-        df['time_group'] = pd.to_datetime(df['trade_time']).dt.floor('10S')  # 10秒分组
-        buy_flow = df[df['type'] == 'B'].groupby('time_group')['amount'].sum()
-        sell_flow = df[df['type'] == 'S'].groupby('time_group')['amount'].sum()
-        # 对齐时间索引
-        common_times = buy_flow.index.intersection(sell_flow.index)
-        if len(common_times) >= 5:
-            buy_aligned = buy_flow.loc[common_times]
-            sell_aligned = sell_flow.loc[common_times]
-            # 计算负相关性（负相关越高，分歧越大）
-            correlation = buy_aligned.corr(sell_flow.loc[common_times])
+        # 构造买卖分列数据
+        # 技巧：创建两个序列，分别重采样
+        buy_series = df[df['sign'] == 1]['amount']
+        sell_series = df[df['sign'] == -1]['amount']
+        # 10秒重采样
+        buy_flow = buy_series.resample('10s').sum()
+        sell_flow = sell_series.resample('10s').sum()
+        # 对齐索引 (取交集或并集填充0)
+        # 这里我们需要计算相关性，应该只看共存时段或填充0
+        # 填充0比较合理，表示该时段无买/卖
+        all_idx = buy_flow.index.union(sell_flow.index)
+        buy_aligned = buy_flow.reindex(all_idx, fill_value=0)
+        sell_aligned = sell_flow.reindex(all_idx, fill_value=0)
+        if len(buy_aligned) >= 5:
+            # 计算相关系数
+            correlation = buy_aligned.corr(sell_aligned)
             if not np.isnan(correlation):
-                # 将相关性转换为分歧度（-1到1映射到0到100）
+                # 将相关性转换为分歧度
+                # 相关性越低(负)，分歧越大
                 divergence = (1 - correlation) / 2 * 100
                 metrics['high_freq_flow_divergence'] = float(divergence)
             else:
@@ -1391,24 +1473,36 @@ class FundFlowFactorCalculator:
         return metrics
 
     def _calculate_vwap_deviation(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算VWAP偏离度"""
+        """
+        计算VWAP偏离度
+        版本: V1.1
+        说明: 向量化计算。
+        """
         metrics = {}
         if len(df) < 10:
             metrics['vwap_deviation'] = None
             return metrics
-        # 计算VWAP
+        # 全局 VWAP
         total_amount = df['amount'].sum()
         total_volume = df['volume'].sum()
         if total_volume > 0:
             vwap = total_amount / total_volume
-            # 计算资金流入价格（买盘成交的加权平均价）
-            buy_orders = df[df['type'] == 'B']
-            if len(buy_orders) > 0:
-                buy_vwap = (buy_orders['amount'] * buy_orders['price']).sum() / buy_orders['amount'].sum()
-                # 计算偏离度
-                if vwap > 0:
-                    deviation = (buy_vwap - vwap) / vwap * 100
-                    metrics['vwap_deviation'] = float(deviation)
+            # 买盘 VWAP
+            buy_mask = df['sign'] == 1
+            buy_orders = df[buy_mask]
+            if not buy_orders.empty:
+                buy_amt_sum = buy_orders['amount'].sum()
+                buy_vol_sum = buy_orders['volume'].sum()
+                
+                if buy_vol_sum > 0:
+                    # 标准 VWAP 计算
+                    buy_vwap = buy_amt_sum / buy_vol_sum
+                    
+                    if vwap > 0:
+                        deviation = (buy_vwap - vwap) / vwap * 100
+                        metrics['vwap_deviation'] = float(deviation)
+                    else:
+                        metrics['vwap_deviation'] = 0.0
                 else:
                     metrics['vwap_deviation'] = 0.0
             else:
@@ -1418,21 +1512,26 @@ class FundFlowFactorCalculator:
         return metrics
 
     def _calculate_flow_efficiency(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算资金流入效率"""
+        """
+        计算资金流入效率
+        版本: V1.1
+        说明: 向量化计算。
+        """
         metrics = {}
         if len(df) < 20:
             metrics['flow_efficiency'] = None
             return metrics
-        # 计算单位资金推动的价格变化
-        df = df.copy()
-        df['price_change'] = df['price'].diff().abs()
-        # 按资金方向分组
-        buy_orders = df[df['type'] == 'B']
-        sell_orders = df[df['type'] == 'S']
-        if len(buy_orders) >= 5:
-            # 买盘效率：价格变化/资金量
-            buy_efficiency = buy_orders['price_change'].sum() / (buy_orders['amount'].sum() / 1e6 + 1e-6)
-            metrics['flow_efficiency'] = float(buy_efficiency)
+        # 价格变化绝对值
+        price_change_abs = df['price'].diff().abs()
+        # 买盘效率
+        buy_mask = df['sign'] == 1
+        if buy_mask.sum() >= 5:
+            total_price_change = price_change_abs[buy_mask].sum()
+            total_buy_amt = df.loc[buy_mask, 'amount'].sum() / 1e6 # 百万
+            if total_buy_amt > 0:
+                metrics['flow_efficiency'] = float(total_price_change / total_buy_amt)
+            else:
+                metrics['flow_efficiency'] = 0.0
         else:
             metrics['flow_efficiency'] = 0.0
         return metrics
@@ -1440,8 +1539,8 @@ class FundFlowFactorCalculator:
     def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算尾盘资金特征
-        版本: V1.2
-        说明: 修复时区比较错误，确保收盘时间与数据时区一致。
+        版本: V1.3
+        说明: 优化时间筛选逻辑，使用 signed_amount。
         """
         metrics = {}
         if df.empty:
@@ -1449,58 +1548,39 @@ class FundFlowFactorCalculator:
             metrics['closing_flow_intensity'] = None
             return metrics
 
-        # 识别尾盘时段（最后30分钟）
-        # df['trade_time'] 已经是北京时间 (Aware)
-        
-        # 获取数据中的日期
-        current_date = df['trade_time'].iloc[0].date()
-        
-        # 构造收盘时间 (15:00) 并匹配 DataFrame 的时区
-        # 此时 df['trade_time'] 已经统一为 Asia/Shanghai，所以这里直接 localize 即可
-        # 使用 df['trade_time'].dt.tz 获取准确的时区对象
-        tz_info = df['trade_time'].dt.tz
-        market_close = pd.Timestamp(current_date).tz_localize(tz_info) + pd.Timedelta(hours=15)
-        
-        closing_start = market_close - pd.Timedelta(minutes=30)
-        
-        # 进行带时区的时间比较
-        closing_data = df[df['trade_time'] >= closing_start]
-        
-        if len(closing_data) == 0:
-            # 如果没有尾盘数据，可能全天都在尾盘前，或者数据缺失
-            metrics['closing_flow_ratio'] = 0.0
-            metrics['closing_flow_intensity'] = 0.0
-            return metrics
-
-        # 计算尾盘资金净流入
-        closing_buy = closing_data[closing_data['type'] == 'B']['amount'].sum()
-        closing_sell = closing_data[closing_data['type'] == 'S']['amount'].sum()
-        closing_net = (closing_buy - closing_sell) / 10000  # 万元
-        # 全天资金净流入
-        total_buy = df[df['type'] == 'B']['amount'].sum()
-        total_sell = df[df['type'] == 'S']['amount'].sum()
-        total_net = (total_buy - total_sell) / 10000
+        # 获取收盘时间 (基于数据中的日期)
+        # df['trade_time'] 已经是 datetime index
+        last_time = df.index[-1]
+        # 构造尾盘起始时间 (14:30)
+        # 使用 replace 保持时区信息
+        closing_start = last_time.replace(hour=14, minute=30, second=0, microsecond=0)
+        # 筛选尾盘数据
+        closing_mask = df.index >= closing_start
+        # 计算尾盘净流入
+        closing_net = df.loc[closing_mask, 'signed_amount'].sum() / 10000
+        # 全天净流入
+        total_net = df['signed_amount'].sum() / 10000
         # 尾盘资金占比
         if abs(total_net) > 0:
             closing_ratio = abs(closing_net) / abs(total_net) * 100
         else:
             closing_ratio = 0.0
-        # 尾盘资金强度（尾盘资金密度）
-        closing_duration_minutes = 30
-        closing_intensity = abs(closing_net) / closing_duration_minutes
+        # 尾盘资金强度
+        closing_intensity = abs(closing_net) / 30.0 # 假设30分钟
         metrics['closing_flow_ratio'] = float(closing_ratio)
         metrics['closing_flow_intensity'] = float(closing_intensity)
         return metrics
 
     def _calculate_high_freq_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算高频统计特征"""
+        """
+        计算高频统计特征
+        版本: V1.1
+        说明: 使用 resample 优化。
+        """
         metrics = {}
-        # 按分钟计算资金流
-        df['minute'] = pd.to_datetime(df['trade_time']).dt.floor('T')
-        minute_flow = df.groupby('minute').apply(
-            lambda x: (x[x['type'] == 'B']['amount'].sum() - 
-                      x[x['type'] == 'S']['amount'].sum()) / 10000
-        )
+        # 按分钟重采样
+        minute_flow = df['signed_amount'].resample('1min').sum() / 10000
+        minute_flow = minute_flow.fillna(0)
         if len(minute_flow) < 10:
             metrics['high_freq_flow_skewness'] = None
             metrics['high_freq_flow_kurtosis'] = None
@@ -1513,37 +1593,23 @@ class FundFlowFactorCalculator:
     def _calculate_time_period_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算资金时段分布
-        版本: V1.2
-        说明: 直接使用已标准化的 trade_time 列。
+        版本: V1.3
+        说明: 使用向量化布尔索引和 signed_amount。
         """
         metrics = {}
-        # 划分上午和下午
         # df['trade_time'] 已经是北京时间
         hour = df['trade_time'].dt.hour
-        morning_data = df[hour < 12]  # 上午 (通常 9, 10, 11)
-        afternoon_data = df[hour >= 13]  # 下午 (通常 13, 14, 15)
-        
-        if len(morning_data) == 0 and len(afternoon_data) == 0:
-            metrics['morning_flow_ratio'] = None
-            metrics['afternoon_flow_ratio'] = None
-            return metrics
-            
-        # 计算上午资金净流入
-        morning_buy = morning_data[morning_data['type'] == 'B']['amount'].sum()
-        morning_sell = morning_data[morning_data['type'] == 'S']['amount'].sum()
-        morning_net = (morning_buy - morning_sell) / 10000
-        # 计算下午资金净流入
-        afternoon_buy = afternoon_data[afternoon_data['type'] == 'B']['amount'].sum()
-        afternoon_sell = afternoon_data[afternoon_data['type'] == 'S']['amount'].sum()
-        afternoon_net = (afternoon_buy - afternoon_sell) / 10000
-        # 计算全天资金净流入
+        # 向量化掩码
+        morning_mask = hour < 12
+        afternoon_mask = hour >= 13
+        # 直接求和 signed_amount
+        morning_net = df.loc[morning_mask, 'signed_amount'].sum() / 10000
+        afternoon_net = df.loc[afternoon_mask, 'signed_amount'].sum() / 10000
         total_net = morning_net + afternoon_net
-        # 计算占比
         if abs(total_net) > 0:
             morning_ratio = abs(morning_net) / abs(total_net) * 100
             afternoon_ratio = abs(afternoon_net) / abs(total_net) * 100
         else:
-            # 如果总净流入为0，但有交易，给个默认值
             if len(df) > 0:
                 morning_ratio = 50.0
                 afternoon_ratio = 50.0
@@ -1556,22 +1622,19 @@ class FundFlowFactorCalculator:
         return metrics
 
     def _calculate_stealth_flow_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """计算主力隐蔽性指标"""
+        """
+        计算主力隐蔽性指标
+        版本: V1.1
+        说明: 向量化计算。
+        """
         metrics = {}
-        # 定义小单阈值
-        small_order_threshold = 50000  # 5万元以下视为小单
-        # 识别小单
-        small_buy_orders = df[(df['type'] == 'B') & (df['amount'] < small_order_threshold)]
-        small_sell_orders = df[(df['type'] == 'S') & (df['amount'] < small_order_threshold)]
+        small_order_threshold = 50000
+        # 筛选小单
+        small_mask = df['amount'] < small_order_threshold
         # 计算小单净流入
-        small_buy_total = small_buy_orders['amount'].sum() / 10000  # 万元
-        small_sell_total = small_sell_orders['amount'].sum() / 10000
-        small_net = small_buy_total - small_sell_total
-        # 计算总净流入
-        total_buy = df[df['type'] == 'B']['amount'].sum() / 10000
-        total_sell = df[df['type'] == 'S']['amount'].sum() / 10000
-        total_net = total_buy - total_sell
-        # 计算隐蔽资金占比（小单但持续同向）
+        small_net = df.loc[small_mask, 'signed_amount'].sum() / 10000
+        # 总净流入
+        total_net = df['signed_amount'].sum() / 10000
         if abs(total_net) > 0:
             stealth_ratio = abs(small_net) / abs(total_net) * 100
         else:
