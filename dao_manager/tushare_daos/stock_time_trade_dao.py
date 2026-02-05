@@ -277,11 +277,12 @@ class StockTimeTradeDAO(BaseDAO):
     async def save_daily_time_trade_history_by_trade_dates(self, trade_date: date = None, start_date: date = None,
                                                            end_date: date = None, *, limiter) -> dict:
         """
-        【V3.0 - 全市场批量版】保存日线交易数据。
+        【V3.1 - 修复排序Bug版】保存日线交易数据。
         优化：
-        1. 移除按股票循环调用的低效逻辑。
-        2. 直接调用 Tushare 全市场接口，一次获取数千只股票数据。
-        3. 向量化处理与分表保存。
+        1. groupby 增加 sort=False，防止对 Model 类进行排序导致 TypeError。
+        2. 移除按股票循环调用的低效逻辑。
+        3. 直接调用 Tushare 全市场接口，一次获取数千只股票数据。
+        4. 向量化处理与分表保存。
         """
         # 1. 准备参数
         api_params = {}
@@ -325,7 +326,8 @@ class StockTimeTradeDAO(BaseDAO):
         # 5. 分组保存
         total_saved = 0
         columns_to_keep = ['stock', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount']
-        for model_class, group_df in df.groupby('model_class'):
+        # [Fix] 添加 sort=False
+        for model_class, group_df in df.groupby('model_class', sort=False):
             if group_df.empty: continue
             # 重命名 pct_chg -> pct_change
             final_df = group_df.rename(columns={'pct_chg': 'pct_change'})
@@ -688,12 +690,14 @@ class StockTimeTradeDAO(BaseDAO):
         return total_saved_count
 
     # =============== A股分钟行情(实时) ===============
+    # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str):
         """
-        【V5.1 - 向量化双轨版】保存股票的实时分钟级交易数据。
+        【V5.2 - 修复排序Bug版】保存股票的实时分钟级交易数据。
         优化：
-        1. 移除 Python 循环，使用 Pandas 向量化操作构建数据库和缓存载荷。
-        2. 批量获取 Stock 对象和 Model 类，消除重复查询。
+        1. groupby 增加 sort=False，防止对 Model 类进行排序导致 TypeError。
+        2. 移除 Python 循环，使用 Pandas 向量化操作构建数据库和缓存载荷。
+        3. 批量获取 Stock 对象和 Model 类，消除重复查询。
         """
         if not stock_codes:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
@@ -726,7 +730,8 @@ class StockTimeTradeDAO(BaseDAO):
         df['db_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai').dt.tz_convert('UTC').dt.tz_localize(None)
         db_save_tasks = []
         # 按模型分组构建任务
-        for model_class, group_df in df.groupby('model_class'):
+        # [Fix] 添加 sort=False
+        for model_class, group_df in df.groupby('model_class', sort=False):
             # 构造字典列表，重命名 db_time -> trade_time
             payload_df = group_df[['stock', 'db_time', 'open', 'close', 'high', 'low', 'vol', 'amount']].rename(columns={'db_time': 'trade_time'})
             data_list = payload_df.to_dict('records')
@@ -1485,8 +1490,10 @@ class StockTimeTradeDAO(BaseDAO):
     @with_rate_limit(name='api_stk_limit')
     async def save_stk_limit_history(self, trade_date: date = None, start_date: date = None, end_date: date = None, *, limiter) -> dict:
         """
-        【V1.2 - 向量化分发版】保存每日涨跌停价格。
-        优化：使用 Pandas GroupBy 替代 Python 循环进行模型分发，大幅提升处理速度。
+        【V1.3 - 修复排序Bug版】保存每日涨跌停价格。
+        优化：
+        1. groupby 增加 sort=False，防止对 Model 类进行排序导致 TypeError。
+        2. 使用 Pandas GroupBy 替代 Python 循环进行模型分发，大幅提升处理速度。
         """
         api_params = {}
         if trade_date:
@@ -1515,7 +1522,8 @@ class StockTimeTradeDAO(BaseDAO):
             df.dropna(subset=['model_class'], inplace=True)
             save_tasks = []
             # 使用 groupby 替代循环
-            for model_class, group_df in df.groupby('model_class'):
+            # [Fix] 添加 sort=False
+            for model_class, group_df in df.groupby('model_class', sort=False):
                 data_list = group_df[['stock', 'trade_time', 'pre_close', 'up_limit', 'down_limit']].to_dict('records')
                 task = self._save_all_to_db_native_upsert(
                     model_class=model_class,
