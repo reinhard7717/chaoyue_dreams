@@ -607,48 +607,55 @@ class FundFlowFactorCalculator:
 
     def _determine_behavior_pattern(self, acc, push, dist, shake, nets) -> Tuple[str, float]:
         """
-        [大师级深化] 模式仲裁与置信度计算
-        引入: 信噪比 (SNR) 修正
+        [修复] 模式仲裁与置信度计算
+        修复点：
+        1. 引入信息熵 (Entropy) 惩罚。如果四个分数接近，说明特征不明显，置信度大幅降低。
+        2. 解决 pattern_confidence 容易全 100 的问题。
         """
-        scores = {
-            'ACCUMULATION': acc,
-            'PUSHING': push,
-            'DISTRIBUTION': dist,
-            'SHAKEOUT': shake,
-        }
-        # 1. 找出第一名和第二名
-        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        top_pattern, top_score = sorted_scores[0]
-        second_pattern, second_score = sorted_scores[1]
-        # 2. 基础置信度 (Gap)
-        # 差距越大，越确信
-        gap = top_score - second_score
-        base_confidence = min(100.0, max(0.0, 50.0 + gap * 1.5))
-        # 3. 信噪比修正 (SNR Correction)
-        # 如果资金流本身是杂乱无章的 (Random Walk)，那么计算出的模式可能是过拟合
-        # 使用简单的自相关性或趋势力度作为 SNR 代理
-        # 计算趋势力度 R^2
-        n = len(nets)
-        if n > 5:
-            x = np.arange(n)
+        raw_scores = np.array([max(0, acc), max(0, push), max(0, dist), max(0, shake)])
+        pattern_names = ['ACCUMULATION', 'PUSHING', 'DISTRIBUTION', 'SHAKEOUT']
+        
+        # 归一化为概率分布
+        total_score = np.sum(raw_scores)
+        if total_score < 1.0:
+            return 'UNCLEAR', 0.0
+            
+        probs = raw_scores / total_score
+        
+        # 1. 计算信息熵
+        # 均匀分布时熵最大 (log(4))，置信度应最低
+        # 集中分布时熵最小 (0)，置信度应最高
+        ent = stats.entropy(probs) # base e
+        max_ent = np.log(4) # 1.386
+        
+        # 熵反转因子: 熵越小，因子越大 (0~1)
+        entropy_factor = 1.0 - (ent / max_ent)
+        
+        # 2. 找出最大值
+        best_idx = np.argmax(raw_scores)
+        best_score = raw_scores[best_idx]
+        best_pattern = pattern_names[best_idx]
+        
+        # 3. 基础置信度 = 最高分 * 熵因子
+        # 只有当最高分很高(>80) 且 分布很集中(熵低) 时，才能接近 100
+        # 之前是 gap + base，容易溢出。现在是乘法，很难溢出。
+        final_confidence = best_score * entropy_factor
+        
+        # 4. 趋势验证修正 (Trend Validation)
+        # 如果是建仓/派发，需要趋势配合。如果趋势 R^2 低，置信度打折
+        if best_pattern in ['ACCUMULATION', 'DISTRIBUTION'] and len(nets) > 5:
+            x = np.arange(len(nets))
             slope, _, r_value, _, _ = linregress(x, nets)
-            trend_strength = r_value ** 2 # 0~1
-            # 如果是震荡市 (R^2 低)，置信度要打折
-            # 但注意：洗盘模式本身就是调整，可能没有线性趋势。
-            # 这里主要针对 "建仓" 和 "派发" 需要趋势支持
-            if top_pattern in ['ACCUMULATION', 'DISTRIBUTION']:
-                # 这两种模式需要资金流具备一定的一致性
-                snr_factor = 0.5 + 0.5 * trend_strength
-                final_confidence = base_confidence * snr_factor
-            else:
-                # 洗盘和拉升可能比较短暂或剧烈，对线性度要求低一点
-                final_confidence = base_confidence
-        else:
-            final_confidence = base_confidence * 0.8
+            r_sq = r_value ** 2
+            # 趋势弱则打折，但不要打太狠 (0.7 ~ 1.0)
+            trend_factor = 0.7 + 0.3 * r_sq
+            final_confidence *= trend_factor
+
         # 阈值过滤
-        if top_score < 40.0:
-            return 'UNCLEAR', float(final_confidence * 0.5)
-        return top_pattern, float(min(100.0, final_confidence))
+        if best_score < 30.0:
+            return 'UNCLEAR', 0.0
+            
+        return best_pattern, float(np.clip(final_confidence, 0.0, 100.0))
 
     # ==================== 4. 资金流向质量评估 ====================
     def calculate_flow_quality(self) -> Dict[str, Any]:
@@ -819,56 +826,78 @@ class FundFlowFactorCalculator:
 
     def _calculate_flow_consistency(self) -> float:
         """
-        v2.1: [大师级深化] 阶层共振度 (Stratified Resonance Degree)
-        思路：
-        1. 资金一致性不是"净流/总流"，而是"主力内部的团结度"。
-        2. 核心关注：超大单 (ELG) 和 大单 (LG) 的方向是否一致。
-        3. 权重分配：超大单(0.6) > 大单(0.3) > 中单(0.1)。散户单往往是反向指标，不计入一致性或作为反向验证。
+        [修复] 资金一致性
+        修复点：
+        1. 引入向量余弦相似度思想，而非简单的符号加分。
+        2. 增加"散户对冲"的考量，避免满分泛滥。
+        3. 使用 Sigmoid 压缩高分段。
         """
         data = self.context.current_flow_data
         if not data: return 50.0
+        
         try:
-            # 1. 提取各分档净额
             def get_net(level):
                 buy = float(data.get(f'buy_{level}_amount', 0) or 0)
                 sell = float(data.get(f'sell_{level}_amount', 0) or 0)
                 return buy - sell
-            net_elg = get_net('elg') # 超大单
-            net_lg = get_net('lg')   # 大单
-            net_md = get_net('md')   # 中单
-            # 2. 计算主力总意图
-            main_force_net = net_elg + net_lg
-            # 如果主力没动作 (净流极小)，一致性无从谈起 -> 50分中性
-            if abs(main_force_net) < 10.0: 
-                return 50.0
-            # 3. 向量共振计算
-            # 逻辑：如果 ELG 和 LG 同向，得分高；如果反向，得分低。
-            # 使用加权符号一致性
-            score = 0.0
-            # A. 核心共振 (ELG vs LG)
-            # 如果两者同号
-            if np.sign(net_elg) == np.sign(net_lg):
-                score += 40.0 # 基础分
-                # 进一步：如果中单也同向 (全场一致)
-                if np.sign(net_md) == np.sign(net_elg):
-                    score += 10.0
+            
+            # 向量分量
+            elg = get_net('elg')
+            lg = get_net('lg')
+            md = get_net('md')
+            sm = get_net('sm') # 散户
+            
+            # 主力总向量
+            main_force = elg + lg
+            if abs(main_force) < 10.0: return 50.0
+            
+            # 1. 内部团结度 (Internal Unity)
+            # ELG 和 LG 是否同向?
+            # 使用加权乘积: 如果同号，结果为正；异号，结果为负
+            unity_score = 0.0
+            if abs(elg) + abs(lg) > 0:
+                # 归一化权重
+                w_elg = 0.65
+                w_lg = 0.35
+                # 符号一致性检测 (-1 到 1)
+                sign_consistency = np.sign(elg) * np.sign(lg)
+                # 如果同向，得分为 1.0；如果异向，看谁力量大
+                if sign_consistency > 0:
+                    unity_score = 100.0
+                else:
+                    # 异向：如果 ELG 远大于 LG，一致性依然较高(听老大的)
+                    # 比如 ELG=100, LG=-10 -> Net=90. 还是比较一致的。
+                    # 比如 ELG=50, LG=-50 -> Net=0. 完全分歧。
+                    net_ratio = abs(elg + lg) / (abs(elg) + abs(lg) + 1e-6)
+                    unity_score = net_ratio * 100.0
             else:
-                # 神仙打架 (主力分歧)
-                # 此时看谁的力量大。一致性大打折扣
-                score -= 20.0
+                unity_score = 50.0
                 
-            # B. 强度贡献 (Contribution)
-            # 计算主力净流占总成交的比例 (Main Force Dominance)
-            # 假设总金额 roughly = abs(buys) + abs(sells) ... 
-            # 这里简化用 abs(net) / (abs(elg)+abs(lg)+...)
-            sum_abs = abs(net_elg) + abs(net_lg) + abs(net_md) + 1.0
-            dominance = abs(main_force_net) / sum_abs
-            # 映射到 0-50 分
-            strength_score = dominance * 50.0
-            # 综合得分
-            # 基础分 50 + 共振调整 + 强度分
-            final_score = 50.0 + score + strength_score
+            # 2. 对手盘逻辑 (Counterparty Logic)
+            # 最健康的主力买入，应该是散户卖出 (SM < 0)
+            # 如果主力买，散户也买 (全场一致看多)，往往是短线高点，一致性反而不纯粹（因为没有对手盘了）
+            counterparty_score = 0.0
+            if main_force > 0:
+                if sm < 0: counterparty_score = 10.0 # 良性
+                else: counterparty_score = -10.0 # 羊群效应，扣分
+            else:
+                if sm > 0: counterparty_score = 10.0 # 良性
+                else: counterparty_score = -10.0 # 恐慌踩踏，扣分
+                
+            # 3. 综合计算
+            raw_score = unity_score + counterparty_score
+            
+            # 4. 强度压缩
+            # 只有主力净占比很高时，才能突破 90 分
+            total_vol = abs(elg) + abs(lg) + abs(md) + abs(sm) + 1.0
+            dominance = abs(main_force) / total_vol # 0~1
+            
+            # 最终分 = 基础一致性(0~100) * (0.5 + 0.5 * 统治力)
+            # 这样如果统治力弱，一致性得分会被压缩在 50-70 之间
+            final_score = raw_score * (0.6 + 0.4 * dominance)
+            
             return float(np.clip(final_score, 0.0, 100.0))
+            
         except Exception as e:
             logger.error(f"计算资金一致性出错: {e}")
             return 50.0
@@ -1110,41 +1139,65 @@ class FundFlowFactorCalculator:
         """
         [修复] 鲁棒趋势强度
         修复点：
-        1. 修正回撤惩罚 (Drawdown Penalty) 的计算逻辑。
-           原逻辑除以 `np.abs(peak)` 在起点数值较小时极不稳定，导致 penalty 经常为 0，从而使 strength 为 0。
-           新逻辑除以 `range_val` (区间极差)，衡量相对回撤。
-        2. 放宽惩罚系数 (2.0 -> 1.5)。
+        1. 引入 Spearman 秩相关系数。即使线性度(R2)低，只要单调上涨，就给分。
+        2. 解决 slope <= 0 直接归零的问题。允许微弱上涨。
+        3. 降低回撤惩罚的敏感度。
         """
         window = 10
         if len(self.net_amount_array) < window: return 0.0, 0.0
-        # 计算累积流
+        
         cum_flow = np.cumsum(self.net_amount_array[-window:])
         x = np.arange(len(cum_flow))
-        slope, intercept, r_value, p_value, std_err = linregress(x, cum_flow)
+        
+        # 1. 线性回归强度
+        slope, _, r_value, _, _ = linregress(x, cum_flow)
         r_sq = r_value ** 2
-        range_val = np.max(cum_flow) - np.min(cum_flow) + 1e-6
+        
+        # 2. [新增] 秩相关强度 (Spearman)
+        # 解决震荡上涨 R2 低导致分为 0 的问题
+        # 只要总体是涨的，Spearman 就会接近 1
+        spearman_corr, _ = stats.spearmanr(x, cum_flow)
+        if np.isnan(spearman_corr): spearman_corr = 0.0
+        
+        # 归一化斜率
+        range_val = np.max(cum_flow) - np.min(cum_flow) + 10.0 # 加底噪
         norm_slope = slope * window / range_val
-        y_pred = slope * x + intercept
-        residuals = cum_flow - y_pred
-        rmse = np.sqrt(np.mean(residuals**2))
-        stability = 1.0 - min(1.0, rmse / (range_val/2 + 1e-6))
-        raw_strength = r_sq * abs(norm_slope) * stability * 100.0
-        if slope > 0:
-            # 上升趋势：资金持续累积
+        
+        # 3. 综合强度计算
+        # 使用 max(R2, Spearman^2) 作为线性度指标
+        # 这样既能捕捉直线拉升，也能捕捉震荡拉升
+        linearity = max(r_sq, spearman_corr**2)
+        
+        # 基础分
+        raw_strength = linearity * abs(norm_slope) * 100.0
+        
+        # 4. 方向判定与修正
+        # 只要 Spearman > 0.2 或 Slope > 0，就视为上升趋势
+        if slope > 0 or spearman_corr > 0.2:
+            # 上升趋势
             peak = np.maximum.accumulate(cum_flow)
-            
-            # [关键修改] 回撤计算分母改为 range_val
-            # 物理意义：本次回撤占整个上涨过程幅度的比例
             drawdown = (peak - cum_flow) / (range_val + 1e-6)
             max_dd = np.max(drawdown)
             
-            # [修改] 稍微放宽惩罚系数，2.0 -> 1.5
-            # 如果回撤超过幅度的 66%，强度归零
-            dd_penalty = max(0.0, 1.0 - max_dd * 1.5) 
+            # 宽松惩罚：回撤 < 30% 不扣分，> 80% 扣光
+            # 映射: 0.3 -> 1.0, 0.8 -> 0.0
+            if max_dd < 0.3:
+                penalty = 1.0
+            else:
+                penalty = max(0.0, 1.0 - (max_dd - 0.3) * 2.0)
             
-            return float(min(100.0, raw_strength * dd_penalty)), 0.0
+            # 最终强度
+            final_up = float(np.clip(raw_strength * penalty, 0.0, 100.0))
+            
+            # 保底逻辑：如果累积净流确实是正的，至少给 10 分
+            if cum_flow[-1] > cum_flow[0]:
+                final_up = max(final_up, 10.0)
+                
+            return final_up, 0.0
+            
         else:
-            return 0.0, float(min(100.0, raw_strength))
+            # 下降趋势
+            return 0.0, float(np.clip(raw_strength, 0.0, 100.0))
 
     def _calculate_complex_trend_strength(self) -> Tuple[float, float]:
         """
@@ -2376,37 +2429,49 @@ class FundFlowFactorCalculator:
         """
         [修复] 3秒微观资金流场的统计特征
         修复点：
-        1. 扩大 Kurtosis 截断范围至 100，适应A股高频数据的尖峰肥尾特征。
-        2. 增加 NaN/Inf 检查。
+        1. 引入对数阻尼 (Log-Damping) 处理峰度，解决大量 100 饱和问题。
+        2. 峰度不再硬截断，而是通过对数平滑映射到 0-100 区间。
         """
         metrics = {'high_freq_flow_skewness': None, 'high_freq_flow_kurtosis': None}
-        # 1. 3秒级重采样
+        
         times_3s = df['trade_time'].values.astype('datetime64[s]').astype('int64') // 3
         if len(times_3s) == 0: return metrics
+        
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
+        
         norm_times = times_3s - times_3s[0]
         max_idx = int(norm_times[-1]) + 1
+        
         flux_3s = np.bincount(norm_times, weights=signed_amounts, minlength=max_idx) / 10000.0
         flux_active = np.trim_zeros(flux_3s)
-        if len(flux_active) < 30: 
-            return metrics
+        
+        if len(flux_active) < 30: return metrics
             
         try:
-            # Skewness
+            # Skewness (偏度)
             sk = stats.skew(flux_active)
             if np.isnan(sk): sk = 0.0
+            # 偏度保留线性逻辑，截断 +/- 10
+            metrics['high_freq_flow_skewness'] = float(np.clip(sk, -10.0, 10.0))
             
-            # Kurtosis (Fisher's definition)
+            # Kurtosis (峰度)
             kt = stats.kurtosis(flux_active)
             if np.isnan(kt): kt = 0.0
             
-            # [关键修改] 扩大截断范围
-            # 偏度: +/- 10 足够
-            # 峰度: A股tick数据峰度极高，20太小，改为100
-            metrics['high_freq_flow_skewness'] = float(np.clip(sk, -10.0, 10.0))
-            metrics['high_freq_flow_kurtosis'] = float(np.clip(kt, -5.0, 100.0))
+            # [关键修改] 对数阻尼模型
+            # 原始峰度可能高达几百。使用 ln(1 + k) 压缩。
+            # k=3(正态) -> ln(4)*12 ≈ 16
+            # k=100(剧烈) -> ln(101)*12 ≈ 55
+            # k=3000(极端) -> ln(3001)*12 ≈ 96
+            # 这样很难直接打满 100，保留了头部区分度
+            if kt > 0:
+                log_kt_score = np.log1p(kt) * 12.0
+            else:
+                log_kt_score = 0.0
+                
+            metrics['high_freq_flow_kurtosis'] = float(np.clip(log_kt_score, 0.0, 100.0))
             
         except Exception as e:
             logger.error(f"高频统计特征计算错误: {e}")
