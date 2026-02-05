@@ -17,13 +17,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CalculationContext:
-    """计算上下文，包含所有必要的数据"""
+    """
+    计算上下文，包含所有必要的数据
+    版本: V1.1
+    说明: 新增 tick_data 字段以支持高频资金流指标计算
+    """
     stock_code: str
     trade_date: date
     current_flow_data: Dict[str, Any]  # 当前日资金流向数据
     historical_flow_data: List[Dict[str, Any]]  # 历史资金流向数据（至少30天）
     daily_basic_data: Optional[Dict[str, Any]] = None  # 每日基本信息
     minute_data_1min: Optional[pd.DataFrame] = None  # 1分钟数据
+    tick_data: Optional[pd.DataFrame] = None  # [新增] Tick/分笔数据(3秒或逐笔)
     market_cap: Optional[float] = None  # 市值（万元）
     volume_data: Optional[List[float]] = None  # 成交量序列
 
@@ -65,9 +70,10 @@ class FundFlowFactorCalculator:
     def _prepare_data(self):
         """
         预处理数据，计算中间变量
-        版本: V1.4
+        版本: V1.5
         说明: 
         1. 修正 volume_series 的获取逻辑，优先读取 'vol' 字段。
+        2. [新增] 初始化 tick_data，确保 calculate_tick_enhanced_metrics 能获取到数据。
         """
         # 提取历史净流入序列
         self.net_amount_series = [
@@ -86,7 +92,6 @@ class FundFlowFactorCalculator:
         if self.context.volume_data:
             self.volume_series = self.context.volume_data
         else:
-            # [关键修正] 优先读取 'vol'，兼容 'total_volume'
             self.volume_series = [
                 float(data.get('vol', 0) or data.get('total_volume', 0) or 0) 
                 for data in self.context.historical_flow_data
@@ -110,6 +115,8 @@ class FundFlowFactorCalculator:
         # 准备1分钟数据相关指标
         if self.context.minute_data_1min is not None and not self.context.minute_data_1min.empty:
             self._process_minute_data()
+        # [新增] 准备Tick数据
+        self.tick_data = self.context.tick_data
 
     def _process_minute_data(self):
         """处理1分钟数据，提取日内资金流特征"""
@@ -1045,12 +1052,12 @@ class FundFlowFactorCalculator:
     def calculate_tick_enhanced_metrics(self) -> Dict[str, Any]:
         """
         基于Tick数据计算增强的资金流向指标
-        版本: V1.0
-        说明: 利用3秒聚合tick数据提升资金维度分析精度
+        版本: V1.1
+        说明: 修正数据存在性检查逻辑，确保正确处理 DataFrame。
         """
         tick_metrics = {}
-        # 检查是否有tick数据
-        if not hasattr(self, 'tick_data') or self.tick_data is None:
+        # 检查是否有tick数据 (修正：检查 self.tick_data 是否存在且非空)
+        if self.tick_data is None or self.tick_data.empty:
             # 如果没有tick数据，所有指标设为None
             tick_fields = [
                 'tick_large_order_net', 'tick_large_order_count', 'flow_impact_ratio',
@@ -1069,6 +1076,11 @@ class FundFlowFactorCalculator:
         try:
             # 预处理tick数据
             df = self.tick_data.copy()
+            # 确保必要的列存在
+            required_columns = ['trade_time', 'price', 'volume', 'amount', 'type']
+            if not all(col in df.columns for col in required_columns):
+                logger.warning(f"Tick数据缺少必要列: {set(required_columns) - set(df.columns)}")
+                raise ValueError("Tick数据格式不正确")
             # 1. 计算日内资金流分布
             tick_metrics.update(self._calculate_intraday_flow_distribution(df))
             # 2. 高频大单识别
