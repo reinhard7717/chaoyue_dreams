@@ -241,32 +241,6 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         logger.error(f"构建因子实例失败 {stock_code} @ {trade_date}: {e}")
         return None
 
-async def _get_tick_data_async(stock_code: str, trade_date: date, stock_time_trade_dao) -> Optional[pd.DataFrame]:
-    """[Async] 获取Tick数据"""
-    try:
-        # 尝试调用 DAO 获取 tick 数据
-        # 假设 DAO 中存在 get_tick_data_by_day 方法，如果不存在则返回 None
-        if hasattr(stock_time_trade_dao, 'get_tick_data_by_day'):
-            return await stock_time_trade_dao.get_tick_data_by_day(stock_code, trade_date)
-        return None
-    except Exception as e:
-        logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的Tick数据失败: {e}")
-        return None
-
-def get_tick_data(stock_code: str, trade_date: date, stock_time_trade_dao: StockTimeTradeDAO) -> Optional[pd.DataFrame]:
-    """
-    获取Tick数据
-    版本: V1.0
-    """
-    try:
-        # 使用传入的 stock_time_trade_dao
-        if hasattr(stock_time_trade_dao, 'get_tick_data_by_day'):
-            return async_to_sync(stock_time_trade_dao.get_tick_data_by_day)(stock_code, trade_date)
-        return None
-    except Exception as e:
-        logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的Tick数据失败: {e}")
-        return None
-
 async def _get_historical_flow_data_async(stock_code: str, end_date: date, stock_time_trade_dao, days: int = 120) -> List[Dict]:
     """
     [Async] 获取历史资金流向数据
@@ -681,8 +655,7 @@ async def _get_1min_data_async(stock_code: str, trade_date: date, stock_time_tra
         logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的1分钟数据失败: {e}")
         return None
 
-def get_1min_data(stock_code: str, trade_date: date, 
-                 stock_time_trade_dao: StockTimeTradeDAO) -> Optional[pd.DataFrame]:
+def get_1min_data(stock_code: str, trade_date: date, stock_time_trade_dao: StockTimeTradeDAO) -> Optional[pd.DataFrame]:
     """
     获取1分钟数据
     版本: V1.1
@@ -736,32 +709,39 @@ def save_factor_to_db(stock_info: StockInfo, trade_date: date, metrics: Dict, fa
 
 def save_factors_bulk(factor_model, objects_to_save: List[Any]):
     """
-    v2.0.0: 基于 bulk_create 的批量入库方法。
-    利用 Django 5.0 的 update_conflicts 特性，实现高性能的 '存在即更新' 逻辑。
+    v2.0.1: 针对 MySQL 修正批量入库逻辑。
+    移除 unique_fields 参数，因为 MySQL 的 ON DUPLICATE KEY UPDATE 机制
+    不需要显式指定冲突字段（自动匹配所有唯一索引）。
     """
     if not objects_to_save:
         return
     from django.db import transaction
     from django.db.utils import OperationalError
     import time
+
     # 获取所有非主键和非关联键的待更新字段
-    # 排除 'id', 'stock', 'trade_time' (作为唯一索引项)
+    # 排除 'id', 'stock', 'trade_time' (作为唯一索引项，MySQL中不能更新唯一键本身)
+    # 同时排除 'created_at'，保留 'updated_at' (虽然 auto_now 会处理，但显式包含更稳妥，或者让 DB 处理)
+    # 注意：bulk_create 不会触发 auto_now，所以如果有 updated_at 需手动更新或包含在内
     all_fields = [f.name for f in factor_model._meta.fields]
-    exclude_fields = {'id', 'stock', 'trade_time'}
+    exclude_fields = {'id', 'stock', 'trade_time', 'created_at'}
     update_fields = [f for f in all_fields if f not in exclude_fields]
+
     max_retries = 3
     for attempt in range(max_retries):
         try:
             with transaction.atomic():
+                # MySQL 特有修正：不传递 unique_fields
                 factor_model.objects.bulk_create(
                     objects_to_save,
                     batch_size=500,
                     update_conflicts=True,
-                    unique_fields=['stock', 'trade_time'],
                     update_fields=update_fields
+                    # unique_fields=['stock', 'trade_time']  <-- 已移除，MySQL 不支持此参数
                 )
             break
         except OperationalError as e:
+            # 1213 是 MySQL 死锁错误码
             if e.args[0] == 1213 and attempt < max_retries - 1:
                 time.sleep(0.5 * (attempt + 1))
                 continue
