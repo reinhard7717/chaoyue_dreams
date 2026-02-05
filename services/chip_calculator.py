@@ -1726,7 +1726,6 @@ class ChipFactorCalculator:
                 if not processed_tick.empty:
                     factors['intraday_factor_calc_method'] = 'tick_based'
                     close_price = factors.get('close', 0)
-                    
                     # --- A. 日内筹码分布 ---
                     intraday_dist = ChipFactorCalculator.calculate_intraday_chip_distribution(processed_tick)
                     if intraday_dist:

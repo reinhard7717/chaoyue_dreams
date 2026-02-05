@@ -462,7 +462,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 try:
                     # 使用 StockRealtimeDAO 获取数据，它处理了时区和全天范围
                     tick_data = await realtime_dao.get_daily_real_ticks(stock_code, current_date)
-                    
                     if tick_data is not None and not tick_data.empty:
                         # print(f"✅ [单股tick] {stock_code} {current_date}: 获取到 {len(tick_data)} 条tick数据")
                         pass

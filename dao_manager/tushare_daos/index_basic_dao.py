@@ -480,13 +480,11 @@ class IndexBasicDAO(BaseDAO):
                     df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                     df['index'] = index_info
                     df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-                    
                     # 1. 基础数值转换
                     numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount']
                     cols_to_convert = [c for c in numeric_cols if c in df.columns]
                     if cols_to_convert:
                         df[cols_to_convert] = df[cols_to_convert].apply(pd.to_numeric, errors='coerce')
-                    
                     # 2. 类型降级优化 (float64 -> float32)
                     # 价格和百分比通常不需要 float64 的精度，float32 足够且更省内存
                     float32_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg']

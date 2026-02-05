@@ -218,12 +218,10 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         daily_basic_data = await _get_daily_basic_data_async(stock_code, trade_date, stock_time_trade_dao)
         # 异步获取分钟数据
         minute_data = await _get_1min_data_async(stock_code, trade_date, stock_time_trade_dao)
-        
         # [修正] 使用 realtime_dao 异步获取Tick数据
         tick_data = None
         if realtime_dao:
             tick_data = await realtime_dao.get_daily_real_ticks(stock_code, trade_date)
-
         # 构建上下文 (同步操作)
         context = CalculationContext(
             stock_code=stock_code,
@@ -522,13 +520,11 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         # 传递 stock_time_trade_dao
         daily_basic_data = get_daily_basic_data(stock_code, trade_date, stock_time_trade_dao)
         minute_data = get_1min_data(stock_code, trade_date, stock_time_trade_dao)
-        
         # [新增] 获取Tick数据 (同步调用)
         from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
         # 复用 stock_basic_dao 的 cache_manager
         realtime_dao = StockRealtimeDAO(stock_basic_dao.cache_manager)
         tick_data = async_to_sync(realtime_dao.get_daily_real_ticks)(stock_code, trade_date)
-
         context = CalculationContext(
             stock_code=stock_code,
             trade_date=trade_date,

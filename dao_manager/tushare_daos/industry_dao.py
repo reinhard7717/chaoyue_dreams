@@ -479,11 +479,9 @@ class IndustryDao(BaseDAO):
                         await asyncio.sleep(20)
                     df = self.ts_pro.ths_member(ts_code=ths_index.ts_code, fields="ts_code,con_code,con_name", limit=limit, offset=offset)
                     if df is None or df.empty: break
-                    
                     # 直接在 DF 中标记所属板块对象，避免后续查找
                     df['ths_index'] = ths_index
                     all_dfs.append(df)
-                    
                     if len(df) < limit: break
                     offset += limit
                 except Exception as e:
@@ -1309,11 +1307,9 @@ class IndustryDao(BaseDAO):
                         await asyncio.sleep(20)
                     df = self.ts_pro.dc_member(trade_date=trade_date_str, ts_code=dc_index.ts_code, limit=limit, offset=offset)
                     if df is None or df.empty: break
-                    
                     # 关键：在 DF 中标记所属板块对象
                     df['dc_index'] = dc_index
                     all_dfs.append(df)
-                    
                     if len(df) < limit: break
                     offset += limit
                 except Exception as e:
@@ -1860,7 +1856,6 @@ class IndustryDao(BaseDAO):
                 l3 = member.l3_industry
                 if l3 and l3.index_code in sw_industry_map:
                     concepts.append({'code': l3.index_code, 'name': l3.industry_name, 'source': 'sw'})
-                    
                     # 查找父级
                     l2 = sw_industry_map.get(l3.parent_code)
                     if l2:
