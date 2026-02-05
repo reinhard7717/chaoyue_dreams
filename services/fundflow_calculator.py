@@ -1296,29 +1296,36 @@ class FundFlowFactorCalculator:
     def _calculate_intraday_momentum(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算日内资金动量
-        版本: V1.2
-        说明: 使用NumPy Bincount进行分钟级聚合，替代Pandas GroupBy。
+        版本: V1.3
+        说明: 
+        1. 修复数值爆炸问题：优化后的 bincount 会产生0值分钟，导致作为分母时产生极大值。
+        2. 增加分母阈值检查和结果截断(Clip)，防止数据库 Out of range 错误。
         """
         metrics = {}
+        
         # 1. 分钟级聚合
         # trade_time 已经是 datetime64[ns]
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
+        
         if len(times) == 0:
             metrics['intraday_flow_momentum'] = None
             metrics['flow_acceleration_intraday'] = None
             return metrics
+
         norm_times = times - times[0]
         # 聚合为万元
         minute_flows = np.bincount(norm_times, weights=signed_amounts) / 10000.0
+        
         # 2. 动量计算
         n = len(minute_flows)
         if n < 10:
             metrics['intraday_flow_momentum'] = None
             metrics['flow_acceleration_intraday'] = None
             return metrics
+            
         # 最近30分钟 vs 之前
         if n >= 30:
             recent_30 = np.mean(minute_flows[-30:])
@@ -1326,20 +1333,33 @@ class FundFlowFactorCalculator:
             start_idx = max(0, n - 60)
             end_idx = n - 30
             previous_30 = np.mean(minute_flows[start_idx:end_idx]) if end_idx > start_idx else 0.0
-            if abs(previous_30) > 0:
-                metrics['intraday_flow_momentum'] = float((recent_30 - previous_30) / abs(previous_30))
+            
+            # 避免除以过小的数
+            if abs(previous_30) > 0.1:
+                metrics['intraday_flow_momentum'] = float(np.clip((recent_30 - previous_30) / abs(previous_30), -1000.0, 1000.0))
             else:
                 metrics['intraday_flow_momentum'] = 0.0
         else:
             metrics['intraday_flow_momentum'] = None
+            
         # 3. 加速度计算
         if n >= 3:
             recent_3 = minute_flows[-3:]
-            # 二阶差分
-            acc = (recent_3[2] - 2*recent_3[1] + recent_3[0]) / (abs(recent_3[0]) + 1e-6)
-            metrics['flow_acceleration_intraday'] = float(acc)
+            denom = abs(recent_3[0])
+            
+            # [关键修复] 如果基准分钟流量太小(<1000元)，计算结果会趋向无穷大，导致数据库报错
+            # 这里设置阈值为 0.1 万元
+            if denom < 0.1: 
+                 metrics['flow_acceleration_intraday'] = 0.0
+            else:
+                # 二阶差分
+                acc = (recent_3[2] - 2*recent_3[1] + recent_3[0]) / denom
+                # [关键修复] 限制最大值范围 (例如 +/- 10000)，适应数据库字段限制
+                acc = np.clip(acc, -10000.0, 10000.0)
+                metrics['flow_acceleration_intraday'] = float(acc)
         else:
             metrics['flow_acceleration_intraday'] = None
+            
         return metrics
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
