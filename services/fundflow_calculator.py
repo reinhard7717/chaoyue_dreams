@@ -679,46 +679,47 @@ class FundFlowFactorCalculator:
 
     def _calculate_outflow_quality(self, current_net: float) -> float:
         """
-        [大师级深化] 洗盘承接弹性 (Washout Absorption Elasticity)
-        逻辑：
-        1. 只有当 current_net < 0 (净流出) 时计算，否则返回 100 (完美，无流出)。
-        2. 计算 "单位流出带来的价格跌幅" (Cost of Drop)。
-        3. 场景 A (高质量流出/洗盘): 净流出巨大，但跌幅很小 -> 承接极强 -> 分数高。
-        4. 场景 B (低质量流出/出货): 净流出一般，但跌幅巨大 -> 无承接 -> 分数低。
+        [大师级深化] 洗盘承接弹性 (Washout Absorption Elasticity) - 修正版
+        修复点：
+        1. 逻辑闭环: 资金净流入时返回 50.0 (中性)，避免 "Good Outflow" 误导为满分。
+        2. 分母钝化: 缓冲项从 0.1 提升至 0.5，防止微小跌幅导致的数值爆炸。
+        3. 缩放调整: 降低 multiplier，使得满分 100 更加难以达成（仅限于真正的缩量微跌大流出）。
         """
+        # [修改] 净流入不是"流出"，给予中性评分 50，而不是满分 100
         if current_net >= 0:
-            return 100.0
+            return 50.0
+            
         # 获取当日涨跌幅
+        pct_chg = 0.0
         if self.context.daily_basic_data:
-            # 优先用 pct_change，如果没有则根据 close 手算
             pct_chg = self.context.daily_basic_data.get('pct_change')
             if pct_chg is None:
-                # 尝试手算
                 closes = self.close_array
                 if len(closes) >= 2:
                     pct_chg = (closes[-1] - closes[-2]) / closes[-2] * 100
-                else:
-                    pct_chg = 0.0
-        else:
-            pct_chg = 0.0
-        # 如果流出时价格反而涨了（背离），这是极强的洗盘/吸筹信号
+        # 背离模式：流出但涨了 -> 主力边拉边出 or 极强承接
+        # 给予 90 分，保留 100 分给完美的"缩量微跌洗盘"
         if pct_chg >= 0:
-            return 100.0
+            return 90.0
+            
         # 此时 current_net < 0, pct_chg < 0
         abs_flow = abs(current_net)
-        abs_drop = abs(pct_chg) + 0.1 # 加0.1防止除零
-        # 计算弹性系数: 每 1% 跌幅 需要多少万元流出?
-        # 弹性越大，说明砸盘成本越高，主力越护盘
+        # [修改] 分母钝化
+        # 增加缓冲项至 0.5。这意味着跌幅必须显著小于流出比例，弹性才高。
+        # 如果跌幅仅 -0.1%，分母为 0.6，不会导致结果爆炸。
+        abs_drop = abs(pct_chg) + 0.5 
+        # 计算弹性系数: 每 1% (修正后) 跌幅 对应多少流出
         elasticity = abs_flow / abs_drop
-        # 归一化: 我们需要一个基准。用过去20天的平均流量作为基准。
-        # 如果过去20天平均流出1000万跌1%，今天流出5000万跌1%，说明弹性是基准的5倍。
+        # 归一化基准
         recent_abs_flows = np.abs(self.net_amount_array[-20:])
         avg_flow = np.mean(recent_abs_flows) + 1.0
-        score_raw = (elasticity / avg_flow) * 50.0 
+        # [修改] 降低倍率系数 50.0 -> 30.0
+        # 逻辑：Elasticity / Avg_Flow = 3.0 时 (流出量是平时的3倍，但跌幅受控)，得分为 3.0 * 30 = 90
+        score_raw = (elasticity / avg_flow) * 30.0 
         # 映射到 0-100
-        # 如果 score_raw > 1.0 (即比平时更难砸)，分数应该 > 50
-        # 限制上限，防止极端数据
-        return float(np.clip(score_raw + 20.0, 0.0, 100.0))
+        # 基础分 10，保证有流出就有基础分
+        final_score = float(np.clip(score_raw + 10.0, 0.0, 100.0))
+        return final_score
 
     def _calculate_inflow_persistence(self) -> int:
         """
@@ -755,13 +756,11 @@ class FundFlowFactorCalculator:
 
     def _detect_large_order_anomaly(self) -> Tuple[bool, float]:
         """
-        [大师级深化] 分形脉冲检测 (Fractal Pulse Detection)
-        逻辑：
-        1. 鲁棒性：使用 Median/MAD 检测异常值。
-        2. 位置感知：结合股价相对位置 (Relative Position)。
-           - 底部异动 (Low Position): 可能是建仓/试盘 -> 权重增加。
-           - 顶部异动 (High Position): 可能是出货/对倒 -> 判定为异动，但性质不同 (策略层处理)。
-        3. 确认逻辑：不仅看 Z-Score，还看占成交额的比例 (Impact)。
+        [大师级深化] 分形脉冲检测 (Fractal Pulse Detection) - 修正版
+        修复点：
+        1. 阈值修正: Z-Score 阈值从 3.0 降至 2.0，提高异动捕捉灵敏度。
+        2. 绝对冲击: 增加绝对换手率异动判定，防止历史高波动掩盖当日的剧烈冲击。
+        3. 强度平滑: 优化强度计算函数，使其在 2.0-4.0 区间分布更均匀。
         """
         arr = self.net_amount_array
         if len(arr) < 10: return False, 0.0
@@ -769,41 +768,52 @@ class FundFlowFactorCalculator:
         # 1. 鲁棒 Z-Score 计算
         recent = arr[-20:]
         median = np.median(recent)
+        # MAD: Median Absolute Deviation
         mad = np.median(np.abs(recent - median)) * 1.4826
-        sigma = max(mad, 10.0) # 底噪保护
+        # 底噪保护: 至少要有 10万(假设单位) 或 历史均值的 10% 作为波动下限
+        # 防止死水股因为波动极小导致 Z-Score 爆炸
+        base_noise = max(10.0, np.mean(np.abs(recent)) * 0.1) 
+        sigma = max(mad, base_noise)
         z_score = (current_net - median) / sigma
         # 2. 相对位置系数 (Position Factor)
-        # 股价处于近60天的什么位置? (0.0 - 1.0)
         closes = self.close_array
         if len(closes) > 0:
             p_min = np.min(closes[-60:])
             p_max = np.max(closes[-60:])
             p_curr = closes[-1]
-            if p_max - p_min > 0:
+            if p_max - p_min > 1e-6:
                 pos = (p_curr - p_min) / (p_max - p_min)
             else:
                 pos = 0.5
         else:
             pos = 0.5
-        # 3. 异动判定
-        # 阈值: 3倍标准差
-        is_outlier = abs(z_score) > 3.0
-        if not is_outlier:
+            
+        # 3. 异动判定 (双重标准)
+        # 标准A: 统计异动 (Z > 2.0)
+        is_stat_outlier = abs(z_score) > 2.0
+        # 标准B: 绝对冲击异动 (Absolute Impact)
+        # 如果当日净流占流通市值的 5‰ 以上，强制判定为异动 (无论历史波动如何)
+        circ_mv = self.market_cap or 1e12 # 避免除零
+        turnover_impact = abs(current_net) / circ_mv
+        is_abs_outlier = turnover_impact > 0.005 # 0.5%
+        if not (is_stat_outlier or is_abs_outlier):
             return False, 0.0
+            
         # 4. 强度计算 (Intensity)
-        # 基础强度
-        raw_intensity = min(100.0, abs(z_score) * 20.0)
-        # 位置修正:
-        # 我们的目标是量化“值得注意的程度”。
-        # 低位的大单异动 (Pos < 0.3) 往往是行情发动的信号，给高分。
-        # 高位的大单异动 (Pos > 0.8) 往往是风险信号，也给高分。
-        # 中位的异动可能只是换手，分数稍降。
+        # 基础强度: 将 2.0~5.0 映射到 40~100
+        # Z=2 -> 40, Z=3 -> 60, Z=5 -> 100
+        raw_intensity = min(100.0, max(0.0, (abs(z_score) - 1.0) * 25.0))
+        # 如果触发了绝对冲击，强度保底 80
+        if is_abs_outlier:
+            raw_intensity = max(raw_intensity, 80.0)
+        # 位置修正
         if pos < 0.3:
             pos_multiplier = 1.2 # 底部异动，重点关注
         elif pos > 0.8:
-            pos_multiplier = 1.1 # 顶部异动，重点关注
+            pos_multiplier = 1.1 # 顶部异动，风险关注
         else:
-            pos_multiplier = 0.9
+            pos_multiplier = 0.95
+            
         final_intensity = min(100.0, raw_intensity * pos_multiplier)
         return True, float(final_intensity)
 
@@ -1098,53 +1108,42 @@ class FundFlowFactorCalculator:
 
     def _calculate_robust_trend_strength(self) -> Tuple[float, float]:
         """
-        [内部方法] 计算鲁棒趋势强度
-        逻辑：
-        1. 基础强度 = 斜率 * R2 (线性度)
-        2. 质量修正 = (1 - 下行波动率占比)
-        3. 资金修正 = 资金流与价格的同向性
+        [修复] 鲁棒趋势强度
+        修复点：
+        1. 修正回撤惩罚 (Drawdown Penalty) 的计算逻辑。
+           原逻辑除以 `np.abs(peak)` 在起点数值较小时极不稳定，导致 penalty 经常为 0，从而使 strength 为 0。
+           新逻辑除以 `range_val` (区间极差)，衡量相对回撤。
+        2. 放宽惩罚系数 (2.0 -> 1.5)。
         """
-        # 取最近10-15天
         window = 10
         if len(self.net_amount_array) < window: return 0.0, 0.0
-        # 针对 净流入序列 计算趋势? 
-        # 不，通常 trend_strength 是指资金趋势本身的强度，或者是价格趋势?
-        # 上下文是 FundFlowCalculator，所以默认指 "资金流趋势强度"。
-        # 但如果是为了预测股价，通常要把资金流叠加起来看 (Cumulative Flow)。
-        # 单日 Net Flow 的 trend 意味着 "资金流入量在递增" (加速流入)。
-        # 这里我们计算 Cumulative Flow 的 Trend Strength，这更能代表主力仓位的变化。
+        # 计算累积流
         cum_flow = np.cumsum(self.net_amount_array[-window:])
         x = np.arange(len(cum_flow))
-        # 1. 线性回归
         slope, intercept, r_value, p_value, std_err = linregress(x, cum_flow)
         r_sq = r_value ** 2
-        # 归一化斜率 (相对强度)
-        # 每日平均增量 / 整体波动范围
         range_val = np.max(cum_flow) - np.min(cum_flow) + 1e-6
         norm_slope = slope * window / range_val
-        # 2. 波动率惩罚 (熵减检查)
-        # 计算残差
         y_pred = slope * x + intercept
         residuals = cum_flow - y_pred
-        # RMSE
         rmse = np.sqrt(np.mean(residuals**2))
-        # 稳定性得分 (RMSE越小越好)
         stability = 1.0 - min(1.0, rmse / (range_val/2 + 1e-6))
-        # 3. 综合强度
-        # Strength = 线性度 * 相对斜率力度 * 稳定性
         raw_strength = r_sq * abs(norm_slope) * stability * 100.0
-        # 4. 区分方向
         if slope > 0:
             # 上升趋势：资金持续累积
-            # 额外检查：是否存在单日巨额流出? (Max Drawdown of Flow)
-            # 如果累积过程中回撤小，质量高
             peak = np.maximum.accumulate(cum_flow)
-            drawdown = (peak - cum_flow) / (np.abs(peak) + 1e-6)
+            
+            # [关键修改] 回撤计算分母改为 range_val
+            # 物理意义：本次回撤占整个上涨过程幅度的比例
+            drawdown = (peak - cum_flow) / (range_val + 1e-6)
             max_dd = np.max(drawdown)
-            dd_penalty = max(0.0, 1.0 - max_dd * 2.0) # 回撤惩罚
+            
+            # [修改] 稍微放宽惩罚系数，2.0 -> 1.5
+            # 如果回撤超过幅度的 66%，强度归零
+            dd_penalty = max(0.0, 1.0 - max_dd * 1.5) 
+            
             return float(min(100.0, raw_strength * dd_penalty)), 0.0
         else:
-            # 下降趋势：资金持续流出
             return 0.0, float(min(100.0, raw_strength))
 
     def _calculate_complex_trend_strength(self) -> Tuple[float, float]:
@@ -2033,72 +2032,59 @@ class FundFlowFactorCalculator:
 
     def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.6: [大师级深化] 基于博弈急迫性的尾盘强度计算
-        思路：
-        1. 区分“尾盘发酵期(14:30-14:57)”与“集合竞价博弈期(14:57-15:00)”。
-        2. 引入时间加权机制：集合竞价期的资金流向被赋予更高权重(alpha=3.0)，
-           以捕捉主力“尾盘偷袭”或“强力护盘”的真实意图。
-        3. 使用非线性映射替代简单的线性比例，对异常值更敏感。
+        [修复] 尾盘强度计算
+        修复点：
+        1. 降低强度系数 (4000 -> 800)。
+           原系数 4000 意味着尾盘净流占全天 2.5% 即满分，导致指标饱和。
+           现系数 800 意味着需要达到 12.5% 才满分，拉开区分度。
         """
         metrics = {'closing_flow_ratio': None, 'closing_flow_intensity': None}
-        # 基础数据准备 (依赖上游已标准化的北京时间数值)
-        times = df['trade_time'].values.astype('int64') # ns
+        times = df['trade_time'].values.astype('int64') 
         amounts = df['amount'].values
         types = df['type'].values
         if len(times) == 0: return metrics
         # 定义时间阈值 (北京时间)
-        # 14:30:00 = 52,200,000,000,000 ns
-        # 14:57:00 = 53,820,000,000,000 ns
         time_1430 = 52200000000000
         time_1457 = 53820000000000
-        # 计算日内纳秒偏移量
         ns_in_day = (times % 86400000000000)
-        # 构建掩码
         mask_closing = ns_in_day >= time_1430
-        mask_auction = ns_in_day >= time_1457 # 集合竞价期(含15:00最后一笔)
+        mask_auction = ns_in_day >= time_1457
         if not np.any(mask_closing):
             metrics['closing_flow_ratio'] = 0.0
             metrics['closing_flow_intensity'] = 0.0
             return metrics
+            
         buy_mask = (types == 'B')
         sell_mask = (types == 'S')
-        # --- 1. 计算全天数据 ---
         total_turnover = np.sum(amounts)
         t_net_raw = np.sum(amounts[buy_mask]) - np.sum(amounts[sell_mask])
-        # --- 2. 计算分段资金流 ---
-        # 2.1 尾盘总净流入 (14:30 - 15:00)
         c_buy = np.sum(amounts[mask_closing & buy_mask])
         c_sell = np.sum(amounts[mask_closing & sell_mask])
         c_net_total = c_buy - c_sell
-        # 2.2 集合竞价净流入 (14:57 - 15:00，博弈最剧烈时刻)
         a_buy = np.sum(amounts[mask_auction & buy_mask])
         a_sell = np.sum(amounts[mask_auction & sell_mask])
         a_net_auction = a_buy - a_sell
-        # --- 3. 计算指标 ---
-        # [指标A] 尾盘资金占比 (深化版: 鲁棒性反转因子)
-        # 痛点解决: 当发生"盘中大跌、尾盘大涨"导致全天净流(t_net_raw)接近0时，
-        # 传统除法会产生 Inf 或极端大值，破坏模型稳定性。
-        # 大师思路: 引入"最小显著博弈阈值"(Turnover * 0.5%)作为分母的下限保底。
-        # 物理含义: 当全天多空由于剧烈博弈而相互抵消时，我们用"市场底噪"作为基准，
-        # 此时 Ratio > 100% 将精准量化"尾盘力挽狂澜"的程度，且数值有界可控。
-        # 设定阈值系数 theta = 0.5% (经验值，A股日内单向净流超过0.5%即为显著)
+        # [指标A] 尾盘资金占比
         min_significant_flow = total_turnover * 0.005
-        # 分母: 取 全天净流绝对值 与 最小显著阈值 的较大者
         denominator = max(abs(t_net_raw), min_significant_flow)
         if denominator > 0:
             raw_ratio = abs(c_net_total) / denominator * 100.0
-            # 限制上限在 1000% (即10倍)，防止极端异常值(如停牌重开瞬间)
             metrics['closing_flow_ratio'] = float(min(1000.0, raw_ratio))
         else:
             metrics['closing_flow_ratio'] = 0.0
-        # [指标B] 尾盘强度 (深化版: 保持之前的加权逻辑)
+            
+        # [指标B] 尾盘强度 - 关键修复
         if total_turnover > 0:
             urgency_alpha = 3.0
             weighted_flow = abs(c_net_total) + (abs(a_net_auction) * urgency_alpha)
-            intensity_score = min(100.0, (weighted_flow / total_turnover) * 4000.0)
+            
+            # [修改] 系数由 4000.0 降为 800.0
+            # 物理意义：(加权尾盘净流 / 全天成交) > 12.5% 时达到 100分
+            intensity_score = min(100.0, (weighted_flow / total_turnover) * 800.0)
             metrics['closing_flow_intensity'] = float(intensity_score)
         else:
             metrics['closing_flow_intensity'] = 0.0
+            
         return metrics
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -2388,48 +2374,43 @@ class FundFlowFactorCalculator:
 
     def _calculate_high_freq_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.9: [大师级深化] 3秒微观资金流场的统计特征
-        思路：
-        1. 摒弃分钟级统计，下沉到“3秒”微观窗口（人类反应与算法切片的共振周期）。
-        2. Skewness (偏度): 衡量“攻击方向的非对称性”。
-           - 正偏 ( > 0): 资金流分布右尾长，说明存在显著的“大买入脉冲”，主力在扫货。
-           - 负偏 ( < 0): 左尾长，说明存在“大抛单脉冲”，主力在砸盘。
-        3. Kurtosis (峰度): 衡量“资金进场的间歇性/突发性”。
-           - 高峰度: 资金流由“平静”和“极端的瞬间爆发”组成，典型的主力算法单（Sniper）。
-           - 低峰度: 资金流持续且均匀，典型的散户合力（Grinder）。
+        [修复] 3秒微观资金流场的统计特征
+        修复点：
+        1. 扩大 Kurtosis 截断范围至 100，适应A股高频数据的尖峰肥尾特征。
+        2. 增加 NaN/Inf 检查。
         """
         metrics = {'high_freq_flow_skewness': None, 'high_freq_flow_kurtosis': None}
         # 1. 3秒级重采样
-        # 1e9 ns = 1s, //3 得到3秒桶
         times_3s = df['trade_time'].values.astype('datetime64[s]').astype('int64') // 3
         if len(times_3s) == 0: return metrics
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
-        # 归一化并聚合
         norm_times = times_3s - times_3s[0]
         max_idx = int(norm_times[-1]) + 1
-        # 计算每个3秒窗口的净资金流 (Net Flow Flux)
-        # 单位：万元
         flux_3s = np.bincount(norm_times, weights=signed_amounts, minlength=max_idx) / 10000.0
-        # 剔除无效的0值窗口 (非交易时间或无成交时段)
-        # 但要注意：保留“交易活跃期间的0值”是有意义的（代表停顿）
-        # 这里简单去除首尾的0
         flux_active = np.trim_zeros(flux_3s)
-        if len(flux_active) < 30: # 样本过少无统计意义
+        if len(flux_active) < 30: 
             return metrics
-        # 2. 计算统计矩
+            
         try:
             # Skewness
             sk = stats.skew(flux_active)
-            # Kurtosis (Fisher's definition, normal = 0.0)
+            if np.isnan(sk): sk = 0.0
+            
+            # Kurtosis (Fisher's definition)
             kt = stats.kurtosis(flux_active)
-            # 3. 数值清洗与截断
-            # 异常值处理：skewness 超过 +/- 10 属于极度异常，压缩到区间
+            if np.isnan(kt): kt = 0.0
+            
+            # [关键修改] 扩大截断范围
+            # 偏度: +/- 10 足够
+            # 峰度: A股tick数据峰度极高，20太小，改为100
             metrics['high_freq_flow_skewness'] = float(np.clip(sk, -10.0, 10.0))
-            metrics['high_freq_flow_kurtosis'] = float(np.clip(kt, -5.0, 20.0))
+            metrics['high_freq_flow_kurtosis'] = float(np.clip(kt, -5.0, 100.0))
+            
         except Exception as e:
             logger.error(f"高频统计特征计算错误: {e}")
+            
         return metrics
 
     def _calculate_time_period_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
