@@ -28,7 +28,6 @@ def _numba_rolling_slope(data: np.ndarray, window: int) -> np.ndarray:
     sum_x = (window - 1) * window / 2.0
     sum_x_sq = (window - 1) * window * (2 * window - 1) / 6.0
     denominator = window * sum_x_sq - sum_x * sum_x
-    
     if denominator == 0:
         return result
         
@@ -130,7 +129,6 @@ def _numba_spearman_orderliness(ma_values: np.ndarray, ma_ranks_x: np.ndarray) -
 
     # 常数项：n(n^2 - 1)
     denom = n_cols * (n_cols * n_cols - 1.0)
-    
     # 并行循环处理每一行
     for i in prange(n_rows):
         row = ma_values[i, :]
@@ -180,10 +178,8 @@ def calculate_correction_scores_v2_numba(
     n = len(pct_change)
     scores = np.zeros(n, dtype=np.float32)
     is_correction = np.zeros(n, dtype=np.bool_)
-    
     # 预分配数组以避免循环内重复分配（虽然在并行循环中写入不同索引是安全的）
     # 注意：在并行循环中计算局部统计量比预计算更节省内存带宽，且利用多核优势
-    
     # 主循环：并行计算每个数据点的分数
     for i in prange(n):
         # 基础边界检查
@@ -251,7 +247,6 @@ def calculate_correction_scores_v2_numba(
         score += cond10 * 0.8
         scores[i] = score
         is_correction[i] = score >= 8.0
-    
     return is_correction
 
 @numba.njit(cache=True)
@@ -265,7 +260,6 @@ def _numba_rolling_quantile(data: np.ndarray, window: int, quantile: float) -> n
     result = np.full(n, np.nan, dtype=np.float64)
     if n < window:
         return result
-    
     # 针对每个位置计算
     for i in range(window - 1, n):
         # 获取窗口切片
@@ -303,7 +297,6 @@ def _numba_calculate_block_stats(
     # 0: high_max, 1: low_min, 2: vol_mean, 3: duration, 
     # 4: chip_conc_mean, 5: chip_stab_mean, 6: accum_mean, 7: flow_stab_mean, 8: absorb_mean
     results = np.full((n, 9), np.nan, dtype=np.float64)
-    
     i = 0
     while i < n:
         if is_consolidating[i]:
@@ -392,6 +385,99 @@ def _numba_rolling_fractal_dimension(data: np.ndarray, window: int) -> np.ndarra
         else:
             result[i] = 1.0
     return result
+
+@numba.njit(parallel=True, cache=True)
+def _numba_calculate_geometric_features(data: np.ndarray, window: int) -> np.ndarray:
+    """
+    【V1.0 · Numba加速】计算几何形态特征矩阵
+    - 输出列定义 (4列):
+        0: Linear Slope (线性回归斜率，归一化)
+        1: R-Squared (拟合优度，代表趋势稳定性)
+        2: Channel Position (通道位置 Z-Score)
+        3: Arc Curvature (弧形曲率，正值代表凸/前期加速，负值代表凹/后期加速)
+    - 算法:
+        - 线性回归: 使用最小二乘法计算 y = kx + b
+        - 曲率: 计算价格序列相对于【起点-终点连线】的平均偏离度。
+          (A股"老鸭头"或"圆弧底"的数学表达)
+    """
+    n = len(data)
+    results = np.full((n, 4), np.nan, dtype=np.float64)
+    if n < window:
+        return results
+
+    # 预计算 x 的相关项 (x 为 0 到 window-1)
+    x = np.arange(window, dtype=np.float64)
+    sum_x = np.sum(x)
+    sum_x_sq = np.sum(x * x)
+    x_mean = sum_x / window
+    # SS_xx: Sum of squares of x deviations
+    ss_xx = sum_x_sq - (sum_x * sum_x) / window
+    # 归一化因子 (为了让斜率在不同股价下可比，通常除以首个价格，但这里在循环内处理)
+    for i in prange(window - 1, n):
+        y_slice = data[i - window + 1 : i + 1]
+        # 检查 NaN
+        has_nan = False
+        for k in range(window):
+            if np.isnan(y_slice[k]):
+                has_nan = True
+                break
+        if has_nan:
+            continue
+        y_mean = np.mean(y_slice)
+        # 1. 线性回归核心统计量
+        sum_y = np.sum(y_slice)
+        sum_xy = np.sum(x * y_slice)
+        # SS_xy
+        ss_xy = sum_xy - (sum_x * sum_y) / window
+        # Slope (k)
+        if ss_xx == 0:
+            slope = 0.0
+        else:
+            slope = ss_xy / ss_xx
+        # Intercept (b)
+        intercept = y_mean - slope * x_mean
+        # 2. R-Squared (趋势稳定性)
+        # SS_tot (Total Sum of Squares)
+        ss_tot = np.sum((y_slice - y_mean)**2)
+        # SS_res (Residual Sum of Squares)
+        y_pred = slope * x + intercept
+        ss_res = np.sum((y_slice - y_pred)**2)
+        r_squared = 0.0
+        if ss_tot > 0:
+            r_squared = 1.0 - (ss_res / ss_tot)
+        # 3. Channel Position (通道位置 Z-Score)
+        # 衡量当前价格相对于回归线的偏离程度，用标准差标准化
+        # std_error 约为 sqrt(ss_res / (n-2))，这里简化使用残差标准差
+        rmse = np.sqrt(ss_res / window) if window > 0 else 1.0
+        current_price = y_slice[-1]
+        current_pred = y_pred[-1]
+        channel_pos = 0.0
+        if rmse > 1e-9:
+            channel_pos = (current_price - current_pred) / rmse
+        # 4. Arc Curvature (弧形特征)
+        # 逻辑：连接起点(y[0])和终点(y[-1])形成一条弦。
+        # 计算所有点到弦的垂直距离之和（或平均值）。
+        # 正值：价格在弦之上（拱形，Convex，如抛物线顶部或减速上涨）
+        # 负值：价格在弦之下（凹形，Concave，如圆弧底或加速上涨）
+        # 对于A股，"下凹"（负值）且价格上涨，往往意味着"加速赶顶"或"主升浪"。
+        y_start = y_slice[0]
+        y_end = y_slice[-1]
+        # 弦的方程 y = mx + c (相对于窗口内的x)
+        chord_slope = (y_end - y_start) / (window - 1)
+        chord_line = y_start + chord_slope * x
+        # 偏离度 (Arc) - 使用归一化偏差
+        # 除以 y_mean 消除股价绝对值影响
+        arc_deviations = (y_slice - chord_line)
+        arc_curvature = np.mean(arc_deviations)
+        if y_mean > 0:
+            arc_curvature /= y_mean # 归一化
+            slope /= y_mean # 归一化斜率
+        results[i, 0] = slope * 100 # 转换为百分比/天
+        results[i, 1] = r_squared
+        results[i, 2] = channel_pos
+        results[i, 3] = arc_curvature * 100 # 放大数值
+        
+    return results
 
 class FeatureEngineeringService:
     """
@@ -622,7 +708,6 @@ class FeatureEngineeringService:
         amplitude = (df['high_D'] - df['low_D']) / df['close_D'].replace(0, 1)
         # 波动率越低分越高，A股妖股启动前常出现“心电图”
         compression_score = (1 - (amplitude / (atr / df['close_D'] * 3)).clip(0, 1))
-        
         # 2. 筹码锁定度 (Chip Locking)
         # 核心：自由换手率越低，说明锁仓越好。阈值设定为 3% (0.03) 为极佳，10% 以上扣分
         if 'turnover_rate_f_D' in df.columns:
@@ -634,7 +719,6 @@ class FeatureEngineeringService:
             vol_ma5 = df['volume_D'].rolling(5).mean()
             vol_ma20 = df['volume_D'].rolling(20).mean()
             locking_score = np.clip(1 - (vol_ma5 / vol_ma20), 0, 1)
-
         # 3. 筹码结构优势 (Chip Structure)
         # 筹码越集中，稳定性越高，拉升越轻松
         chip_score = pd.Series(0.5, index=df.index)
@@ -643,13 +727,11 @@ class FeatureEngineeringService:
             conc_factor = df['chip_concentration_ratio_D'].clip(0, 1)
             stab_factor = (df['chip_stability_D'] / 5.0).clip(0, 1) # 假设5是满分
             chip_score = (conc_factor * 0.6 + stab_factor * 0.4)
-
         # 4. 主力潜伏迹象 (Latent Main Force)
         # 价格未涨但主力活跃
         mf_score = pd.Series(0.5, index=df.index)
         if 'main_force_activity_index_D' in df.columns:
             mf_score = (df['main_force_activity_index_D'] / 100.0).clip(0, 1)
-
         # 综合加权 (向量化)
         # 权重：筹码锁定(30%) + 结构优势(30%) + 平台压缩(20%) + 主力潜伏(20%)
         final_score = 100 * (
@@ -658,7 +740,6 @@ class FeatureEngineeringService:
             compression_score * 0.2 + 
             mf_score * 0.2
         )
-        
         return final_score.fillna(0)
 
     def _calculate_structural_tension(self, df: pd.DataFrame) -> pd.Series:
@@ -1069,12 +1150,10 @@ class FeatureEngineeringService:
         """
         if not params.get('enabled', False):
             return all_dfs
-        
         # 定义核心均线组 (A股常用)
         short_mas = [5, 13, 21]
         long_mas = [55, 89, 144]
         all_periods = sorted(list(set(short_mas + long_mas)))
-        
         for timeframe in params.get('apply_on', []):
             if timeframe not in all_dfs or all_dfs[timeframe] is None or all_dfs[timeframe].empty:
                 continue
@@ -1152,11 +1231,14 @@ class FeatureEngineeringService:
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
-        【V3.6 · 向量化与内存优化版】计算整体筹码健康度 (Overall Chip Health, OCH)。
-        - 优化: 
-            1. 移除 _get_safe_series_local 中的 Series 创建和 fillna/astype 开销，直接操作 NumPy 数组。
-            2. 优化 _nonlinear_fusion 的数据准备过程，减少 Python 循环和列表构建。
-        - 机制: In-place 修改 DataFrame，高效追加 'OCH_D' 列。
+        【V4.0 · 熵权筹码健康度模型 (Entropy-Weighted OCH)】
+        - 核心优化: 结合A股"筹码分布学"与"信息熵"理论，深度重构OCH算法。
+        - 逻辑升级:
+            1. 引入 'chip_entropy_D' (筹码熵): 熵越低，筹码结构越有序(单峰密集)，爆发力越强。
+            2. 引入 'chip_kurtosis_D' (峰度): 替代简单的集中度，精准量化"尖峰"形态。峰度>3代表极致锁仓。
+            3. 引入 'cost_efficiency' (获利效率): 获利比例/胜率。区分"薄利多销"与"厚利锁仓"。
+            4. 引入 'main_force_alpha' (主力Alpha): 剥离大盘影响，识别主力的独立意志。
+        - 数据依据: 充分利用数据层提供的 entropy, kurtosis, skewness, alpha 等高阶统计量。
         """
         timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
@@ -1164,255 +1246,231 @@ class FeatureEngineeringService:
             return all_dfs
         df = all_dfs[timeframe]
         n_rows = len(df)
-        # 辅助函数：直接获取 float32 NumPy 数组，处理 NaN，避免 Series 开销
-        def _get_safe_array(col_name, default_val=0.0):
+        # --- 辅助函数：安全获取 Float32 数组 ---
+        def _get_arr(col_name, default_val=0.0):
             if col_name not in df.columns:
                 return np.full(n_rows, default_val, dtype=np.float32)
-            # 获取底层数组并转换为 float32 (如果已经是则开销很小)
             arr = df[col_name].values.astype(np.float32, copy=False)
-            # 检查并填充 NaN (原地修改副本或新数组)
             if np.isnan(arr).any():
-                # 为了安全起见，astype 可能已经拷贝了数据，所以这里修改是安全的
-                # 如果原数据是 float32 且无拷贝，则需要 copy=True 避免修改原 DF
-                # 这里 astype 默认 copy=True 除非类型完全匹配且内存连续
                 arr = np.nan_to_num(arr, nan=default_val)
             return arr
-        # --- 情境自适应调制器 (直接获取数组) ---
-        # rolling mean 仍然使用 Pandas，因为 Numba 实现 rolling mean 较为繁琐且 Pandas 较快
-        def _get_rolling_context(col, window=21):
-            if col not in df.columns:
-                return np.zeros(n_rows, dtype=np.float32)
-            return df[col].rolling(window).mean().fillna(0).values.astype(np.float32)
-        volatility_context = _get_rolling_context('VOLATILITY_INSTABILITY_INDEX_21d_D')
-        sentiment_context = _get_rolling_context('market_sentiment_score_D')
-        entropy_context = _get_rolling_context('price_volume_entropy_D')
-        # 融合函数：直接接受数组字典
-        def _nonlinear_fusion_optimized(scores_map: Dict[str, np.ndarray], weights_map: Dict[str, float]) -> np.ndarray:
-            # 预分配列表
-            score_arrays = []
-            weight_arrays = []
-            # 遍历字典 (Python 3.7+ 保持插入顺序)
-            for name, weight in weights_map.items():
-                arr = scores_map.get(name)
-                if arr is None:
-                    arr = np.zeros(n_rows, dtype=np.float32)
-                score_arrays.append(arr)
-                # 创建同维度的权重数组 (Numba 函数通常需要数组输入)
-                weight_arrays.append(np.full(n_rows, weight, dtype=np.float32))
-            # 调用 Numba 核心函数
-            return _numba_nonlinear_fusion_core(
-                score_arrays,
-                weight_arrays,
-                volatility_context,
-                sentiment_context,
-                entropy_context
-            )
-        # --- 1. 筹码集中度与结构优化 ---
-        cost_gini = _get_safe_array('cost_gini_coefficient_D', 0.5)
-        # rank(pct=True) 依然依赖 Pandas，因为 NumPy 没有直接的 rank pct
-        peak_kurtosis_series = df.get('primary_peak_kurtosis_D', pd.Series(np.full(n_rows, 3.0)))
-        normalized_kurtosis = peak_kurtosis_series.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5).values.astype(np.float32)
-        peak_solidity = _get_safe_array('dominant_peak_solidity_D', 0.5)
-        peak_volume_ratio = _get_safe_array('dominant_peak_volume_ratio_D', 0.5)
-        chip_fault = _get_safe_array('chip_fault_blockage_ratio_D', 0.0)
-        # 向量化计算
-        concentration_health = np.clip(1 - cost_gini, 0, 1)
-        peak_quality = np.clip(peak_solidity * peak_volume_ratio * normalized_kurtosis, 0, 1)
-        blockage_penalty = 1 - chip_fault
-        concentration_scores = {
-            'concentration_health': concentration_health, 
-            'peak_quality': peak_quality, 
-            'blockage_penalty': blockage_penalty
-        }
-        concentration_weights = {'concentration_health': 0.5, 'peak_quality': 0.4, 'blockage_penalty': 0.1}
-        concentration_score = _nonlinear_fusion_optimized(concentration_scores, concentration_weights)
-        # --- 2. 成本与盈亏结构动态 ---
-        total_winner_rate = _get_safe_array('total_winner_rate_D', 0.5)
-        total_loser_rate = _get_safe_array('total_loser_rate_D', 0.5)
-        winner_profit_margin = _get_safe_array('winner_profit_margin_avg_D', 0.0) / 100.0
-        loser_loss_margin = _get_safe_array('loser_loss_margin_avg_D', 0.0) / 100.0
-        cost_divergence = _get_safe_array('cost_structure_skewness_D', 0.0)
-        mf_cost_advantage = _get_safe_array('main_force_cost_advantage_D', 0.0)
-        imminent_profit_taking = _get_safe_array('profit_taking_flow_ratio_D', 0.0)
-        loser_capitulation_pressure = _get_safe_array('loser_pain_index_D', 0.0)
-        rally_sell = _get_safe_array('rally_sell_distribution_intensity_D', 0.0)
-        dip_buy = _get_safe_array('dip_buy_absorption_strength_D', 0.0)
-        panic_buy = _get_safe_array('panic_buy_absorption_contribution_D', 0.0)
-        profit_pressure = total_winner_rate * winner_profit_margin * np.clip(rally_sell + imminent_profit_taking, 0, 1)
-        loser_support = total_loser_rate * loser_loss_margin * (1 - loser_capitulation_pressure) + \
-                        dip_buy * 0.5 + panic_buy * 0.5
-        cost_advantage_score = np.clip(mf_cost_advantage - cost_divergence, -1, 1)
-        cost_structure_scores = {
-            'loser_support': loser_support, 
-            'cost_advantage_score': cost_advantage_score, 
-            'profit_pressure': profit_pressure
-        }
-        cost_structure_weights = {'loser_support': 0.4, 'cost_advantage_score': 0.4, 'profit_pressure': -0.2}
-        cost_structure_score = _nonlinear_fusion_optimized(cost_structure_scores, cost_structure_weights)
-        # --- 3. 持股心态与交易行为 ---
-        winner_conviction = _get_safe_array('winner_stability_index_D', 0.0)
-        chip_fatigue = _get_safe_array('chip_fatigue_index_D', 0.0)
-        locked_profit = winner_conviction # 复用
-        locked_loss = 1.0 - _get_safe_array('capitulation_flow_ratio_D', 0.0)
-        # 复合指标计算 (向量化加权求和)
-        buy_side_absorption_composite = np.clip(
-            _get_safe_array('capitulation_absorption_index_D') * 0.2 +
-            _get_safe_array('active_buying_support_D') * 0.1 +
-            dip_buy * 0.1 +
-            panic_buy * 0.1 +
-            _get_safe_array('opening_buy_strength_D') * 0.05 +
-            _get_safe_array('pre_closing_buy_posture_D') * 0.05 +
-            _get_safe_array('closing_auction_buy_ambush_D') * 0.05 +
-            _get_safe_array('main_force_buy_ofi_D') * 0.1 +
-            _get_safe_array('retail_buy_ofi_D') * 0.05 +
-            _get_safe_array('bid_side_liquidity_D') * 0.05 +
-            _get_safe_array('buy_order_book_clearing_rate_D') * 0.05 +
-            _get_safe_array('vwap_buy_control_strength_D') * 0.05,
-            0, 1
+        # --- 1. 筹码形态与有序度 (Morphology & Order) ---
+        # 逻辑：A股妖股启动前，筹码形态通常呈现"低熵高峰"（有序且集中）。
+        # 熵 (Entropy): 越小越好。标准化处理: 1 - Normalized(Entropy)
+        chip_entropy = _get_arr('chip_entropy_D', 1.0)
+        entropy_score = np.clip(1.0 - (chip_entropy / 5.0), 0, 1) # 假设熵值范围通常在0-5
+        # 峰度 (Kurtosis): 越大越好。峰度反映了筹码的重合度。
+        chip_kurtosis = _get_arr('chip_kurtosis_D', 3.0)
+        # 峰度大于3为尖峰，大于10为极致。映射到0-1。
+        kurtosis_score = np.clip((chip_kurtosis - 1.5) / 8.5, 0, 1)
+        # 集中度 (Concentration): 传统指标
+        conc_ratio = _get_arr('chip_concentration_ratio_D', 0.5)
+        conc_score = np.clip(1.0 - conc_ratio, 0, 1)
+        # 形态综合分: 熵权核心，峰度辅助
+        morphology_score = entropy_score * 0.4 + kurtosis_score * 0.4 + conc_score * 0.2
+        # --- 2. 成本结构与获利动力 (Cost & Profit) ---
+        # 逻辑：获利盘比例(Winner Rate)决定抛压，获利幅度(Profit Ratio)决定持仓信心。
+        winner_rate = _get_arr('winner_rate_D', 0.5)
+        profit_ratio = _get_arr('profit_ratio_D', 0.0)
+        # 获利效率 (Cost Efficiency): 每单位获利盘的平均利润。
+        # 高效率(>10%)代表主力吃肉，低效率(<2%)代表散户喝汤。
+        with np.errstate(divide='ignore', invalid='ignore'):
+            efficiency_raw = profit_ratio / winner_rate
+            efficiency = np.where(winner_rate < 0.01, 0, efficiency_raw)
+        efficiency_score = np.clip(efficiency * 5, 0, 1) # 20%效率即满分
+        # 获利盘压力修正: 只有当换手率高时，高获利盘才是压力；缩量时是锁仓。
+        turnover_f = _get_arr('turnover_rate_f_D', 3.0)
+        locking_factor = np.clip((5.0 - turnover_f) / 5.0, 0.1, 1.0) # 换手越低，因子越大
+        # 结构综合分: 高获利且锁仓为佳，低获利且被套最差
+        structure_score = winner_rate * locking_factor * 0.5 + efficiency_score * 0.5
+        # --- 3. 主力意志与攻击性 (Main Force Intent) ---
+        # 逻辑：识别"真主力"的关键是看其是否具备独立于大盘的Alpha收益能力及执行力。
+        mf_alpha = _get_arr('main_force_buy_execution_alpha_D', 0.0)
+        mf_flow_int = _get_arr('flow_intensity_D', 0.0)
+        mf_consistency = _get_arr('flow_consistency_D', 0.5)
+        # 攻击性: Alpha越高，说明主力越是在逆势或独立拉升
+        attack_score = np.clip(mf_alpha, 0, 1)
+        # 持续性: 资金流必须连续，突击可能是诱多
+        sustainability_score = np.clip(mf_consistency, 0, 1)
+        # 主力综合分
+        force_score = attack_score * 0.4 + np.clip(mf_flow_int / 10, 0, 1) * 0.4 + sustainability_score * 0.2
+        # --- 4. 市场情绪与博弈 (Sentiment & Game) ---
+        # 逻辑：日内偏度反映盘中主力态度（左偏=护盘/压盘吸筹），微观结构决定成败。
+        skewness = _get_arr('intraday_price_distribution_skewness_D', 0.0)
+        # 负偏度通常代表支撑强（底部有承接），正偏度代表阻力大
+        support_intent = np.clip(skewness * -1, 0, 1)
+        # 散户博弈: 散户被套比例越高，反转概率越大（绝望中诞生）
+        retail_trapped = _get_arr('pressure_trapped_D', 0.0)
+        reversal_potential = np.clip(retail_trapped, 0, 1)
+        sentiment_score = support_intent * 0.5 + reversal_potential * 0.5
+        # --- 5. OCH 最终融合 (Non-linear Fusion) ---
+        # 权重分配: 形态(30%) + 结构(25%) + 主力(25%) + 情绪(20%)
+        # 使用简单的加权，因为各子项已经非线性处理过
+        final_och = (
+            morphology_score * 0.30 +
+            structure_score * 0.25 +
+            force_score * 0.25 +
+            sentiment_score * 0.20
         )
-        sell_side_pressure_composite = np.clip(
-            _get_safe_array('active_selling_pressure_D') * 0.1 +
-            rally_sell * 0.1 +
-            _get_safe_array('dip_sell_pressure_resistance_D') * 0.05 +
-            _get_safe_array('panic_sell_volume_contribution_D') * 0.1 +
-            _get_safe_array('opening_sell_strength_D') * 0.05 +
-            _get_safe_array('pre_closing_sell_posture_D') * 0.05 +
-            _get_safe_array('closing_auction_sell_ambush_D') * 0.05 +
-            _get_safe_array('main_force_sell_ofi_D') * 0.1 +
-            _get_safe_array('retail_sell_ofi_D') * 0.05 +
-            _get_safe_array('ask_side_liquidity_D') * 0.05 +
-            _get_safe_array('sell_order_book_clearing_rate_D') * 0.05 +
-            _get_safe_array('vwap_sell_control_strength_D') * 0.05,
-            0, 1
-        )
-        combat_intensity = _get_safe_array('mf_retail_battle_intensity_D', 0.0)
-        conviction_lock_score = np.clip(winner_conviction + locked_profit - chip_fatigue - locked_loss, -1, 1)
-        absorption_support_score = np.clip(buy_side_absorption_composite - sell_side_pressure_composite, -1, 1)
-        wash_trade_penalty = np.clip(_get_safe_array('wash_trade_buy_volume_D') + _get_safe_array('wash_trade_sell_volume_D'), 0, 1) * 0.1
-        sentiment_scores = {
-            'conviction_lock_score': (conviction_lock_score + 1) / 2,
-            'absorption_support_score': (absorption_support_score + 1) / 2,
-            'combat_intensity': combat_intensity,
-            'wash_trade_penalty': wash_trade_penalty
-        }
-        sentiment_weights = {'conviction_lock_score': 0.4, 'absorption_support_score': 0.4, 'combat_intensity': 0.2, 'wash_trade_penalty': -0.1}
-        sentiment_score = _nonlinear_fusion_optimized(sentiment_scores, sentiment_weights)
-        # --- 4. 主力控盘与意图 ---
-        mf_control_leverage = _get_safe_array('control_solidity_index_D', 0.0)
-        mf_on_peak_flow_composite = _get_safe_array('main_force_on_peak_buy_flow_D') - _get_safe_array('main_force_on_peak_sell_flow_D')
-        # Rank pct 依然需要 Pandas Series
-        mf_on_peak_flow_normalized = pd.Series(mf_on_peak_flow_composite).rank(pct=True).fillna(0.5).values.astype(np.float32)
-        mf_on_peak_flow_normalized = np.clip(mf_on_peak_flow_normalized * 2 - 1, 0, 1)
-        mf_intent_composite = np.clip(
-            _get_safe_array('main_force_flow_directionality_D') * 0.2 +
-            (_get_safe_array('main_force_buy_execution_alpha_D') - _get_safe_array('main_force_sell_execution_alpha_D')) * 0.2 +
-            _get_safe_array('main_force_conviction_index_D') * 0.1 +
-            (_get_safe_array('main_force_vwap_up_guidance_D') - _get_safe_array('main_force_vwap_down_guidance_D')) * 0.1 +
-            (_get_safe_array('vwap_cross_up_intensity_D') - _get_safe_array('vwap_cross_down_intensity_D')) * 0.1 +
-            (_get_safe_array('main_force_t0_buy_efficiency_D') - _get_safe_array('main_force_t0_sell_efficiency_D')) * 0.1 +
-            (_get_safe_array('buy_flow_efficiency_index_D') - _get_safe_array('sell_flow_efficiency_index_D')) * 0.1,
-            -1, 1
-        )
-        mf_vpoc_premium = _get_safe_array('mf_vpoc_premium_D', 0.0)
-        vwap_control_composite = _get_safe_array('vwap_buy_control_strength_D') - _get_safe_array('vwap_sell_control_strength_D')
-        control_strength = mf_control_leverage * ((vwap_control_composite + 1) / 2)
-        mf_cost_advantage_final = (mf_vpoc_premium + 1) / 2
-        turnover_rate_f = _get_safe_array('turnover_rate_f_D', 0.0)
-        turnover_health = np.ones(n_rows, dtype=np.float32)
-        # 向量化条件赋值
-        mask_low = turnover_rate_f < 2
-        turnover_health[mask_low] = turnover_rate_f[mask_low] / 2
-        mask_high = turnover_rate_f > 15
-        turnover_health[mask_high] = 1 - (turnover_rate_f[mask_high] - 15) / 10
-        turnover_health = np.clip(turnover_health, 0, 1)
-        distribution_penalty = np.clip(_get_safe_array('covert_distribution_signal_D') + _get_safe_array('supportive_distribution_intensity_D'), 0, 1) * 0.1
-        main_force_scores = {
-            'control_strength': control_strength, 
-            'mf_on_peak_flow_normalized': mf_on_peak_flow_normalized, 
-            'mf_intent_composite': (mf_intent_composite + 1) / 2,
-            'mf_cost_advantage_final': mf_cost_advantage_final, 
-            'turnover_health': turnover_health, 
-            'distribution_penalty': distribution_penalty
-        }
-        main_force_weights = {
-            'control_strength': 0.3, 'mf_on_peak_flow_normalized': 0.2, 'mf_intent_composite': 0.3,
-            'mf_cost_advantage_final': 0.1, 'turnover_health': 0.1, 'distribution_penalty': -0.1
-        }
-        main_force_score = _nonlinear_fusion_optimized(main_force_scores, main_force_weights)
-        # --- 最终 OCH_D 融合 ---
-        och_scores = {
-            'concentration_score': concentration_score, 
-            'cost_structure_score': cost_structure_score, 
-            'sentiment_score': sentiment_score, 
-            'main_force_score': main_force_score
-        }
-        och_weights = {'concentration_score': 0.25, 'cost_structure_score': 0.25, 'sentiment_score': 0.25, 'main_force_score': 0.25}
-        och_score = _nonlinear_fusion_optimized(och_scores, och_weights) * 2 - 1
-        # 赋值回 DataFrame
-        df['OCH_D'] = och_score
+        # 映射到 -1 到 1 区间 (OCH标准输出格式)
+        df['OCH_D'] = (final_och * 2.0) - 1.0
+        # 附加衍生指标：OCH 加速度 (识别筹码状态突变)
+        if len(df) > 5:
+            och_slope = _numba_rolling_slope(df['OCH_D'].values.astype(np.float64), 3)
+            df['OCH_ACCELERATION_D'] = np.nan_to_num(och_slope)
         all_dfs[timeframe] = df
-        logger.info("OCH 指标计算完成 (向量化优化版)。")
+        logger.info("OCH 指标计算完成 (V4.0 熵权增强版)。")
         return all_dfs
 
     async def calculate_structural_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.0 · 结构特征合成版】
-        - 核心职责: 从 BaseAdvancedStructuralMetrics 中提取和合成更高级的结构性特征。
-        - 指标含义:
-            - STRUCTURAL_TREND_HEALTH_D: 综合评估趋势的健康度、加速状态和成交结构。
-            - BREAKTHROUGH_CONVICTION_D: 直接使用突破信念分。
-            - DEFENSE_SOLIDITY_D: 直接使用防守稳固度。
-            - EQUILIBRIUM_COMPRESSION_D: 直接使用均衡压缩指数。
+        【V2.0 · 结构完整性与时空势能计算器】
+        - 核心优化: 从单纯的"趋势健康度"升级为"时空结构势能"分析。
+        - 新增逻辑:
+            1. 分形效率 (Fractal Efficiency): 利用 'PRICE_FRACTAL_DIM_D'。分形维数趋近1.0时，趋势最纯粹（阻力最小）；趋近1.5时为布朗运动（震荡）；>1.5为反身性剧烈波动。
+            2. 盈亏空间比 (Space Potential): 利用支撑/阻力强度，计算上方空间与下方风险的比率。
+            3. 量价背离度 (Structural Divergence): 向量化计算价格斜率与量能斜率的背离，识别"顶部钝化"或"底部背离"。
+            4. 趋势确认度 (Trend Confirmation): 结合 ADX 与 OCH，确认趋势的有效性。
         """
         timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             logger.warning(f"结构特征计算失败：缺少日线数据。")
             return all_dfs
         df = all_dfs[timeframe]
-        # 检查计算所需的原始结构指标列是否存在
-        required_structural_cols = [
-            'trend_acceleration_score_D', 'final_charge_intensity_D', 'volume_structure_skew_D',
-            'breakthrough_conviction_score_D', 'defense_solidity_score_D', 'equilibrium_compression_index_D'
-        ]
-        missing_cols = [col for col in required_structural_cols if col not in df.columns]
-        if missing_cols:
-            logger.warning(f"结构特征计算缺少关键数据: {missing_cols}，模块已跳过！")
-            return all_dfs
-        # 1. 合成 STRUCTURAL_TREND_HEALTH_D
-        # 综合趋势加速、终场冲锋强度和成交结构偏度，评估趋势的整体健康度
-        # 假设这些指标都已归一化到0-100或-1到1的范围
-        df['STRUCTURAL_TREND_HEALTH_D'] = (
-            df['trend_acceleration_score_D'] * 0.4 +
-            df['final_charge_intensity_D'] * 0.3 +
-            (1 - df['volume_structure_skew_D'].abs()) * 0.3 # 偏度越小，结构越健康
-        ).clip(0, 100) # 假设输出范围是0-100
-        # 2. 直接使用其他结构指标作为特征
-        df['BREAKTHROUGH_CONVICTION_D'] = df['breakthrough_conviction_score_D']
-        df['DEFENSE_SOLIDITY_D'] = df['defense_solidity_score_D']
-        df['EQUILIBRIUM_COMPRESSION_D'] = df['equilibrium_compression_index_D']
+        n = len(df)
+        # --- 1. 分形效率 (Fractal Efficiency) ---
+        # 逻辑：好的趋势应该是线性的(D->1)。D越低，趋势结构越紧凑，能量损耗越小。
+        if 'PRICE_FRACTAL_DIM_D' in df.columns:
+            fd = df['PRICE_FRACTAL_DIM_D'].fillna(1.5)
+            # 效率分：1.0-1.2为优(100分)，1.2-1.4为良，>1.5为差
+            fractal_efficiency = np.clip((1.5 - fd) / 0.3, 0, 1) * 100
+        else:
+            fractal_efficiency = pd.Series(50, index=df.index)
+        df['STRUCTURAL_FRACTAL_EFFICIENCY_D'] = fractal_efficiency
+        # --- 2. 盈亏空间比 (Space Potential) ---
+        # 逻辑：做多势能 = (上方阻力距离 / 下方支撑距离)。比值越大，结构优势越大。
+        # 使用 close 与 support/resistance 估算
+        close = df['close_D']
+        # 假设 support_strength_D 和 resistance_strength_D 代表强度，我们需要推算位置
+        # 这里简化使用 ATR 波动率作为空间标尺
+        atr = df['ATR_14_D'].replace(0, 1.0)
+        # 如果有 Explicit Support/Resistance Levels 最好，若无，使用 20日极值 + 强度修正
+        res_level = df['high_D'].rolling(20).max()
+        sup_level = df['low_D'].rolling(20).min()
+        upside = (res_level - close).clip(lower=atr * 0.5) # 至少有0.5ATR空间
+        downside = (close - sup_level).clip(lower=atr * 0.5)
+        # 引入强度因子：阻力越弱，上方空间视为越大
+        res_strength = df.get('resistance_strength_D', pd.Series(0.5, index=df.index))
+        sup_strength = df.get('support_strength_D', pd.Series(0.5, index=df.index))
+        adjusted_upside = upside * (1 + (1 - res_strength)) # 阻力弱，空间加成
+        adjusted_downside = downside * (1 + (1 - sup_strength)) # 支撑弱，风险加成
+        with np.errstate(divide='ignore'):
+            space_ratio = adjusted_upside / adjusted_downside
+        df['STRUCTURAL_SPACE_RATIO_D'] = np.clip(space_ratio, 0.1, 10.0)
+        # --- 3. 量价结构背离 (Volume-Price Divergence) ---
+        # 逻辑：价格创新高(Slope>0)但量能萎缩(Slope<0) -> 顶背离风险。
+        # 价格创新低(Slope<0)但量能释放(Slope>0) -> 底背离机会(恐慌盘杀出)。
+        # 计算斜率 (使用5日窗口)
+        price_slope = _numba_rolling_slope(df['close_D'].values.astype(np.float64), 5)
+        vol_slope = _numba_rolling_slope(df['volume_D'].values.astype(np.float64), 5)
+        # 归一化斜率方向
+        p_dir = np.sign(price_slope)
+        v_dir = np.sign(vol_slope)
+        # 背离判定: 方向相反
+        divergence = np.zeros(n)
+        # 顶背离 (价涨量缩)
+        top_div = (p_dir > 0) & (v_dir < 0)
+        divergence[top_div] = -1 # 负分代表风险
+        # 底背离 (价跌量增 - 恐慌盘)
+        bottom_div = (p_dir < 0) & (v_dir > 0)
+        divergence[bottom_div] = 1 # 正分代表机会
+        df['STRUCTURAL_DIVERGENCE_STATE_D'] = divergence
+        # --- 4. 结构健康度合成 (Structural Health) ---
+        # 综合考虑：趋势效率(分形)、空间优势、量价配合
+        # 量价配合：同向为佳 (1.0)，背离根据位置判断
+        vp_match = np.where(p_dir == v_dir, 1.0, 0.5) 
+        health_score = (
+            fractal_efficiency * 0.4 + 
+            np.clip(space_ratio * 10, 0, 100) * 0.3 + 
+            (vp_match * 100) * 0.3
+        )
+        # 极端修正：如果顶背离严重，健康度打折
+        health_score = np.where(top_div, health_score * 0.6, health_score)
+        df['STRUCTURAL_TREND_HEALTH_D'] = np.clip(health_score, 0, 100)
+        # 保留原有的指标透传，保持兼容性
+        if 'breakthrough_conviction_score_D' in df.columns:
+            df['BREAKTHROUGH_CONVICTION_D'] = df['breakthrough_conviction_score_D']
+        else:
+            df['BREAKTHROUGH_CONVICTION_D'] = 50.0
         all_dfs[timeframe] = df
-        logger.info("结构特征计算完成。")
+        logger.info("结构特征计算完成 (V2.0 时空势能版)。")
         return all_dfs
 
     async def calculate_geometric_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.1 · 几何特征计算与列名冲突修复】
-        - 核心职责: 计算与K线形态、趋势几何结构相关的特征。
-        - 修复: 解决 df_daily.join(df_geometric_features) 时列名冲突问题，通过添加 rsuffix 区分。
+        【V2.0 · 几何形态与趋势结构引擎】
+        - 核心职责: 量化K线走势的几何特征，为模式识别提供"物理骨架"。
+        - 判定逻辑优化:
+            1. 趋势稳定性 (Linearity): 使用 R-Squared 识别"如丝般顺滑"的强庄股 (R2 > 0.9)。
+            2. 通道位置 (Channel Position): 量化超买超卖的"相对位置"，而非绝对指标。
+               (Z > 2.0: 通道上轨压力; Z < -2.0: 通道下轨支撑/黄金坑)。
+            3. 弧形加速 (Arc Curvature): 识别 "加速主升浪" (Concave Up / 负曲率上涨) 与 "力竭圆弧顶" (Convex / 正曲率)。
+        - 数据依据: 
+            - 依赖原始 close_D 数据进行 Numba 高速回归计算。
+            - 结合 ATR 进行波动率自适应。
         """
         timeframe = 'D'
-        if timeframe not in all_dfs:
+        if timeframe not in all_dfs or all_dfs[timeframe].empty:
             return all_dfs
-        df_daily = all_dfs[timeframe]
-        # 假设 df_geometric_features 是在此方法内部计算生成的
-        # 这是一个占位符，实际的几何特征计算逻辑应在此处实现
-        df_geometric_features = pd.DataFrame(index=df_daily.index)
-        # 识别重叠列并记录警告
-        overlapping_cols = df_daily.columns.intersection(df_geometric_features.columns)
-        if not overlapping_cols.empty:
-            logger.warning(f"在合并几何特征时发现重叠列: {overlapping_cols.tolist()}。来自 df_geometric_features 的重叠列将添加 '_geom' 后缀。")
-        df_daily = df_daily.join(df_geometric_features, how='left', rsuffix='_geom')
-        all_dfs[timeframe] = df_daily
+        df = all_dfs[timeframe]
+        # 核心数据检查
+        if 'close_D' not in df.columns:
+            return all_dfs
+        # 1. 计算几何特征矩阵 (Numba 加速)
+        # 窗口设定: 21天 (典型的月度趋势周期，适合A股波段)
+        window = 21
+        close_values = df['close_D'].values.astype(np.float64)
+        # 调用 Numba 函数
+        # 返回列: [Slope, R2, Channel_Pos, Arc]
+        geom_matrix = _numba_calculate_geometric_features(close_values, window)
+        # 2. 结果注入 DataFrame
+        df['GEOM_REG_SLOPE_D'] = geom_matrix[:, 0]
+        df['GEOM_REG_R2_D'] = geom_matrix[:, 1]
+        df['GEOM_CHANNEL_POS_D'] = geom_matrix[:, 2]
+        df['GEOM_ARC_CURVATURE_D'] = geom_matrix[:, 3]
+        # 3. 衍生高级判定逻辑
+        # (A) 强趋势判别 (Strong Trend)
+        # 斜率向上 且 拟合度极高 (稳健上涨，非脉冲)
+        df['IS_ROBUST_TREND_D'] = (df['GEOM_REG_SLOPE_D'] > 0.3) & (df['GEOM_REG_R2_D'] > 0.85)
+        # (B) 加速赶顶预警 (Parabolic Blow-off)
+        # 逻辑: 价格在通道上轨上方 (Pos > 2) 且 呈现下凹加速形态 (Arc < -1.0) 且 斜率极大
+        # A股妖股见顶前常见特征
+        df['IS_PARABOLIC_WARNING_D'] = (
+            (df['GEOM_CHANNEL_POS_D'] > 2.0) & 
+            (df['GEOM_ARC_CURVATURE_D'] < -1.0) & 
+            (df['GEOM_REG_SLOPE_D'] > 1.0)
+        )
+        # (C) 黄金坑/回踩支撑 (Golden Pit / Pullback)
+        # 逻辑: 长期趋势向上 (Slope > 0) 但 短期打到通道下轨 (Pos < -1.5)
+        # 这是一个极佳的"反转博弈"买点
+        df['IS_GOLDEN_PIT_D'] = (
+            (df['GEOM_REG_SLOPE_D'] > 0.1) & 
+            (df['GEOM_CHANNEL_POS_D'] < -1.5)
+        )
+        # (D) 圆弧底蓄势 (Rounding Bottom)
+        # 逻辑: 斜率走平 (接近0) 且 呈现上凸形态 (Arc > 0.5, 价格在弦之上，在这个语境下如果是底部，
+        # 意味着价格先跌后涨，弦在上方? 不，这里简化逻辑：
+        # 如果是底部，Price应该在弦下方(Concave Up)? 
+        # 修正逻辑：
+        # 底部形态通常是：价格先抑后扬。弦连接左高右高，价格在下方 -> Arc为负。
+        # 顶部形态：价格先扬后抑。弦连接左低右低，价格在上方 -> Arc为正。
+        # 圆弧底特征：Slope接近0，Arc为负(下凹)。
+        df['IS_ROUNDING_BOTTOM_D'] = (
+            (df['GEOM_REG_SLOPE_D'].abs() < 0.2) & 
+            (df['GEOM_ARC_CURVATURE_D'] < -0.5)
+        )
+        all_dfs[timeframe] = df
+        logger.info("几何特征计算完成 (V2.0)。")
         return all_dfs
 
     async def calculate_breakout_quality_score_v4(self, df_daily: pd.DataFrame, params: dict) -> pd.DataFrame:
@@ -1427,22 +1485,18 @@ class FeatureEngineeringService:
         """
         df = df_daily.copy()
         results = pd.DataFrame(index=df.index)
-        
         # --- 0. 基础数据清洗与对齐 ---
         # 确保关键列存在，缺失则给默认值或进行安全处理
         def get_series(col, default_val=0.0):
             if col in df.columns:
                 return df[col].fillna(default_val)
             return pd.Series(default_val, index=df.index)
-
         pct_change = get_series('pct_change')
         turnover_f = get_series('turnover_rate_f') # 自由换手率
         volume = get_series('volume')
         vol_ma21 = get_series('VOL_MA_21', default_val=1.0)
-        
         # ==================== 1. 技术形态质量 (Technical Quality) ====================
         tech_score = pd.Series(0.0, index=df.index)
-        
         # 1.1 价格形态: 实体饱满度与上影线压力
         # A股真突破通常是大阳线，上影线短
         high = get_series('high')
@@ -1455,18 +1509,15 @@ class FeatureEngineeringService:
         # 实体占比 > 50% 且 上影线 < 实体的一半
         solid_candle_score = np.where((total_len > 0) & (body_len / total_len > 0.6) & (upper_shadow < body_len * 0.5), 15, 0)
         tech_score += solid_candle_score
-        
         # 1.2 缺口动能 (Gap Momentum)
         # 跳空高开不回补是极强信号
         pre_close = get_series('pre_close')
         gap_score = np.where((low > pre_close) & (pct_change > 2.0), 10, 0)
         tech_score += gap_score
-
         # 1.3 集合竞价抢筹 (Call Auction Attack)
         # 开盘买入强度高，说明主力急不可耐
         opening_strength = get_series('opening_buy_strength')
         tech_score += np.clip(opening_strength * 2, 0, 15)
-
         # 1.4 VPA 量价效率 (Volume Efficiency)
         # 使用自由换手率修正的效率: 涨幅 / 换手率。比值越高，锁仓越好（缩量涨停是极致）
         # 避免除以0
@@ -1474,15 +1525,12 @@ class FeatureEngineeringService:
         eff_ratio = pct_change / safe_to
         # 正常突破: 效率系数 > 0.5 (例如 5%涨幅用 <10%换手)
         tech_score += np.clip(eff_ratio * 5, 0, 20)
-
         # ==================== 2. 筹码结构质量 (Chip Structure) ====================
         chip_score = pd.Series(0.0, index=df.index)
-        
         # 2.1 获利盘比例 (Winner Rate)
         # 突破时获利盘应在 80%-90% 以上，解放所有套牢盘
         winner_rate = get_series('winner_rate')
         chip_score += np.clip(winner_rate * 25, 0, 25)
-        
         # 2.2 成本乖离度 (Cost Deviation) - 黄金坑逻辑
         # 股价刚突破平均成本线不远(0-15%)，是最佳买点。太远(>30%)则有获利回吐风险。
         avg_cost = get_series('weight_avg_cost')
@@ -1491,82 +1539,64 @@ class FeatureEngineeringService:
         cost_score = np.where((cost_bias > 0) & (cost_bias <= 0.10), 25,
                              np.where(cost_bias <= 0.20, 15, 0))
         chip_score += cost_score
-        
         # 2.3 筹码集中度 (Concentration)
         # 集中度越高越好 (数值越小代表越集中，需反转)
         conc = get_series('chip_concentration_ratio')
         # 假设 conc < 0.1 为极度集中，> 0.3 为发散
         chip_score += np.clip((0.25 - conc) * 100, 0, 20)
-        
         # 2.4 套牢盘压力 (Trapped Pressure)
         # 必须小
         pressure = get_series('pressure_trapped')
         chip_score += np.clip((1 - pressure) * 20, 0, 20)
-
         # ==================== 3. 资金与博弈质量 (Flow & Game) ====================
         flow_score = pd.Series(0.0, index=df.index)
-        
         # 3.1 资金攻击强度 (Flow Intensity)
         flow_int = get_series('flow_intensity')
         flow_score += np.clip(flow_int, 0, 25)
-        
         # 3.2 资金动量 (Momentum 5D)
         flow_mom = get_series('flow_momentum_5d')
         flow_score += np.clip(flow_mom * 50 + 10, 0, 15)
-        
         # 3.3 主力建仓行为 (Accumulation)
         acc_score = get_series('accumulation_score')
         flow_score += np.clip(acc_score * 0.2, 0, 15)
-        
         # 3.4 能量集中度 (Energy Concentration)
         ene_conc = get_series('energy_concentration')
         flow_score += np.clip(ene_conc * 100, 0, 15)
-
         # ==================== 4. 风险惩罚因子 (Risk Penalty) ====================
         # 这是 V4.1 的核心升级：扣分机制
         penalty = pd.Series(0.0, index=df.index)
-        
         # 4.1 诱多欺诈 (Deception Lure)
         # 如果存在明显的诱多信号，直接扣重分
         lure = get_series('deception_lure_long_intensity')
         penalty += lure * 40 # 最高扣40分
-        
         # 4.2 大单异常 (Large Order Anomaly)
         # 某些大单可能是对倒
         anomaly = get_series('large_order_anomaly')
         penalty += np.where(anomaly > 0, 15, 0)
-        
         # 4.3 尾盘偷袭 (Late Day Surprise)
         # 全天没动静，尾盘拉升，通常是做图
         # 如果 closing_flow_ratio 高 但 total volume 低
         closing_ratio = get_series('closing_flow_ratio')
         penalty += np.where((closing_ratio > 0.4) & (pct_change < 9.5), 20, 0)
-
         # 4.4 换手率异常 (Turnover Extreme)
         # 换手率过高 (>25%) 且未涨停，视为出货
         up_limit = get_series('up_limit') # 涨停价
         is_limit = (close >= up_limit * 0.99)
         penalty += np.where((turnover_f > 25) & (~is_limit), 30, 0)
-
         # ==================== 5. 综合合成 ====================
         # 权重分配
         w_tech = params.get('weight_technical', 0.3)
         w_chip = params.get('weight_chip', 0.35) # A股筹码权重高
         w_flow = params.get('weight_fundflow', 0.35)
-        
         raw_score = (tech_score * w_tech) + (chip_score * w_chip) + (flow_score * w_flow)
-        
         # 应用惩罚 (Penalty)
         final_score = np.clip(raw_score - penalty, 0, 100)
-        
         results['breakout_quality_score'] = final_score
-        
         # 5.1 细分得分输出 (便于调试)
         results['breakout_technical_score'] = np.clip(tech_score, 0, 100)
         results['breakout_chip_score'] = np.clip(chip_score, 0, 100)
         results['breakout_fundflow_score'] = np.clip(flow_score, 0, 100)
         results['breakout_penalty_score'] = penalty # 新增
-        
         # 5.2 质量评级
         conditions = [
             final_score >= 85,
@@ -1577,35 +1607,29 @@ class FeatureEngineeringService:
         ]
         choices = ['LEGENDARY', 'EXCELLENT', 'GOOD', 'WEAK', 'TRAP']
         results['breakout_quality_grade'] = np.select(conditions, choices, default='UNKNOWN')
-
         # 5.3 类型判定 (Type Classification)
         # 找出驱动因子
         scores_df = results[['breakout_technical_score', 'breakout_chip_score', 'breakout_fundflow_score']]
         max_col = scores_df.idxmax(axis=1)
-        
         type_map = {
             'breakout_technical_score': 'TECH_DRIVEN',
             'breakout_chip_score': 'CHIP_LOCKED',
             'breakout_fundflow_score': 'WHALE_ATTACK'
         }
         breakout_type = max_col.map(type_map)
-        
         # 如果有严重惩罚，标记为 "HIGH_RISK"
         breakout_type = np.where(penalty > 20, 'HIGH_RISK_' + breakout_type, breakout_type)
         results['breakout_type'] = breakout_type
-
         # 5.4 置信度 (Confidence)
         # 基于数据完整性
         completeness = np.mean([
             pct_change.notna(), turnover_f.notna(), winner_rate.notna(), flow_int.notna()
         ], axis=0)
         results['breakout_confidence'] = completeness * 100
-        
         # 5.5 风险预警布尔值
         results['breakout_risk_warning'] = penalty > 15
-
         return results
-    
+
     async def calculate_breakout_quality_score_v3(self, df_daily: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
         【V3.0】突破质量分计算降级版本 - 兼容旧逻辑
