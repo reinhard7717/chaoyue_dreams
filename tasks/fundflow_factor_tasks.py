@@ -202,8 +202,7 @@ async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date]
 
 async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao, realtime_dao) -> Optional[Any]:
     """
-    v1.7.1: 增加动态字段过滤逻辑，修复计算指标与模型字段不一致导致的实例化失败。
-    通过 _meta.fields 提取合法字段名，确保 bulk_create 实例化的健壮性。
+    v1.7.2: 修复布尔字段被 _safe_decimal 错误转换为 None 导致的非空约束报错。
     """
     try:
         stock_info = await stock_basic_dao.get_stock_by_code(stock_code)
@@ -215,6 +214,7 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         daily_basic_data = await _get_daily_basic_data_async(stock_code, trade_date, stock_time_trade_dao)
         minute_data = await _get_1min_data_async(stock_code, trade_date, stock_time_trade_dao)
         tick_data = await realtime_dao.get_daily_real_ticks(stock_code, trade_date) if realtime_dao else None
+        
         context = CalculationContext(
             stock_code=stock_code, trade_date=trade_date, current_flow_data=current_flow_data,
             historical_flow_data=historical_flow_data, daily_basic_data=daily_basic_data,
@@ -222,23 +222,97 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         )
         calculator = FundFlowFactorCalculator(context)
         metrics = calculator.calculate_all_metrics()
+        
         # 动态过滤：仅保留数据库中存在的字段
         model_fields = {f.name for f in factor_model._meta.fields}
-        # 预定义非数值字段，避免经过 _safe_decimal 转换
-        raw_fields = {'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 'intraday_flow_distribution'}
+        
+        # [关键修复]：定义不需要转换为 Decimal 的字段集合 (Boolean, String, JSON, Integer)
+        # 必须包含 'large_order_anomaly'，否则 True/False 会变成 None
+        raw_fields = {
+            # 字符串/枚举
+            'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 
+            # JSON
+            'intraday_flow_distribution',
+            # 布尔值 (Critical Fix)
+            'large_order_anomaly', 
+            # 整数型 (可选，但这能避免不必要的 Decimal 转换开销)
+            'intensity_level', 'inflow_persistence', 'days_since_last_peak',
+            'tick_large_order_count', 'flow_persistence_minutes', 'flow_cluster_duration'
+        }
+        
         final_data = {}
         for key, value in metrics.items():
             if key in model_fields:
                 if key in raw_fields:
-                    final_data[key] = value
+                    # 对于大单异动，如果计算结果偶然为None，必须回退到False，防止入库报错
+                    if key == 'large_order_anomaly' and value is None:
+                        final_data[key] = False
+                    else:
+                        final_data[key] = value
                 else:
                     final_data[key] = _safe_decimal(value)
-        # 补充关联键
+                    
         final_data['stock'] = stock_info
         final_data['trade_time'] = trade_date
         return factor_model(**final_data)
+        
     except Exception as e:
         logger.error(f"构建因子实例失败 {stock_code} @ {trade_date}: {e}")
+        return None
+
+def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao) -> Optional[Any]:
+    """
+    v1.7.2: 同步版修复，增加 raw_fields 覆盖范围。
+    """
+    try:
+        stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
+        if not stock_info: return None
+        historical_flow_data = get_historical_flow_data(stock_code, trade_date, stock_time_trade_dao, stock_info, days=120)
+        if not historical_flow_data or len(historical_flow_data) < 10: return None
+        current_flow_data = get_current_flow_data(stock_code, trade_date)
+        if not current_flow_data: return None
+        daily_basic_data = get_daily_basic_data(stock_code, trade_date, stock_time_trade_dao)
+        minute_data = get_1min_data(stock_code, trade_date, stock_time_trade_dao)
+        
+        from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
+        realtime_dao = StockRealtimeDAO(stock_basic_dao.cache_manager)
+        tick_data = async_to_sync(realtime_dao.get_daily_real_ticks)(stock_code, trade_date)
+        
+        context = CalculationContext(
+            stock_code=stock_code, trade_date=trade_date, current_flow_data=current_flow_data,
+            historical_flow_data=historical_flow_data, daily_basic_data=daily_basic_data,
+            minute_data_1min=minute_data, tick_data=tick_data
+        )
+        calculator = FundFlowFactorCalculator(context)
+        metrics = calculator.calculate_all_metrics()
+        
+        model_fields = {f.name for f in factor_model._meta.fields}
+        
+        # [关键修复] 扩展原始字段集合
+        raw_fields = {
+            'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 
+            'intraday_flow_distribution', 'large_order_anomaly', 
+            'intensity_level', 'inflow_persistence', 'days_since_last_peak',
+            'tick_large_order_count', 'flow_persistence_minutes', 'flow_cluster_duration'
+        }
+        
+        final_data = {}
+        for key, value in metrics.items():
+            if key in model_fields:
+                if key in raw_fields:
+                    if key == 'large_order_anomaly' and value is None:
+                        final_data[key] = False
+                    else:
+                        final_data[key] = value
+                else:
+                    final_data[key] = _safe_decimal(value)
+                    
+        final_data['stock'] = stock_info
+        final_data['trade_time'] = trade_date
+        return factor_model(**final_data)
+        
+    except Exception as e:
+        logger.error(f"同步构建因子实例失败 {stock_code} @ {trade_date}: {e}")
         return None
 
 async def _get_historical_flow_data_async(stock_code: str, end_date: date, stock_time_trade_dao, days: int = 120) -> List[Dict]:
@@ -447,45 +521,6 @@ def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_mode
     if instances:
         save_factors_bulk(factor_model, instances)
     return len(instances), failed_dates
-
-def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao) -> Optional[Any]:
-    """
-    v1.7.1: 同步版增加动态字段过滤，确保 metrics 键值对与 factor_model 字段定义完全匹配。
-    """
-    try:
-        stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
-        if not stock_info: return None
-        historical_flow_data = get_historical_flow_data(stock_code, trade_date, stock_time_trade_dao, stock_info, days=120)
-        if not historical_flow_data or len(historical_flow_data) < 10: return None
-        current_flow_data = get_current_flow_data(stock_code, trade_date)
-        if not current_flow_data: return None
-        daily_basic_data = get_daily_basic_data(stock_code, trade_date, stock_time_trade_dao)
-        minute_data = get_1min_data(stock_code, trade_date, stock_time_trade_dao)
-        from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
-        realtime_dao = StockRealtimeDAO(stock_basic_dao.cache_manager)
-        tick_data = async_to_sync(realtime_dao.get_daily_real_ticks)(stock_code, trade_date)
-        context = CalculationContext(
-            stock_code=stock_code, trade_date=trade_date, current_flow_data=current_flow_data,
-            historical_flow_data=historical_flow_data, daily_basic_data=daily_basic_data,
-            minute_data_1min=minute_data, tick_data=tick_data
-        )
-        calculator = FundFlowFactorCalculator(context)
-        metrics = calculator.calculate_all_metrics()
-        model_fields = {f.name for f in factor_model._meta.fields}
-        raw_fields = {'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 'intraday_flow_distribution'}
-        final_data = {}
-        for key, value in metrics.items():
-            if key in model_fields:
-                if key in raw_fields:
-                    final_data[key] = value
-                else:
-                    final_data[key] = _safe_decimal(value)
-        final_data['stock'] = stock_info
-        final_data['trade_time'] = trade_date
-        return factor_model(**final_data)
-    except Exception as e:
-        logger.error(f"同步构建因子实例失败 {stock_code} @ {trade_date}: {e}")
-        return None
 
 def get_historical_flow_data(stock_code: str, end_date: date, 
                             stock_time_trade_dao: StockTimeTradeDAO, stock_info: StockInfo,
