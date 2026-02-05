@@ -202,8 +202,8 @@ async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date]
 
 async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao, realtime_dao) -> Optional[Any]:
     """
-    v1.7.0: 修改为返回模型对象而不直接触发 DB 写入。
-    配合批量入库流程，降低数据库压力。
+    v1.7.1: 增加动态字段过滤逻辑，修复计算指标与模型字段不一致导致的实例化失败。
+    通过 _meta.fields 提取合法字段名，确保 bulk_create 实例化的健壮性。
     """
     try:
         stock_info = await stock_basic_dao.get_stock_by_code(stock_code)
@@ -222,17 +222,21 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         )
         calculator = FundFlowFactorCalculator(context)
         metrics = calculator.calculate_all_metrics()
-        # 构造实例，但不保存
-        defaults = {k: _safe_decimal(v) for k, v in metrics.items() if not isinstance(v, (str, bool, type(None)))}
-        defaults.update({
-            'stock': stock_info, 'trade_time': trade_date,
-            'behavior_pattern': metrics.get('behavior_pattern'),
-            'divergence_type': metrics.get('divergence_type'),
-            'trading_signal': metrics.get('trading_signal'),
-            'feature_vector': metrics.get('feature_vector'),
-            'intraday_flow_distribution': metrics.get('intraday_flow_distribution'),
-        })
-        return factor_model(**defaults)
+        # 动态过滤：仅保留数据库中存在的字段
+        model_fields = {f.name for f in factor_model._meta.fields}
+        # 预定义非数值字段，避免经过 _safe_decimal 转换
+        raw_fields = {'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 'intraday_flow_distribution'}
+        final_data = {}
+        for key, value in metrics.items():
+            if key in model_fields:
+                if key in raw_fields:
+                    final_data[key] = value
+                else:
+                    final_data[key] = _safe_decimal(value)
+        # 补充关联键
+        final_data['stock'] = stock_info
+        final_data['trade_time'] = trade_date
+        return factor_model(**final_data)
     except Exception as e:
         logger.error(f"构建因子实例失败 {stock_code} @ {trade_date}: {e}")
         return None
@@ -263,8 +267,7 @@ def get_tick_data(stock_code: str, trade_date: date, stock_time_trade_dao: Stock
         logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的Tick数据失败: {e}")
         return None
 
-async def _get_historical_flow_data_async(stock_code: str, end_date: date, 
-                                        stock_time_trade_dao, days: int = 120) -> List[Dict]:
+async def _get_historical_flow_data_async(stock_code: str, end_date: date, stock_time_trade_dao, days: int = 120) -> List[Dict]:
     """
     [Async] 获取历史资金流向数据
     版本: V1.8
@@ -373,16 +376,6 @@ async def _get_daily_basic_data_async(stock_code: str, trade_date: date,
         logger.error(f"获取股票 {stock_code} 在 {trade_date} 的每日基本信息失败: {e}")
         return None
 
-async def _get_1min_data_async(stock_code: str, trade_date: date, 
-                             stock_time_trade_dao) -> Optional[pd.DataFrame]:
-    """[Async] 获取1分钟数据"""
-    try:
-        df = await stock_time_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date)
-        return df
-    except Exception as e:
-        logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的1分钟数据失败: {e}")
-        return None
-
 def get_trade_dates_for_stock(stock_code: str, start_date: date, incremental: bool, factor_model) -> List[date]:
     """
     获取需要计算的交易日列表
@@ -483,7 +476,7 @@ def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_mode
 
 def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao) -> Optional[Any]:
     """
-    v1.7.0: 同步版单日计算，返回模型实例。
+    v1.7.1: 同步版增加动态字段过滤，确保 metrics 键值对与 factor_model 字段定义完全匹配。
     """
     try:
         stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
@@ -504,16 +497,18 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         )
         calculator = FundFlowFactorCalculator(context)
         metrics = calculator.calculate_all_metrics()
-        defaults = {k: _safe_decimal(v) for k, v in metrics.items() if not isinstance(v, (str, bool, type(None)))}
-        defaults.update({
-            'stock': stock_info, 'trade_time': trade_date,
-            'behavior_pattern': metrics.get('behavior_pattern'),
-            'divergence_type': metrics.get('divergence_type'),
-            'trading_signal': metrics.get('trading_signal'),
-            'feature_vector': metrics.get('feature_vector'),
-            'intraday_flow_distribution': metrics.get('intraday_flow_distribution'),
-        })
-        return factor_model(**defaults)
+        model_fields = {f.name for f in factor_model._meta.fields}
+        raw_fields = {'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 'intraday_flow_distribution'}
+        final_data = {}
+        for key, value in metrics.items():
+            if key in model_fields:
+                if key in raw_fields:
+                    final_data[key] = value
+                else:
+                    final_data[key] = _safe_decimal(value)
+        final_data['stock'] = stock_info
+        final_data['trade_time'] = trade_date
+        return factor_model(**final_data)
     except Exception as e:
         logger.error(f"同步构建因子实例失败 {stock_code} @ {trade_date}: {e}")
         return None
@@ -675,6 +670,15 @@ def get_daily_basic_data(stock_code: str, trade_date: date,
         return None
     except Exception as e:
         logger.error(f"获取股票 {stock_code} 在 {trade_date} 的每日基本信息失败: {e}")
+        return None
+
+async def _get_1min_data_async(stock_code: str, trade_date: date, stock_time_trade_dao) -> Optional[pd.DataFrame]:
+    """[Async] 获取1分钟数据"""
+    try:
+        df = await stock_time_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date)
+        return df
+    except Exception as e:
+        logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的1分钟数据失败: {e}")
         return None
 
 def get_1min_data(stock_code: str, trade_date: date, 
