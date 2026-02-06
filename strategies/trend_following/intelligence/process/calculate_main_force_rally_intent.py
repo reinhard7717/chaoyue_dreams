@@ -27,89 +27,153 @@ class CalculateMainForceRallyIntent:
         self.helper = process_intelligence_helper_instance
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-        self._probe_output = []  # 探针输出缓冲区
+        self._probe_output = []
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0】计算主力拉升意图主方法
+        计算权力交接（Power Transfer）评分
+        返回范围: [-1, 1], 正值表示向主力交接（吸筹/拉升），负值表示向散户交接（派发）
         """
         self._probe_output = []
-        self._probe_print("=== 主力拉升意图计算开始 ===")
-        # 1. 参数配置
-        params = self._get_parameters(config)
-        self._probe_print(f"参数配置: {json.dumps(params, indent=2, default=str)}")
-        # 2. 获取原始信号
-        raw_signals = self._get_raw_signals(df)
-        self._probe_print(f"原始信号数量: {len(raw_signals)}")
-        # 3. 计算派生信号
-        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
+        method_name = "calculate_power_transfer"
+        self._probe_print(f"=== 权力交接(Power Transfer)计算开始 [{method_name}] ===")
+        
+        # 1. 获取原始信号 (Raw Signals)
+        # 必须使用 verify_columns 确保军械库清单中的列存在，否则给默认值
+        raw = self._get_raw_data(df)
         df_index = df.index
-        # 4. 计算归一化信号
-        normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
-        self._probe_print(f"归一化信号数量: {len(normalized_signals)}")
-        # 5. 计算MTF融合信号
-        mtf_signals = self._calculate_mtf_fused_signals(df, params['mtf_slope_accel_weights'], df_index)
-        self._probe_print(f"MTF融合信号数量: {len(mtf_signals)}")
-        # 6. 计算历史上下文
-        historical_context = self._calculate_historical_context(df, df_index, raw_signals, params['historical_context_params'])
-        # 7. 构建代理信号
-        proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
-        # 8. 计算动态权重
-        dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals)
-        self._probe_print(f"动态权重: {dynamic_weights}")
-        # 9. 计算三大维度
-        aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
-        control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context)
-        obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals)
-        self._probe_print(f"攻击性得分: {aggressiveness_score.mean():.4f}")
-        self._probe_print(f"控制力得分: {control_score.mean():.4f}")
-        self._probe_print(f"障碍清除得分: {obstacle_clearance_score.mean():.4f}")
-        # 10. 合成基础看涨意图
-        bullish_intent = self._synthesize_bullish_intent(
-            df_index, aggressiveness_score, control_score, obstacle_clearance_score,
-            mtf_signals, normalized_signals, dynamic_weights, historical_context,
-            params['rally_intent_synthesis_params']
+        
+        # 2. 计算主力与散户的净资金流 (Net Capital Flow)
+        # 主力 = 特大单 + 大单
+        main_force_net = (raw['buy_elg_amount'] - raw['sell_elg_amount']) + \
+                         (raw['buy_lg_amount'] - raw['sell_lg_amount'])
+        # 散户 = 中单 + 小单
+        retail_net = (raw['buy_md_amount'] - raw['sell_md_amount']) + \
+                     (raw['buy_sm_amount'] - raw['sell_sm_amount'])
+        
+        # 3. 计算资金博弈差 (Fund Game Spread)
+        # 归一化分母：总成交额 (避免除以0)
+        total_amount = raw['amount'].replace(0, 1.0) 
+        # FGS > 0 表示资金从散户流向主力
+        fund_game_spread = (main_force_net - retail_net) / total_amount
+        
+        # 4. 计算筹码穿透率 (Chip Penetration)
+        # 筹码集中度的一阶差分 (变动量)
+        concentration_delta = raw['chip_concentration'].diff().fillna(0)
+        # 如果换手率高且集中度增加，说明主力在承接
+        # 归一化换手率，避免极值影响
+        turnover_factor = raw['turnover_rate'].clip(0, 0.2) * 5.0 # 放大因子
+        chip_penetration = concentration_delta * raw['chip_stability'] * (1 + turnover_factor)
+        
+        # 5. 行为确认 (Behavior Confirmation)
+        # 主力活跃度越高，交接意图越明确
+        activity_factor = normalize_score(raw['main_force_activity'], 0.0, 100.0)
+        
+        # 6. 合成权力交接得分 (Power Transfer Score)
+        # 权重设计：资金博弈(50%) + 筹码结构(30%) + 行为特征(20%)
+        # fund_game_spread 已经是比率，通常在 -0.5 到 0.5 之间，需要放大
+        transfer_score_raw = (
+            (fund_game_spread * 2.0).clip(-1, 1) * 0.5 + 
+            (chip_penetration * 10.0).clip(-1, 1) * 0.3 +
+            (activity_factor * 2 - 1).clip(-1, 1) * 0.2 # 映射到 [-1, 1]
         )
-        # 11. 计算看跌意图
-        bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 12. 风险审判
-        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'])
-        # 13. 最终意图合成
-        penalized_bullish_part = bullish_intent * (1 - total_risk_penalty)
-        final_rally_intent = (penalized_bullish_part + bearish_score).clip(-1, 1)
-        # 14. 应用情境调节器
-        final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals)
-        # 15. 特殊处理：涨停日
-        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (total_risk_penalty > 0.5), final_rally_intent * (1 - total_risk_penalty))
-        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
-        # 16. 存储调试信息
-        self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
-        self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
-        self.strategy.atomic_states["_DEBUG_rally_obstacle_clearance"] = obstacle_clearance_score
-        self.strategy.atomic_states["_DEBUG_rally_bullish_intent"] = bullish_intent
-        self.strategy.atomic_states["_DEBUG_rally_bearish_score"] = bearish_score
-        self.strategy.atomic_states["_DEBUG_rally_total_risk_penalty"] = total_risk_penalty
-        # 17. 输出探针信息
+        
+        # 7. 趋势方向修正 (Trend Correction)
+        # 只有在趋势没有完全坏掉（例如没有跌停或处于极度下跌趋势）时，正向交接才有效
+        trend_filter = pd.Series(1.0, index=df_index)
+        trend_filter = trend_filter.mask(raw['downtrend_strength'] > 0.8, 0.5) # 下跌趋势中打折
+        
+        final_power_transfer = (transfer_score_raw * trend_filter).clip(-1, 1)
+        
+        # 8. 输出探针详细数据 (Probe Details)
         if self._is_probe_enabled(df):
-            self._output_probe_info(df_index, final_rally_intent)
-        self._probe_print("=== 主力拉升意图计算完成 ===")
-        return final_rally_intent.astype(np.float32)
+            self._output_detailed_probe(
+                df_index, final_power_transfer, 
+                main_force_net, retail_net, fund_game_spread, 
+                chip_penetration, raw
+            )
+            
+        # 9. 存储中间状态供策略使用
+        self.strategy.atomic_states["_DEBUG_power_transfer_fund_spread"] = fund_game_spread
+        self.strategy.atomic_states["_DEBUG_power_transfer_chip_penetration"] = chip_penetration
 
-    def _probe_print(self, message: str):
-        """
-        【V2.0】探针打印方法
-        """
-        self._probe_output.append(message)
-        if get_param_value(self.debug_params.get('enabled'), False):
-            print(f"[PROBE] {message}")
+        self._probe_print("=== 权力交接计算完成 ===")
+        return final_power_transfer.astype(np.float32)
+
+    def _get_raw_data(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """从数据层提取L2和筹码数据，如果不存在则返回0序列"""
+        signals = {}
+        # 资金流相关 (Level-2)
+        signals['buy_elg_amount'] = self.helper._get_safe_series(df, 'buy_elg_amount_D', 0.0)
+        signals['sell_elg_amount'] = self.helper._get_safe_series(df, 'sell_elg_amount_D', 0.0)
+        signals['buy_lg_amount'] = self.helper._get_safe_series(df, 'buy_lg_amount_D', 0.0)
+        signals['sell_lg_amount'] = self.helper._get_safe_series(df, 'sell_lg_amount_D', 0.0)
+        signals['buy_md_amount'] = self.helper._get_safe_series(df, 'buy_md_amount_D', 0.0)
+        signals['sell_md_amount'] = self.helper._get_safe_series(df, 'sell_md_amount_D', 0.0)
+        signals['buy_sm_amount'] = self.helper._get_safe_series(df, 'buy_sm_amount_D', 0.0)
+        signals['sell_sm_amount'] = self.helper._get_safe_series(df, 'sell_sm_amount_D', 0.0)
+        signals['amount'] = self.helper._get_safe_series(df, 'amount_D', 1.0) # 避免除0
+        
+        # 筹码相关
+        signals['chip_concentration'] = self.helper._get_safe_series(df, 'chip_concentration_ratio_D', 0.0)
+        signals['chip_stability'] = self.helper._get_safe_series(df, 'chip_stability_D', 0.5)
+        signals['turnover_rate'] = self.helper._get_safe_series(df, 'turnover_rate_D', 0.0)
+        
+        # 行为与趋势
+        signals['main_force_activity'] = self.helper._get_safe_series(df, 'main_force_activity_index_D', 50.0)
+        signals['downtrend_strength'] = self.helper._get_safe_series(df, 'downtrend_strength_D', 0.0)
+        
+        # 探针输出原始数据样本(最后一天)
+        if not df.empty:
+            last_idx = df.index[-1]
+            self._probe_print(f"数据样本[{last_idx}]: ELG_Buy={signals['buy_elg_amount'].iloc[-1]:.0f}, SM_Buy={signals['buy_sm_amount'].iloc[-1]:.0f}")
+            
+        return signals
 
     def _is_probe_enabled(self, df: pd.DataFrame) -> bool:
-        """
-        【V2.0】检查探针是否启用
-        """
+        """检查探针是否启用"""
         is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
         should_probe = get_param_value(self.debug_params.get('should_probe'), False)
         return is_debug_enabled and should_probe and self.probe_dates
+
+    def _probe_print(self, message: str):
+        """探针打印"""
+        self._probe_output.append(message)
+        if get_param_value(self.debug_params.get('enabled'), False):
+            print(f"[PROBE_PT] {message}")
+
+    def _output_detailed_probe(self, df_index: pd.Index, final_score: pd.Series, mf_net: pd.Series, retail_net: pd.Series, fgs: pd.Series, chip_pen: pd.Series, raw: Dict[str, pd.Series]):
+        """输出详细的计算过程数据"""
+        probe_ts = None
+        if self.probe_dates:
+            # 寻找匹配的探针日期
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+            for date in reversed(df_index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                    probe_ts = date
+                    break
+        
+        if probe_ts:
+            idx_loc = df_index.get_loc(probe_ts)
+            self._probe_print(f"\n>>> 权力交接深度探针 @ {probe_ts.strftime('%Y-%m-%d')} <<<")
+            self._probe_print(f"1. 资金博弈:")
+            self._probe_print(f"   - 主力净额 (ELG+LG): {mf_net.iloc[idx_loc]:,.0f}")
+            self._probe_print(f"   - 散户净额 (MD+SM): {retail_net.iloc[idx_loc]:,.0f}")
+            self._probe_print(f"   - 总成交额: {raw['amount'].iloc[idx_loc]:,.0f}")
+            self._probe_print(f"   -> 资金博弈差 (FGS): {fgs.iloc[idx_loc]:.4f} (权重50%)")
+            
+            self._probe_print(f"2. 筹码结构:")
+            self._probe_print(f"   - 筹码集中度: {raw['chip_concentration'].iloc[idx_loc]:.4f}")
+            self._probe_print(f"   - 筹码稳定性: {raw['chip_stability'].iloc[idx_loc]:.4f}")
+            self._probe_print(f"   - 换手率: {raw['turnover_rate'].iloc[idx_loc]:.4f}")
+            self._probe_print(f"   -> 筹码穿透率 (CPR): {chip_pen.iloc[idx_loc]:.4f} (权重30%)")
+            
+            self._probe_print(f"3. 行为特征:")
+            self._probe_print(f"   - 主力活跃度: {raw['main_force_activity'].iloc[idx_loc]:.2f}")
+            
+            self._probe_print(f"4. 结果:")
+            self._probe_print(f"   -> 最终权力交接得分: {final_score.iloc[idx_loc]:.4f}")
+            self._probe_print(">>> 探针结束 <<<\n")
 
     def _get_parameters(self, config: Dict) -> Dict:
         """
