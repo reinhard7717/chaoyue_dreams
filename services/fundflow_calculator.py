@@ -386,9 +386,9 @@ class FundFlowFactorCalculator:
         """
         [修复] 隐蔽吸筹熵 (Stealth Accumulation)
         修复点：
-        1. 解决大量 0 值：摒弃"连续红盘"的硬约束，改用"能量密度"模型。
-        2. 核心逻辑：计算"单位价格振幅内的资金堆积量"。
-           - 如果资金大举流入(Net>0)，但价格振幅(High-Low)极小，说明主力在压盘吸筹，密度极高。
+        1. 解决大量 0 值：摒弃"连续红盘"或"严格背离"的硬约束。
+        2. 核心模型：能量密度 (Energy Density) = 资金净流入 / 价格综合波幅。
+           - 物理意义：主力用了很大的资金量(Flow)，却只造成了很小的价格波动(Volatility)，说明控盘/压盘迹象明显。
         """
         n = len(arr)
         if n < 10: return 0.0
@@ -398,48 +398,54 @@ class FundFlowFactorCalculator:
         nets = arr[-window:]
         closes = self.close_array[-window:]
         
-        # 1. 资金堆积判定
+        # 1. 基础门槛：整体必须是资金流入的
         cum_net = np.sum(nets)
-        # 如果整体是流出的，吸筹分直接给低分，但不一定为0 (可能是底部承接)
         if cum_net <= 0: 
-            # 只有当流出极少时才给一点辛苦分
+            # 如果是流出的，吸筹分很低，但也给一点基础分(防止完全0)，可能是底部承接
+            # 只有当流出量很小（< 1% 成交额）时才给分
+            total_turnover = np.sum(self.daily_amount_array[-window:]) + 1.0
+            if abs(cum_net) / total_turnover < 0.01:
+                return 10.0 # 弱吸筹/抵抗
             return 0.0
             
-        # 2. 价格抵抗/压盘判定
-        # 计算区间的真实波幅 (True Range Sum)
-        # 这里用 closes 估算 high-low 的累积：sum(abs(diff(close)))
-        price_volatility = np.sum(np.abs(np.diff(closes))) + 1e-6
-        
-        # 3. 能量密度 (Energy Density)
-        # 单位价格变动蕴含的资金量
-        # 为了归一化，我们需要除以成交金额
+        # 2. 计算能量密度
+        # 分子：资金力度 (Flow Strength)
         total_amt = np.sum(self.daily_amount_array[-window:]) + 1.0
+        flow_ratio = cum_net / total_amt # 0.01 ~ 0.2 (1% - 20%)
         
-        # Flow Ratio: 资金净流入 / 总成交
-        flow_ratio = cum_net / total_amt # 0.01 ~ 0.2
+        # 分母：价格阻力 (Price Resistance/Volatility)
+        # 使用 真实波幅之和 或 路径长度
+        # 这里计算: sum(|price_change|) / mean_price
+        path_length = np.sum(np.abs(np.diff(closes))) 
+        vol_ratio = path_length / (np.mean(closes) + 1e-6)
         
-        # Volatility Ratio: 价格总波动 / 均价
-        vol_ratio = price_volatility / np.mean(closes) # 0.02 ~ 0.1
+        # 密度 = 资金力度 / 价格阻力
+        # 如果主力吸筹：Flow大，但通过控制手段让 Price波动小 -> Density 极大
+        # 如果是散户推升：Flow小，Price乱跳 -> Density 小
+        # 加微小底噪防止除零
+        density = flow_ratio / (vol_ratio + 0.02) 
         
-        # Density = Flow / Volatility
-        # 物理意义：主力用了多少资金(Flow)才让价格动了这么一点(Vol)
-        # 吸筹时，Flow大，Vol小 -> Density 极大
-        density = flow_ratio / (vol_ratio + 1e-4)
-        
-        # 4. 映射到 0-100
+        # 3. 映射分数
         # 经验值: density > 2.0 属于极强吸筹
         raw_score = density * 40.0
         
-        # 5. 位置修正
-        # 低位吸筹才有效
+        # 4. 连续性加成 (Consistency Bonus)
+        # 统计资金流入的天数占比
+        pos_days = np.sum(nets > 0)
+        consistency = (pos_days / window) * 20.0 # Max 20分
+        
+        # 5. 位置修正 (Position Correction)
+        # 低位吸筹才有效，高位可能是诱多
         long_closes = self.close_array[-60:]
-        pos = (closes[-1] - np.min(long_closes)) / (np.ptp(long_closes) + 1e-6)
+        current_pos = (closes[-1] - np.min(long_closes)) / (np.ptp(long_closes) + 1e-6)
         
         pos_factor = 1.0
-        if pos < 0.3: pos_factor = 1.2
-        elif pos > 0.7: pos_factor = 0.5
+        if current_pos < 0.3: pos_factor = 1.2 # 低位加分
+        elif current_pos > 0.8: pos_factor = 0.6 # 高位打折
         
-        return float(np.clip(raw_score * pos_factor, 0.0, 100.0))
+        final_score = (raw_score + consistency) * pos_factor
+        
+        return float(np.clip(final_score, 0.0, 100.0))
 
     def _calculate_pushing_score(self, arr: np.ndarray) -> float:
         """
@@ -1082,57 +1088,87 @@ class FundFlowFactorCalculator:
 
     def _calculate_robust_trend_strength(self) -> Tuple[float, float]:
         """
-        [修复] 趋势强度
+        [修复] 鲁棒趋势强度 (Uptrend / Downtrend)
         修复点：
-        1. 解决大量 0 值：放宽对线性度(R2)的要求。
-        2. 引入"总回报率"作为保底分。只要涨了，哪怕震荡，趋势分也不能为0。
+        1. 解决大量 0 值：引入"多维评分卡"。
+        2. 即使线性度(R2)低，只要 Spearman(单调性)高 或 NetGain(净涨幅)大，就有分。
+        3. 回撤惩罚：大幅放宽，不再因一次洗盘就归零。
         """
         window = 10
         if len(self.net_amount_array) < window: return 0.0, 0.0
         
+        # 使用累积资金流作为趋势对象
         cum_flow = np.cumsum(self.net_amount_array[-window:])
         x = np.arange(len(cum_flow))
         
-        # 1. 线性回归
+        # --- 维度 1: 线性回归 (Linearity) ---
         slope, _, r_value, _, _ = linregress(x, cum_flow)
         r_sq = r_value ** 2
+        linear_score = r_sq * 100.0
         
-        # 2. 秩相关 (Spearman)
+        # --- 维度 2: 秩相关 (Monotonicity) ---
+        # 捕捉非线性但单调的趋势 (如阶梯上涨)
         spearman_corr, _ = stats.spearmanr(x, cum_flow)
         if np.isnan(spearman_corr): spearman_corr = 0.0
+        rank_score = abs(spearman_corr) * 100.0
         
-        # 3. 净增益 (Net Gain)
-        # 只要首尾是涨的，就有基础分
-        net_gain = cum_flow[-1] - cum_flow[0]
-        range_val = np.ptp(cum_flow) + 1e-6
-        gain_ratio = net_gain / range_val # -1 ~ 1
+        # --- 维度 3: 净增益 (Net Gain) ---
+        # 简单粗暴：结果导向，只要最后比开始高，就是涨
+        net_change = cum_flow[-1] - cum_flow[0]
+        range_val = np.ptp(cum_flow) + 10.0 # 加底噪
+        gain_ratio = net_change / range_val # -1.0 ~ 1.0
+        gain_score = abs(gain_ratio) * 100.0
         
-        # 4. 综合评分
-        # 权重: 线性度 40% + 秩相关 30% + 净增益 30%
-        # 只要方向向上，分数为正
+        # --- 综合评分权重 ---
+        # 降低对完美线性的要求
+        # Strength = 30% R2 + 30% Rank + 40% Gain
+        base_strength = linear_score * 0.3 + rank_score * 0.3 + gain_score * 0.4
         
-        # 归一化线性分
-        linear_score = r_sq * 100.0
-        rank_score = max(0, spearman_corr) * 100.0
-        gain_score = max(0, gain_ratio) * 100.0
+        # --- 方向判定 ---
+        # 只要 Spearman > 0.1 (微弱正相关) 或 Slope > 0 或 Gain > 0，就算有上涨趋势成分
+        # 这里分开计算 Up 和 Down
         
-        raw_strength = 0.0
-        if slope > 0 or spearman_corr > 0.1:
-            # 上升趋势
-            raw_strength = linear_score * 0.3 + rank_score * 0.3 + gain_score * 0.4
-            
-            # 回撤惩罚 (更宽松)
+        # 计算 上涨强度
+        if slope > 0 or spearman_corr > 0.1 or net_change > 0:
+            # 回撤计算 (Drawdown)
             peak = np.maximum.accumulate(cum_flow)
-            dd = (peak - cum_flow) / range_val
-            max_dd = np.max(dd)
-            penalty = max(0.0, 1.0 - max_dd * 1.2) # 允许更大回撤
+            # 只有当 peak > cum_flow 时才有回撤
+            dd_arr = (peak - cum_flow) / range_val
+            max_dd = np.max(dd_arr)
             
-            return float(np.clip(raw_strength * penalty, 0.0, 100.0)), 0.0
+            # 宽松惩罚：回撤 40% 以内不扣分，> 90% 扣光
+            if max_dd < 0.4:
+                penalty = 1.0
+            else:
+                penalty = max(0.0, 1.0 - (max_dd - 0.4) * 2.0)
+            
+            uptrend_val = base_strength * penalty
+            # 保底：只要净增益是正的，至少给 15 分
+            if net_change > 0:
+                uptrend_val = max(uptrend_val, 15.0)
         else:
-            # 下降趋势
-            # 下跌强度同理
-            down_strength = linear_score * 0.3 + abs(min(0, spearman_corr)) * 100 * 0.3 + abs(min(0, gain_ratio)) * 100 * 0.4
-            return 0.0, float(np.clip(down_strength, 0.0, 100.0))
+            uptrend_val = 0.0
+            
+        # 计算 下跌强度
+        if slope < 0 or spearman_corr < -0.1 or net_change < 0:
+            # 下跌的回撤定义为反弹 (Drawup)
+            trough = np.minimum.accumulate(cum_flow)
+            du_arr = (cum_flow - trough) / range_val
+            max_du = np.max(du_arr)
+            
+            if max_du < 0.4:
+                penalty = 1.0
+            else:
+                penalty = max(0.0, 1.0 - (max_du - 0.4) * 2.0)
+                
+            downtrend_val = base_strength * penalty
+            # 保底
+            if net_change < 0:
+                downtrend_val = max(downtrend_val, 15.0)
+        else:
+            downtrend_val = 0.0
+            
+        return float(np.clip(uptrend_val, 0.0, 100.0)), float(np.clip(downtrend_val, 0.0, 100.0))
 
     def _calculate_complex_trend_strength(self) -> Tuple[float, float]:
         """
