@@ -1090,9 +1090,9 @@ class FundFlowFactorCalculator:
         """
         [修复] 鲁棒趋势强度 (Uptrend / Downtrend)
         修复点：
-        1. 解决大量 0 值：引入"多维评分卡"。
-        2. 即使线性度(R2)低，只要 Spearman(单调性)高 或 NetGain(净涨幅)大，就有分。
-        3. 回撤惩罚：大幅放宽，不再因一次洗盘就归零。
+        1. 消除 0 值陷阱：采用"带符号连续评分"，不再因单一指标微负而强制归零。
+        2. 只要 Spearman(单调性) 或 NetGain(净涨幅) 为正，即使线性拟合差，也给予正分。
+        3. 回撤惩罚：大幅放宽，引入"净值保护"，只要最终是涨的，保底给分。
         """
         window = 10
         if len(self.net_amount_array) < window: return 0.0, 0.0
@@ -1104,69 +1104,79 @@ class FundFlowFactorCalculator:
         # --- 维度 1: 线性回归 (Linearity) ---
         slope, _, r_value, _, _ = linregress(x, cum_flow)
         r_sq = r_value ** 2
-        linear_score = r_sq * 100.0
+        # 线性分带符号：斜率为正，分为正
+        linear_score = r_sq * 100.0 * np.sign(slope)
         
         # --- 维度 2: 秩相关 (Monotonicity) ---
-        # 捕捉非线性但单调的趋势 (如阶梯上涨)
+        # Spearman 自带符号 (-1 ~ 1)
         spearman_corr, _ = stats.spearmanr(x, cum_flow)
         if np.isnan(spearman_corr): spearman_corr = 0.0
-        rank_score = abs(spearman_corr) * 100.0
+        rank_score = spearman_corr * 100.0
         
         # --- 维度 3: 净增益 (Net Gain) ---
-        # 简单粗暴：结果导向，只要最后比开始高，就是涨
+        # 结果导向：首尾涨跌幅
         net_change = cum_flow[-1] - cum_flow[0]
-        range_val = np.ptp(cum_flow) + 10.0 # 加底噪
-        gain_ratio = net_change / range_val # -1.0 ~ 1.0
-        gain_score = abs(gain_ratio) * 100.0
+        # 使用标准差作为分母更稳健，防止 Range 过小导致的爆炸
+        std_val = np.std(cum_flow) + 1.0 # 底噪
+        # 限制 gain_ratio 在 -2 ~ 2 之间 (2倍标准差)
+        gain_ratio = np.clip(net_change / (std_val * 2.0), -1.0, 1.0)
+        gain_score = gain_ratio * 100.0
         
-        # --- 综合评分权重 ---
-        # 降低对完美线性的要求
-        # Strength = 30% R2 + 30% Rank + 40% Gain
-        base_strength = linear_score * 0.3 + rank_score * 0.3 + gain_score * 0.4
+        # --- 综合基础分 ---
+        # 权重: 线性度 30% + 单调性 30% + 净结果 40%
+        # 这是一个 -100 到 100 的连续分数
+        base_score = linear_score * 0.3 + rank_score * 0.3 + gain_score * 0.4
         
-        # --- 方向判定 ---
-        # 只要 Spearman > 0.1 (微弱正相关) 或 Slope > 0 或 Gain > 0，就算有上涨趋势成分
-        # 这里分开计算 Up 和 Down
+        uptrend_val = 0.0
+        downtrend_val = 0.0
         
-        # 计算 上涨强度
-        if slope > 0 or spearman_corr > 0.1 or net_change > 0:
-            # 回撤计算 (Drawdown)
+        # --- 分流计算 ---
+        range_val = np.ptp(cum_flow) + 1e-6
+        
+        if base_score > 0:
+            # === 上升趋势计算 ===
+            # 回撤惩罚 (Drawdown)
             peak = np.maximum.accumulate(cum_flow)
-            # 只有当 peak > cum_flow 时才有回撤
-            dd_arr = (peak - cum_flow) / range_val
-            max_dd = np.max(dd_arr)
-            
-            # 宽松惩罚：回撤 40% 以内不扣分，> 90% 扣光
-            if max_dd < 0.4:
-                penalty = 1.0
+            # 计算最大回撤占比
+            if range_val > 0:
+                max_dd = np.max((peak - cum_flow) / range_val)
             else:
-                penalty = max(0.0, 1.0 - (max_dd - 0.4) * 2.0)
-            
-            uptrend_val = base_strength * penalty
-            # 保底：只要净增益是正的，至少给 15 分
-            if net_change > 0:
-                uptrend_val = max(uptrend_val, 15.0)
-        else:
-            uptrend_val = 0.0
-            
-        # 计算 下跌强度
-        if slope < 0 or spearman_corr < -0.1 or net_change < 0:
-            # 下跌的回撤定义为反弹 (Drawup)
-            trough = np.minimum.accumulate(cum_flow)
-            du_arr = (cum_flow - trough) / range_val
-            max_du = np.max(du_arr)
-            
-            if max_du < 0.4:
-                penalty = 1.0
-            else:
-                penalty = max(0.0, 1.0 - (max_du - 0.4) * 2.0)
+                max_dd = 0.0
                 
-            downtrend_val = base_strength * penalty
-            # 保底
+            # 宽松惩罚：回撤 30% 以内不扣分，> 80% 扣光
+            # 线性过渡: 0.3 -> 1.0, 0.8 -> 0.0
+            penalty = 1.0
+            if max_dd > 0.3:
+                penalty = max(0.0, 1.0 - (max_dd - 0.3) * 2.0)
+            
+            final_up = base_score * penalty
+            
+            # [净值保护]：只要 NetGain > 0，至少给 10 分 (即使回撤大，也是涨了)
+            if net_change > 0:
+                final_up = max(final_up, 10.0)
+                
+            uptrend_val = final_up
+            
+        elif base_score < 0:
+            # === 下跌趋势计算 ===
+            # 反弹惩罚 (Drawup)
+            trough = np.minimum.accumulate(cum_flow)
+            if range_val > 0:
+                max_du = np.max((cum_flow - trough) / range_val)
+            else:
+                max_du = 0.0
+                
+            penalty = 1.0
+            if max_du > 0.3:
+                penalty = max(0.0, 1.0 - (max_du - 0.3) * 2.0)
+                
+            final_down = abs(base_score) * penalty
+            
+            # [净值保护]
             if net_change < 0:
-                downtrend_val = max(downtrend_val, 15.0)
-        else:
-            downtrend_val = 0.0
+                final_down = max(final_down, 10.0)
+                
+            downtrend_val = final_down
             
         return float(np.clip(uptrend_val, 0.0, 100.0)), float(np.clip(downtrend_val, 0.0, 100.0))
 
@@ -1267,8 +1277,9 @@ class FundFlowFactorCalculator:
         """
         [修复] 背离强度
         修复点：
-        1. 解决大量 0 值：引入向量夹角余弦算法。
-        2. 只要价格和资金流的"方向向量"夹角大，就判定为背离，不再依赖硬性的斜率符号比较。
+        1. 消除 0 值陷阱：降低相关性阈值，引入秩相关(Spearman)捕捉非线性背离。
+        2. 只要有背离迹象(Corr < 0.8)，就开始计算强度，不再硬切。
+        3. 弱背离判定：放宽相对强弱的判定标准 (0.2 -> 0.05)。
         """
         divergence = {
             'divergence_type': 'NONE',
@@ -1283,47 +1294,70 @@ class FundFlowFactorCalculator:
         
         # 1. 归一化 (Min-Max -> 0~1)
         def norm(arr):
-            return (arr - np.min(arr)) / (np.ptp(arr) + 1e-6)
+            ptp = np.ptp(arr)
+            if ptp < 1e-8: return np.zeros_like(arr)
+            return (arr - np.min(arr)) / ptp
             
         p_norm = norm(prices)
         f_norm = norm(cum_flow)
         
-        # 2. 向量相关性 (Correlation)
-        # corr = 1.0 (同向), corr = -1.0 (完全背离)
-        corr = np.corrcoef(p_norm, f_norm)[0, 1]
-        if np.isnan(corr): corr = 1.0
+        # 2. 综合相关性 (Min of Pearson & Spearman)
+        # 取最小值，意味着只要有一种相关性变差，就认为出现了背离
+        p_corr = np.corrcoef(p_norm, f_norm)[0, 1]
+        if np.isnan(p_corr): p_corr = 1.0
         
-        # 3. 背离度 (0~100)
-        # corr = 0.5 -> score = 25
-        # corr = 0.0 -> score = 50
-        # corr = -0.5 -> score = 75
-        # corr = -1.0 -> score = 100
-        div_score = (1.0 - corr) * 50.0
+        s_corr, _ = stats.spearmanr(p_norm, f_norm)
+        if np.isnan(s_corr): s_corr = 1.0
+        
+        # 综合相关系数
+        min_corr = min(p_corr, s_corr)
+        
+        # 3. 背离度 (Continuous Score)
+        # 只要 corr < 0.9 就开始有分
+        # corr=0.9 -> 5分, corr=0.5 -> 25分, corr=0.0 -> 50分, corr=-1.0 -> 100分
+        div_score = (1.0 - min_corr) * 50.0
+        # 截断负数 (corr > 1.0 case)
+        div_score = max(0.0, div_score)
+        
         divergence['price_flow_divergence'] = float(np.clip(div_score, 0.0, 100.0))
         
         # 4. 类型判定
-        # 只有当背离度显著 (>30) 时才判定类型
-        if div_score > 30.0:
-            # 简单线性斜率方向
+        # 只要背离度 > 10 (即 corr < 0.8) 就尝试判定类型
+        if div_score > 10.0:
+            # 计算线性趋势
             x = np.arange(window)
-            p_s, _, _, _, _ = linregress(x, prices)
-            f_s, _, _, _, _ = linregress(x, cum_flow)
+            p_slope, _, _, _, _ = linregress(x, prices)
+            f_slope, _, _, _, _ = linregress(x, cum_flow)
             
-            if p_s > 0 and f_s < 0:
-                divergence['divergence_type'] = 'BEARISH'
-            elif p_s < 0 and f_s > 0:
-                divergence['divergence_type'] = 'BULLISH'
-            elif p_s > 0 and f_s > 0:
-                # 同涨，但相关性低 -> 弱顶背离 (资金涨不动)
-                if np.mean(p_norm) > np.mean(f_norm) + 0.2:
-                    divergence['divergence_type'] = 'BEARISH'
-            elif p_s < 0 and f_s < 0:
-                 # 同跌，但资金跌不动 -> 弱底背离
-                if np.mean(f_norm) > np.mean(p_norm) + 0.2:
-                    divergence['divergence_type'] = 'BULLISH'
-                    
-            if divergence['divergence_type'] != 'NONE':
-                divergence['divergence_strength'] = divergence['price_flow_divergence']
+            div_type = 'NONE'
+            strength_mult = 1.0
+            
+            # A. 强背离 (反向)
+            if p_slope > 0 and f_slope < 0:
+                div_type = 'BEARISH'
+                strength_mult = 1.2
+            elif p_slope < 0 and f_slope > 0:
+                div_type = 'BULLISH'
+                strength_mult = 1.2
+            
+            # B. 弱背离 (同向但力度不一)
+            # 使用归一化后的均值差来判断相对强弱
+            # Mean Diff > 0.05 即视为有显著差异 (原逻辑是 0.2 太严)
+            elif p_slope > 0 and f_slope > 0:
+                # 价格强，资金弱 -> 顶背离风险
+                if np.mean(p_norm) > np.mean(f_norm) + 0.05:
+                    div_type = 'BEARISH'
+                    strength_mult = 0.7 # 弱背离打折
+            elif p_slope < 0 and f_slope < 0:
+                 # 价格弱，资金强 -> 底背离机会
+                if np.mean(f_norm) > np.mean(p_norm) + 0.05:
+                    div_type = 'BULLISH'
+                    strength_mult = 0.7
+            
+            if div_type != 'NONE':
+                divergence['divergence_type'] = div_type
+                # 最终强度 = 背离度 * 类型系数
+                divergence['divergence_strength'] = float(np.clip(div_score * strength_mult, 0.0, 100.0))
                 
         return divergence
 
