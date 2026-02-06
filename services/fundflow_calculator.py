@@ -64,8 +64,8 @@ class FundFlowFactorCalculator:
             raise ValueError("当前日资金流向数据不能为空")
         if not self.context.historical_flow_data:
             raise ValueError("历史资金流向数据不能为空")
-        if len(self.context.historical_flow_data) < 20:
-            logger.warning(f"历史数据不足，仅{len(self.context.historical_flow_data)}天")
+        # if len(self.context.historical_flow_data) < 20:
+            # logger.warning(f"历史数据不足，仅{len(self.context.historical_flow_data)}天")
     
     def _prepare_data(self):
         """

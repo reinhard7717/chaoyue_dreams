@@ -1141,12 +1141,9 @@ class FeatureEngineeringService:
 
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.0 · 均线多维势能分析引擎】
-        - 核心优化:
-            1. 引入 "MA_FAN_EFFICIENCY" (均线发散效率): 衡量价格上涨单位带来的均线张开程度，识别 "强弩之末"。
-            2. 引入 "RUBBER_BAND_EXTENSION" (橡皮筋拉伸度): 基于价格对长期均线(EMA_144/89)的偏离，量化回归风险。
-            3. 引入 "COHERENCE_RESONANCE" (多周期共振): 向量化检测多条均线的同向加速状态。
-        - 判定逻辑: 势能不仅仅是乖离(Tension)，更是压缩(Compression)后的有序释放(Orderliness)。
+        【V2.1 · 修复版】均线多维势能分析引擎
+        - 修复: 解决 spread_delta (Series, RangeIndex) 与 price_delta (Series, DatetimeIndex) 在 np.where 计算时的广播形状不匹配问题。
+        - 优化: 强制使用 NumPy 数组进行向量化计算，消除 Pandas 索引对齐开销。
         """
         if not params.get('enabled', False):
             return all_dfs
@@ -1178,52 +1175,76 @@ class FeatureEngineeringService:
                     continue
             try:
                 # 提取数据矩阵 (N_samples, N_periods)
-                ma_matrix = df[[f"{ma_type}_{p}_{timeframe}" for p in all_periods]].values
-                close_arr = df[f"close_{timeframe}"].values
-                atr_arr = df[f"ATR_14_{timeframe}"].replace(0, np.nan).fillna(method='bfill').values
+                # 显式转换为 float64 避免类型不一致
+                ma_matrix = df[[f"{ma_type}_{p}_{timeframe}" for p in all_periods]].values.astype(np.float64)
+                close_arr = df[f"close_{timeframe}"].values.astype(np.float64)
+                # ATR 处理: 确保无0值
+                atr_series = df[f"ATR_14_{timeframe}"].replace(0, np.nan).bfill()
+                atr_arr = atr_series.values.astype(np.float64)
+
                 # 2. 计算 MA_POTENTIAL_COMPRESSION_RATE (极致压缩率)
-                # 逻辑: 所有均线的标准差越小，压缩越紧。除以ATR进行归一化，消除股价绝对值影响。
+                # 逻辑: 所有均线的标准差越小，压缩越紧。除以ATR进行归一化。
                 ma_std = np.std(ma_matrix, axis=1)
-                normalized_spread = ma_std / atr_arr
-                # 使用Rank Percentile量化压缩程度 (0-1)，值越小代表越压缩
-                # 我们希望输出 "压缩率" (1 = 极致压缩, 0 = 极致发散)
-                spread_series = pd.Series(normalized_spread)
+                normalized_spread = np.divide(ma_std, atr_arr, out=np.zeros_like(ma_std), where=atr_arr!=0)
+                
+                # 使用 Rank Percentile量化压缩程度 (0-1)
+                # 使用 df.index 创建 Series 以保持对齐，便于 rolling 计算
+                spread_series = pd.Series(normalized_spread, index=df.index)
                 compression_rank = spread_series.rolling(window=120).rank(pct=True).fillna(0.5).values
                 df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = 1.0 - compression_rank
+
                 # 3. 计算 MA_RUBBER_BAND_EXTENSION (橡皮筋拉伸度 - 均值回归压力)
                 # 逻辑: 价格相对于最长周期均线(如144日)的偏离程度，经过ATR标准化
-                # 正值极大代表超买(回落风险)，负值极小代表超卖(反弹机会)
-                longest_ma = df[f"{ma_type}_{max(all_periods)}_{timeframe}"].values
-                extension_raw = (close_arr - longest_ma) / atr_arr
-                # Z-Score 标准化，便于跨标的比较
-                extension_series = pd.Series(extension_raw)
-                extension_z = (extension_series - extension_series.rolling(250).mean()) / extension_series.rolling(250).std()
-                df[f'MA_RUBBER_BAND_EXTENSION_{timeframe}'] = extension_z.fillna(0).clip(-3, 3)
+                longest_ma = df[f"{ma_type}_{max(all_periods)}_{timeframe}"].values.astype(np.float64)
+                extension_raw = np.divide(close_arr - longest_ma, atr_arr, out=np.zeros_like(close_arr), where=atr_arr!=0)
+                
+                extension_series = pd.Series(extension_raw, index=df.index)
+                extension_mean = extension_series.rolling(250).mean()
+                extension_std = extension_series.rolling(250).std().replace(0, 1)
+                extension_z = (extension_series - extension_mean) / extension_std
+                df[f'MA_RUBBER_BAND_EXTENSION_{timeframe}'] = extension_z.fillna(0).clip(-3, 3).values
+
                 # 4. 计算 MA_COHERENCE_RESONANCE (多均线共振度)
                 # 逻辑: 检查所有均线的瞬时斜率是否同向且加速
-                # 简化计算：当前值 > 昨日值 (Rising)
-                ma_df = df[[f"{ma_type}_{p}_{timeframe}" for p in all_periods]]
-                ma_rising = (ma_df > ma_df.shift(1)).astype(int).sum(axis=1)
-                # 均线多头排列得分 (Spearman秩相关系数逻辑的简化版，只看是否 strict order)
-                # 利用已有的 _numba_spearman_orderliness
+                # 使用 numpy diff 计算行间差异 (Time t vs Time t-1)
+                # np.diff 结果长度会少1，需要补一行 0
+                ma_diff = np.zeros_like(ma_matrix)
+                ma_diff[1:] = ma_matrix[1:] - ma_matrix[:-1]
+                
+                ma_rising = (ma_diff > 0).sum(axis=1) # 统计上升的均线数量
+                
+                # 均线多头排列得分
                 ranks_x = np.arange(len(all_periods), dtype=np.float64) # 理想排名
                 orderliness = _numba_spearman_orderliness(ma_matrix, ranks_x)
+                
                 # 共振度 = (上升均线数量占比 + 排列有序度) / 2
                 coherence = (ma_rising / len(all_periods) + orderliness) / 2
                 df[f'MA_COHERENCE_RESONANCE_{timeframe}'] = coherence
+
                 # 5. 计算 MA_FAN_EFFICIENCY (发散效率 - 识别诱多)
                 # 逻辑: 价格涨幅 / 均线组发散增量。
-                # 如果价格狂涨但均线没张开，说明是情绪博弈，根基不稳。
-                # 如果均线稳步张开配合价格上涨，是健康趋势。
-                spread_delta = spread_series.diff(3).fillna(0) # 3日发散增量
-                price_delta = df[f"close_{timeframe}"].diff(3).abs().fillna(0) / atr_arr
-                # 避免除以0
-                efficiency = np.where(spread_delta > 0.01, price_delta / spread_delta, 0)
+                # 修复核心: 统一提取为 numpy values，避免 Series 索引不一致导致的广播错误
+                spread_delta = spread_series.diff(3).fillna(0).values # (N,) array
+                
+                # 计算价格变化的绝对值 (N,) array
+                close_diff_values = df[f"close_{timeframe}"].diff(3).abs().fillna(0).values
+                price_delta = np.divide(close_diff_values, atr_arr, out=np.zeros_like(close_diff_values), where=atr_arr!=0)
+                
+                # 向量化计算效率，避免除以0
+                efficiency = np.zeros_like(spread_delta)
+                # 创建 mask，只计算分母大于阈值的部分
+                mask = spread_delta > 0.01
+                efficiency[mask] = price_delta[mask] / spread_delta[mask]
+                
                 df[f'MA_FAN_EFFICIENCY_{timeframe}'] = np.clip(efficiency, 0, 10)
-                # 6. 计算 MA_POTENTIAL_TENSION_INDEX (原有张力指标保留并增强)
+
+                # 6. 计算 MA_POTENTIAL_TENSION_INDEX (原有张力指标)
                 # 使用短期均线(5)与中期均线(21)的距离作为"攻击张力"
-                short_term_tension = (df[f"{ma_type}_{short_mas[0]}_{timeframe}"] - df[f"{ma_type}_{short_mas[-1]}_{timeframe}"]) / atr_arr
-                df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = short_term_tension.fillna(0)
+                short_val = df[f"{ma_type}_{short_mas[0]}_{timeframe}"].values
+                long_val = df[f"{ma_type}_{short_mas[-1]}_{timeframe}"].values
+                short_term_tension = np.divide(short_val - long_val, atr_arr, out=np.zeros_like(short_val), where=atr_arr!=0)
+                df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = np.nan_to_num(short_term_tension)
+
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
         return all_dfs
