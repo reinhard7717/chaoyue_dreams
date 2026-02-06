@@ -1991,56 +1991,42 @@ class FundFlowFactorCalculator:
         2. 量纲统一: 映射到 [-100, 100] 区间，Z=3 (3倍标准差变化) 对应 60-70 分。
         """
         metrics = {'intraday_flow_momentum': None, 'flow_acceleration_intraday': None}
-        
         # 1. 基础数据聚合 (分钟级)
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         if len(times) == 0: return metrics
-        
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
-        
         norm_times = times - times[0]
         max_minutes = int(np.max(norm_times)) + 1
-        
         minute_flows = np.bincount(norm_times, weights=signed_amounts, minlength=max_minutes) / 10000.0
-        
         # 剔除尾部无效0值
         active_flows = np.trim_zeros(minute_flows, 'b')
         n = len(active_flows)
         if n < 10: return metrics
-        
         # --- 指标1: 趋势动量 (Momentum) - 修正版 ---
         # 窗口: 最近 15分钟 vs 之前 30分钟
         if n >= 45:
             # 提取整个窗口的数据计算波动率
             full_window = active_flows[-45:]
             volatility = np.std(full_window)
-            
             # 计算底噪: 防止死水股(波动率为0)导致的除零错误
             # 设定为: 至少 1万元 或 平均绝对流量的 10%
             base_noise = max(1.0, np.mean(np.abs(full_window)) * 0.1)
-            
             # 分母 = 波动率 + 底噪
             denom = volatility + base_noise
-            
             recent_trend = np.mean(active_flows[-15:])
             prev_trend = np.mean(active_flows[-45:-15])
-            
             diff = recent_trend - prev_trend
-            
             # 计算 Z-Score 形式的动量
             # 物理意义: 趋势的改变幅度是背景波动的多少倍?
             z_momentum = diff / denom
-            
             # 映射: Z=1 (1倍标准差改变) -> 20分
             # Z=5 (5倍标准差巨变) -> 100分
             momentum_score = z_momentum * 20.0
-            
             metrics['intraday_flow_momentum'] = float(np.clip(momentum_score, -100.0, 100.0))
         else:
             metrics['intraday_flow_momentum'] = 0.0
-            
         # --- 指标2: 资金加速度 (Acceleration) - 保持 v1.7 逻辑 ---
         # 逻辑: Z-Score 爆发力模型
         window_short = 3
@@ -2050,16 +2036,13 @@ class FundFlowFactorCalculator:
             baseline_slice = active_flows[-window_long:]
             baseline_mean = np.mean(baseline_slice)
             baseline_std = np.std(baseline_slice)
-            
             if baseline_std > 0.1:
                 acc_z_score = (pulse - baseline_mean) / baseline_std
             else:
                 acc_z_score = (pulse - baseline_mean) / 10.0 
-                
             metrics['flow_acceleration_intraday'] = float(np.clip(acc_z_score * 10.0, -100.0, 100.0))
         else:
             metrics['flow_acceleration_intraday'] = 0.0
-            
         return metrics
 
     def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -2125,57 +2108,45 @@ class FundFlowFactorCalculator:
         2. 计量单位: 保持秒级 (int(buckets * 3))。
         """
         metrics = {'flow_cluster_intensity': None, 'flow_cluster_duration': None}
-        
         # 1. 3秒级聚合
         time_int = df['trade_time'].values.astype('int64') // 10**9 // 3
         if len(time_int) == 0: return metrics
-        
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
-        
         uni_times, inverse_indices = np.unique(time_int, return_inverse=True)
         cluster_flows = np.zeros(len(uni_times))
         np.add.at(cluster_flows, inverse_indices, signed_amounts)
-        
         if len(cluster_flows) < 20: 
             metrics['flow_cluster_intensity'] = 0.0
             metrics['flow_cluster_duration'] = 0
             return metrics
-            
         # 2. 动态阈值确定 (Robust Threshold)
         abs_flows = np.abs(cluster_flows)
         median_flow = np.median(abs_flows)
         mad_flow = np.median(np.abs(abs_flows - median_flow)) * 1.4826
-        
         # 阈值 = 中位数 + 1.0 * MAD
         threshold = max(50000.0, median_flow + 1.0 * mad_flow)
-        
         # 3. 识别攻击波
         states = np.zeros(len(cluster_flows), dtype=int)
         states[cluster_flows > threshold] = 1
         states[cluster_flows < -threshold] = -1
-        
         if not np.any(states != 0):
             metrics['flow_cluster_intensity'] = 0.0
             metrics['flow_cluster_duration'] = 0
             return metrics
-            
         # 4. 聚类合并 (保持 v1.8 逻辑)
         max_duration_buckets = 0
         current_duration = 0
         current_type = 0 
         cluster_flow_sums = [] 
         cluster_durations = [] 
-        
         gap_tolerance = 2 
         current_gap = 0
         current_cluster_amt = 0.0
-        
         for i in range(len(states)):
             s = states[i]
             flow_val = abs(cluster_flows[i])
-            
             if s != 0:
                 if current_type == 0:
                     current_type = s
@@ -2213,24 +2184,18 @@ class FundFlowFactorCalculator:
             cluster_flow_sums.append(current_cluster_amt)
             cluster_durations.append(current_duration)
             max_duration_buckets = max(max_duration_buckets, current_duration)
-            
         # 5. 计算最终指标
         # Duration: 秒数
         metrics['flow_cluster_duration'] = int(max_duration_buckets * 3)
-        
         # Intensity: 对数分贝模型
         total_cluster_flow = sum(cluster_flow_sums)
         total_cluster_buckets = sum(cluster_durations)
-        
         # 基准: 中位数流速，底噪 10000 (1万元/3秒)
         baseline_flow = max(10000.0, median_flow)
-        
         if total_cluster_buckets > 0:
             avg_flow_in_cluster = total_cluster_flow / total_cluster_buckets
-            
             # 计算倍数 Ratio
             ratio = avg_flow_in_cluster / baseline_flow
-            
             if ratio > 1.0:
                 # [关键修正] 使用 log10 进行压缩
                 # Ratio=10 -> log=1 -> Score=50
@@ -2238,11 +2203,9 @@ class FundFlowFactorCalculator:
                 intensity = np.log10(ratio) * 50.0
             else:
                 intensity = 0.0
-                
             metrics['flow_cluster_intensity'] = float(min(100.0, intensity))
         else:
             metrics['flow_cluster_intensity'] = 0.0
-            
         return metrics
 
     def _calculate_high_freq_divergence(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -2410,10 +2373,14 @@ class FundFlowFactorCalculator:
         """
         [修复] 3秒微观资金流场的统计特征
         修复点：
-        1. 引入对数阻尼 (Log-Damping) 处理峰度，解决大量 100 饱和问题。
-        2. 峰度不再硬截断，而是通过对数平滑映射到 0-100 区间。
+        1. High Freq Skewness: 升级为"带符号对数阻尼模型"。
+           原逻辑硬截断 +/- 10 导致高偏度数据饱和(大量触及边界)。
+           新逻辑通过 log1p 压缩并映射到 [-100, 100]，有效区分普通异动(10)与极端异动(50+)。
+        2. High Freq Kurtosis: 保持之前的对数模型，防止饱和。
         """
         metrics = {'high_freq_flow_skewness': None, 'high_freq_flow_kurtosis': None}
+        # 1. 3秒级重采样
+        # 使用整除降低精度
         times_3s = df['trade_time'].values.astype('datetime64[s]').astype('int64') // 3
         if len(times_3s) == 0: return metrics
         amounts = df['amount'].values
@@ -2421,25 +2388,30 @@ class FundFlowFactorCalculator:
         signed_amounts = np.where(types == 'B', amounts, -amounts)
         norm_times = times_3s - times_3s[0]
         max_idx = int(norm_times[-1]) + 1
+        # 聚合 Net Flow
         flux_3s = np.bincount(norm_times, weights=signed_amounts, minlength=max_idx) / 10000.0
+        # 去除无效0
         flux_active = np.trim_zeros(flux_3s)
         if len(flux_active) < 30: return metrics
         try:
-            # Skewness (偏度)
+            # --- Skewness (偏度) 深化 ---
             sk = stats.skew(flux_active)
             if np.isnan(sk): sk = 0.0
-            # 偏度保留线性逻辑，截断 +/- 10
-            metrics['high_freq_flow_skewness'] = float(np.clip(sk, -10.0, 10.0))
-            # Kurtosis (峰度)
+            # [关键修改] 带符号对数阻尼 (Signed Log-Damping)
+            # 原始偏度可能在 +/- 50 甚至更高。硬截断会丢失"大"和"极大"的区别。
+            # 变换: y = sign(x) * ln(1 + |x|) * Scale
+            # 设定 Scale=25.0
+            # x=3  -> 35分
+            # x=10 -> 60分 (原边界)
+            # x=50 -> 98分 (极端值)
+            damped_skew = np.sign(sk) * np.log1p(np.abs(sk))
+            # 映射到 [-100, 100]
+            metrics['high_freq_flow_skewness'] = float(np.clip(damped_skew * 25.0, -100.0, 100.0))
+            # --- Kurtosis (峰度) 保持深化版 ---
             kt = stats.kurtosis(flux_active)
             if np.isnan(kt): kt = 0.0
-            # [关键修改] 对数阻尼模型
-            # 原始峰度可能高达几百。使用 ln(1 + k) 压缩。
-            # k=3(正态) -> ln(4)*12 ≈ 16
-            # k=100(剧烈) -> ln(101)*12 ≈ 55
-            # k=3000(极端) -> ln(3001)*12 ≈ 96
-            # 这样很难直接打满 100，保留了头部区分度
             if kt > 0:
+                # k=3 -> 16, k=100 -> 55
                 log_kt_score = np.log1p(kt) * 12.0
             else:
                 log_kt_score = 0.0
