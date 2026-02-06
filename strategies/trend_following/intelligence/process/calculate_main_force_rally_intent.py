@@ -38,8 +38,7 @@ class CalculateMainForceRallyIntent:
         method_name = "calculate_power_transfer"
         self._probe_print(f"=== 权力交接(Power Transfer)计算开始 [{method_name}] ===")
         
-        # 1. 获取原始信号 (Raw Signals)
-        # 必须使用 verify_columns 确保军械库清单中的列存在，否则给默认值
+        # 1. 获取原始信号 (Raw Signals) - 增强健壮性
         raw = self._get_raw_data(df)
         df_index = df.index
         
@@ -67,6 +66,7 @@ class CalculateMainForceRallyIntent:
         
         # 5. 行为确认 (Behavior Confirmation)
         # 主力活跃度越高，交接意图越明确
+        # 注意：此处 raw['main_force_activity'] 现已保证为 Series，可安全调用 normalize_score
         activity_factor = normalize_score(raw['main_force_activity'], 0.0, 100.0)
         
         # 6. 合成权力交接得分 (Power Transfer Score)
@@ -81,7 +81,9 @@ class CalculateMainForceRallyIntent:
         # 7. 趋势方向修正 (Trend Correction)
         # 只有在趋势没有完全坏掉（例如没有跌停或处于极度下跌趋势）时，正向交接才有效
         trend_filter = pd.Series(1.0, index=df_index)
-        trend_filter = trend_filter.mask(raw['downtrend_strength'] > 0.8, 0.5) # 下跌趋势中打折
+        # 确保 downtrend_strength 也是 Series
+        downtrend_strength = raw.get('downtrend_strength', pd.Series(0.0, index=df_index))
+        trend_filter = trend_filter.mask(downtrend_strength > 0.8, 0.5) # 下跌趋势中打折
         
         final_power_transfer = (transfer_score_raw * trend_filter).clip(-1, 1)
         
@@ -101,32 +103,49 @@ class CalculateMainForceRallyIntent:
         return final_power_transfer.astype(np.float32)
 
     def _get_raw_data(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """从数据层提取L2和筹码数据，如果不存在则返回0序列"""
+        """
+        从数据层提取L2和筹码数据
+        修复逻辑：显式检查返回类型，如果是标量则广播为 Series，确保后续计算安全
+        """
         signals = {}
+        df_index = df.index
+        
+        def _get_series_safe(col_name: str, default_val: float) -> pd.Series:
+            val = self.helper._get_safe_series(df, col_name, default_val)
+            # 如果是数字类型（int/float），说明列不存在且返回了默认值，需广播为 Series
+            if isinstance(val, (int, float, np.number)):
+                return pd.Series(val, index=df_index)
+            # 如果已经是 Series 但索引不匹配（防御性编程），则重新索引
+            if isinstance(val, pd.Series) and not val.index.equals(df_index):
+                return val.reindex(df_index).fillna(default_val)
+            return val
+
         # 资金流相关 (Level-2)
-        signals['buy_elg_amount'] = self.helper._get_safe_series(df, 'buy_elg_amount_D', 0.0)
-        signals['sell_elg_amount'] = self.helper._get_safe_series(df, 'sell_elg_amount_D', 0.0)
-        signals['buy_lg_amount'] = self.helper._get_safe_series(df, 'buy_lg_amount_D', 0.0)
-        signals['sell_lg_amount'] = self.helper._get_safe_series(df, 'sell_lg_amount_D', 0.0)
-        signals['buy_md_amount'] = self.helper._get_safe_series(df, 'buy_md_amount_D', 0.0)
-        signals['sell_md_amount'] = self.helper._get_safe_series(df, 'sell_md_amount_D', 0.0)
-        signals['buy_sm_amount'] = self.helper._get_safe_series(df, 'buy_sm_amount_D', 0.0)
-        signals['sell_sm_amount'] = self.helper._get_safe_series(df, 'sell_sm_amount_D', 0.0)
-        signals['amount'] = self.helper._get_safe_series(df, 'amount_D', 1.0) # 避免除0
+        signals['buy_elg_amount'] = _get_series_safe('buy_elg_amount_D', 0.0)
+        signals['sell_elg_amount'] = _get_series_safe('sell_elg_amount_D', 0.0)
+        signals['buy_lg_amount'] = _get_series_safe('buy_lg_amount_D', 0.0)
+        signals['sell_lg_amount'] = _get_series_safe('sell_lg_amount_D', 0.0)
+        signals['buy_md_amount'] = _get_series_safe('buy_md_amount_D', 0.0)
+        signals['sell_md_amount'] = _get_series_safe('sell_md_amount_D', 0.0)
+        signals['buy_sm_amount'] = _get_series_safe('buy_sm_amount_D', 0.0)
+        signals['sell_sm_amount'] = _get_series_safe('sell_sm_amount_D', 0.0)
+        signals['amount'] = _get_series_safe('amount_D', 1.0) # 默认1.0避免除0
         
         # 筹码相关
-        signals['chip_concentration'] = self.helper._get_safe_series(df, 'chip_concentration_ratio_D', 0.0)
-        signals['chip_stability'] = self.helper._get_safe_series(df, 'chip_stability_D', 0.5)
-        signals['turnover_rate'] = self.helper._get_safe_series(df, 'turnover_rate_D', 0.0)
+        signals['chip_concentration'] = _get_series_safe('chip_concentration_ratio_D', 0.0)
+        signals['chip_stability'] = _get_series_safe('chip_stability_D', 0.5)
+        signals['turnover_rate'] = _get_series_safe('turnover_rate_D', 0.0)
         
         # 行为与趋势
-        signals['main_force_activity'] = self.helper._get_safe_series(df, 'main_force_activity_index_D', 50.0)
-        signals['downtrend_strength'] = self.helper._get_safe_series(df, 'downtrend_strength_D', 0.0)
+        signals['main_force_activity'] = _get_series_safe('main_force_activity_index_D', 50.0)
+        signals['downtrend_strength'] = _get_series_safe('downtrend_strength_D', 0.0)
         
         # 探针输出原始数据样本(最后一天)
         if not df.empty:
             last_idx = df.index[-1]
-            self._probe_print(f"数据样本[{last_idx}]: ELG_Buy={signals['buy_elg_amount'].iloc[-1]:.0f}, SM_Buy={signals['buy_sm_amount'].iloc[-1]:.0f}")
+            elg = signals['buy_elg_amount'].iloc[-1]
+            sm = signals['buy_sm_amount'].iloc[-1]
+            self._probe_print(f"数据样本[{last_idx}]: ELG_Buy={elg:.0f}, SM_Buy={sm:.0f}")
             
         return signals
 
