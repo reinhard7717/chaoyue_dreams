@@ -561,7 +561,8 @@ class IndicatorService:
         # 【斜率与加速度计算】
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        self._log_final_data_columns(all_dfs) # 移除调试打印
+        all_dfs = await self.feature_service.calculate_all_jerks(all_dfs, config)
+        # self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
     async def _process_supplemental_df(self, df_supp: pd.DataFrame, tag: str) -> pd.DataFrame:

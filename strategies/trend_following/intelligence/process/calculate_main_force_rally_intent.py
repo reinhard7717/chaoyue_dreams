@@ -66,8 +66,9 @@ class CalculateMainForceRallyIntent:
         
         # 5. 行为确认 (Behavior Confirmation)
         # 主力活跃度越高，交接意图越明确
-        # 注意：此处 raw['main_force_activity'] 现已保证为 Series，可安全调用 normalize_score
-        activity_factor = normalize_score(raw['main_force_activity'], 0.0, 100.0)
+        # 【修复】使用原生 pandas 运算替代 normalize_score，避免参数位置错误导致的 TypeError
+        # 活跃度范围通常是 0-100，归一化到 0-1
+        activity_factor = (raw['main_force_activity'] / 100.0).clip(0, 1)
         
         # 6. 合成权力交接得分 (Power Transfer Score)
         # 权重设计：资金博弈(50%) + 筹码结构(30%) + 行为特征(20%)
@@ -81,7 +82,6 @@ class CalculateMainForceRallyIntent:
         # 7. 趋势方向修正 (Trend Correction)
         # 只有在趋势没有完全坏掉（例如没有跌停或处于极度下跌趋势）时，正向交接才有效
         trend_filter = pd.Series(1.0, index=df_index)
-        # 确保 downtrend_strength 也是 Series
         downtrend_strength = raw.get('downtrend_strength', pd.Series(0.0, index=df_index))
         trend_filter = trend_filter.mask(downtrend_strength > 0.8, 0.5) # 下跌趋势中打折
         
@@ -120,7 +120,7 @@ class CalculateMainForceRallyIntent:
                 return val.reindex(df_index).fillna(default_val)
             return val
 
-        # 资金流相关 (Level-2)
+        # [cite_start]资金流相关 (Level-2) [cite: 1, 2]
         signals['buy_elg_amount'] = _get_series_safe('buy_elg_amount_D', 0.0)
         signals['sell_elg_amount'] = _get_series_safe('sell_elg_amount_D', 0.0)
         signals['buy_lg_amount'] = _get_series_safe('buy_lg_amount_D', 0.0)
@@ -131,12 +131,12 @@ class CalculateMainForceRallyIntent:
         signals['sell_sm_amount'] = _get_series_safe('sell_sm_amount_D', 0.0)
         signals['amount'] = _get_series_safe('amount_D', 1.0) # 默认1.0避免除0
         
-        # 筹码相关
+        # [cite_start]筹码相关 [cite: 2]
         signals['chip_concentration'] = _get_series_safe('chip_concentration_ratio_D', 0.0)
         signals['chip_stability'] = _get_series_safe('chip_stability_D', 0.5)
         signals['turnover_rate'] = _get_series_safe('turnover_rate_D', 0.0)
         
-        # 行为与趋势
+        # [cite_start]行为与趋势 [cite: 2]
         signals['main_force_activity'] = _get_series_safe('main_force_activity_index_D', 50.0)
         signals['downtrend_strength'] = _get_series_safe('downtrend_strength_D', 0.0)
         
