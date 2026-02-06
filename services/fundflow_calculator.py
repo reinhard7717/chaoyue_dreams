@@ -752,61 +752,56 @@ class FundFlowFactorCalculator:
 
     def _detect_large_order_anomaly(self) -> Tuple[bool, float]:
         """
-        [修复] 大单异动检测
+        [修复] 异动强度
         修复点：
-        1. 阈值降维: Z-Score 阈值从 3.0 降至 2.0。
-        2. 绝对冲击: 增加"换手率冲击"判定 (0.5%)。
-        3. 强度平滑: 避免 0 值，只要触发判定，强度从 40 起步。
+        1. 软阈值激活：Z > 1.5 即开始计算强度（原 2.0），避免大量 0 值。
+        2. 强度计算平滑化：使用分段函数，保留微异动分数。
         """
         arr = self.net_amount_array
         if len(arr) < 10: return False, 0.0
         
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
         
-        # 1. 鲁棒统计
         recent = arr[-20:]
         median = np.median(recent)
         mad = np.median(np.abs(recent - median)) * 1.4826
-        # 底噪: 历史均值的 10% 或 10万
         base_noise = max(10.0, np.mean(np.abs(recent)) * 0.1)
         sigma = max(mad, base_noise)
         
         z_score = (current_net - median) / sigma
         
-        # 2. 双轨判定
-        # 轨A: 统计异动 (Z > 2.0)
-        is_stat_outlier = abs(z_score) > 2.0
-        
-        # 轨B: 绝对冲击 (占流通盘 > 0.5%)
+        # 绝对冲击判断
         circ_mv = self.market_cap or 1e12
         turnover_impact = abs(current_net) / circ_mv
-        is_abs_outlier = turnover_impact > 0.005 
+        is_abs_outlier = turnover_impact > 0.003 # 降至 0.3%
         
-        if not (is_stat_outlier or is_abs_outlier):
+        # [关键修改] 软阈值 (Soft Threshold)
+        # Z > 1.5 即可，或者绝对冲击达标
+        if abs(z_score) < 1.5 and not is_abs_outlier:
             return False, 0.0
             
-        # 3. 强度计算 (分段线性)
-        # Z=2 -> 40, Z=3 -> 60, Z=5 -> 100
-        raw_intensity = min(100.0, max(0.0, (abs(z_score) - 1.0) * 25.0))
+        # 强度计算
+        # Z=1.5 -> 20分
+        # Z=2.0 -> 40分
+        # Z=3.0 -> 80分
+        # Z=4.0 -> 100分
+        # 公式: (Z - 1.0) * 33
+        raw_intensity = (abs(z_score) - 1.0) * 33.0
+        raw_intensity = max(10.0, raw_intensity) # 起步 10 分
         
-        # 绝对冲击保底 80 分
         if is_abs_outlier:
-            raw_intensity = max(raw_intensity, 80.0)
+            raw_intensity = max(raw_intensity, 70.0) # 绝对冲击保底 70
             
-        # 4. 位置加权
+        # 位置加权
         closes = self.close_array
+        multiplier = 1.0
         if len(closes) > 0:
-            p_max, p_min = np.max(closes[-60:]), np.min(closes[-60:])
-            pos = (closes[-1] - p_min) / (p_max - p_min + 1e-6)
+            p_pos = (closes[-1] - np.min(closes[-60:])) / (np.ptp(closes[-60:]) + 1e-6)
+            if p_pos < 0.2: multiplier = 1.2 # 底部异动加分
+            elif p_pos > 0.8: multiplier = 1.1 # 顶部异动加分
             
-            # 低位异动(建仓)加分，高位异动(出货)加分，中位减分
-            if pos < 0.3: multiplier = 1.2
-            elif pos > 0.8: multiplier = 1.1
-            else: multiplier = 0.9
-        else:
-            multiplier = 1.0
-            
-        return True, float(np.clip(raw_intensity * multiplier, 0.0, 100.0))
+        final_intensity = float(np.clip(raw_intensity * multiplier, 0.0, 100.0))
+        return True, final_intensity
 
     def _calculate_flow_consistency(self) -> float:
         """
@@ -932,92 +927,91 @@ class FundFlowFactorCalculator:
     # ==================== 5. 多周期资金共振指标 ====================
     def calculate_multi_period_sync(self) -> Dict[str, float]:
         """
-        v2.1: [大师级深化] 时空向量共振模型
-        思路：
-        1. 摒弃单纯的相关系数，引入“均线多头排列”和“向量夹角一致性”逻辑。
-        2. 共振不仅仅是波动相似，更是“方向合力”。
-        3. Mid-Long Sync: 特别强化了 MA20 与 MA60 的“多头共振”识别，这是主升浪的核心特征。
+        [修复] 多周期共振
+        修复点：
+        1. 解决大量 100 分问题：引入"能量协同惩罚"。
+        2. 只有当两条均线都有足够斜率（趋势）时，才给高分。如果是"共振躺平"，分数打折。
         """
         sync_metrics = {}
         for key in ['daily_weekly_sync', 'daily_monthly_sync', 
                    'short_mid_sync', 'mid_long_sync']:
             sync_metrics[key] = None
+            
         arr = self.net_amount_array
-        if len(arr) < 60: # 需要足够长的历史数据
-            return sync_metrics
-        # 辅助函数：计算加权移动平均 (WMA) 以减少滞后
+        if len(arr) < 60: return sync_metrics
+        
         def calc_wma(data, window):
             weights = np.arange(1, window + 1)
             return np.convolve(data, weights/weights.sum(), mode='valid')
-        # 准备各周期数据
-        # 资金流波动大，先做一次基础平滑
+            
         smooth_arr = savgol_filter(arr, window_length=5, polyorder=2) if len(arr) > 5 else arr
-        # 计算不同周期的均线序列
-        # 注意：conv模式valid会缩短序列，我们需要对齐尾部
+        
         ma5 = calc_wma(smooth_arr, 5)
         ma20 = calc_wma(smooth_arr, 20)
         ma60 = calc_wma(smooth_arr, 60)
-        # 统一切片长度，取最近 5 天进行微观共振分析
+        
         min_len = min(len(ma5), len(ma20), len(ma60))
         if min_len < 5: return sync_metrics
+        
         s_short = ma5[-5:]
         s_mid = ma20[-5:]
         s_long = ma60[-5:]
-        # 1. 计算 Short-Mid Sync (短中其共振)
-        sync_metrics['short_mid_sync'] = self._calculate_vector_resonance(s_short, s_mid)
-        # 2. 计算 Mid-Long Sync (中长期共振 - 核心指标)
-        # 这里需要更严格的判定：是否处于多头排列 (MA20 > MA60)
-        resonance_score = self._calculate_vector_resonance(s_mid, s_long)
-        # [多头排列奖励]
-        # 如果 MA20 > MA60 且两者都在上涨，给予额外加成
-        if s_mid[-1] > s_long[-1] and (s_mid[-1] > s_mid[0]) and (s_long[-1] > s_long[0]):
-            resonance_score = min(100.0, resonance_score * 1.2)
-        # [空头排列惩罚]
-        # 如果 MA20 < MA60，即使波动同步，共振质量也打折（可能是同步下跌或反弹）
-        elif s_mid[-1] < s_long[-1]:
-            resonance_score *= 0.8
-        sync_metrics['mid_long_sync'] = float(resonance_score)
-        # 3. 日线与其他周期的同步 (保持原有逻辑框架，但使用新算法)
-        # 这里用原始平滑数据 vs MA
+        
+        # [修改] 传入额外参数 calc_energy=True
+        sync_metrics['short_mid_sync'] = self._calculate_vector_resonance(s_short, s_mid, check_energy=False)
+        
+        # Mid-Long Sync 核心修复
+        sync_metrics['mid_long_sync'] = self._calculate_vector_resonance(s_mid, s_long, check_energy=True)
+        
+        # 补充其他
         daily_slice = smooth_arr[-5:]
         sync_metrics['daily_weekly_sync'] = self._calculate_vector_resonance(daily_slice, s_short)
         sync_metrics['daily_monthly_sync'] = self._calculate_vector_resonance(daily_slice, s_mid)
+        
         return sync_metrics
 
-    def _calculate_vector_resonance(self, s1: np.ndarray, s2: np.ndarray) -> float:
+    def _calculate_vector_resonance(self, s1: np.ndarray, s2: np.ndarray, check_energy: bool = False) -> float:
         """
-        [内部方法] 计算向量共振得分
-        逻辑：
-        1. 方向一致性 (Direction): 两个序列的斜率是否同号。
-        2. 趋势相关性 (Correlation): 两个序列的形态是否相似。
-        3. 距离接近度 (Proximity): (可选) 这里主要关注动量方向。
+        [内部方法] 向量共振计算
+        新增: check_energy (能量协同检查)
         """
         if len(s1) < 2 or len(s2) < 2: return 50.0
-        # 1. 计算趋势斜率 (归一化)
-        slope1 = (s1[-1] - s1[0]) / (np.std(s1) + 1e-6)
-        slope2 = (s2[-1] - s2[0]) / (np.std(s2) + 1e-6)
-        # 方向得分：同向为正，反向为负
-        # 使用 tanh 映射到 [-1, 1]
+        
+        # 标准差作为幅度基准
+        std1 = np.std(s1) + 1e-6
+        std2 = np.std(s2) + 1e-6
+        
+        slope1 = (s1[-1] - s1[0]) / std1
+        slope2 = (s2[-1] - s2[0]) / std2
+        
+        # 1. 方向一致性
         dir_score = np.tanh(slope1 * slope2)
+        
         # 2. 形态相关性
-        # 使用 cosine similarity 思想，或者 pearson
-        # 这里用 pearson 比较稳健
         try:
             corr = np.corrcoef(s1, s2)[0, 1]
             if np.isnan(corr): corr = 0.0
         except:
             corr = 0.0
-        # 3. 综合加权
-        # 如果方向相反，相关性再高也是负贡献
-        # 如果方向相同，相关性越高越好
+            
+        # 基础分
         base_score = 50.0
         if dir_score > 0:
-            # 同向
-            # Score = 50 + 25 * 方向强度 + 25 * 形态相关
             final_score = base_score + 25 * dir_score + 25 * max(0, corr)
         else:
-            # 反向 (共振极差)
-            final_score = base_score - 20 * abs(dir_score) # 扣分
+            final_score = base_score - 20 * abs(dir_score)
+            
+        # [关键修复] 能量协同惩罚
+        # 如果两条线虽然方向一致，但是都在"躺平" (斜率绝对值很小)，不应给高分
+        # 只有在主升浪/主跌浪中，才能给 100
+        if check_energy and final_score > 60:
+            # 计算平均趋势力度
+            avg_magnitude = (abs(slope1) + abs(slope2)) / 2.0
+            # 映射: magnitude=0 -> penalty=0.5, magnitude=1 -> penalty=1.0
+            # 使用 sigmoid 
+            energy_factor = 0.5 + 0.5 * np.tanh(avg_magnitude)
+            final_score *= energy_factor
+            
         return float(np.clip(final_score, 0.0, 100.0))
 
     def _calculate_sync_score(self, series1: List[float], series2: List[float]) -> float:
@@ -1057,56 +1051,55 @@ class FundFlowFactorCalculator:
     # ==================== 6. 趋势动量指标 ====================
     def calculate_trend_momentum(self) -> Dict[str, float]:
         """
-        v2.1: [大师级深化] 归一化动能涌浪与趋势熵减模型
-        思路：
-        1. Flow Acceleration: 升级为“归一化动能涌浪”。
-           - 引入 Savitzky-Golay 平滑求导，计算更加鲁棒的“资金加速度”。
-           - 使用 MAD 进行标准化，识别出显著的“脉冲式”主力进场。
-        2. Uptrend Strength: 升级为“趋势熵减质量”。
-           - 结合 R2 (线性度)、Downside Deviation (下行波动) 和 Flow Support (资金支持)。
-           - 只有“资金持续流入”且“回撤极小”的上涨，才是高质量的趋势。
+        [修复] 资金加速度
+        修复点：
+        1. 解决 +/- 100 饱和问题：使用 Tanh 压缩替代线性截断。
+        2. 归一化分母优化：避免分母过小导致的数值爆炸。
         """
         momentum = {}
-        # 初始化
         for key in ['flow_momentum_5d', 'flow_momentum_10d', 'flow_acceleration',
                    'uptrend_strength', 'downtrend_strength']:
             momentum[key] = None
+            
         arr = self.net_amount_array
-        if len(arr) < 15: # 需要稍长一点的数据来计算稳健的指标
-            return momentum
-        # --- 1. 基础动量 (Momentum) ---
-        # 保持 Robust Scaling
+        if len(arr) < 15: return momentum
+        
+        # 1. 基础动量 (Momentum)
         mad = stats.median_abs_deviation(arr[-20:]) if len(arr) >= 20 else np.std(arr)
-        denom = max(mad, 10.0)
+        denom = max(mad, 10.0) # 底噪
+        
         momentum['flow_momentum_5d'] = float((arr[-1] - arr[-5]) / denom) if len(arr) >= 5 else 0.0
         momentum['flow_momentum_10d'] = float((arr[-1] - arr[-10]) / denom) if len(arr) >= 10 else 0.0
-        # --- 2. 资金加速度 (Flow Acceleration - Deepened) ---
-        # 提取最近 10 天数据
+        
+        # 2. 资金加速度 (Flow Acceleration) - 修复版
         recent_10 = arr[-10:]
-        # 使用 Savitzky-Golay 滤波器同时进行平滑和求导
-        # window_length=5, polyorder=2
-        # deriv=1 (速度), deriv=2 (加速度)
         try:
             if len(recent_10) >= 5:
-                # 计算加速度曲线 (单位时间步长=1)
+                # Savitzky-Golay 求二阶导
                 acc_curve = savgol_filter(recent_10, 5, 2, deriv=2)
-                # 取最近一天的加速度值
                 raw_acc = acc_curve[-1]
-                # 归一化: 相对于背景波动率
-                # 物理含义: 当前的加速度是正常波动的多少倍?
-                # A股中，> 1.0 通常意味着主力开始发动攻势
-                norm_acc = raw_acc / denom
-                # 放大系数，使其数值在 [-100, 100] 之间更有可读性
-                momentum['flow_acceleration'] = float(np.clip(norm_acc * 50.0, -100.0, 100.0))
+                
+                # 归一化: 加速度相对于波动率的比值
+                # 正常波动下，norm_acc 通常在 -0.5 ~ 0.5 之间
+                # 主力发力时，可能达到 2.0 ~ 5.0
+                norm_acc = raw_acc / (denom + 1e-6)
+                
+                # [关键修改] Tanh 压缩
+                # x=1.0 (强加速) -> tanh(1.0)=0.76 -> 76分
+                # x=2.0 (爆发) -> tanh(2.0)=0.96 -> 96分
+                # x=10.0 (异常) -> tanh(10.0)=1.0 -> 100分
+                # 这样永远不会溢出，且保留了 0~2 之间的区分度
+                momentum['flow_acceleration'] = float(np.tanh(norm_acc) * 100.0)
             else:
                 momentum['flow_acceleration'] = 0.0
         except Exception:
             momentum['flow_acceleration'] = 0.0
-        # --- 3. 趋势强度 (Uptrend Strength - Deepened) ---
-        # 使用专门的私有方法计算，包含 "熵减" 和 "资金背书" 逻辑
+            
+        # 3. 趋势强度 (调用已修复的方法)
         up_strength, down_strength = self._calculate_robust_trend_strength()
         momentum['uptrend_strength'] = up_strength
         momentum['downtrend_strength'] = down_strength
+        
         return momentum
 
     def _calculate_robust_trend_strength(self) -> Tuple[float, float]:
@@ -1268,8 +1261,9 @@ class FundFlowFactorCalculator:
         """
         [修复] 量价背离指标
         修复点：
-        1. 使用 Sigmoid 激活函数替代线性乘法，解决 0/100 两极分化。
-        2. 增强对"微背离"的捕捉能力。
+        1. 解决 0/100 两极分化：引入"弱背离"状态，填充中间分段。
+        2. 映射函数平滑化：使用 sigmoid 变体替代激进的 tanh。
+        3. 面积计算优化：增加对微小差异的敏感度。
         """
         divergence = {
             'divergence_type': 'NONE',
@@ -1283,10 +1277,10 @@ class FundFlowFactorCalculator:
         prices = self.close_array[-window:]
         flows = self.net_amount_array[-window:]
         
-        # 1. 归一化
+        # 1. 归一化 (Min-Max)
         def normalize(arr):
             mn, mx = np.min(arr), np.max(arr)
-            if mx == mn: return np.zeros_like(arr)
+            if mx - mn < 1e-8: return np.zeros_like(arr)
             return (arr - mn) / (mx - mn)
             
         cum_flow = np.cumsum(flows)
@@ -1294,41 +1288,55 @@ class FundFlowFactorCalculator:
         f_norm = normalize(cum_flow)
         
         # 2. 面积差 (Area Difference)
-        area_diff = np.mean(np.abs(p_norm - f_norm)) # 0~1
+        # 原始差异通常在 0.0~0.5 之间
+        raw_diff = np.mean(np.abs(p_norm - f_norm))
         
-        # 3. Sigmoid 映射 (核心修复)
-        # area_diff 通常在 0.1~0.5 之间
-        # x=0.1 -> score=20, x=0.3 -> score=60, x=0.5 -> score=90
-        # Sigmoid: 1 / (1 + exp(-k*(x-x0)))
-        # 简化版: tanh(x * 3) * 100
-        divergence_score = np.tanh(area_diff * 4.0) * 100.0
+        # 3. 映射强度 (0~100)
+        # 使用 Sigmoid 变体: 100 * (2 / (1 + exp(-5*x)) - 1)
+        # x=0.1 -> 24, x=0.3 -> 66, x=0.5 -> 84, x=0.8 -> 96
+        # 相比 tanh(4x)，曲线更平缓，不容易直接饱和
+        divergence_score = 100.0 * (2.0 / (1.0 + np.exp(-5.0 * raw_diff)) - 1.0)
+        divergence['price_flow_divergence'] = float(np.clip(divergence_score, 0.0, 100.0))
         
-        divergence['price_flow_divergence'] = float(divergence_score)
-        
-        # 4. 类型判定
+        # 4. 类型判定 (引入斜率判定)
         x = np.arange(window)
         p_slope, _, _, _, _ = linregress(x, prices)
         f_slope, _, _, _, _ = linregress(x, cum_flow)
         
-        strength_factor = 1.0
+        # 归一化斜率，用于判断趋势强弱
+        p_trend_strength = abs(p_slope * window / (np.ptp(prices) + 1e-6))
         
+        strength_mult = 1.0
+        div_type = 'NONE'
+        
+        # A. 经典顶背离: 价涨 资跌
         if p_slope > 0 and f_slope < 0:
-            divergence['divergence_type'] = 'BEARISH' # 顶背离
-            strength_factor = 1.2
+            div_type = 'BEARISH'
+            strength_mult = 1.2
+            
+        # B. 经典底背离: 价跌 资涨
         elif p_slope < 0 and f_slope > 0:
-            divergence['divergence_type'] = 'BULLISH' # 底背离
-            strength_factor = 1.3 # 底背离更可信
+            div_type = 'BULLISH'
+            strength_mult = 1.3
+            
+        # C. 弱顶背离: 价涨 资缓涨 (资金跟不上)
         elif p_slope > 0 and f_slope > 0:
-            if np.mean(p_norm) > np.mean(f_norm) + 0.2: # 价格显著强于资金
-                divergence['divergence_type'] = 'BEARISH' # 弱顶背离
-                strength_factor = 0.7
-        elif p_slope < 0 and f_slope < 0:
-            if np.mean(f_norm) > np.mean(p_norm) + 0.2: # 资金显著强于价格
-                divergence['divergence_type'] = 'BULLISH' # 弱底背离
-                strength_factor = 0.6
+            # 价格创新高，资金未创新高，或者资金斜率显著小于价格斜率
+            if np.mean(p_norm) > np.mean(f_norm) + 0.15:
+                div_type = 'BEARISH'
+                strength_mult = 0.6 # 弱背离打折
                 
-        if divergence['divergence_type'] != 'NONE':
-            divergence['divergence_strength'] = float(np.clip(divergence_score * strength_factor, 0.0, 100.0))
+        # D. 弱底背离: 价跌 资缓跌 (资金抵抗)
+        elif p_slope < 0 and f_slope < 0:
+            if np.mean(f_norm) > np.mean(p_norm) + 0.15:
+                div_type = 'BULLISH'
+                strength_mult = 0.5 # 弱背离打折
+        
+        # 只有当背离分 > 20 才确认形态，避免噪音
+        if div_type != 'NONE' and divergence_score > 20.0:
+            divergence['divergence_type'] = div_type
+            final_strength = divergence_score * strength_mult
+            divergence['divergence_strength'] = float(np.clip(final_strength, 0.0, 100.0))
             
         return divergence
 
