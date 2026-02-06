@@ -323,14 +323,18 @@ class ProcessIntelligence:
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 蓝图审查版】元分析调度中心
-        - 核心升级: 在调度任何任务前，首先调用 `_extract_and_validate_config_signals`
-                      进行“蓝图审查”，确保配置文件中定义的所有依赖信号都真实存在。
+        【V1.2 · 蓝图审查增强版】元分析调度中心
+        - 核心升级: 增加对 'PROCESS_META_POWER_TRANSFER' 的特殊处理，豁免其配置信号校验，
+                      因为该信号已升级为内置硬编码依赖 L2 底层数据，不再依赖配置文件中的 signal_A/B。
         """
         signal_name = config.get('name', '未知信号')
-        # “蓝图审查”协议，校验配置文件中声明的所有信号
-        if not self._extract_and_validate_config_signals(df, config, f"_run_meta_analysis (for {signal_name})"):
-            return {}
+        
+        # [升级] 豁免 PROCESS_META_POWER_TRANSFER 的配置校验，防止因旧配置导致启动失败
+        if signal_name != 'PROCESS_META_POWER_TRANSFER':
+            # “蓝图审查”协议，校验配置文件中声明的所有信号
+            if not self._extract_and_validate_config_signals(df, config, f"_run_meta_analysis (for {signal_name})"):
+                return {}
+        
         diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
         if diagnosis_type == 'meta_relationship':
             return self._diagnose_meta_relationship(df, config)
@@ -396,7 +400,7 @@ class ProcessIntelligence:
             relationship_score = self._calculate_ff_vs_structure_relationship(df, config)
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
-            meta_score = self.calculate_main_force_control_processor.calculate(df, config) # 修改此行
+            meta_score = self.calculate_main_force_control_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
             meta_score = self._calculate_panic_washout_accumulation(df, config)
         elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION':
@@ -426,6 +430,9 @@ class ProcessIntelligence:
             meta_score = self._calculate_process_wash_out_rebound(df, offensive_absorption_intent, config)
         elif signal_name == 'PROCESS_META_COVERT_ACCUMULATION':
             meta_score = self.calculate_process_covert_accumulation_processor.calculate(df, config)
+        elif signal_name == 'PROCESS_META_POWER_TRANSFER':
+            # [新增] 显式调用新的权力交接计算逻辑
+            meta_score = self._calculate_power_transfer(df, config)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
             if relationship_score.empty:
@@ -471,40 +478,80 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【生产版】计算“权力转移”信号。
-        - 核心逻辑: 融合“主力信念”、“战场清晰度”（由对倒和欺骗构成）来计算资金转移的真实性，
-                      并对最终结果进行非线性放大，以捕捉市场的极端博弈。
+        【V4.0 · L2博弈镜像重构版】计算"主力-散户"权力交接评分。
+        核心逻辑：
+        1. 资金博弈 (Fund Game): 直接基于 Level-2 逐单统计 (特大+大 vs 中+小) 构建博弈镜像，计算资金剪刀差。
+        2. 筹码穿透 (Chip Penetration): 引入筹码集中度与换手率的联动，衡量高换手下的筹码聚合效率。
+        3. 弃用旧信号: 不再依赖 'retail_net_flow_calibrated_D' 等已下线指标。
         """
+        method_name = "_calculate_power_transfer"
+        # 声明新的 L2 核心依赖
         required_signals = [
-            'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
-            'net_xl_amount_calibrated_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
-            'deception_index_D', 'pct_change_D'
+            'buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D', 'sell_lg_amount_D',
+            'buy_md_amount_D', 'sell_md_amount_D', 'buy_sm_amount_D', 'sell_sm_amount_D',
+            'amount_D', 'chip_concentration_ratio_D', 'chip_stability_D', 'turnover_rate_D',
+            'main_force_activity_index_D', 'downtrend_strength_D'
         ]
-        if not self._validate_required_signals(df, required_signals, "_calculate_power_transfer"):
+        if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
+        
         df_index = df.index
-        net_sm_amount = self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
-        net_md_amount = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
-        net_lg_amount = self._get_safe_series(df, 'net_lg_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
-        net_elg_amount = self._get_safe_series(df, 'net_xl_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
-        main_force_conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_power_transfer")
-        wash_trade_intensity = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_calculate_power_transfer")
-        deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_power_transfer")
-        wash_trade_norm = self._normalize_series(wash_trade_intensity, df_index, bipolar=False)
-        deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
-        conviction_norm = self._normalize_series(main_force_conviction, df_index, bipolar=True)
-        clarity_from_noise = (1 - wash_trade_norm) * 0.4
-        clarity_from_deception = (1 + deception_norm) / 2 * 0.6
-        clarity_factor = (clarity_from_noise + clarity_from_deception).clip(0, 1)
-        transfer_authenticity_factor = (conviction_norm * clarity_factor).clip(-1, 1)
-        md_to_main_force = net_md_amount * transfer_authenticity_factor
-        sm_to_main_force = net_sm_amount * transfer_authenticity_factor
-        effective_main_force_flow = net_lg_amount + net_elg_amount + md_to_main_force + sm_to_main_force
-        effective_retail_flow = (net_sm_amount - sm_to_main_force) + (net_md_amount - md_to_main_force)
-        power_transfer_raw = effective_main_force_flow.diff(1) - effective_retail_flow.diff(1)
-        normalized_score = self._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
-        final_score = np.sign(normalized_score) * normalized_score.abs().pow(1.2)
-        final_score = final_score.clip(-1, 1)
+        # 1. 获取底层 L2 资金流数据
+        buy_elg = self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name)
+        sell_elg = self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name)
+        buy_lg = self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name)
+        sell_lg = self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name)
+        buy_md = self._get_safe_series(df, 'buy_md_amount_D', 0.0, method_name)
+        sell_md = self._get_safe_series(df, 'sell_md_amount_D', 0.0, method_name)
+        buy_sm = self._get_safe_series(df, 'buy_sm_amount_D', 0.0, method_name)
+        sell_sm = self._get_safe_series(df, 'sell_sm_amount_D', 0.0, method_name)
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name).replace(0, 1.0) # 避免除零
+
+        # 2. 获取筹码与行为数据
+        chip_conc = self._get_safe_series(df, 'chip_concentration_ratio_D', 0.0, method_name)
+        chip_stab = self._get_safe_series(df, 'chip_stability_D', 0.5, method_name)
+        turnover = self._get_safe_series(df, 'turnover_rate_D', 0.0, method_name)
+        mf_activity = self._get_safe_series(df, 'main_force_activity_index_D', 50.0, method_name)
+        downtrend = self._get_safe_series(df, 'downtrend_strength_D', 0.0, method_name)
+
+        # 3. 计算资金博弈差 (Fund Game Spread, FGS)
+        # 主力净流入 = (特大买 - 特大卖) + (大单买 - 大单卖)
+        main_force_net = (buy_elg - sell_elg) + (buy_lg - sell_lg)
+        # 散户净流入 = (中单买 - 中单卖) + (小单买 - 小单卖)
+        retail_net = (buy_md - sell_md) + (buy_sm - sell_sm)
+        # FGS > 0 表示资金由散户向主力转移
+        fund_game_spread = (main_force_net - retail_net) / amount
+
+        # 4. 计算筹码穿透率 (Chip Penetration Rate, CPR)
+        # 逻辑：高换手 + 集中度提升 = 强力吸筹；换手率越高，集中度变化的信号置信度越高
+        conc_diff = chip_conc.diff().fillna(0)
+        turnover_weight = turnover.clip(0, 0.2) * 5.0 # 归一化换手权重
+        chip_penetration = conc_diff * chip_stab * (1 + turnover_weight)
+
+        # 5. 行为确认 (Behavior Confirmation)
+        activity_factor = (mf_activity / 100.0).clip(0, 1)
+
+        # 6. 综合评分合成
+        # 权重：资金博弈 50% + 筹码结构 30% + 活跃度 20%
+        # fund_game_spread 通常较小，乘以 5.0 放大到合理区间
+        score_raw = (
+            (fund_game_spread * 5.0).clip(-1, 1) * 0.5 +
+            (chip_penetration * 20.0).clip(-1, 1) * 0.3 +
+            (activity_factor * 2 - 1).clip(-1, 1) * 0.2
+        )
+
+        # 7. 趋势修正 (Trend Filter)
+        # 在极度下跌趋势中，单纯的资金流入风险较高，给予折价
+        trend_discount = pd.Series(1.0, index=df_index)
+        trend_discount = trend_discount.mask(downtrend > 0.8, 0.6)
+        
+        final_score = (score_raw * trend_discount).clip(-1, 1)
+        
+        # 8. 调试状态记录
+        if hasattr(self.strategy, 'atomic_states'):
+            self.strategy.atomic_states["_DEBUG_power_transfer_fgs"] = fund_game_spread
+            self.strategy.atomic_states["_DEBUG_power_transfer_cpr"] = chip_penetration
+
         return final_score.astype(np.float32)
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:

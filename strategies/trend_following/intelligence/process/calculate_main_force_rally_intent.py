@@ -27,172 +27,65 @@ class CalculateMainForceRallyIntent:
         self.helper = process_intelligence_helper_instance
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-        self._probe_output = []
+        self._probe_output = []  # 探针输出缓冲区
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        计算权力交接（Power Transfer）评分
-        返回范围: [-1, 1], 正值表示向主力交接（吸筹/拉升），负值表示向散户交接（派发）
+        【V7.0 · 数据解耦版】主计算流程：由内部计算转向直接接驳数据层预计算指标
         """
         self._probe_output = []
-        method_name = "calculate_power_transfer"
-        self._probe_print(f"=== 权力交接(Power Transfer)计算开始 [{method_name}] ===")
-        
-        # 1. 获取原始信号 (Raw Signals) - 增强健壮性
-        raw = self._get_raw_data(df)
+        params = self._get_parameters(config)
+        if not self._check_data_integrity(df):
+            self._probe_print("警告: 发现数据列缺失，计算逻辑将尝试使用安全默认值替代。")
+        raw_signals = self._get_raw_signals(df)
+        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         df_index = df.index
-        
-        # 2. 计算主力与散户的净资金流 (Net Capital Flow)
-        # 主力 = 特大单 + 大单
-        main_force_net = (raw['buy_elg_amount'] - raw['sell_elg_amount']) + \
-                         (raw['buy_lg_amount'] - raw['sell_lg_amount'])
-        # 散户 = 中单 + 小单
-        retail_net = (raw['buy_md_amount'] - raw['sell_md_amount']) + \
-                     (raw['buy_sm_amount'] - raw['sell_sm_amount'])
-        
-        # 3. 计算资金博弈差 (Fund Game Spread)
-        # 归一化分母：总成交额 (避免除以0)
-        total_amount = raw['amount'].replace(0, 1.0) 
-        # FGS > 0 表示资金从散户流向主力
-        fund_game_spread = (main_force_net - retail_net) / total_amount
-        
-        # 4. 计算筹码穿透率 (Chip Penetration)
-        # 筹码集中度的一阶差分 (变动量)
-        concentration_delta = raw['chip_concentration'].diff().fillna(0)
-        # 如果换手率高且集中度增加，说明主力在承接
-        # 归一化换手率，避免极值影响
-        turnover_factor = raw['turnover_rate'].clip(0, 0.2) * 5.0 # 放大因子
-        chip_penetration = concentration_delta * raw['chip_stability'] * (1 + turnover_factor)
-        
-        # 5. 行为确认 (Behavior Confirmation)
-        # 主力活跃度越高，交接意图越明确
-        # 【修复】使用原生 pandas 运算替代 normalize_score，避免参数位置错误导致的 TypeError
-        # 活跃度范围通常是 0-100，归一化到 0-1
-        activity_factor = (raw['main_force_activity'] / 100.0).clip(0, 1)
-        
-        # 6. 合成权力交接得分 (Power Transfer Score)
-        # 权重设计：资金博弈(50%) + 筹码结构(30%) + 行为特征(20%)
-        # fund_game_spread 已经是比率，通常在 -0.5 到 0.5 之间，需要放大
-        transfer_score_raw = (
-            (fund_game_spread * 2.0).clip(-1, 1) * 0.5 + 
-            (chip_penetration * 10.0).clip(-1, 1) * 0.3 +
-            (activity_factor * 2 - 1).clip(-1, 1) * 0.2 # 映射到 [-1, 1]
+        normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
+        # 传递raw_signals以直接使用预计算的S/A/J指标
+        mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
+        historical_context = self._calculate_historical_context(df, df_index, raw_signals, params['historical_context_params'])
+        proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
+        dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals)
+        aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
+        control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context)
+        obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals)
+        bullish_intent = self._synthesize_bullish_intent(
+            df_index, aggressiveness_score, control_score, obstacle_clearance_score,
+            mtf_signals, normalized_signals, dynamic_weights, historical_context,
+            params['rally_intent_synthesis_params']
         )
-        
-        # 7. 趋势方向修正 (Trend Correction)
-        # 只有在趋势没有完全坏掉（例如没有跌停或处于极度下跌趋势）时，正向交接才有效
-        trend_filter = pd.Series(1.0, index=df_index)
-        downtrend_strength = raw.get('downtrend_strength', pd.Series(0.0, index=df_index))
-        trend_filter = trend_filter.mask(downtrend_strength > 0.8, 0.5) # 下跌趋势中打折
-        
-        final_power_transfer = (transfer_score_raw * trend_filter).clip(-1, 1)
-        
-        # 8. 输出探针详细数据 (Probe Details)
+        bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
+        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'])
+        penalized_bullish_part = bullish_intent * (1 - total_risk_penalty)
+        final_rally_intent = (penalized_bullish_part + bearish_score).clip(-1, 1)
+        final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals)
+        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (total_risk_penalty > 0.5), final_rally_intent * (1 - total_risk_penalty))
+        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
+        self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
+        self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
+        self.strategy.atomic_states["_DEBUG_rally_obstacle_clearance"] = obstacle_clearance_score
+        self.strategy.atomic_states["_DEBUG_rally_bullish_intent"] = bullish_intent
+        self.strategy.atomic_states["_DEBUG_rally_bearish_score"] = bearish_score
+        self.strategy.atomic_states["_DEBUG_rally_total_risk_penalty"] = total_risk_penalty
         if self._is_probe_enabled(df):
-            self._output_detailed_probe(
-                df_index, final_power_transfer, 
-                main_force_net, retail_net, fund_game_spread, 
-                chip_penetration, raw
-            )
-            
-        # 9. 存储中间状态供策略使用
-        self.strategy.atomic_states["_DEBUG_power_transfer_fund_spread"] = fund_game_spread
-        self.strategy.atomic_states["_DEBUG_power_transfer_chip_penetration"] = chip_penetration
+            self._output_probe_info(df_index, final_rally_intent)
+        return final_rally_intent.astype(np.float32)
 
-        self._probe_print("=== 权力交接计算完成 ===")
-        return final_power_transfer.astype(np.float32)
-
-    def _get_raw_data(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _probe_print(self, message: str):
         """
-        从数据层提取L2和筹码数据
-        修复逻辑：显式检查返回类型，如果是标量则广播为 Series，确保后续计算安全
+        【V2.0】探针打印方法
         """
-        signals = {}
-        df_index = df.index
-        
-        def _get_series_safe(col_name: str, default_val: float) -> pd.Series:
-            val = self.helper._get_safe_series(df, col_name, default_val)
-            # 如果是数字类型（int/float），说明列不存在且返回了默认值，需广播为 Series
-            if isinstance(val, (int, float, np.number)):
-                return pd.Series(val, index=df_index)
-            # 如果已经是 Series 但索引不匹配（防御性编程），则重新索引
-            if isinstance(val, pd.Series) and not val.index.equals(df_index):
-                return val.reindex(df_index).fillna(default_val)
-            return val
-
-        # [cite_start]资金流相关 (Level-2) [cite: 1, 2]
-        signals['buy_elg_amount'] = _get_series_safe('buy_elg_amount_D', 0.0)
-        signals['sell_elg_amount'] = _get_series_safe('sell_elg_amount_D', 0.0)
-        signals['buy_lg_amount'] = _get_series_safe('buy_lg_amount_D', 0.0)
-        signals['sell_lg_amount'] = _get_series_safe('sell_lg_amount_D', 0.0)
-        signals['buy_md_amount'] = _get_series_safe('buy_md_amount_D', 0.0)
-        signals['sell_md_amount'] = _get_series_safe('sell_md_amount_D', 0.0)
-        signals['buy_sm_amount'] = _get_series_safe('buy_sm_amount_D', 0.0)
-        signals['sell_sm_amount'] = _get_series_safe('sell_sm_amount_D', 0.0)
-        signals['amount'] = _get_series_safe('amount_D', 1.0) # 默认1.0避免除0
-        
-        # [cite_start]筹码相关 [cite: 2]
-        signals['chip_concentration'] = _get_series_safe('chip_concentration_ratio_D', 0.0)
-        signals['chip_stability'] = _get_series_safe('chip_stability_D', 0.5)
-        signals['turnover_rate'] = _get_series_safe('turnover_rate_D', 0.0)
-        
-        # [cite_start]行为与趋势 [cite: 2]
-        signals['main_force_activity'] = _get_series_safe('main_force_activity_index_D', 50.0)
-        signals['downtrend_strength'] = _get_series_safe('downtrend_strength_D', 0.0)
-        
-        # 探针输出原始数据样本(最后一天)
-        if not df.empty:
-            last_idx = df.index[-1]
-            elg = signals['buy_elg_amount'].iloc[-1]
-            sm = signals['buy_sm_amount'].iloc[-1]
-            self._probe_print(f"数据样本[{last_idx}]: ELG_Buy={elg:.0f}, SM_Buy={sm:.0f}")
-            
-        return signals
+        self._probe_output.append(message)
+        if get_param_value(self.debug_params.get('enabled'), False):
+            print(f"[PROBE] {message}")
 
     def _is_probe_enabled(self, df: pd.DataFrame) -> bool:
-        """检查探针是否启用"""
+        """
+        【V2.0】检查探针是否启用
+        """
         is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
         should_probe = get_param_value(self.debug_params.get('should_probe'), False)
         return is_debug_enabled and should_probe and self.probe_dates
-
-    def _probe_print(self, message: str):
-        """探针打印"""
-        self._probe_output.append(message)
-        if get_param_value(self.debug_params.get('enabled'), False):
-            print(f"[PROBE_PT] {message}")
-
-    def _output_detailed_probe(self, df_index: pd.Index, final_score: pd.Series, mf_net: pd.Series, retail_net: pd.Series, fgs: pd.Series, chip_pen: pd.Series, raw: Dict[str, pd.Series]):
-        """输出详细的计算过程数据"""
-        probe_ts = None
-        if self.probe_dates:
-            # 寻找匹配的探针日期
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df_index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        
-        if probe_ts:
-            idx_loc = df_index.get_loc(probe_ts)
-            self._probe_print(f"\n>>> 权力交接深度探针 @ {probe_ts.strftime('%Y-%m-%d')} <<<")
-            self._probe_print(f"1. 资金博弈:")
-            self._probe_print(f"   - 主力净额 (ELG+LG): {mf_net.iloc[idx_loc]:,.0f}")
-            self._probe_print(f"   - 散户净额 (MD+SM): {retail_net.iloc[idx_loc]:,.0f}")
-            self._probe_print(f"   - 总成交额: {raw['amount'].iloc[idx_loc]:,.0f}")
-            self._probe_print(f"   -> 资金博弈差 (FGS): {fgs.iloc[idx_loc]:.4f} (权重50%)")
-            
-            self._probe_print(f"2. 筹码结构:")
-            self._probe_print(f"   - 筹码集中度: {raw['chip_concentration'].iloc[idx_loc]:.4f}")
-            self._probe_print(f"   - 筹码稳定性: {raw['chip_stability'].iloc[idx_loc]:.4f}")
-            self._probe_print(f"   - 换手率: {raw['turnover_rate'].iloc[idx_loc]:.4f}")
-            self._probe_print(f"   -> 筹码穿透率 (CPR): {chip_pen.iloc[idx_loc]:.4f} (权重30%)")
-            
-            self._probe_print(f"3. 行为特征:")
-            self._probe_print(f"   - 主力活跃度: {raw['main_force_activity'].iloc[idx_loc]:.2f}")
-            
-            self._probe_print(f"4. 结果:")
-            self._probe_print(f"   -> 最终权力交接得分: {final_score.iloc[idx_loc]:.4f}")
-            self._probe_print(">>> 探针结束 <<<\n")
 
     def _get_parameters(self, config: Dict) -> Dict:
         """
@@ -211,36 +104,24 @@ class CalculateMainForceRallyIntent:
             "rally_intent_synthesis_params": rally_intent_synthesis_params
         }
 
-    def _get_raw_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _get_required_column_map(self) -> Dict[str, str]:
         """
-        【V2.0】从最终军械库清单获取所有原始信号
+        【V7.0 · 核心清单动态重构】定义所有必需列，并动态注入运动学三阶指标清单
         """
-        raw_signals = {}
-        method_name = "_get_raw_signals"
-        # 价格相关信号
-        price_signals = {
+        col_map = {
             'close': 'close_D', 'high': 'high_D', 'low': 'low_D', 'open': 'open_D',
             'pct_change': 'pct_change_D', 'pre_close': 'pre_close_D',
             'up_limit': 'up_limit_D', 'down_limit': 'down_limit_D',
-            'absolute_change_strength': 'absolute_change_strength_D'
-        }
-        # 成交量相关信号
-        volume_signals = {
+            'absolute_change_strength': 'absolute_change_strength_D',
             'volume': 'volume_D', 'volume_ratio': 'volume_ratio_D',
             'turnover_rate': 'turnover_rate_D', 'turnover_rate_f': 'turnover_rate_f_D',
             'net_amount': 'net_amount_D', 'net_amount_rate': 'net_amount_rate_D',
-            'net_amount_ratio': 'net_amount_ratio_D', 'total_net_amount_5d': 'total_net_amount_5d_D'
-        }
-        # 技术指标信号
-        technical_signals = {
+            'net_amount_ratio': 'net_amount_ratio_D', 'total_net_amount_5d': 'total_net_amount_5d_D',
             'ADX': 'ADX_14_D', 'RSI': 'RSI_13_D', 'MACD': 'MACD_13_34_8_D',
             'MACDh': 'MACDh_13_34_8_D', 'MACDs': 'MACDs_13_34_8_D',
             'BIAS_5': 'BIAS_5_D', 'BIAS_13': 'BIAS_13_D', 'BIAS_21': 'BIAS_21_D',
             'BBP': 'BBP_21_2.0_D', 'BBW': 'BBW_21_2.0_D', 'ATR': 'ATR_14_D',
-            'CMF': 'CMF_21_D', 'ROC': 'ROC_13_D'
-        }
-        # 筹码相关信号
-        chip_signals = {
+            'CMF': 'CMF_21_D', 'ROC': 'ROC_13_D',
             'chip_concentration_ratio': 'chip_concentration_ratio_D',
             'chip_convergence_ratio': 'chip_convergence_ratio_D',
             'chip_divergence_ratio': 'chip_divergence_ratio_D',
@@ -248,96 +129,85 @@ class CalculateMainForceRallyIntent:
             'chip_flow_direction': 'chip_flow_direction_D',
             'chip_flow_intensity': 'chip_flow_intensity_D',
             'chip_stability': 'chip_stability_D',
-            'cost_5pct': 'cost_5pct_D', 'cost_15pct': 'cost_15pct_D',
-            'cost_50pct': 'cost_50pct_D', 'cost_85pct': 'cost_85pct_D',
-            'cost_95pct': 'cost_95pct_D', 'weight_avg_cost': 'weight_avg_cost_D',
-            'peak_concentration': 'peak_concentration_D', 'peak_count': 'peak_count_D'
-        }
-        # 资金流信号
-        flow_signals = {
             'net_mf_amount': 'net_mf_amount_D', 'net_mf_vol': 'net_mf_vol_D',
             'buy_elg_amount': 'buy_elg_amount_D', 'sell_elg_amount': 'sell_elg_amount_D',
             'buy_lg_amount': 'buy_lg_amount_D', 'sell_lg_amount': 'sell_lg_amount_D',
-            'flow_acceleration': 'flow_acceleration_D',
-            'flow_consistency': 'flow_consistency_D',
-            'flow_intensity': 'flow_intensity_D',
-            'flow_momentum_5d': 'flow_momentum_5d_D',
-            'flow_stability': 'flow_stability_D',
-            'inflow_persistence': 'inflow_persistence_D'
+            'flow_acceleration': 'flow_acceleration_D', 'flow_consistency': 'flow_consistency_D',
+            'flow_intensity': 'flow_intensity_D', 'flow_momentum_5d': 'flow_momentum_5d_D',
+            'flow_stability': 'flow_stability_D', 'inflow_persistence': 'inflow_persistence_D',
+            'market_sentiment': 'market_sentiment_score_D', 'industry_breadth': 'industry_breadth_score_D',
+            'industry_leader': 'industry_leader_score_D', 'industry_strength_rank': 'industry_strength_rank_D',
+            'breakout_quality': 'breakout_quality_score_D', 'breakout_confidence': 'breakout_confidence_D',
+            'breakout_potential': 'breakout_potential_D', 'is_breakout': 'IS_BREAKOUT_D',
+            'uptrend_strength': 'uptrend_strength_D', 'downtrend_strength': 'downtrend_strength_D',
+            'trend_confirmation': 'trend_confirmation_score_D', 'is_trend_continuation': 'IS_TREND_CONTINUATION_D',
+            'is_trend_reversal': 'IS_TREND_REVERSAL_D',
+            'accumulation_score': 'accumulation_score_D', 'distribution_score': 'distribution_score_D',
+            'behavior_accumulation': 'behavior_accumulation_D', 'behavior_distribution': 'behavior_distribution_D'
         }
-        # 市场情绪信号
-        sentiment_signals = {
-            'market_sentiment': 'market_sentiment_score_D',
-            'industry_breadth': 'industry_breadth_score_D',
-            'industry_leader': 'industry_leader_score_D',
-            'industry_strength_rank': 'industry_strength_rank_D'
+        # 运动学核心基准映射
+        kinematic_bases = {
+            'price_trend': 'close_D', 'volume_trend': 'volume_D',
+            'net_amount_trend': 'net_amount_D', 'flow_intensity': 'flow_intensity_D',
+            'chip_concentration': 'chip_concentration_ratio_D'
         }
-        # 突破相关信号
-        breakout_signals = {
-            'breakout_quality': 'breakout_quality_score_D',
-            'breakout_confidence': 'breakout_confidence_D',
-            'breakout_potential': 'breakout_potential_D',
-            'is_breakout': 'IS_BREAKOUT_D'
-        }
-        # 趋势相关信号
-        trend_signals = {
-            'uptrend_strength': 'uptrend_strength_D',
-            'downtrend_strength': 'downtrend_strength_D',
-            'trend_confirmation': 'trend_confirmation_score_D',
-            'is_trend_continuation': 'IS_TREND_CONTINUATION_D',
-            'is_trend_reversal': 'IS_TREND_REVERSAL_D'
-        }
-        # 行为模式信号
-        behavior_signals = {
-            'accumulation_score': 'accumulation_score_D',
-            'distribution_score': 'distribution_score_D',
-            'behavior_accumulation': 'behavior_accumulation_D',
-            'behavior_distribution': 'behavior_distribution_D',
-            'behavior_consolidation': 'behavior_consolidation_D'
-        }
-        # 合并所有信号
-        all_signals = {}
-        all_signals.update(price_signals)
-        all_signals.update(volume_signals)
-        all_signals.update(technical_signals)
-        all_signals.update(chip_signals)
-        all_signals.update(flow_signals)
-        all_signals.update(sentiment_signals)
-        all_signals.update(breakout_signals)
-        all_signals.update(trend_signals)
-        all_signals.update(behavior_signals)
-        # 获取信号序列
-        for signal_name, column_name in all_signals.items():
+        # 动态注入斐波那契周期的三阶指标
+        for signal_name, col_name in kinematic_bases.items():
+            for p in [5, 13, 21, 55]:
+                for metric in ['SLOPE', 'ACCEL', 'JERK']:
+                    col_map[f'{metric}_{p}_{signal_name}'] = f'{metric}_{p}_{col_name}'
+        return col_map
+
+    def _check_data_integrity(self, df: pd.DataFrame) -> bool:
+        """
+        【V6.0 · 数据完整性守卫】检查DataFrame是否包含所有必需的军械库列
+        """
+        required_columns = set(self._get_required_column_map().values())
+        existing_columns = set(df.columns)
+        missing_columns = required_columns - existing_columns
+        if missing_columns:
+            self._probe_print(f"!!! 数据完整性异常 !!! 缺失关键列: {sorted(list(missing_columns))}")
+            return False
+        self._probe_print("数据完整性检查通过，所有必需列均已就绪。")
+        return True
+
+    def _get_raw_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V6.0 · 信号获取重构】基于映射表动态获取原始信号
+        """
+        raw_signals = {}
+        method_name = "_get_raw_signals"
+        column_map = self._get_required_column_map()
+        for signal_name, col_name in column_map.items():
             raw_signals[signal_name] = self.helper._get_safe_series(
-                df, column_name, 0.0, method_name=method_name
+                df, col_name, 0.0, method_name=method_name
             )
-            self._probe_print(f"获取信号: {signal_name} -> {column_name}")
         return raw_signals
 
-    def _calculate_mtf_fused_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, df_index: pd.Index) -> Dict[str, pd.Series]:
+    def _calculate_mtf_fused_signals(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
-        【V2.0】计算MTF融合信号 - 基于新清单指标
+        【V7.0 · 指标接驳版】移除物理计算逻辑，直接接驳数据层预计算的S/A/J指标
         """
         mtf_signals = {}
-        # 核心价格趋势信号
-        core_signals = {
-            'price_trend': 'close_D',
-            'volume_trend': 'volume_D',
-            'net_amount_trend': 'net_amount_D',
-            'ADX_trend': 'ADX_14_D',
-            'RSI_trend': 'RSI_13_D',
-            'MACD_trend': 'MACD_13_34_8_D',
+        # 1. 提取接驳信号：遍历raw_signals，将所有运动学指标（S/A/J）直接注入mtf_signals上下文
+        for internal_key, series in raw_signals.items():
+            if any(prefix in internal_key for prefix in ['SLOPE_', 'ACCEL_', 'JERK_']):
+                mtf_signals[internal_key] = series
+        # 2. 计算传统MTF融合评分
+        core_fusion_signals = {
+            'price_trend': 'close_D', 'volume_trend': 'volume_D',
+            'net_amount_trend': 'net_amount_D', 'ADX_trend': 'ADX_14_D',
+            'RSI_trend': 'RSI_13_D', 'MACD_trend': 'MACD_13_34_8_D',
             'chip_concentration_trend': 'chip_concentration_ratio_D',
             'market_sentiment_trend': 'market_sentiment_score_D',
             'breakout_quality_trend': 'breakout_quality_score_D',
             'accumulation_trend': 'accumulation_score_D'
         }
-        for signal_name, column_name in core_signals.items():
+        for signal_name, column_name in core_fusion_signals.items():
             mtf_signals[f'mtf_{signal_name}'] = self.helper._get_mtf_slope_accel_score(
                 df, column_name, mtf_slope_accel_weights, df_index, 
                 "_calculate_mtf_fused_signals", bipolar=True
             )
-            self._probe_print(f"计算MTF信号: {signal_name} -> {column_name}")
         return mtf_signals
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
@@ -2874,31 +2744,87 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_aggressiveness_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V2.0】计算攻击性分数 - 基于新指标
+        【V5.0 · 冲击增强版】将JERK突变引入攻击性评分逻辑
+        核心理念：当JERK(加加速度)出现正向偏离时，代表主力意图从“维护趋势”转为“暴力攻击”。
+        """
+        base_aggressiveness = self._calculate_basic_aggressiveness(df_index, mtf_signals, normalized_signals)
+        # 提取JERK冲击因子 (以5日和13日价格/资金流为主)
+        price_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index))
+        money_jerk = mtf_signals.get('JERK_5_net_amount_trend', pd.Series(0.0, index=df_index))
+        # 归一化冲击因子
+        jerk_impact = (normalize_score(price_jerk) * 0.6 + normalize_score(money_jerk) * 0.4).clip(0, 1)
+        # 非线性增强：当Jerk爆发时，指数级提升攻击性分值
+        aggressiveness_score = (base_aggressiveness * (1 + jerk_impact * 0.5)).clip(0, 1)
+        self._probe_print(f"攻击性得分(含JERK冲击): {aggressiveness_score.mean():.4f}")
+        return aggressiveness_score
+
+    def _calculate_basic_aggressiveness(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series]) -> pd.Series:
+        """
+        【V5.0】基础攻击性计算逻辑拆分
         """
         aggressiveness_components = {
             "price_trend": mtf_signals['mtf_price_trend'].clip(lower=0),
             "volume_trend": mtf_signals['mtf_volume_trend'].clip(lower=0),
             "net_amount_trend": mtf_signals['mtf_net_amount_trend'].clip(lower=0),
-            "ADX_trend": mtf_signals['mtf_ADX_trend'].clip(lower=0),
-            "RSI_momentum": normalized_signals['RSI_norm'].clip(lower=0),
-            "MACD_momentum": normalized_signals['MACD_norm'].clip(lower=0),
             "flow_acceleration": normalized_signals['flow_acceleration_norm'].clip(lower=0),
-            "flow_intensity": normalized_signals['flow_intensity_norm'].clip(lower=0),
             "breakout_quality": normalized_signals['breakout_quality_norm'].clip(lower=0),
-            "accumulation_score": normalized_signals['accumulation_score_norm'].clip(lower=0),
-            "uptrend_strength": normalized_signals['uptrend_strength_norm'].clip(lower=0),
-            "market_sentiment": normalized_signals['market_sentiment_norm'].clip(lower=0)
+            "accumulation_score": normalized_signals['accumulation_score_norm'].clip(lower=0)
         }
         aggressiveness_weights = {
-            "price_trend": 0.12, "volume_trend": 0.10, "net_amount_trend": 0.12,
-            "ADX_trend": 0.08, "RSI_momentum": 0.08, "MACD_momentum": 0.08,
-            "flow_acceleration": 0.08, "flow_intensity": 0.08,
-            "breakout_quality": 0.08, "accumulation_score": 0.08,
-            "uptrend_strength": 0.06, "market_sentiment": 0.04
+            "price_trend": 0.20, "volume_trend": 0.15, "net_amount_trend": 0.20,
+            "flow_acceleration": 0.15, "breakout_quality": 0.15, "accumulation_score": 0.15
         }
-        aggressiveness_score = _robust_geometric_mean(aggressiveness_components, aggressiveness_weights, df_index).clip(0, 1)
-        return aggressiveness_score
+        return _robust_geometric_mean(aggressiveness_components, aggressiveness_weights, df_index)
+
+    def _detect_bear_trap(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series]) -> pd.Series:
+        """
+        【V5.0 · 诱空陷阱检测】识别“动量底背离”与“筹码锁死”的共振点
+        判定逻辑：加速度 < 0 (惯性下跌/减速) 且 加加速度 > 0 (反弹冲击力现) + 筹码稳定性高
+        """
+        price_accel = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0.0, index=df_index))
+        price_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index))
+        chip_stability = normalized_signals.get('chip_stability_norm', pd.Series(0.5, index=df_index))
+        # 识别动量拐点：加速度虽负但在暴力修正(JERK > 0)
+        momentum_reversal = (price_accel < 0) & (price_jerk > 0)
+        # 结合筹码稳定性：主力未离场
+        bear_trap_signal = momentum_reversal.astype(float) * chip_stability
+        # 平滑并归一化
+        bear_trap_score = bear_trap_signal.rolling(window=3).mean().fillna(0).clip(0, 1)
+        self._probe_print(f"诱空陷阱识别均值: {bear_trap_score.mean():.4f}")
+        return bear_trap_score
+
+    def _calculate_volume_price_divergence(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series]) -> pd.Series:
+        """
+        【V5.0 · 缩量背离侦测】识别“虚假拉升”风险
+        判定逻辑：价格斜率 > 0 (上涨) 但 成交量斜率 < 0 (缩量)
+        """
+        price_slope = mtf_signals.get('SLOPE_5_price_trend', pd.Series(0.0, index=df_index))
+        vol_slope = mtf_signals.get('SLOPE_5_volume_trend', pd.Series(0.0, index=df_index))
+        # 提取量价背离特征
+        divergence = (price_slope > 0) & (vol_slope < 0)
+        # 计算背离强度：价格涨得越猛，量缩得越厉害，风险越大
+        divergence_intensity = (price_slope.clip(lower=0) * vol_slope.clip(upper=0).abs()).pow(0.5)
+        divergence_score = divergence_intensity.mask(~divergence, 0.0)
+        # 映射到[0, 1]区间
+        return (divergence_score / divergence_score.max()).fillna(0) if not divergence_score.empty else divergence_score
+
+    def _calculate_acceleration_resonance(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series]) -> pd.Series:
+        """
+        【V5.0 · 加速度共振】捕捉短中长周期的动能一致性
+        判定逻辑：Fib(5, 13, 21)周期加速度方向一致
+        """
+        accel_5 = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0.0, index=df_index))
+        accel_13 = mtf_signals.get('ACCEL_13_price_trend', pd.Series(0.0, index=df_index))
+        accel_21 = mtf_signals.get('ACCEL_21_price_trend', pd.Series(0.0, index=df_index))
+        # 计算方向一致性系数
+        resonance_count = (accel_5 > 0).astype(int) + (accel_13 > 0).astype(int) + (accel_21 > 0).astype(int)
+        # 3级共振：满分；2级共振：基础分
+        resonance_score = resonance_count.map({3: 1.0, 2: 0.6, 1: 0.2, 0: 0.0})
+        # 引入量纲：共振时的绝对加速度强度
+        avg_accel = (accel_5.clip(lower=0) + accel_13.clip(lower=0) + accel_21.clip(lower=0)) / 3
+        final_resonance = (resonance_score * (1 + avg_accel)).clip(0, 1)
+        self._probe_print(f"加速度共振强度均值: {final_resonance.mean():.4f}")
+        return final_resonance
 
     def _calculate_control_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series]) -> pd.Series:
         """
@@ -2955,34 +2881,26 @@ class CalculateMainForceRallyIntent:
                                   normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series],
                                   historical_context: Dict[str, pd.Series], rally_intent_synthesis_params: Dict) -> pd.Series:
         """
-        【V2.0】合成基础看涨意图 - 基于新指标
+        【V5.0 · 运动学增强版】集成诱空与共振逻辑
         """
-        # 应用长期趋势强度调节器
-        long_term_trend_modulator = 1.0
-        if historical_context['hc_enabled']:
-            long_term_trend_modulator = (1 + historical_context['mtf_long_term_trend_strength'] * historical_context['long_term_trend_modulator_factor'])
-        # 攻击性、控制力、障碍清除的加权平均
+        # 计算新增的博弈特征
+        bear_trap_bonus = self._detect_bear_trap(df_index, mtf_signals, normalized_signals)
+        acceleration_resonance = self._calculate_acceleration_resonance(df_index, mtf_signals)
+        # 基础意图合成 (由攻击性、控制力、障碍清除构成)
         bullish_intent_base = (
             (aggressiveness_score * dynamic_weights["aggressiveness"] +
              control_score * dynamic_weights["control"] +
              obstacle_clearance_score * dynamic_weights["obstacle_clearance"]) /
             (dynamic_weights["aggressiveness"] + dynamic_weights["control"] + dynamic_weights["obstacle_clearance"])
         )
-        # 增强因子：市场情绪和动量
-        enhancement_factor = (
-            normalized_signals['market_sentiment_norm'].clip(lower=0) * 0.3 +
-            normalized_signals['RSI_norm'].clip(lower=0) * 0.2 +
-            normalized_signals['MACD_norm'].clip(lower=0) * 0.2 +
-            mtf_signals['mtf_accumulation_trend'].clip(lower=0) * 0.3
-        ).clip(0, 1)
-        # 合成看涨意图
-        bullish_intent = (bullish_intent_base * 0.7 + enhancement_factor * 0.3).clip(0, 1)
+        # 动态增强：诱空成功后的报复性拉升与多周期共振爆发
+        # 增强系数：加速共振贡献30%，诱空加成20%
+        enhanced_intent = (bullish_intent_base * 0.5 + acceleration_resonance * 0.3 + bear_trap_bonus * 0.2).clip(0, 1)
         # 应用长期趋势调节
-        bullish_intent = (bullish_intent * long_term_trend_modulator).clip(0, 1)
-        # 幂平均调整
-        power_mean_exponent = get_param_value(rally_intent_synthesis_params.get('power_mean_exponent'), 1.0)
-        bullish_intent = bullish_intent.pow(power_mean_exponent)
-        return bullish_intent
+        long_term_trend_modulator = 1.0
+        if historical_context.get('hc_enabled'):
+            long_term_trend_modulator = (1 + historical_context.get('integrated_memory', 0) * 0.1)
+        return (enhanced_intent * long_term_trend_modulator).clip(0, 1)
 
     def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], 
                                  mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series],
@@ -3024,52 +2942,24 @@ class CalculateMainForceRallyIntent:
                         dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series,
                         rally_intent_synthesis_params: Dict) -> pd.Series:
         """
-        【V2.0】风险审判模块 - 基于新指标
+        【V5.0 · 背离惩罚版】引入量价背离作为核心风险减分项
         """
-        # 1. 派发风险
-        distribution_risk_components = {
-            "distribution_score": normalized_signals['distribution_score_norm'].clip(lower=0) if 'distribution_score_norm' in normalized_signals else pd.Series(0.0, index=df_index),
-            "behavior_distribution": normalized_signals['behavior_distribution_norm'].clip(lower=0) if 'behavior_distribution_norm' in normalized_signals else pd.Series(0.0, index=df_index),
-            "chip_divergence": normalized_signals['chip_divergence_ratio_norm'].clip(lower=0) if 'chip_divergence_ratio_norm' in normalized_signals else pd.Series(0.0, index=df_index),
-            "chip_entropy": normalized_signals['chip_entropy_norm'].clip(lower=0) if 'chip_entropy_norm' in normalized_signals else pd.Series(0.0, index=df_index),
-            "price_decline": raw_signals['pct_change'].clip(upper=0).abs(),
-            "volume_decline": (1 - normalized_signals['volume_ratio_norm']).clip(lower=0)
-        }
-        distribution_risk_weights = {
-            "distribution_score": 0.25, "behavior_distribution": 0.20,
-            "chip_divergence": 0.15, "chip_entropy": 0.15,
-            "price_decline": 0.15, "volume_decline": 0.10
-        }
-        total_weight = sum(distribution_risk_weights.values())
-        distribution_risk_weights = {k: v / total_weight for k, v in distribution_risk_weights.items()}
-        distribution_risk_score = _robust_geometric_mean(distribution_risk_components, distribution_risk_weights, df_index).clip(0, 1)
-        # 2. 技术风险
-        technical_risk_components = {
-            "RSI_extreme": ((normalized_signals['RSI_norm'] - 0.8).clip(lower=0) + (0.2 - normalized_signals['RSI_norm']).clip(lower=0)) if 'RSI_norm' in normalized_signals else pd.Series(0.0, index=df_index),
-            "MACD_divergence": (mtf_signals['mtf_MACD_trend'] - mtf_signals['mtf_price_trend']).abs(),
-            "ADX_weakness": (1 - normalized_signals['ADX_norm']).clip(lower=0),
-            "volatility_high": normalized_signals['ATR_norm'].clip(lower=0) if 'ATR_norm' in normalized_signals else pd.Series(0.0, index=df_index)
-        }
-        technical_risk_weights = {
-            "RSI_extreme": 0.30, "MACD_divergence": 0.30,
-            "ADX_weakness": 0.20, "volatility_high": 0.20
-        }
-        total_weight = sum(technical_risk_weights.values())
-        technical_risk_weights = {k: v / total_weight for k, v in technical_risk_weights.items()}
-        technical_risk_score = _robust_geometric_mean(technical_risk_components, technical_risk_weights, df_index).clip(0, 1)
-        # 3. 综合风险惩罚因子
+        # 计算量价背离惩罚
+        vp_divergence_penalty = self._calculate_volume_price_divergence(df_index, mtf_signals)
+        # 基础风险评估 (派发风险 + 技术风险)
+        distribution_risk = normalized_signals.get('distribution_score_norm', pd.Series(0.0, index=df_index))
+        technical_risk = (1 - normalized_signals.get('ADX_norm', pd.Series(0.5, index=df_index)))
+        # 综合风险惩罚因子
         total_risk_penalty_raw = (
-            distribution_risk_score * dynamic_weights["risk"] * 0.6 +
-            technical_risk_score * dynamic_weights["risk"] * 0.4
+            distribution_risk * 0.4 +
+            technical_risk * 0.3 +
+            vp_divergence_penalty * 0.3  # 背离占风险权重的30%
         ).clip(0, 1)
         # 应用Sigmoid函数进行非线性惩罚
         risk_sensitivity = get_param_value(rally_intent_synthesis_params.get('risk_sensitivity'), 2.5)
         sigmoid_center = get_param_value(rally_intent_synthesis_params.get('sigmoid_center'), 0.6)
         total_risk_penalty = 1 / (1 + np.exp(risk_sensitivity * (total_risk_penalty_raw - sigmoid_center)))
-        total_risk_penalty = (1 - total_risk_penalty).clip(0, 1)
-        # 根据攻击性分数动态调节风险惩罚
-        total_risk_penalty_modulated = total_risk_penalty * (1 - aggressiveness_score * 0.3)
-        return total_risk_penalty_modulated
+        return (1 - total_risk_penalty).clip(0, 1)
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, 
                                     proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> pd.Series:

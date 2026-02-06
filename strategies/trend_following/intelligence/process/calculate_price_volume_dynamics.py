@@ -473,7 +473,7 @@ class CalculatePriceVolumeDynamics:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """V24.0 · 主力夺权过程计算（性能优化版）"""
-        method_name = "calculate_price_volume_dynamics_v24"
+        method_name = "calculate_price_volume_dynamics"
         print(f"\n[主力夺权探针] === 开始深度计算主力夺权信号（V24.0 Numba加速版） ===")
         is_debug_enabled_for_method, probe_ts, _temp_debug_values = self._setup_debug_info(df, method_name)
         df_index = df.index
