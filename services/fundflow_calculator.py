@@ -593,7 +593,6 @@ class FundFlowFactorCalculator:
                 resilience_score = 60.0
             else:
                 resilience_score = 10.0 # 流出太多，可能是真跌
-                
         # 4. 波动率检测
         # 洗盘末端通常波动率极低
         price_std = np.std(closes[-5:]) / np.mean(closes[-5:])
@@ -614,33 +613,26 @@ class FundFlowFactorCalculator:
         """
         raw_scores = np.array([max(0, acc), max(0, push), max(0, dist), max(0, shake)])
         pattern_names = ['ACCUMULATION', 'PUSHING', 'DISTRIBUTION', 'SHAKEOUT']
-        
         # 归一化为概率分布
         total_score = np.sum(raw_scores)
         if total_score < 1.0:
             return 'UNCLEAR', 0.0
-            
         probs = raw_scores / total_score
-        
         # 1. 计算信息熵
         # 均匀分布时熵最大 (log(4))，置信度应最低
         # 集中分布时熵最小 (0)，置信度应最高
         ent = stats.entropy(probs) # base e
         max_ent = np.log(4) # 1.386
-        
         # 熵反转因子: 熵越小，因子越大 (0~1)
         entropy_factor = 1.0 - (ent / max_ent)
-        
         # 2. 找出最大值
         best_idx = np.argmax(raw_scores)
         best_score = raw_scores[best_idx]
         best_pattern = pattern_names[best_idx]
-        
         # 3. 基础置信度 = 最高分 * 熵因子
         # 只有当最高分很高(>80) 且 分布很集中(熵低) 时，才能接近 100
         # 之前是 gap + base，容易溢出。现在是乘法，很难溢出。
         final_confidence = best_score * entropy_factor
-        
         # 4. 趋势验证修正 (Trend Validation)
         # 如果是建仓/派发，需要趋势配合。如果趋势 R^2 低，置信度打折
         if best_pattern in ['ACCUMULATION', 'DISTRIBUTION'] and len(nets) > 5:
@@ -654,7 +646,6 @@ class FundFlowFactorCalculator:
         # 阈值过滤
         if best_score < 30.0:
             return 'UNCLEAR', 0.0
-            
         return best_pattern, float(np.clip(final_confidence, 0.0, 100.0))
 
     # ==================== 4. 资金流向质量评估 ====================
@@ -695,7 +686,6 @@ class FundFlowFactorCalculator:
         # [修改] 净流入不是"流出"，给予中性评分 50，而不是满分 100
         if current_net >= 0:
             return 50.0
-            
         # 获取当日涨跌幅
         pct_chg = 0.0
         if self.context.daily_basic_data:
@@ -708,7 +698,6 @@ class FundFlowFactorCalculator:
         # 给予 90 分，保留 100 分给完美的"缩量微跌洗盘"
         if pct_chg >= 0:
             return 90.0
-            
         # 此时 current_net < 0, pct_chg < 0
         abs_flow = abs(current_net)
         # [修改] 分母钝化
@@ -794,7 +783,6 @@ class FundFlowFactorCalculator:
                 pos = 0.5
         else:
             pos = 0.5
-            
         # 3. 异动判定 (双重标准)
         # 标准A: 统计异动 (Z > 2.0)
         is_stat_outlier = abs(z_score) > 2.0
@@ -805,7 +793,6 @@ class FundFlowFactorCalculator:
         is_abs_outlier = turnover_impact > 0.005 # 0.5%
         if not (is_stat_outlier or is_abs_outlier):
             return False, 0.0
-            
         # 4. 强度计算 (Intensity)
         # 基础强度: 将 2.0~5.0 映射到 40~100
         # Z=2 -> 40, Z=3 -> 60, Z=5 -> 100
@@ -820,7 +807,6 @@ class FundFlowFactorCalculator:
             pos_multiplier = 1.1 # 顶部异动，风险关注
         else:
             pos_multiplier = 0.95
-            
         final_intensity = min(100.0, raw_intensity * pos_multiplier)
         return True, float(final_intensity)
 
@@ -834,23 +820,19 @@ class FundFlowFactorCalculator:
         """
         data = self.context.current_flow_data
         if not data: return 50.0
-        
         try:
             def get_net(level):
                 buy = float(data.get(f'buy_{level}_amount', 0) or 0)
                 sell = float(data.get(f'sell_{level}_amount', 0) or 0)
                 return buy - sell
-            
             # 向量分量
             elg = get_net('elg')
             lg = get_net('lg')
             md = get_net('md')
             sm = get_net('sm') # 散户
-            
             # 主力总向量
             main_force = elg + lg
             if abs(main_force) < 10.0: return 50.0
-            
             # 1. 内部团结度 (Internal Unity)
             # ELG 和 LG 是否同向?
             # 使用加权乘积: 如果同号，结果为正；异号，结果为负
@@ -872,7 +854,6 @@ class FundFlowFactorCalculator:
                     unity_score = net_ratio * 100.0
             else:
                 unity_score = 50.0
-                
             # 2. 对手盘逻辑 (Counterparty Logic)
             # 最健康的主力买入，应该是散户卖出 (SM < 0)
             # 如果主力买，散户也买 (全场一致看多)，往往是短线高点，一致性反而不纯粹（因为没有对手盘了）
@@ -883,21 +864,16 @@ class FundFlowFactorCalculator:
             else:
                 if sm > 0: counterparty_score = 10.0 # 良性
                 else: counterparty_score = -10.0 # 恐慌踩踏，扣分
-                
             # 3. 综合计算
             raw_score = unity_score + counterparty_score
-            
             # 4. 强度压缩
             # 只有主力净占比很高时，才能突破 90 分
             total_vol = abs(elg) + abs(lg) + abs(md) + abs(sm) + 1.0
             dominance = abs(main_force) / total_vol # 0~1
-            
             # 最终分 = 基础一致性(0~100) * (0.5 + 0.5 * 统治力)
             # 这样如果统治力弱，一致性得分会被压缩在 50-70 之间
             final_score = raw_score * (0.6 + 0.4 * dominance)
-            
             return float(np.clip(final_score, 0.0, 100.0))
-            
         except Exception as e:
             logger.error(f"计算资金一致性出错: {e}")
             return 50.0
@@ -1145,32 +1121,25 @@ class FundFlowFactorCalculator:
         """
         window = 10
         if len(self.net_amount_array) < window: return 0.0, 0.0
-        
         cum_flow = np.cumsum(self.net_amount_array[-window:])
         x = np.arange(len(cum_flow))
-        
         # 1. 线性回归强度
         slope, _, r_value, _, _ = linregress(x, cum_flow)
         r_sq = r_value ** 2
-        
         # 2. [新增] 秩相关强度 (Spearman)
         # 解决震荡上涨 R2 低导致分为 0 的问题
         # 只要总体是涨的，Spearman 就会接近 1
         spearman_corr, _ = stats.spearmanr(x, cum_flow)
         if np.isnan(spearman_corr): spearman_corr = 0.0
-        
         # 归一化斜率
         range_val = np.max(cum_flow) - np.min(cum_flow) + 10.0 # 加底噪
         norm_slope = slope * window / range_val
-        
         # 3. 综合强度计算
         # 使用 max(R2, Spearman^2) 作为线性度指标
         # 这样既能捕捉直线拉升，也能捕捉震荡拉升
         linearity = max(r_sq, spearman_corr**2)
-        
         # 基础分
         raw_strength = linearity * abs(norm_slope) * 100.0
-        
         # 4. 方向判定与修正
         # 只要 Spearman > 0.2 或 Slope > 0，就视为上升趋势
         if slope > 0 or spearman_corr > 0.2:
@@ -1178,23 +1147,18 @@ class FundFlowFactorCalculator:
             peak = np.maximum.accumulate(cum_flow)
             drawdown = (peak - cum_flow) / (range_val + 1e-6)
             max_dd = np.max(drawdown)
-            
             # 宽松惩罚：回撤 < 30% 不扣分，> 80% 扣光
             # 映射: 0.3 -> 1.0, 0.8 -> 0.0
             if max_dd < 0.3:
                 penalty = 1.0
             else:
                 penalty = max(0.0, 1.0 - (max_dd - 0.3) * 2.0)
-            
             # 最终强度
             final_up = float(np.clip(raw_strength * penalty, 0.0, 100.0))
-            
             # 保底逻辑：如果累积净流确实是正的，至少给 10 分
             if cum_flow[-1] > cum_flow[0]:
                 final_up = max(final_up, 10.0)
-                
             return final_up, 0.0
-            
         else:
             # 下降趋势
             return 0.0, float(np.clip(raw_strength, 0.0, 100.0))
@@ -1248,7 +1212,6 @@ class FundFlowFactorCalculator:
             elif r_sq > 0.8 and abs(norm_v_slope) < 0.2:
                 # 缩量且R2极高 -> 阴跌 -> 强度加成 (因为很难止跌)
                 down_score *= 1.2
-                
             return 0.0, float(min(100.0, down_score))
 
     def _calculate_trend_strength(self) -> Tuple[float, float]:
@@ -1651,18 +1614,19 @@ class FundFlowFactorCalculator:
     def _generate_trading_signal(self, metrics: Dict[str, Any], comp_score: float) -> Tuple[str, float]:
         """
         v2.0: [大师级深化] 基于多维共振的信号生成机制
+        修复：解决 downtrend_strength 为 None 导致的 TypeError
         思路：
         1. 摒弃线性加分，采用“共振放大器”模型。
         2. 核心逻辑：Signal = Base * (1 + Resonance)。
-        3. 必须通过“一票否决”机制过滤假信号（如：技术面突破但主力资金大幅流出 -> 假突破）。
+        3. 必须通过“一票否决”机制过滤假信号。
         """
-        # 1. 提取关键因子
-        flow_score = metrics.get('flow_intensity', 0) or 0  # 资金面
+        # 1. 提取关键因子 (增加 None 安全处理)
+        flow_score = metrics.get('flow_intensity') or 0  # 资金面
         pattern = metrics.get('behavior_pattern', 'UNCLEAR') # 行为面
-        pat_conf = metrics.get('pattern_confidence', 0) or 0
+        pat_conf = metrics.get('pattern_confidence') or 0
         div_type = metrics.get('divergence_type', 'NONE') # 技术面背离
-        div_strength = metrics.get('divergence_strength', 0) or 0
-        tick_net = metrics.get('tick_large_order_net', 0) # 微观面 (如果有)
+        div_strength = metrics.get('divergence_strength') or 0
+        tick_net = metrics.get('tick_large_order_net') # 微观面
         if tick_net is None: tick_net = 0
         # 2. 确定基础信号方向
         signal_dir = 0 # 1=Buy, -1=Sell, 0=Neutral
@@ -1693,11 +1657,11 @@ class FundFlowFactorCalculator:
             # B. 微观面共振: Tick级大单也是净买入 (避免假单)
             if tick_net > 0: resonance_count += 1
             # C. 技术面共振: 处于上升趋势或底部反转
-            uptrend_prob = metrics.get('uptrend_continuation_prob', 0) or 0
-            reversal_prob = metrics.get('reversal_prob', 0) or 0
+            uptrend_prob = metrics.get('uptrend_continuation_prob') or 0
+            reversal_prob = metrics.get('reversal_prob') or 0
             if uptrend_prob > 60 or reversal_prob > 70: resonance_count += 1
             # D. 结构面共振: 筹码锁定良好 (低波)
-            stability = metrics.get('flow_stability', 0) or 0
+            stability = metrics.get('flow_stability') or 0
             if stability > 70: resonance_count += 1
             # 放大机制: 每一个共振因子增加 10-15% 的强度
             strength = strength * (1.0 + resonance_count * 0.15)
@@ -1706,13 +1670,14 @@ class FundFlowFactorCalculator:
             if flow_score < -20:
                 strength *= 0.5 # 强度腰斩
                 signal_dir = 0 # 转为中性甚至观望
-                
             final_signal = 'STRONG_BUY' if strength > 85 else ('BUY' if strength > 65 else 'NEUTRAL')
         elif signal_dir == -1:
             resonance_count = 0
             if flow_score < -40: resonance_count += 1
             if tick_net < 0: resonance_count += 1
-            if metrics.get('downtrend_strength', 0) > 60: resonance_count += 1
+            # [关键修复] 增加 or 0 防止 NoneType 比较报错
+            down_strength = metrics.get('downtrend_strength') or 0
+            if down_strength > 60: resonance_count += 1
             strength = strength * (1.0 + resonance_count * 0.15)
             # [一票否决]
             # 如果是卖出信号，但资金在疯狂吸筹 (flow > 20)，可能是洗盘
@@ -1721,7 +1686,6 @@ class FundFlowFactorCalculator:
                 final_signal = 'HOLD' # 建议持仓观察
             else:
                 final_signal = 'STRONG_SELL' if strength > 85 else ('SELL' if strength > 65 else 'NEUTRAL')
-                
         else:
             final_signal = 'NEUTRAL'
             # 震荡市中，强度衰减
@@ -1776,11 +1740,9 @@ class FundFlowFactorCalculator:
                 time_series = time_series.dt.tz_convert('Asia/Shanghai').dt.tz_localize(None)
             df['trade_time'] = time_series
             df = df.dropna(subset=['trade_time'])
-            
             # [关键修复] 重置索引，防止索引名与列名 'trade_time' 冲突导致后续 sort_values 报错
             # 这步操作会丢弃原有索引，确保 DataFrame 只有唯一的 RangeIndex
             df.reset_index(drop=True, inplace=True)
-            
             if df.empty:
                 return tick_metrics
             # 2. 类型标准化
@@ -1799,7 +1761,6 @@ class FundFlowFactorCalculator:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype(np.float64)
             if 'amount' not in df.columns:
                 df['amount'] = df['price'] * df['volume'] * 100
-            
             # --- 开始各项指标计算 ---
             tick_metrics.update(self._calculate_intraday_flow_distribution(df))
             tick_metrics.update(self._detect_high_freq_large_orders(df))
@@ -1814,7 +1775,6 @@ class FundFlowFactorCalculator:
             tick_metrics.update(self._calculate_high_freq_statistics(df))
             tick_metrics.update(self._calculate_time_period_distribution(df))
             tick_metrics.update(self._calculate_stealth_flow_indicators(df))
-            
             # [新增] 深度资金持续性计算
             tick_metrics['flow_persistence_minutes'] = self._calculate_flow_persistence_minutes(df)
 
@@ -1890,7 +1850,6 @@ class FundFlowFactorCalculator:
             if duration > abs(max_persistence):
                 max_persistence = float(duration)
                 dominant_direction = state
-                
         # 5. 返回带符号的结果
         # 正数表示多头持续时间最长，负数表示空头持续时间最长
         return max_persistence * dominant_direction
@@ -2075,7 +2034,6 @@ class FundFlowFactorCalculator:
             else:
                 # 如果波动率极低，直接用绝对值衡量
                 acc_z_score = (pulse - baseline_mean) / 10.0 # 假设10万为基础波动
-                
             # 映射到线性区间，便于入库 (限制在 +/- 100 范围内)
             # Z-Score 通常在 +/- 3 左右，这里放大10倍，即 30分代表3个标准差的强力爆发
             metrics['flow_acceleration_intraday'] = float(np.clip(acc_z_score * 10.0, -100.0, 100.0))
@@ -2106,7 +2064,6 @@ class FundFlowFactorCalculator:
             metrics['closing_flow_ratio'] = 0.0
             metrics['closing_flow_intensity'] = 0.0
             return metrics
-            
         buy_mask = (types == 'B')
         sell_mask = (types == 'S')
         total_turnover = np.sum(amounts)
@@ -2125,19 +2082,16 @@ class FundFlowFactorCalculator:
             metrics['closing_flow_ratio'] = float(min(1000.0, raw_ratio))
         else:
             metrics['closing_flow_ratio'] = 0.0
-            
         # [指标B] 尾盘强度 - 关键修复
         if total_turnover > 0:
             urgency_alpha = 3.0
             weighted_flow = abs(c_net_total) + (abs(a_net_auction) * urgency_alpha)
-            
             # [修改] 系数由 4000.0 降为 800.0
             # 物理意义：(加权尾盘净流 / 全天成交) > 12.5% 时达到 100分
             intensity_score = min(100.0, (weighted_flow / total_turnover) * 800.0)
             metrics['closing_flow_intensity'] = float(intensity_score)
         else:
             metrics['closing_flow_intensity'] = 0.0
-            
         return metrics
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -2310,7 +2264,6 @@ class FundFlowFactorCalculator:
             if len(resampled) < 10:
                 metrics['high_freq_flow_divergence'] = 0.0
                 return metrics
-                
             # 3. 计算相关性
             # 使用差分序列 (Delta)，因为我们要看的是“变动方向”是否一致
             p_delta = np.diff(resampled['price'].values)
@@ -2320,7 +2273,6 @@ class FundFlowFactorCalculator:
             if np.sum(valid_mask) < 5:
                 metrics['high_freq_flow_divergence'] = 0.0
                 return metrics
-                
             p_valid = p_delta[valid_mask]
             f_valid = f_flow[valid_mask]
             # 使用 Spearman 秩相关系数 (抗异常值)
@@ -2335,7 +2287,6 @@ class FundFlowFactorCalculator:
                 # Corr = 1 (同向) -> Div = 0
                 # Corr = -1 (反向) -> Div = 100
                 metrics['high_freq_flow_divergence'] = float((1.0 - corr) * 50.0)
-                
         except Exception as e:
             logger.warning(f"背离度计算异常: {e}")
             metrics['high_freq_flow_divergence'] = 0.0
@@ -2433,33 +2384,25 @@ class FundFlowFactorCalculator:
         2. 峰度不再硬截断，而是通过对数平滑映射到 0-100 区间。
         """
         metrics = {'high_freq_flow_skewness': None, 'high_freq_flow_kurtosis': None}
-        
         times_3s = df['trade_time'].values.astype('datetime64[s]').astype('int64') // 3
         if len(times_3s) == 0: return metrics
-        
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
-        
         norm_times = times_3s - times_3s[0]
         max_idx = int(norm_times[-1]) + 1
-        
         flux_3s = np.bincount(norm_times, weights=signed_amounts, minlength=max_idx) / 10000.0
         flux_active = np.trim_zeros(flux_3s)
-        
         if len(flux_active) < 30: return metrics
-            
         try:
             # Skewness (偏度)
             sk = stats.skew(flux_active)
             if np.isnan(sk): sk = 0.0
             # 偏度保留线性逻辑，截断 +/- 10
             metrics['high_freq_flow_skewness'] = float(np.clip(sk, -10.0, 10.0))
-            
             # Kurtosis (峰度)
             kt = stats.kurtosis(flux_active)
             if np.isnan(kt): kt = 0.0
-            
             # [关键修改] 对数阻尼模型
             # 原始峰度可能高达几百。使用 ln(1 + k) 压缩。
             # k=3(正态) -> ln(4)*12 ≈ 16
@@ -2470,12 +2413,9 @@ class FundFlowFactorCalculator:
                 log_kt_score = np.log1p(kt) * 12.0
             else:
                 log_kt_score = 0.0
-                
             metrics['high_freq_flow_kurtosis'] = float(np.clip(log_kt_score, 0.0, 100.0))
-            
         except Exception as e:
             logger.error(f"高频统计特征计算错误: {e}")
-            
         return metrics
 
     def _calculate_time_period_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:

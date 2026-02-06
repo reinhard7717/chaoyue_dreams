@@ -1226,7 +1226,6 @@ class FeatureEngineeringService:
                 df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = short_term_tension.fillna(0)
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
-                
         return all_dfs
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:

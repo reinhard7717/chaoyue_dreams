@@ -214,7 +214,6 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         daily_basic_data = await _get_daily_basic_data_async(stock_code, trade_date, stock_time_trade_dao)
         minute_data = await _get_1min_data_async(stock_code, trade_date, stock_time_trade_dao)
         tick_data = await realtime_dao.get_daily_real_ticks(stock_code, trade_date) if realtime_dao else None
-        
         context = CalculationContext(
             stock_code=stock_code, trade_date=trade_date, current_flow_data=current_flow_data,
             historical_flow_data=historical_flow_data, daily_basic_data=daily_basic_data,
@@ -222,10 +221,8 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         )
         calculator = FundFlowFactorCalculator(context)
         metrics = calculator.calculate_all_metrics()
-        
         # 动态过滤：仅保留数据库中存在的字段
         model_fields = {f.name for f in factor_model._meta.fields}
-        
         # [关键修复]：定义不需要转换为 Decimal 的字段集合 (Boolean, String, JSON, Integer)
         # 必须包含 'large_order_anomaly'，否则 True/False 会变成 None
         raw_fields = {
@@ -239,7 +236,6 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
             'intensity_level', 'inflow_persistence', 'days_since_last_peak',
             'tick_large_order_count', 'flow_persistence_minutes', 'flow_cluster_duration'
         }
-        
         final_data = {}
         for key, value in metrics.items():
             if key in model_fields:
@@ -273,11 +269,9 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         if not current_flow_data: return None
         daily_basic_data = get_daily_basic_data(stock_code, trade_date, stock_time_trade_dao)
         minute_data = get_1min_data(stock_code, trade_date, stock_time_trade_dao)
-        
         from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
         realtime_dao = StockRealtimeDAO(stock_basic_dao.cache_manager)
         tick_data = async_to_sync(realtime_dao.get_daily_real_ticks)(stock_code, trade_date)
-        
         context = CalculationContext(
             stock_code=stock_code, trade_date=trade_date, current_flow_data=current_flow_data,
             historical_flow_data=historical_flow_data, daily_basic_data=daily_basic_data,
@@ -285,9 +279,7 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         )
         calculator = FundFlowFactorCalculator(context)
         metrics = calculator.calculate_all_metrics()
-        
         model_fields = {f.name for f in factor_model._meta.fields}
-        
         # [关键修复] 扩展原始字段集合
         raw_fields = {
             'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 
@@ -295,7 +287,6 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
             'intensity_level', 'inflow_persistence', 'days_since_last_peak',
             'tick_large_order_count', 'flow_persistence_minutes', 'flow_cluster_duration'
         }
-        
         final_data = {}
         for key, value in metrics.items():
             if key in model_fields:
