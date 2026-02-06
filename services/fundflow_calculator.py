@@ -1983,62 +1983,83 @@ class FundFlowFactorCalculator:
 
     def _calculate_intraday_momentum(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.7: [大师级深化] 基于波动率标准化的资金爆发力计算
-        思路：
-        1. 摒弃物理二阶导数，改用金融工程中的 'Standardized Unexpected Earnings' (SUE) 思想。
-        2. 加速度 = (短期资金脉冲 - 长期资金基准) / 背景波动率。
-        3. 这种算法能精准过滤掉"成交清淡时的虚假高加速"，只有在放量突破时的加速才会被捕捉。
+        v1.8: [大师级深化] 波动率归一化动量模型
+        修复点：
+        1. 逻辑重构: 摒弃"环比增长率"逻辑，改用"波动率归一化差值" (Z-Score 思想)。
+           原逻辑 (Current - Prev) / Prev 极易因 Prev 接近0而爆炸。
+           新逻辑 (Current - Prev) / Volatility 衡量的是"趋势改变的显著性"。
+        2. 量纲统一: 映射到 [-100, 100] 区间，Z=3 (3倍标准差变化) 对应 60-70 分。
         """
         metrics = {'intraday_flow_momentum': None, 'flow_acceleration_intraday': None}
+        
         # 1. 基础数据聚合 (分钟级)
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         if len(times) == 0: return metrics
+        
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
+        
         norm_times = times - times[0]
         max_minutes = int(np.max(norm_times)) + 1
-        # 分钟级净流入 (单位: 万元)
+        
         minute_flows = np.bincount(norm_times, weights=signed_amounts, minlength=max_minutes) / 10000.0
-        # 剔除尾部无效0值 (集合竞价)
+        
+        # 剔除尾部无效0值
         active_flows = np.trim_zeros(minute_flows, 'b')
         n = len(active_flows)
         if n < 10: return metrics
-        # --- 指标1: 趋势动量 (Momentum) ---
-        # 比较最近15分钟与之前30分钟的力度差异
+        
+        # --- 指标1: 趋势动量 (Momentum) - 修正版 ---
+        # 窗口: 最近 15分钟 vs 之前 30分钟
         if n >= 45:
+            # 提取整个窗口的数据计算波动率
+            full_window = active_flows[-45:]
+            volatility = np.std(full_window)
+            
+            # 计算底噪: 防止死水股(波动率为0)导致的除零错误
+            # 设定为: 至少 1万元 或 平均绝对流量的 10%
+            base_noise = max(1.0, np.mean(np.abs(full_window)) * 0.1)
+            
+            # 分母 = 波动率 + 底噪
+            denom = volatility + base_noise
+            
             recent_trend = np.mean(active_flows[-15:])
             prev_trend = np.mean(active_flows[-45:-15])
-            # 归一化分母，防止除零
-            denom = abs(prev_trend) + 1.0 # 加1万元保底
-            metrics['intraday_flow_momentum'] = float(np.clip((recent_trend - prev_trend) / denom * 100.0, -200, 200))
+            
+            diff = recent_trend - prev_trend
+            
+            # 计算 Z-Score 形式的动量
+            # 物理意义: 趋势的改变幅度是背景波动的多少倍?
+            z_momentum = diff / denom
+            
+            # 映射: Z=1 (1倍标准差改变) -> 20分
+            # Z=5 (5倍标准差巨变) -> 100分
+            momentum_score = z_momentum * 20.0
+            
+            metrics['intraday_flow_momentum'] = float(np.clip(momentum_score, -100.0, 100.0))
         else:
             metrics['intraday_flow_momentum'] = 0.0
-        # --- 指标2: 资金加速度 (Acceleration - Deepened) ---
+            
+        # --- 指标2: 资金加速度 (Acceleration) - 保持 v1.7 逻辑 ---
         # 逻辑: Z-Score 爆发力模型
-        # 定义"脉冲"为最近3分钟均值，"基准"为最近30分钟均值
         window_short = 3
         window_long = 30
         if n >= window_long:
-            # 短期脉冲
             pulse = np.mean(active_flows[-window_short:])
-            # 长期基准序列
             baseline_slice = active_flows[-window_long:]
             baseline_mean = np.mean(baseline_slice)
             baseline_std = np.std(baseline_slice)
-            # 计算爆发力 (Z-Score)
-            # 意义: 当前的资金流偏离了正常波动范围多少个标准差?
-            # 这种写法对"缩量后的突然放量"极度敏感，正是主力点火的特征
-            if baseline_std > 0.1: # 设置最小波动率门槛，避免死水股数值爆炸
+            
+            if baseline_std > 0.1:
                 acc_z_score = (pulse - baseline_mean) / baseline_std
             else:
-                # 如果波动率极低，直接用绝对值衡量
-                acc_z_score = (pulse - baseline_mean) / 10.0 # 假设10万为基础波动
-            # 映射到线性区间，便于入库 (限制在 +/- 100 范围内)
-            # Z-Score 通常在 +/- 3 左右，这里放大10倍，即 30分代表3个标准差的强力爆发
+                acc_z_score = (pulse - baseline_mean) / 10.0 
+                
             metrics['flow_acceleration_intraday'] = float(np.clip(acc_z_score * 10.0, -100.0, 100.0))
         else:
             metrics['flow_acceleration_intraday'] = 0.0
+            
         return metrics
 
     def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -2096,12 +2117,12 @@ class FundFlowFactorCalculator:
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.8: [大师级深化] 同向拆单攻击波识别 - 修正版
+        v1.9: [大师级深化] 同向拆单攻击波识别 - 对数强度修正版
         修复点：
-        1. 计量单位修正: 将 duration 单位从"分钟"改为"秒"。
-           原逻辑 `int(buckets * 3 / 60)` 导致所有小于 1 分钟的攻击波（绝大多数）都被记为 0。
-           A股主力拆单通常持续 10-40 秒，必须用秒级计量。
-        2. 阈值优化: 使用 Median + MAD 替代 Mean + Std，防止巨型离群值抬高门槛导致漏检。
+        1. 强度计算模型: 从"线性倍率"改为"对数分贝模型"。
+           原逻辑 (Cluster/Base)*10 导致 10倍流速即满分。
+           新逻辑 log10(Cluster/Base)*50，要求 100倍流速才满分，大幅拉开区分度。
+        2. 计量单位: 保持秒级 (int(buckets * 3))。
         """
         metrics = {'flow_cluster_intensity': None, 'flow_cluster_duration': None}
         
@@ -2123,13 +2144,11 @@ class FundFlowFactorCalculator:
             return metrics
             
         # 2. 动态阈值确定 (Robust Threshold)
-        # 使用 MAD (Median Absolute Deviation) 替代 Std，避免被极端大单拉高阈值
         abs_flows = np.abs(cluster_flows)
         median_flow = np.median(abs_flows)
         mad_flow = np.median(np.abs(abs_flows - median_flow)) * 1.4826
         
-        # 阈值 = 中位数 + 1.0 * MAD (比 Mean+Std 更敏感，能捕捉中等规模的连续攻击)
-        # 增加底噪过滤: 至少要大于 5万元/3秒 (即100万/分钟的流速)
+        # 阈值 = 中位数 + 1.0 * MAD
         threshold = max(50000.0, median_flow + 1.0 * mad_flow)
         
         # 3. 识别攻击波
@@ -2142,7 +2161,7 @@ class FundFlowFactorCalculator:
             metrics['flow_cluster_duration'] = 0
             return metrics
             
-        # 4. 聚类合并 (保持原逻辑)
+        # 4. 聚类合并 (保持 v1.8 逻辑)
         max_duration_buckets = 0
         current_duration = 0
         current_type = 0 
@@ -2196,22 +2215,30 @@ class FundFlowFactorCalculator:
             max_duration_buckets = max(max_duration_buckets, current_duration)
             
         # 5. 计算最终指标
-        # [关键修复] 单位改为"秒"，不再除以 60
-        # 3秒/bucket * buckets
+        # Duration: 秒数
         metrics['flow_cluster_duration'] = int(max_duration_buckets * 3)
         
-        # Intensity 计算
-        # 使用全天中位数作为基准，而不是均值 (防止基准被大单拉高，导致强度看起来很低)
+        # Intensity: 对数分贝模型
         total_cluster_flow = sum(cluster_flow_sums)
         total_cluster_buckets = sum(cluster_durations)
         
-        baseline_flow = max(10000.0, median_flow) # 防止分母过小
+        # 基准: 中位数流速，底噪 10000 (1万元/3秒)
+        baseline_flow = max(10000.0, median_flow)
         
         if total_cluster_buckets > 0:
             avg_flow_in_cluster = total_cluster_flow / total_cluster_buckets
-            # 强度 = 攻击波流速 / 平时流速
-            # 映射: 10倍流速 -> 100分
-            intensity = (avg_flow_in_cluster / baseline_flow) * 10.0
+            
+            # 计算倍数 Ratio
+            ratio = avg_flow_in_cluster / baseline_flow
+            
+            if ratio > 1.0:
+                # [关键修正] 使用 log10 进行压缩
+                # Ratio=10 -> log=1 -> Score=50
+                # Ratio=100 -> log=2 -> Score=100
+                intensity = np.log10(ratio) * 50.0
+            else:
+                intensity = 0.0
+                
             metrics['flow_cluster_intensity'] = float(min(100.0, intensity))
         else:
             metrics['flow_cluster_intensity'] = 0.0
