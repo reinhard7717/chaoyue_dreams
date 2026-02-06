@@ -2096,94 +2096,92 @@ class FundFlowFactorCalculator:
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.7: [大师级深化] 同向拆单攻击波识别
-        思路：
-        1. 聚类不再是简单的"量大扎堆"，必须要求"方向一致"（全是买单或全是卖单）。
-           这能区分"多空激烈换手"(震荡)与"主力单向扫货"(攻击)。
-        2. 强度定义为"攻击密度信噪比"(Attack Density SNR)：攻击波内的资金流速是平时背景流速的几倍？
+        v1.8: [大师级深化] 同向拆单攻击波识别 - 修正版
+        修复点：
+        1. 计量单位修正: 将 duration 单位从"分钟"改为"秒"。
+           原逻辑 `int(buckets * 3 / 60)` 导致所有小于 1 分钟的攻击波（绝大多数）都被记为 0。
+           A股主力拆单通常持续 10-40 秒，必须用秒级计量。
+        2. 阈值优化: 使用 Median + MAD 替代 Mean + Std，防止巨型离群值抬高门槛导致漏检。
         """
         metrics = {'flow_cluster_intensity': None, 'flow_cluster_duration': None}
-        # 1. 3秒级聚合 (微观结构)
-        # 1e9 ns = 1s, //3 得到3秒桶
+        
+        # 1. 3秒级聚合
         time_int = df['trade_time'].values.astype('int64') // 10**9 // 3
         if len(time_int) == 0: return metrics
+        
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
-        # 快速聚合
+        
         uni_times, inverse_indices = np.unique(time_int, return_inverse=True)
         cluster_flows = np.zeros(len(uni_times))
         np.add.at(cluster_flows, inverse_indices, signed_amounts)
+        
         if len(cluster_flows) < 20: 
             metrics['flow_cluster_intensity'] = 0.0
             metrics['flow_cluster_duration'] = 0
             return metrics
-        # 2. 动态阈值确定 (自适应股票活跃度)
-        # 取绝对值计算背景噪音
+            
+        # 2. 动态阈值确定 (Robust Threshold)
+        # 使用 MAD (Median Absolute Deviation) 替代 Std，避免被极端大单拉高阈值
         abs_flows = np.abs(cluster_flows)
-        global_mean = np.mean(abs_flows)
-        global_std = np.std(abs_flows)
-        # 只有超过 "均值 + 1倍标准差" 的才被视为潜在的机构单
-        threshold = global_mean + global_std
-        # 3. 识别攻击波 (Attack Waves)
-        # 核心逻辑: 找出连续的、同向的、高额的资金桶
-        # state 数组: 0=噪音, 1=大买, -1=大卖
+        median_flow = np.median(abs_flows)
+        mad_flow = np.median(np.abs(abs_flows - median_flow)) * 1.4826
+        
+        # 阈值 = 中位数 + 1.0 * MAD (比 Mean+Std 更敏感，能捕捉中等规模的连续攻击)
+        # 增加底噪过滤: 至少要大于 5万元/3秒 (即100万/分钟的流速)
+        threshold = max(50000.0, median_flow + 1.0 * mad_flow)
+        
+        # 3. 识别攻击波
         states = np.zeros(len(cluster_flows), dtype=int)
         states[cluster_flows > threshold] = 1
         states[cluster_flows < -threshold] = -1
-        # 如果全天无大单
+        
         if not np.any(states != 0):
             metrics['flow_cluster_intensity'] = 0.0
             metrics['flow_cluster_duration'] = 0
             return metrics
-        # 4. 聚类合并 (允许微小断裂，但不允许反向)
-        # 遍历 buckets，手动合并比 scipy.label 更灵活
+            
+        # 4. 聚类合并 (保持原逻辑)
         max_duration_buckets = 0
         current_duration = 0
-        current_type = 0 # 0, 1, -1
-        cluster_flow_sums = [] # 记录每个显著Cluster的总流量
-        cluster_durations = [] # 记录每个显著Cluster的桶数
-        # 宽容度: 允许中间夹杂 N 个噪音桶(0)，但不允许夹杂反向桶
-        gap_tolerance = 2 # 2个桶 = 6秒
+        current_type = 0 
+        cluster_flow_sums = [] 
+        cluster_durations = [] 
+        
+        gap_tolerance = 2 
         current_gap = 0
         current_cluster_amt = 0.0
+        
         for i in range(len(states)):
             s = states[i]
             flow_val = abs(cluster_flows[i])
+            
             if s != 0:
-                # 遇到大单
                 if current_type == 0:
-                    # 新开启一个 Cluster
                     current_type = s
                     current_duration = 1
                     current_gap = 0
                     current_cluster_amt = flow_val
                 elif s == current_type:
-                    # 延续当前 Cluster
-                    current_duration += 1 + current_gap # 加上之前的gap
+                    current_duration += 1 + current_gap
                     current_gap = 0
                     current_cluster_amt += flow_val
                 else:
-                    # 方向反转，结算上一个
                     if current_duration > 0:
                         cluster_flow_sums.append(current_cluster_amt)
                         cluster_durations.append(current_duration)
                         max_duration_buckets = max(max_duration_buckets, current_duration)
-                    # 开启新的
                     current_type = s
                     current_duration = 1
                     current_gap = 0
                     current_cluster_amt = flow_val
             else:
-                # 遇到噪音
                 if current_type != 0:
                     if current_gap < gap_tolerance:
                         current_gap += 1
-                        # 噪音桶的流量也计入Cluster吗？
-                        # 大师思路: 计入。因为这代表为了扫货吃掉的中间散单，或者是撤单间隙
                         current_cluster_amt += flow_val 
                     else:
-                        # Gap太长，断裂
                         cluster_flow_sums.append(current_cluster_amt)
                         cluster_durations.append(current_duration)
                         max_duration_buckets = max(max_duration_buckets, current_duration)
@@ -2191,28 +2189,33 @@ class FundFlowFactorCalculator:
                         current_duration = 0
                         current_gap = 0
                         current_cluster_amt = 0
-        # 结算最后一个
+                        
         if current_duration > 0:
             cluster_flow_sums.append(current_cluster_amt)
             cluster_durations.append(current_duration)
             max_duration_buckets = max(max_duration_buckets, current_duration)
+            
         # 5. 计算最终指标
-        # Duration: 桶数 * 3秒 = 秒数，再转为分钟
-        # 修正: 保持为整数秒，或者分钟数。原定义是int，这里返回分钟数比较合理，如果是秒数可能数值较大
-        # 考虑到A股拆单一般持续数分钟，这里返回分钟数 (不足1分钟按0或1算)
-        metrics['flow_cluster_duration'] = int(max_duration_buckets * 3 / 60)
-        # Intensity: 攻击密度倍率
-        # (所有Cluster的总流量 / 所有Cluster的总桶数) / (全天平均流量)
-        # 这比单纯的 Mean/Mean 更能体现"在此期间"的凶猛程度
+        # [关键修复] 单位改为"秒"，不再除以 60
+        # 3秒/bucket * buckets
+        metrics['flow_cluster_duration'] = int(max_duration_buckets * 3)
+        
+        # Intensity 计算
+        # 使用全天中位数作为基准，而不是均值 (防止基准被大单拉高，导致强度看起来很低)
         total_cluster_flow = sum(cluster_flow_sums)
         total_cluster_buckets = sum(cluster_durations)
-        if total_cluster_buckets > 0 and global_mean > 0:
+        
+        baseline_flow = max(10000.0, median_flow) # 防止分母过小
+        
+        if total_cluster_buckets > 0:
             avg_flow_in_cluster = total_cluster_flow / total_cluster_buckets
-            # 强度 = 攻击期平均流速 / 全天平均流速
-            intensity = avg_flow_in_cluster / global_mean
+            # 强度 = 攻击波流速 / 平时流速
+            # 映射: 10倍流速 -> 100分
+            intensity = (avg_flow_in_cluster / baseline_flow) * 10.0
             metrics['flow_cluster_intensity'] = float(min(100.0, intensity))
         else:
             metrics['flow_cluster_intensity'] = 0.0
+            
         return metrics
 
     def _calculate_high_freq_divergence(self, df: pd.DataFrame) -> Dict[str, Any]:
