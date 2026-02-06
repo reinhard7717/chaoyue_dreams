@@ -752,63 +752,61 @@ class FundFlowFactorCalculator:
 
     def _detect_large_order_anomaly(self) -> Tuple[bool, float]:
         """
-        [大师级深化] 分形脉冲检测 (Fractal Pulse Detection) - 修正版
+        [修复] 大单异动检测
         修复点：
-        1. 阈值修正: Z-Score 阈值从 3.0 降至 2.0，提高异动捕捉灵敏度。
-        2. 绝对冲击: 增加绝对换手率异动判定，防止历史高波动掩盖当日的剧烈冲击。
-        3. 强度平滑: 优化强度计算函数，使其在 2.0-4.0 区间分布更均匀。
+        1. 阈值降维: Z-Score 阈值从 3.0 降至 2.0。
+        2. 绝对冲击: 增加"换手率冲击"判定 (0.5%)。
+        3. 强度平滑: 避免 0 值，只要触发判定，强度从 40 起步。
         """
         arr = self.net_amount_array
         if len(arr) < 10: return False, 0.0
+        
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
-        # 1. 鲁棒 Z-Score 计算
+        
+        # 1. 鲁棒统计
         recent = arr[-20:]
         median = np.median(recent)
-        # MAD: Median Absolute Deviation
         mad = np.median(np.abs(recent - median)) * 1.4826
-        # 底噪保护: 至少要有 10万(假设单位) 或 历史均值的 10% 作为波动下限
-        # 防止死水股因为波动极小导致 Z-Score 爆炸
-        base_noise = max(10.0, np.mean(np.abs(recent)) * 0.1) 
+        # 底噪: 历史均值的 10% 或 10万
+        base_noise = max(10.0, np.mean(np.abs(recent)) * 0.1)
         sigma = max(mad, base_noise)
+        
         z_score = (current_net - median) / sigma
-        # 2. 相对位置系数 (Position Factor)
-        closes = self.close_array
-        if len(closes) > 0:
-            p_min = np.min(closes[-60:])
-            p_max = np.max(closes[-60:])
-            p_curr = closes[-1]
-            if p_max - p_min > 1e-6:
-                pos = (p_curr - p_min) / (p_max - p_min)
-            else:
-                pos = 0.5
-        else:
-            pos = 0.5
-        # 3. 异动判定 (双重标准)
-        # 标准A: 统计异动 (Z > 2.0)
+        
+        # 2. 双轨判定
+        # 轨A: 统计异动 (Z > 2.0)
         is_stat_outlier = abs(z_score) > 2.0
-        # 标准B: 绝对冲击异动 (Absolute Impact)
-        # 如果当日净流占流通市值的 5‰ 以上，强制判定为异动 (无论历史波动如何)
-        circ_mv = self.market_cap or 1e12 # 避免除零
+        
+        # 轨B: 绝对冲击 (占流通盘 > 0.5%)
+        circ_mv = self.market_cap or 1e12
         turnover_impact = abs(current_net) / circ_mv
-        is_abs_outlier = turnover_impact > 0.005 # 0.5%
+        is_abs_outlier = turnover_impact > 0.005 
+        
         if not (is_stat_outlier or is_abs_outlier):
             return False, 0.0
-        # 4. 强度计算 (Intensity)
-        # 基础强度: 将 2.0~5.0 映射到 40~100
+            
+        # 3. 强度计算 (分段线性)
         # Z=2 -> 40, Z=3 -> 60, Z=5 -> 100
         raw_intensity = min(100.0, max(0.0, (abs(z_score) - 1.0) * 25.0))
-        # 如果触发了绝对冲击，强度保底 80
+        
+        # 绝对冲击保底 80 分
         if is_abs_outlier:
             raw_intensity = max(raw_intensity, 80.0)
-        # 位置修正
-        if pos < 0.3:
-            pos_multiplier = 1.2 # 底部异动，重点关注
-        elif pos > 0.8:
-            pos_multiplier = 1.1 # 顶部异动，风险关注
+            
+        # 4. 位置加权
+        closes = self.close_array
+        if len(closes) > 0:
+            p_max, p_min = np.max(closes[-60:]), np.min(closes[-60:])
+            pos = (closes[-1] - p_min) / (p_max - p_min + 1e-6)
+            
+            # 低位异动(建仓)加分，高位异动(出货)加分，中位减分
+            if pos < 0.3: multiplier = 1.2
+            elif pos > 0.8: multiplier = 1.1
+            else: multiplier = 0.9
         else:
-            pos_multiplier = 0.95
-        final_intensity = min(100.0, raw_intensity * pos_multiplier)
-        return True, float(final_intensity)
+            multiplier = 1.0
+            
+        return True, float(np.clip(raw_intensity * multiplier, 0.0, 100.0))
 
     def _calculate_flow_consistency(self) -> float:
         """
@@ -1115,52 +1113,62 @@ class FundFlowFactorCalculator:
         """
         [修复] 鲁棒趋势强度
         修复点：
-        1. 引入 Spearman 秩相关系数。即使线性度(R2)低，只要单调上涨，就给分。
-        2. 解决 slope <= 0 直接归零的问题。允许微弱上涨。
-        3. 降低回撤惩罚的敏感度。
+        1. 引入 Spearman 秩相关系数作为核心权重，解决震荡上涨得分为0的问题。
+        2. 只要 Spearman > 0.1，即使线性斜率微负，也视为弱趋势，给予基础分。
+        3. 优化回撤惩罚，避免一有回撤就归零。
         """
         window = 10
         if len(self.net_amount_array) < window: return 0.0, 0.0
+        
         cum_flow = np.cumsum(self.net_amount_array[-window:])
         x = np.arange(len(cum_flow))
-        # 1. 线性回归强度
+        
+        # 1. 线性回归 (Linear)
         slope, _, r_value, _, _ = linregress(x, cum_flow)
         r_sq = r_value ** 2
-        # 2. [新增] 秩相关强度 (Spearman)
-        # 解决震荡上涨 R2 低导致分为 0 的问题
-        # 只要总体是涨的，Spearman 就会接近 1
+        
+        # 2. 秩相关 (Rank) - 捕捉非线性趋势
         spearman_corr, _ = stats.spearmanr(x, cum_flow)
         if np.isnan(spearman_corr): spearman_corr = 0.0
-        # 归一化斜率
-        range_val = np.max(cum_flow) - np.min(cum_flow) + 10.0 # 加底噪
+        
+        # 3. 归一化斜率力度
+        # Range 为分母，衡量"走了多远"
+        range_val = np.max(cum_flow) - np.min(cum_flow) + 10.0
         norm_slope = slope * window / range_val
-        # 3. 综合强度计算
-        # 使用 max(R2, Spearman^2) 作为线性度指标
-        # 这样既能捕捉直线拉升，也能捕捉震荡拉升
-        linearity = max(r_sq, spearman_corr**2)
-        # 基础分
-        raw_strength = linearity * abs(norm_slope) * 100.0
-        # 4. 方向判定与修正
-        # 只要 Spearman > 0.2 或 Slope > 0，就视为上升趋势
-        if slope > 0 or spearman_corr > 0.2:
+        
+        # 4. 综合线性度 (Linearity)
+        # 只要 Rank 高，Linearity 就可以给高分
+        linearity = max(r_sq, spearman_corr ** 2)
+        
+        # 基础强度 = 线性度 * 力度
+        # 力度 abs(norm_slope) 通常在 0~1 之间
+        raw_strength = linearity * min(1.0, abs(norm_slope) * 1.5) * 100.0
+        
+        # 5. 方向判定与回撤修正
+        # 宽松判定：只要 Spearman > 0.1 或 Slope > 0
+        if slope > 0 or spearman_corr > 0.1:
             # 上升趋势
             peak = np.maximum.accumulate(cum_flow)
+            # 回撤占比: (Peak - Cur) / Range
             drawdown = (peak - cum_flow) / (range_val + 1e-6)
             max_dd = np.max(drawdown)
-            # 宽松惩罚：回撤 < 30% 不扣分，> 80% 扣光
-            # 映射: 0.3 -> 1.0, 0.8 -> 0.0
+            
+            # 柔性惩罚: 回撤 30% 以内不扣分，超过 80% 扣光
             if max_dd < 0.3:
                 penalty = 1.0
             else:
                 penalty = max(0.0, 1.0 - (max_dd - 0.3) * 2.0)
-            # 最终强度
-            final_up = float(np.clip(raw_strength * penalty, 0.0, 100.0))
-            # 保底逻辑：如果累积净流确实是正的，至少给 10 分
+            
+            final_up = raw_strength * penalty
+            
+            # 保底逻辑: 如果首尾是涨的，至少给 10 分
             if cum_flow[-1] > cum_flow[0]:
                 final_up = max(final_up, 10.0)
-            return final_up, 0.0
+                
+            return float(np.clip(final_up, 0.0, 100.0)), 0.0
+            
         else:
-            # 下降趋势
+            # 下降趋势 (不做过多惩罚，如实反映)
             return 0.0, float(np.clip(raw_strength, 0.0, 100.0))
 
     def _calculate_complex_trend_strength(self) -> Tuple[float, float]:
@@ -1258,73 +1266,70 @@ class FundFlowFactorCalculator:
     # ==================== 7. 量价背离指标 ====================
     def calculate_divergence_metrics(self) -> Dict[str, Any]:
         """
-        v2.1: [大师级深化] 能量势差积分模型 (Energy Potential Integral)
-        思路：
-        1. 摒弃简单的“点对点”背离。背离是一个“过程”而非“瞬间”。
-        2. 计算区间内 Price Cumulative Rank 与 Flow Cumulative Rank 的面积差。
-        3. 面积差越大，说明价格与资金的裂痕越深，势能积蓄越大。
+        [修复] 量价背离指标
+        修复点：
+        1. 使用 Sigmoid 激活函数替代线性乘法，解决 0/100 两极分化。
+        2. 增强对"微背离"的捕捉能力。
         """
-        divergence = {}
-        divergence['divergence_type'] = 'NONE'
-        divergence['divergence_strength'] = 0.0
-        divergence['price_flow_divergence'] = 0.0
-        # 数据准备 (取最近 15 天，包含短期趋势)
+        divergence = {
+            'divergence_type': 'NONE',
+            'divergence_strength': 0.0,
+            'price_flow_divergence': 0.0
+        }
         window = 15
         if len(self.close_array) < window or len(self.net_amount_array) < window:
             return divergence
+            
         prices = self.close_array[-window:]
         flows = self.net_amount_array[-window:]
-        # 1. 归一化处理 (Min-Max Scaling)
-        # 将价格和累计资金流都映射到 [0, 1] 区间，便于比较形状
+        
+        # 1. 归一化
         def normalize(arr):
             mn, mx = np.min(arr), np.max(arr)
-            if mx - mn == 0: return np.zeros_like(arr)
+            if mx == mn: return np.zeros_like(arr)
             return (arr - mn) / (mx - mn)
-        # 注意：资金流需要看“累积量”才能与“价格”形态对比
-        # 单日的 Net Flow 是价格的差分概念，Cum Flow 才是价格概念
+            
         cum_flow = np.cumsum(flows)
         p_norm = normalize(prices)
         f_norm = normalize(cum_flow)
-        # 2. 计算势差积分 (Area Difference)
-        # 逐点计算差异的绝对值之和
-        area_diff = np.sum(np.abs(p_norm - f_norm))
-        # 归一化面积 (最大可能面积是 window * 1.0)
-        # 通常 area_diff / window > 0.3 就非常显著了
-        divergence_score = (area_diff / window) * 100.0 * 2.5 # 放大系数
-        divergence['price_flow_divergence'] = float(min(100.0, divergence_score))
-        # 3. 判定背离类型 (Bullish/Bearish)
-        # 线性回归判断大方向
+        
+        # 2. 面积差 (Area Difference)
+        area_diff = np.mean(np.abs(p_norm - f_norm)) # 0~1
+        
+        # 3. Sigmoid 映射 (核心修复)
+        # area_diff 通常在 0.1~0.5 之间
+        # x=0.1 -> score=20, x=0.3 -> score=60, x=0.5 -> score=90
+        # Sigmoid: 1 / (1 + exp(-k*(x-x0)))
+        # 简化版: tanh(x * 3) * 100
+        divergence_score = np.tanh(area_diff * 4.0) * 100.0
+        
+        divergence['price_flow_divergence'] = float(divergence_score)
+        
+        # 4. 类型判定
         x = np.arange(window)
         p_slope, _, _, _, _ = linregress(x, prices)
         f_slope, _, _, _, _ = linregress(x, cum_flow)
-        # 顶背离 (Bearish): 价格涨 (p_slope > 0) 但 资金势能弱 (f_slope < p_slope)
-        # 也就是资金跟不上价格的涨幅
-        # 或者更严格：价格创新高，资金未创新高
+        
+        strength_factor = 1.0
+        
         if p_slope > 0 and f_slope < 0:
-            # 经典顶背离：价涨资跌
-            divergence['divergence_type'] = 'BEARISH'
-            divergence['divergence_strength'] = float(min(100.0, divergence_score * 1.2)) # 典型背离加权
+            divergence['divergence_type'] = 'BEARISH' # 顶背离
+            strength_factor = 1.2
         elif p_slope < 0 and f_slope > 0:
-            # 经典底背离：价跌资涨 (主力吸筹)
-            divergence['divergence_type'] = 'BULLISH'
-            divergence['divergence_strength'] = float(min(100.0, divergence_score * 1.5)) # 底背离通常更可信
+            divergence['divergence_type'] = 'BULLISH' # 底背离
+            strength_factor = 1.3 # 底背离更可信
         elif p_slope > 0 and f_slope > 0:
-            # 同向主要看速率
-            # 如果价格猛涨，资金缓涨，也是一种弱背离 (量价配合不佳)
-            if divergence_score > 40: # 只有差异够大才算
-                # 检查谁更强
-                # 如果 p_norm 始终高于 f_norm -> 资金掉队 -> 顶背离风险
-                if np.mean(p_norm) > np.mean(f_norm):
-                    divergence['divergence_type'] = 'BEARISH'
-                    divergence['divergence_strength'] = float(divergence_score * 0.8)
-                else:
-                    divergence['divergence_type'] = 'NONE' # 资金比价格还强，良性
+            if np.mean(p_norm) > np.mean(f_norm) + 0.2: # 价格显著强于资金
+                divergence['divergence_type'] = 'BEARISH' # 弱顶背离
+                strength_factor = 0.7
         elif p_slope < 0 and f_slope < 0:
-            # 价格跌，资金也流出
-            # 如果 f_norm 始终高于 p_norm -> 资金流出比价格跌幅慢 -> 惜售/抵抗 -> 底背离前兆
-            if divergence_score > 40 and np.mean(f_norm) > np.mean(p_norm):
-                 divergence['divergence_type'] = 'BULLISH'
-                 divergence['divergence_strength'] = float(divergence_score * 0.6)
+            if np.mean(f_norm) > np.mean(p_norm) + 0.2: # 资金显著强于价格
+                divergence['divergence_type'] = 'BULLISH' # 弱底背离
+                strength_factor = 0.6
+                
+        if divergence['divergence_type'] != 'NONE':
+            divergence['divergence_strength'] = float(np.clip(divergence_score * strength_factor, 0.0, 100.0))
+            
         return divergence
 
     def _calculate_trend_direction(self, arr: np.ndarray) -> float:
@@ -1472,68 +1477,63 @@ class FundFlowFactorCalculator:
     # ==================== 10. 预测指标 ====================
     def calculate_prediction_metrics(self) -> Dict[str, float]:
         """
-        v2.0: [大师级深化] 基于分形效率的资金预测模型
-        思路：
-        1. 预测置信度 (Confidence) 不应基于波动率，而应基于“资金运作效率”(Flow Efficiency)。
-        2. 引入考夫曼效率系数 (KER): KER = 位移 / 路径长。
-           - 散户资金通常是随机游走 (Random Walk)，KER 接近 0，不可预测。
-           - 主力资金通常是目标导向 (Targeted)，KER 接近 1，高度可控，预测置信度高。
+        [修复] 预测置信度
+        修复点：
+        1. 降低 KER (效率系数) 的放大倍率。
+        2. 引入"拥挤度惩罚" (Crowding Penalty)。
         """
         prediction = {}
         arr = self.net_amount_array
-        # 依然调用优化后的辅助方法来获取基础概率
-        # 这里为了避免循环引用或重复代码，我们重新计算或沿用之前的逻辑结构
-        # 假设 context 中已存在或通过其他方式获取了概率，这里主要重写 confidence 计算
         if len(arr) < 10:
-            for key in ['expected_flow_next_1d', 'flow_forecast_confidence',
-                       'uptrend_continuation_prob', 'reversal_prob']:
-                prediction[key] = None
-            return prediction
-        # 1. 均值预测 (Base Prediction)
-        # 使用加权移动平均 (WMA)，越近的数据权重越大
+            return {k: None for k in ['expected_flow_next_1d', 'flow_forecast_confidence', 
+                                     'uptrend_continuation_prob', 'reversal_prob']}
+                                     
+        # 1. 均值预测
         recent_5 = arr[-5:]
-        weights = np.arange(1, 6) # 1, 2, 3, 4, 5
-        wma_5 = np.sum(recent_5 * weights) / np.sum(weights)
-        prediction['expected_flow_next_1d'] = float(wma_5)
-        # --- 核心深化：基于 KER 的预测置信度 ---
-        # 计算窗口：最近 10 天
+        weights = np.arange(1, 6)
+        prediction['expected_flow_next_1d'] = float(np.average(recent_5, weights=weights))
+        
+        # 2. 置信度计算 (修正)
         recent_10 = arr[-10:]
-        # 计算整体位移 (Net Directional Movement)
-        # 首尾相减不够，因为资金流是Delta，所以位移是 Sum(Net Flow)
-        total_displacement = abs(np.sum(recent_10))
-        # 计算路径总长度 (Total Path Length) -> 噪音总量
-        # 也就是每天净流绝对值的和
-        total_path = np.sum(np.abs(recent_10))
-        # 计算效率系数 KER (Kaufman Efficiency Ratio)
-        if total_path > 1.0: # 避免除零
-            efficiency = total_displacement / total_path
-        else:
-            efficiency = 0.0
-        # 映射到置信度 [0, 100]
-        # KER 通常在 0 到 1 之间。
-        # A股经验：KER > 0.3 说明有明显主力运作；KER < 0.1 说明纯散户行情。
-        # 我们将其非线性映射，放大 0.3 以上部分的差异
-        confidence = min(100.0, efficiency * 100.0 * 1.5) # 0.6 KER 就达到 90分
-        # 结合自相关性 (Autocorrelation) 进行修正
-        # 如果资金流具有惯性 (Lag-1 Autocorr > 0)，置信度增加
-        if len(recent_10) > 2:
-            # 简单计算一阶自相关
-            y = recent_10
-            if np.std(y) > 0:
-                ac1 = np.corrcoef(y[:-1], y[1:])[0, 1]
-                if not np.isnan(ac1) and ac1 > 0:
-                    confidence += ac1 * 20.0 # 最多加20分
-        prediction['flow_forecast_confidence'] = float(min(100.0, max(0.0, confidence)))
-        # 3. 趋势概率 (调用或简单计算，保持接口完整)
-        # 这里复用 v2.0 的逻辑框架，或根据上下文保持一致
-        # 为保持本方法独立性，这里做简化计算，实际应结合 `calculate_trend_momentum` 的结果
+        displacement = abs(np.sum(recent_10))
+        path_length = np.sum(np.abs(recent_10))
+        
+        # KER: 0~1
+        ker = displacement / (path_length + 1e-6)
+        
+        # 自相关性 (Autocorrelation)
+        ac1 = 0.0
+        if np.std(recent_10) > 1e-6:
+            ac1 = np.corrcoef(recent_10[:-1], recent_10[1:])[0, 1]
+            if np.isnan(ac1): ac1 = 0.0
+            
+        # 基础分: KER * 80 (原150，太激进) + AC1 * 20
+        raw_confidence = ker * 80.0 + max(0, ac1) * 20.0
+        
+        # [新增] 拥挤度/波动率惩罚
+        # 如果最近波动极大 (Standard Deviation relative to Mean)，说明分歧大，置信度应降低
+        vol = np.std(recent_10)
+        mean_abs = np.mean(np.abs(recent_10)) + 1e-6
+        cv = vol / mean_abs
+        
+        # CV > 1.5 时开始惩罚
+        penalty = 1.0
+        if cv > 1.5:
+            penalty = max(0.5, 1.0 - (cv - 1.5) * 0.5)
+            
+        final_confidence = raw_confidence * penalty
+        prediction['flow_forecast_confidence'] = float(np.clip(final_confidence, 0.0, 100.0))
+        
+        # 3. 趋势概率 (联动)
         trend_score = 50.0
         if prediction['expected_flow_next_1d'] > 0:
-            trend_score += confidence * 0.4
+            trend_score += final_confidence * 0.4
         else:
-            trend_score -= confidence * 0.4
-        prediction['uptrend_continuation_prob'] = float(np.clip(trend_score, 0, 100))
-        prediction['reversal_prob'] = float(np.clip(100 - trend_score, 0, 100))
+            trend_score -= final_confidence * 0.4
+            
+        prediction['uptrend_continuation_prob'] = float(np.clip(trend_score, 0.0, 100.0))
+        prediction['reversal_prob'] = float(np.clip(100.0 - trend_score, 0.0, 100.0))
+        
         return prediction
 
     def _calculate_historical_continuation_prob(self) -> float:
