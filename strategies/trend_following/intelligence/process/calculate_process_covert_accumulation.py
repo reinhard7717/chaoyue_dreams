@@ -166,49 +166,59 @@ class CalculateProcessCovertAccumulation:
 
     def _calculate_derived_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]):
         """
-        【V4.2 · 物理突变与接口修复版】计算三阶导数 JERK 特征。
-        - 逻辑：针对 A 股吸筹特性的 stealth_flow_ratio_D 计算物理三阶导数。
+        【V4.3 · 工业级健壮性校验版】物理高阶导数安全计算逻辑。
+        - 逻辑：计算 SLOPE -> ACCEL -> JERK 链路前，逐级验证列的存在性。
         """
         fib_windows = [5, 8, 13, 21, 34, 55]
-        # 基于军械库清单的核心资金流字段
-        derivative_targets = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D']
+        derivative_targets = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'VPA_MF_ADJUSTED_EFF_D']
         for base in derivative_targets:
-            if base not in df.columns: continue
+            if base not in df.columns:
+                continue
             for period in fib_windows:
-                # 速度 (Slope)
+                # 1. 速度 (Velocity/Slope) 级校验
                 s_col = f'SLOPE_{period}_{base}'
-                if s_col not in df.columns: df[s_col] = ta.slope(df[base], length=period)
-                # 加速度 (Accel)
+                if s_col not in df.columns:
+                    df[s_col] = ta.slope(df[base], length=period)
+                # 2. 加速度 (Acceleration) 级校验
                 a_col = f'ACCEL_{period}_{base}'
-                if a_col not in df.columns and s_col in df.columns: df[a_col] = ta.slope(df[s_col], length=period)
-                # 加加速度 (Jerk)
+                if a_col not in df.columns and s_col in df.columns:
+                    df[a_col] = ta.slope(df[s_col], length=period)
+                # 3. 加加速度 (Jerk) 级校验
                 j_col = f'JERK_{period}_{base}'
-                if j_col not in df.columns and a_col in df.columns: df[j_col] = ta.slope(df[a_col], length=period)
-        # 兼容性累积计算
+                if j_col not in df.columns and a_col in df.columns:
+                    df[j_col] = ta.slope(df[a_col], length=period)
+        # 兼容性累积求和校验
         for base in ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']:
             if base in df.columns:
                 for window in cumulative_flow_windows:
                     c_col = f'{base}_{window}d_sum'
-                    if c_col not in df.columns: df[c_col] = df[base].rolling(window, min_periods=1).sum()
+                    if c_col not in df.columns:
+                        df[c_col] = df[base].rolling(window, min_periods=1).sum()
 
     def _validate_and_get_raw_signals(self, df: pd.DataFrame, method_name: str, price_weakness_slope_window: int, low_volatility_bbw_window: int, mtf_slope_accel_weights: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]) -> Optional[Dict[str, pd.Series]]:
         """
-        【V4.1 · 物理高阶导数修正版】校验并获取全量特征，修复 KeyError: 'emo_extreme'。
-        - 修复说明：确保 IS_EMOTIONAL_EXTREME_D 正确映射至 emo_extreme 键名，并动态注入所有斐波那契高阶导数信号。
+        【V4.3 · 工业级健壮性校验版】全量数据存在性预检与语义化特征映射。
+        - 逻辑：在计算开始前执行严格的基准校验，防止后续高阶导数计算因列缺失触发 KeyError。
         """
-        self._calculate_derived_signals(df, mtf_slope_accel_weights, cumulative_flow_windows, cumulative_acc_windows)
-        # 1. 基础信号校验清单 (基于军械库 [cite: 1, 2, 3])
-        essential_cols = [
+        # 1. 定义军械库基准字段 (Base Columns)
+        base_essential_cols = [
             'IS_EMOTIONAL_EXTREME_D', 'BBW_21_2.0_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
             'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'GEOM_ARC_CURVATURE_D',
             'afternoon_flow_ratio_D', 'closing_flow_intensity_D', 'flow_consistency_D',
             'long_term_chip_ratio_D', 'chip_stability_D', 'VPA_MF_ADJUSTED_EFF_D',
             'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'accumulation_score_D',
-            'MA_POTENTIAL_TENSION_INDEX_D', 'market_sentiment_score_D'
+            'MA_POTENTIAL_TENSION_INDEX_D', 'market_sentiment_score_D', 'chip_concentration_ratio_D',
+            'chip_convergence_ratio_D', 'winner_rate_D', 'chip_cost_to_ma21_diff_D', 'buy_lg_amount_rate_D'
         ]
-        if not self.helper._validate_required_signals(df, essential_cols, method_name):
+        # 2. 静态基准存在性检查
+        missing_cols = [c for c in base_essential_cols if c not in df.columns]
+        if missing_cols:
+            if is_debug_enabled_for_method:
+                print(f"[过程情报警告] {method_name} 关键基准列缺失: {missing_cols}")
             return None
-        # 2. 构建语义化映射，解决 KeyError
+        # 3. 计算派生高阶导数 (斐波那契窗口)
+        self._calculate_derived_signals(df, mtf_slope_accel_weights, cumulative_flow_windows, cumulative_acc_windows)
+        # 4. 构建语义化映射字典 (Raw Signals)
         raw_signals = {
             'emo_extreme': df['IS_EMOTIONAL_EXTREME_D'],
             'vol_bbw': df['BBW_21_2.0_D'],
@@ -226,19 +236,24 @@ class CalculateProcessCovertAccumulation:
             'inst_buy': df['SMART_MONEY_INST_NET_BUY_D'],
             'acc_score': df['accumulation_score_D'],
             'structural_tension': df['MA_POTENTIAL_TENSION_INDEX_D'],
-            'market_sentiment': df['market_sentiment_score_D']
+            'market_sentiment': df['market_sentiment_score_D'],
+            'chip_concentration': df['chip_concentration_ratio_D'],
+            'chip_convergence': df['chip_convergence_ratio_D'],
+            'winner_rate': df['winner_rate_D'],
+            'cost_ma_diff': df['chip_cost_to_ma21_diff_D'],
+            'lg_buy_rate': df['buy_lg_amount_rate_D']
         }
-        # 3. 动态注入高阶导数 (斐波那契窗口)
+        # 5. 动态注入高阶导数 Key 并执行存在性二次确认
         fib_windows = [5, 8, 13, 21, 34, 55]
         derivative_bases = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D']
         for base in derivative_bases:
             for p in fib_windows:
                 for prefix in ['SLOPE', 'ACCEL', 'JERK']:
-                    col_key = f'{prefix.lower()}_{base}_{p}'
                     col_name = f'{prefix}_{p}_{base}'
-                    if col_name in df.columns:
-                        raw_signals[col_key] = df[col_name]
-        _temp_debug_values["raw_signals_v41"] = {k: "Active" for k in raw_signals.keys()}
+                    col_key = f'{prefix.lower()}_{base}_{p}'
+                    # 动态列存在性防御
+                    raw_signals[col_key] = df[col_name] if col_name in df.columns else pd.Series(0.0, index=df.index)
+        _temp_debug_values["signals_existence_check"] = "PASS"
         return raw_signals
 
     def _calculate_market_context_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, market_context_weights: Dict, price_weakness_slope_window: int, low_volatility_bbw_window: int, method_name: str, _temp_debug_values: Dict, neutral_range_threshold: float) -> pd.Series:
