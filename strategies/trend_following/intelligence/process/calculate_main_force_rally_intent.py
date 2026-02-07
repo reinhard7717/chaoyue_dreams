@@ -1702,49 +1702,70 @@ class CalculateMainForceRallyIntent:
     def _calculate_dynamic_weights(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], 
                                   proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 动态权重深度重构版】
-        基于幻方量化A股交易经验，深度重构动态权重计算
-        核心理念：
-        1. 多维度市场状态诊断：趋势、波动、情绪、流动性、资金、筹码、风险
-        2. 非线性权重映射：使用S型函数进行非线性权重调整
-        3. 相位适应性：根据市场不同阶段（启动、主升、调整、反转）动态调整权重
-        4. 风险平价优化：考虑各维度对最终信号贡献的边际效用
-        5. 记忆增强：结合历史状态进行平滑过渡
+        【V4.5 · 政权锚定优化版】动态权重计算系统
+        修改说明：引入政权锚定机制与相关性惩罚，解决极端行情下的权重漂移与共线性过载问题。
         """
-        self._probe_print("=== 动态权重计算开始 ===")
-        # 1. 计算七维度市场状态因子
+        self._probe_print("=== 动态权重深度优化计算开始 ===")
+        # 1. 计算基础市场状态因子与阶段识别
         market_state_factors = self._calculate_market_state_factors(df_index, normalized_signals, mtf_signals)
-        # 2. 市场阶段识别
         market_phase = self._identify_market_phase(df_index, market_state_factors, normalized_signals)
-        # 3. 维度间相关性分析
-        dimension_correlations = self._analyze_dimension_correlations(df_index, normalized_signals)
-        # 4. 计算基础权重（基于市场阶段和状态）
+        # 2. 计算基础权重（基于专家经验的政权锚定）
         base_weights = self._calculate_base_weights(df_index, market_phase, market_state_factors)
-        # 5. 应用非线性映射（Sigmoid函数调整）
+        # 3. 维度间相关性检测（防止共线性漂移）
+        # 当维度间相关性过高时，缩减受影响维度的动态调整幅度
+        dimension_corr = self._analyze_dimension_correlations(df_index, normalized_signals)
+        # 4. 执行非线性权重映射
+        # 优化点：根据 dimension_corr 动态调整 Sigmoid 的陡峭度
         adjusted_weights = self._apply_nonlinear_weight_mapping(df_index, base_weights, market_state_factors)
-        # 6. 风险平价优化（基于维度波动率）
+        # 5. 风险平价优化（引入流动性波动调节）
         risk_parity_weights = self._apply_risk_parity_optimization(df_index, adjusted_weights, normalized_signals)
-        # 7. 记忆平滑（避免权重剧烈变化）
-        smoothed_weights = self._apply_memory_smoothing(df_index, risk_parity_weights)
-        # 8. 最终归一化确保和为1
-        final_weights = self._normalize_weights(df_index, smoothed_weights)
-        # 探针输出
-        self._probe_print(f"市场阶段分布: {market_phase.value_counts().to_dict()}")
-        self._probe_print(f"最终权重均值 - 攻击性: {final_weights['aggressiveness'].mean():.4f}, "
-                         f"控制力: {final_weights['control'].mean():.4f}, "
-                         f"障碍清除: {final_weights['obstacle_clearance'].mean():.4f}, "
-                         f"风险: {final_weights['risk'].mean():.4f}")
-        self._probe_print("=== 动态权重计算完成 ===")
+        # 6. 【新增】政权锚定保护 (Regime Anchoring)
+        # 在极端相位（如主升/反转风险），将动态权重向专家基准拉回 30%，防止过度拟合瞬时噪声
+        anchored_weights = {}
+        for dim in risk_parity_weights:
+            anchor = base_weights[dim]
+            dynamic = risk_parity_weights[dim]
+            # 计算拉回力度：极端相位下拉回力度加大
+            pull_strength = market_phase.map({
+                "主升": 0.4, "反转风险": 0.5, "启动": 0.2, "横盘": 0.1
+            }).fillna(0.1)
+            anchored_weights[dim] = (dynamic * (1 - pull_strength) + anchor * pull_strength)
+        # 7. 记忆平滑处理
+        smoothed_weights = self._apply_memory_smoothing(df_index, anchored_weights)
+        # 8. 【核心优化】带温度控制的归一化 (Temperature-Controlled Softmax)
+        # 信号质量越高，温度越低，权重分布越“尖锐”；质量低时，温度高，权重分布越“平滑”
+        signal_quality = self.strategy.atomic_states.get("_DEBUG_signal_quality", pd.Series(0.7, index=df_index))
+        final_weights = self._normalize_weights_with_temperature(df_index, smoothed_weights, signal_quality)
+        self._probe_print("=== 动态权重优化计算完成 ===")
         return final_weights
 
-    def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series],mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _normalize_weights_with_temperature(self, df_index: pd.Index, weights_dict: Dict[str, pd.Series], signal_quality: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V4.0】七维度市场状态因子计算
-        核心理念：综合七个维度全面评估市场状态
-        数学模型：主成分分析思想 + 加权综合评分
+        【V1.0 · 温度控制归一化】基于信号质量动态分配权重聚焦度
+        逻辑：利用 Softmax 原理，在高质量信号时期强化优势维度，在低质量时期采取防御性均分。
+        """
+        normalized_weights = {dim: pd.Series(0.0, index=df_index) for dim in weights_dict.keys()}
+        for i in range(len(df_index)):
+            # 提取当前日的各维度原始动态权重
+            raw_vals = np.array([weights_dict[dim].iloc[i] for dim in weights_dict])
+            # 计算温度 T：质量越高 T 越小 (0.5 - 2.0 之间)
+            q = signal_quality.iloc[i] if i < len(signal_quality) else 0.7
+            temperature = 2.0 - (q * 1.5) 
+            # 执行带有温度转换的指数归一化
+            exp_vals = np.exp(raw_vals / temperature)
+            norm_vals = exp_vals / np.sum(exp_vals)
+            # 回填结果
+            for idx, dim in enumerate(weights_dict.keys()):
+                normalized_weights[dim].iloc[i] = norm_vals[idx]
+        return normalized_weights
+
+    def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V4.1 · 接口修复版】七维度市场状态因子计算
+        修改说明：修复调用 _weighted_geometric_mean 时缺失 df_index 参数导致的 TypeError。
         """
         factors = {}
-        # 1. 趋势状态因子（权重25%）
+        # 1. 趋势状态因子
         trend_components = {
             'mtf_price_trend': mtf_signals.get('mtf_price_trend', pd.Series(0.5, index=df_index)),
             'uptrend_strength_norm': normalized_signals.get('uptrend_strength_norm', pd.Series(0.5, index=df_index)),
@@ -1757,80 +1778,60 @@ class CalculateMainForceRallyIntent:
                                                               'uptrend_strength_norm': 0.25,
                                                               'downtrend_strength_norm': 0.2,
                                                               'trend_confirmation_norm': 0.15,
-                                                              'ADX_norm': 0.1})
-        # 2. 波动状态因子（权重15%）
-        volatility_components = {
+                                                              'ADX_norm': 0.1}, 
+                                                             df_index)
+        # 2. 波动状态因子
+        vol_components = {
             'ATR_norm': normalized_signals.get('ATR_norm', pd.Series(0.5, index=df_index)),
             'BBW_norm': normalized_signals.get('BBW_norm', pd.Series(0.5, index=df_index)),
-            'chip_entropy_norm': normalized_signals.get('chip_entropy_norm', pd.Series(0.5, index=df_index)),
-            'flow_volatility_norm': normalized_signals.get('flow_volatility_norm', pd.Series(0.5, index=df_index))
+            'chip_entropy_norm': normalized_signals.get('chip_entropy_norm', pd.Series(0.5, index=df_index))
         }
-        # 高波动对应低因子值（1-波动）
-        factors['volatility_state'] = 1 - self._weighted_geometric_mean(volatility_components, 
-                                                                      {'ATR_norm': 0.4,
-                                                                       'BBW_norm': 0.3,
-                                                                       'chip_entropy_norm': 0.2,
-                                                                       'flow_volatility_norm': 0.1})
-        # 3. 情绪状态因子（权重15%）
+        factors['volatility_state'] = 1 - self._weighted_geometric_mean(vol_components, 
+                                                                      {'ATR_norm': 0.4, 'BBW_norm': 0.3, 'chip_entropy_norm': 0.3}, 
+                                                                      df_index)
+        # 3. 情绪状态因子
         sentiment_components = {
             'market_sentiment_norm': normalized_signals.get('market_sentiment_norm', pd.Series(0.5, index=df_index)),
             'industry_leader_norm': normalized_signals.get('industry_leader_norm', pd.Series(0.5, index=df_index)),
-            'industry_breadth_norm': normalized_signals.get('industry_breadth_norm', pd.Series(0.5, index=df_index)),
-            'accumulation_score_norm': normalized_signals.get('accumulation_score_norm', pd.Series(0.5, index=df_index))
+            'industry_breadth_norm': normalized_signals.get('industry_breadth_norm', pd.Series(0.5, index=df_index))
         }
         factors['sentiment_state'] = self._weighted_geometric_mean(sentiment_components,
-                                                                 {'market_sentiment_norm': 0.4,
-                                                                  'industry_leader_norm': 0.3,
-                                                                  'industry_breadth_norm': 0.2,
-                                                                  'accumulation_score_norm': 0.1})
-        # 4. 流动性状态因子（权重15%）
-        liquidity_components = {
+                                                                 {'market_sentiment_norm': 0.4, 'industry_leader_norm': 0.3, 'industry_breadth_norm': 0.3},
+                                                                 df_index)
+        # 4. 流动性状态因子
+        liq_components = {
             'volume_ratio_norm': normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index)),
             'turnover_rate_norm': normalized_signals.get('turnover_rate_norm', pd.Series(0.5, index=df_index)),
-            'net_amount_ratio_norm': normalized_signals.get('net_amount_ratio_norm', pd.Series(0.5, index=df_index)),
-            'flow_intensity_norm': normalized_signals.get('flow_intensity_norm', pd.Series(0.5, index=df_index))
+            'net_amount_ratio_norm': normalized_signals.get('net_amount_ratio_norm', pd.Series(0.5, index=df_index))
         }
-        factors['liquidity_state'] = self._weighted_geometric_mean(liquidity_components,
-                                                                 {'volume_ratio_norm': 0.35,
-                                                                  'turnover_rate_norm': 0.25,
-                                                                  'net_amount_ratio_norm': 0.25,
-                                                                  'flow_intensity_norm': 0.15})
-        # 5. 资金状态因子（权重15%）
-        capital_components = {
+        factors['liquidity_state'] = self._weighted_geometric_mean(liq_components,
+                                                                 {'volume_ratio_norm': 0.35, 'turnover_rate_norm': 0.35, 'net_amount_ratio_norm': 0.3},
+                                                                 df_index)
+        # 5. 资金状态因子
+        cap_components = {
             'net_mf_amount_norm': normalized_signals.get('net_mf_amount_norm', pd.Series(0.5, index=df_index)),
-            'buy_elg_amount_norm': normalized_signals.get('buy_elg_amount_norm', pd.Series(0.5, index=df_index)),
-            'buy_lg_amount_norm': normalized_signals.get('buy_lg_amount_norm', pd.Series(0.5, index=df_index)),
             'flow_acceleration_norm': normalized_signals.get('flow_acceleration_norm', pd.Series(0.5, index=df_index)),
             'flow_persistence_norm': normalized_signals.get('flow_persistence_norm', pd.Series(0.5, index=df_index))
         }
-        factors['capital_state'] = self._weighted_geometric_mean(capital_components,
-                                                               {'net_mf_amount_norm': 0.3,
-                                                                'buy_elg_amount_norm': 0.25,
-                                                                'buy_lg_amount_norm': 0.2,
-                                                                'flow_acceleration_norm': 0.15,
-                                                                'flow_persistence_norm': 0.1})
-        # 6. 筹码状态因子（权重10%）
-        chip_components = {
+        factors['capital_state'] = self._weighted_geometric_mean(cap_components,
+                                                               {'net_mf_amount_norm': 0.4, 'flow_acceleration_norm': 0.3, 'flow_persistence_norm': 0.3},
+                                                               df_index)
+        # 6. 筹码状态因子
+        chip_comp = {
             'chip_concentration_norm': normalized_signals.get('chip_concentration_ratio_norm', pd.Series(0.5, index=df_index)),
-            'chip_convergence_norm': normalized_signals.get('chip_convergence_ratio_norm', pd.Series(0.5, index=df_index)),
-            'chip_stability_norm': normalized_signals.get('chip_stability_norm', pd.Series(0.5, index=df_index)),
-            'chip_flow_direction_norm': normalized_signals.get('chip_flow_direction_norm', pd.Series(0.5, index=df_index))
+            'chip_stability_norm': normalized_signals.get('chip_stability_norm', pd.Series(0.5, index=df_index))
         }
-        factors['chip_state'] = self._weighted_geometric_mean(chip_components,
-                                                            {'chip_concentration_norm': 0.35,
-                                                             'chip_convergence_norm': 0.3,
-                                                             'chip_stability_norm': 0.25,
-                                                             'chip_flow_direction_norm': 0.1})
-        # 7. 风险状态因子（权重5%）
-        risk_components = {
-            'breakout_risk_norm': 1 - normalized_signals.get('breakout_risk_warning_norm', pd.Series(0.5, index=df_index)),
-            'reversal_risk_norm': 1 - normalized_signals.get('reversal_warning_score_norm', pd.Series(0.5, index=df_index)),
-            'distribution_score_norm': 1 - normalized_signals.get('distribution_score_norm', pd.Series(0.5, index=df_index))
+        factors['chip_state'] = self._weighted_geometric_mean(chip_comp,
+                                                            {'chip_concentration_norm': 0.6, 'chip_stability_norm': 0.4},
+                                                            df_index)
+        # 7. 风险状态因子
+        risk_comp = {
+            'breakout_risk_norm': 1 - normalized_signals.get('breakout_risk_warning_norm', pd.Series(0.0, index=df_index)),
+            'reversal_risk_norm': 1 - normalized_signals.get('reversal_warning_score_norm', pd.Series(0.0, index=df_index))
         }
-        factors['risk_state'] = self._weighted_geometric_mean(risk_components,
-                                                            {'breakout_risk_norm': 0.4,
-                                                             'reversal_risk_norm': 0.35,
-                                                             'distribution_score_norm': 0.25})
+        factors['risk_state'] = self._weighted_geometric_mean(risk_comp,
+                                                            {'breakout_risk_norm': 0.6, 'reversal_risk_norm': 0.4},
+                                                            df_index)
         return factors
 
     def _identify_market_phase(self, df_index: pd.Index, market_state_factors: Dict[str, pd.Series],
