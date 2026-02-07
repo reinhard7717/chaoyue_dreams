@@ -68,41 +68,55 @@ class CalculatePriceMemory:
 
     def calculate_support_resistance_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
         """
-        【V3.2 · 筹码结构记忆版】计算支撑阻力记忆分数
-        核心理念：结合'市场平均持仓成本(Rolling VWAP)'与'箱体结构位置'，量化价格的支撑/阻力状态。
-        A股特性：价格位于筹码密集区上方为强支撑(Score>0.5)，下方为强套牢阻力(Score<0.5)。
+        【V3.5 · 筹码力矩博弈版】支撑阻力记忆计算
+        逻辑：通过成交量加权的密度分布（VAP）识别博弈平台，量化“解套抛压”与“获利支撑”的动态对冲关系。
+        A股特性：深度整合了整数关口心理博弈与记忆衰减效应。
         """
-        # 1. 获取基础数据
         close = raw_signals.get('close', pd.Series(0.0, index=df_index))
         high = raw_signals.get('high', pd.Series(0.0, index=df_index))
         low = raw_signals.get('low', pd.Series(0.0, index=df_index))
         volume = raw_signals.get('volume', pd.Series(0.0, index=df_index))
-        # 2. 计算周期内的滚动成本均价 (Rolling VWAP)
-        # 公式: sum(price * vol) / sum(vol) over memory_period
-        pv = close * volume
-        rolling_pv = pv.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
-        rolling_vol = volume.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
-        # 避免除零，使用ffill填充空值
-        rolling_vwap = (rolling_pv / rolling_vol.replace(0, np.nan)).ffill()
-        # 3. 计算成本偏离度得分 (Cost Deviation Score)
-        # 逻辑：价格 > VWAP -> 获利盘主导 -> 支撑强 -> 分数高
-        # 使用tanh将偏离率映射到 [0, 1] 区间
-        deviation = (close - rolling_vwap) / (rolling_vwap + 1e-9)
-        # 系数10用于放大微小的偏离，使信号更敏感
-        cost_score = np.tanh(deviation * 10) * 0.5 + 0.5
-        # 4. 计算结构位置得分 (Structural Position Score)
-        # 逻辑：接近周期高点为强势(接近阻力突破)，接近低点为弱势
-        rolling_high = high.rolling(window=memory_period, min_periods=int(memory_period/2)).max()
-        rolling_low = low.rolling(window=memory_period, min_periods=int(memory_period/2)).min()
-        range_span = rolling_high - rolling_low
-        # 避免除零
-        position_score = (close - rolling_low) / range_span.replace(0, 1.0)
-        # 5. 综合支撑阻力记忆
-        # 权重分配：成本记忆(筹码)占60%，结构记忆(形态)占40%
-        # 结果说明：接近1表示上方无阻力且获利盘多(强支撑记忆)，接近0表示深套且处于低位(强阻力记忆)
-        support_resistance_memory = (cost_score * 0.6 + position_score.clip(0, 1) * 0.4)
-        return support_resistance_memory.ffill().fillna(0.5)
-
+        sr_score = pd.Series(0.5, index=df_index)
+        rolling_max = high.rolling(window=memory_period).max()
+        rolling_min = low.rolling(window=memory_period).min()
+        for i in range(memory_period, len(df_index)):
+            curr_close = close.iloc[i]
+            w_high = high.iloc[i-memory_period:i].values
+            w_low = low.iloc[i-memory_period:i].values
+            w_vol = volume.iloc[i-memory_period:i].values
+            # 1. 构建记忆衰减权重 (线性模拟记忆遗忘，近期权重设为1.0)
+            decay = np.linspace(0.5, 1.0, memory_period)
+            # 2. 定位价格中轴
+            price_pivots = (w_high + w_low) / 2
+            # 3. 计算双向博弈力矩
+            # 获利盘支撑力矩 (当前价位下方)
+            support_mask = price_pivots < curr_close
+            s_torque = np.sum(w_vol[support_mask] * decay[support_mask])
+            # 套牢盘压力力矩 (当前价位上方)
+            resistance_mask = ~support_mask
+            r_torque = np.sum(w_vol[resistance_mask] * decay[resistance_mask])
+            # 4. 计算力矩比率分值
+            total_torque = s_torque + r_torque + 1e-9
+            density_score = s_torque / total_torque
+            # 5. 相对区间位置修正
+            p_range = rolling_max.iloc[i] - rolling_min.iloc[i] + 1e-9
+            relative_pos = (curr_close - rolling_min.iloc[i]) / p_range
+            # 6. A股整数心理关口建模
+            psych_mod = 1.0
+            # 针对关键整数位进行敏感度探测
+            for level in [10, 20, 50, 100, 200, 500]:
+                if abs(curr_close - level) / level < 0.008:
+                    # 进攻状态(阳线)遇关口产生阻力，回踩状态(阴线)遇关口产生支撑
+                    if curr_close > close.iloc[i-1]:
+                        psych_mod = 0.94 # 阻力抑制
+                    else:
+                        psych_mod = 1.06 # 支撑增强
+                    break
+            # 7. 综合多维度博弈得分
+            # 权重分配：65%筹码密度，35%区间位置
+            combined_val = (density_score * 0.65 + relative_pos * 0.35) * psych_mod
+            sr_score.iloc[i] = combined_val
+        return sr_score.ffill().fillna(0.5).clip(0, 1)
 
 
 

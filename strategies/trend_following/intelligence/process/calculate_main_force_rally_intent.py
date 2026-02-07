@@ -354,6 +354,40 @@ class CalculateMainForceRallyIntent:
         ).clip(0, 1)
         return memory_quality_score
 
+    def _calculate_dynamic_period(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series]) -> pd.Series:
+        """
+        【V3.2 · 变频自适应版】动态记忆周期计算
+        逻辑：基于波动率能量分布与价格分形特征，动态调节记忆窗口的广度。
+        """
+        # 1. 提取基础变量：价格变化率与成交量
+        pct_change = raw_signals.get('pct_change', pd.Series(0.0, index=df_index))
+        vol_ratio = raw_signals.get('volume_ratio', pd.Series(1.0, index=df_index))
+        # 2. 计算波动率相对位置 (使用21日滚动窗口)
+        # 这里的逻辑是：波动率越高，采样频率应越高（周期越短）
+        volatility = pct_change.rolling(window=21).std().fillna(0.01)
+        vol_min = volatility.rolling(window=60).min()
+        vol_max = volatility.rolling(window=60).max()
+        # 归一化波动率位置 [0, 1]
+        vol_pos = (volatility - vol_min) / (vol_max - vol_min + 1e-9)
+        # 3. 计算趋势一致性因子 (Efficiency Ratio)
+        # 净位移 / 路径总长度
+        abs_diff = pct_change.abs()
+        net_diff = pct_change.rolling(window=10).sum().abs()
+        path_len = abs_diff.rolling(window=10).sum()
+        er = (net_diff / (path_len + 1e-9)).clip(0, 1)
+        # 4. 周期映射模型
+        # 基准周期 21，波动越大周期越短，趋势越强周期越长
+        # 公式：Period = Base * (1 + ER_Adjustment - Vol_Adjustment)
+        dynamic_period = 21 * (1 + er * 0.5 - vol_pos * 0.5)
+        # 5. 加入成交量异动修正
+        # 量比激增时，强制缩短周期以应对可能的变盘
+        vol_adj = (vol_ratio / 5.0).clip(0, 0.3)
+        dynamic_period = dynamic_period * (1 - vol_adj)
+        # 6. 约束边界与整数化
+        # 最小周期 5 (1周)，最大周期 55 (1季)
+        final_period = dynamic_period.clip(5, 55).round().astype(int)
+        return final_period
+
     def _estimate_snr(self, series: pd.Series) -> pd.Series:
         """
         【V4.6 · 趋势效率版】计算信号信噪比 (SNR)
