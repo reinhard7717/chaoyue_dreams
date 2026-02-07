@@ -1279,7 +1279,7 @@ class CalculateMainForceRallyIntent:
         3. 期权偏度指数
         4. 避险资产资金流向
         """
-        enhanced_risk_preference_proxy_calculator = EnhancedRiskPreferenceProxyCalculator()
+        enhanced_risk_preference_proxy_calculator = EnhancedRiskPreferenceProxyCalculator(config)
         risk_preference_components = {}
         # 1. 风险资产表现（高风险板块 vs 低风险板块）
         risky_asset_performance = enhanced_risk_preference_proxy_calculator._calculate_risky_asset_performance_index(
