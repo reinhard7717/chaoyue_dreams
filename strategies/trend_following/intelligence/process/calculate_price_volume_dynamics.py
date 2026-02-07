@@ -828,25 +828,37 @@ class CalculatePriceVolumeDynamics:
         return pd.Series(final_ctx, index=df_index).ewm(span=21).mean().clip(0, 1).fillna(0.5)
 
     def _calculate_entry_accessibility_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V45.0 · T+1 入场可获得性模型：基于换手能效与封板惯性的实战买入机会预判"""
+        """V54.0 · T+1 入场可获得性模型：采用非线性根号平滑优化流动性门控"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         # 1. 换手率门控 (Liquidity Gate)
-        # A股实战经验：自由换手 < 1% 且涨停，次日几乎无入场机会
         turnover_f = raw['turnover_rate_f_D']
-        liquidity_factor = (turnover_f / 3.0).clip(0.1, 1.2) # 以3%换手为基准，高于3%则认为流动性充足
+        # 优化策略：
+        # 原逻辑：线性 (x/3.0)，对 0.7% 换手极其严苛 (0.23)
+        # 新逻辑：根号 (sqrt(x)/sqrt(1.5))，提升对中低流动性的包容度
+        # 效果映射：0.5% -> 0.57, 0.7% -> 0.68, 1.0% -> 0.81, 1.5% -> 1.0
+        liquidity_factor = (np.sqrt(turnover_f) / np.sqrt(1.5)).clip(0.1, 1.1)
         # 2. 封板强度与溢价惩罚 (Sealing Penalty)
         is_limit_up = (raw['close_D'] >= raw['up_limit_D'] * 0.999)
-        # 如果涨停，且溢价预期和封板强度都高，则入场难度指数级增加
+        # 封板强度 * 溢价预期 = 封死概率
         sealing_intensity = (raw['closing_flow_intensity_D'] * raw['T1_PREMIUM_EXPECTATION_D']).clip(0, 1)
         limit_accessibility = np.where(is_limit_up, 0.4 * (1.0 - sealing_intensity), 1.0)
         limit_accessibility = pd.Series(limit_accessibility, index=df_index)
         # 3. 综合可获得性评分
-        # 换手率是乘数效应，低换手一票否决
+        # 入场分 = 封板可买度 * 流动性充沛度
         accessibility_score = (limit_accessibility * liquidity_factor).clip(0, 1.0)
         if is_debug and probe_ts in df_index:
-            print(f"\n[入场可获得性探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[入场可获得性探针 V54 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    自由换手: {turnover_f.loc[probe_ts]:.2f}%, 流动性因子: {liquidity_factor.loc[probe_ts]:.4f}")
             print(f"    封板状态: {is_limit_up.loc[probe_ts]}, 封板强度: {raw['closing_flow_intensity_D'].loc[probe_ts]:.4f}")
-            print(f"    >>> $T+1$ 入场窗口评分: {accessibility_score.loc[probe_ts]:.4f} (1.0为极易买入)")
+            print(f"    >>> $T+1$ 入场窗口评分: {accessibility_score.loc[probe_ts]:.4f} (优化后)")
         return accessibility_score.astype(np.float32)
+
+
+
+
+
+
+
+
+
 
