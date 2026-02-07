@@ -2212,16 +2212,20 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_aggressiveness_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V5.0 · 冲击增强版】将JERK突变引入攻击性评分逻辑
-        核心理念：当JERK(加加速度)出现正向偏离时，代表主力意图从“维护趋势”转为“暴力攻击”。
+        【V5.1 · 接口修复版】将JERK突变引入攻击性评分逻辑
+        修改说明：补齐 normalize_score 调用所需的 target_index 和 windows 参数，修复 TypeError。
+        版本号：2026.02.07.02
         """
         base_aggressiveness = self._calculate_basic_aggressiveness(df_index, mtf_signals, normalized_signals)
-        # 提取JERK冲击因子 (以5日和13日价格/资金流为主)
+        # 1. 提取JERK冲击因子 (以5日和13日价格/资金流为主)
         price_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index))
         money_jerk = mtf_signals.get('JERK_5_net_amount_trend', pd.Series(0.0, index=df_index))
-        # 归一化冲击因子
-        jerk_impact = (normalize_score(price_jerk) * 0.6 + normalize_score(money_jerk) * 0.4).clip(0, 1)
-        # 非线性增强：当Jerk爆发时，指数级提升攻击性分值
+        # 2. 修复归一化逻辑：显式传入 df_index 和 windows=60
+        price_jerk_norm = normalize_score(price_jerk, target_index=df_index, windows=60)
+        money_jerk_norm = normalize_score(money_jerk, target_index=df_index, windows=60)
+        # 3. 归一化冲击因子合成
+        jerk_impact = (price_jerk_norm * 0.6 + money_jerk_norm * 0.4).clip(0, 1)
+        # 4. 非线性增强：当Jerk爆发时，代表主力意图转为暴力攻击
         aggressiveness_score = (base_aggressiveness * (1 + jerk_impact * 0.5)).clip(0, 1)
         self._probe_print(f"攻击性得分(含JERK冲击): {aggressiveness_score.mean():.4f}")
         return aggressiveness_score
@@ -2374,36 +2378,48 @@ class CalculateMainForceRallyIntent:
                                  mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series],
                                  historical_context: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V2.0】计算看跌意图 - 基于新指标
+        【V3.0 · 杀跌冲击增强版】计算复合看跌意图
+        修改说明：引入负向JERK冲击因子捕捉恐慌杀跌，并修复了历史上下文中的变量引用错误。
+        版本号：2026.02.07.03
         """
-        # 主力资金累计记忆调节器
+        # 1. 资金底色调节：若中长期资金记忆（Integrated Capital Memory）为正，则对看跌评分产生缓冲作用
         mf_flow_memory_anti_bearish_modulator = 1.0
-        if historical_context['hc_enabled']:
-            cumulative_mf_flow_modulator_factor = 0.1
-            mf_flow_memory_anti_bearish_modulator = (1 - historical_context['mtf_cumulative_mf_flow'].clip(lower=0) * cumulative_mf_flow_modulator_factor).clip(0, 1)
-        # 看跌意图成分
-        bearish_score_components = {
-            "distribution_score": normalized_signals['distribution_score_norm'].clip(lower=0) if 'distribution_score_norm' in normalized_signals else pd.Series(0.0, index=df_index),
-            "behavior_distribution": normalized_signals['behavior_distribution_norm'].clip(lower=0) if 'behavior_distribution_norm' in normalized_signals else pd.Series(0.0, index=df_index),
-            "downtrend_strength": normalized_signals['downtrend_strength_norm'].clip(lower=0),
-            "chip_divergence": normalized_signals['chip_divergence_ratio_norm'].clip(lower=0) if 'chip_divergence_ratio_norm' in normalized_signals else pd.Series(0.0, index=df_index),
-            "price_decline": raw_signals['pct_change'].clip(upper=0).abs(),
-            "RSI_overbought": (normalized_signals['RSI_norm'] - 0.7).clip(lower=0) if 'RSI_norm' in normalized_signals else pd.Series(0.0, index=df_index)
+        if historical_context.get('hc_enabled', False):
+            # 修正：从 capital_memory 嵌套字典中提取综合资金记忆
+            cap_memory = historical_context.get('capital_memory', {}).get('integrated_capital_memory', pd.Series(0.0, index=df_index))
+            # 资金记忆越深厚，越能抵御短期砸盘，系数 [0.8, 1.0]
+            mf_flow_memory_anti_bearish_modulator = (1 - cap_memory.clip(lower=0) * 0.2).clip(0.8, 1.0)
+        # 2. 杀跌冲击计算 (Panic Jerk)
+        # 捕捉价格下行加速度的突变 (Negative Jerk)
+        price_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index))
+        # 捕捉资金外流加速度的突变
+        money_jerk = mtf_signals.get('JERK_5_net_amount_trend', pd.Series(0.0, index=df_index))
+        # 使用修正后的归一化接口：捕捉负向极值产生的冲击力
+        panic_jerk_impact = (
+            normalize_score(price_jerk.mask(price_jerk > 0, 0).abs(), target_index=df_index, windows=60) * 0.5 +
+            normalize_score(money_jerk.mask(money_jerk > 0, 0).abs(), target_index=df_index, windows=60) * 0.5
+        ).clip(0, 1)
+        # 3. 基础看跌成分构成
+        bearish_components = {
+            "distribution": normalized_signals.get('distribution_score_norm', pd.Series(0.0, index=df_index)),
+            "behavior_dist": normalized_signals.get('behavior_distribution_norm', pd.Series(0.0, index=df_index)),
+            "trend_weakness": normalized_signals.get('downtrend_strength_norm', pd.Series(0.0, index=df_index)),
+            "chip_divergence": normalized_signals.get('chip_divergence_ratio_norm', pd.Series(0.0, index=df_index)),
+            "panic_impact": panic_jerk_impact
         }
+        # 权重分配：强调派发行为与杀跌冲击
         bearish_weights = {
-            "distribution_score": 0.25, "behavior_distribution": 0.20,
-            "downtrend_strength": 0.25, "chip_divergence": 0.15,
-            "price_decline": 0.10, "RSI_overbought": 0.05
+            "distribution": 0.25, "behavior_dist": 0.20,
+            "trend_weakness": 0.20, "chip_divergence": 0.15,
+            "panic_impact": 0.20
         }
-        # 归一化权重
-        total_weight = sum(bearish_weights.values())
-        bearish_weights = {k: v / total_weight for k, v in bearish_weights.items()}
-        bearish_score_raw = _robust_geometric_mean(bearish_score_components, bearish_weights, df_index).clip(0, 1)
-        # 应用主力资金累计记忆调节
+        # 4. 几何平均合成看跌原始分
+        bearish_score_raw = _robust_geometric_mean(bearish_components, bearish_weights, df_index).clip(0, 1)
+        # 5. 应用调节器与负向转化
+        # A股特性：高位派发往往伴随急跌，但在资金记忆丰厚的票上，跌幅往往会有博弈性质的托盘
         bearish_score_modulated = (bearish_score_raw * mf_flow_memory_anti_bearish_modulator).clip(0, 1)
-        # 转换为负值
-        bearish_score = -bearish_score_modulated
-        return bearish_score
+        # 转换为最终负值分值
+        return -bearish_score_modulated
 
     def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], 
                         mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series],
