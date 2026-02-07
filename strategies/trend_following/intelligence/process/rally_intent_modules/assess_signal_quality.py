@@ -7,8 +7,8 @@ import pandas_ta as ta
 from typing import Dict, List, Optional, Any, Tuple
 
 class SignalQualityAssessor:
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
+    def __init__(self):
+        pass
 
     def _calculate_individual_signal_quality(self, signal_series: pd.Series, signal_name: str) -> pd.Series:
         """

@@ -1473,7 +1473,7 @@ class CalculateMainForceRallyIntent:
         6. 信号完整性（数据缺失率）
         返回：综合信号质量评分，范围[0, 1]，1表示最高质量
         """
-        signal_quality_assessor = SignalQualityAssessor(self.config)
+        signal_quality_assessor = SignalQualityAssessor()
         self._probe_print("=== 开始评估代理信号质量 ===")
         # 提取各代理信号的时间序列（使用增强版信号）
         rs_signal = rs_proxy.get("enhanced_rs_proxy", pd.Series(0.5, index=rs_proxy.get("raw_rs_proxy", pd.Series()).index))
