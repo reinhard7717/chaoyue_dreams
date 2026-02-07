@@ -416,7 +416,6 @@ class CalculatePriceVolumeDynamics:
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """V47.0 · 主力夺权全局总线：链式合成动力引擎、几何势能与三大预测调节矩阵"""
         method_name = "calculate_price_volume_dynamics"
-        score_calculter = CalculatePowerTransferRawScore()
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         if not self._validate_all_required_signals(df, {}, {}, method_name, is_debug, probe_ts):
@@ -433,9 +432,9 @@ class CalculatePriceVolumeDynamics:
         unadjusted_intensity = (physical_base * 0.70 + geo_resonance * 0.30)
         # --- 第三阶段：召集三大跨日预测调节矩阵 (安全阀) ---
         # 这三个方法现在在 calculate 中统一管理，避免了 raw_score 内部的隐式计算
-        risk_valve = score_calculter._calculate_premium_reversal_risk(raw, df_index, method_name) # 情绪阀
-        decay_valve = score_calculter._calculate_intraday_decay_model(raw, df_index, method_name) # 结构阀(烂板/修复)
-        sector_valve = score_calculter._calculate_sector_resonance_modifier(raw, df_index, method_name) # 环境阀(板块)
+        risk_valve = self._calculate_premium_reversal_risk(raw, df_index, method_name) # 情绪阀
+        decay_valve = self._calculate_intraday_decay_model(raw, df_index, method_name) # 结构阀(烂板/修复)
+        sector_valve = self._calculate_sector_resonance_modifier(raw, df_index, method_name) # 环境阀(板块)
         # --- 第四阶段：实战入场修正 ---
         accessibility_filter = self._calculate_entry_accessibility_score(raw, df_index, method_name)
         # --- 第五阶段：链式乘法合成最终分值 ---
@@ -480,6 +479,62 @@ class CalculatePriceVolumeDynamics:
             print(f"    共识速度(MCV): {mcv_consensus.loc[probe_ts]:.4f}, 补偿冲量: {comp_impulse.loc[probe_ts]:.4f}")
             print(f"    竞价预判: {auc_pred.loc[probe_ts]:.4f}, 物理引擎总分: {physical_engine_score.loc[probe_ts]:.4f}")
         return physical_engine_score.astype(np.float32)
+
+    def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V35.0 · 溢价回吐风险预判：基于情绪透支与换手率能效比模型"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 核心逻辑：若T日尾盘占比过高且处于情绪极端，T+1容易出现开盘脉冲后的衰竭
+        # 换手率归一化因子 (假设换手率 > 15% 为高能耗区)
+        exhaustion_factor = (raw['turnover_rate_f_D'] / 15.0).clip(0, 1.5)
+        # 溢价回吐压力 = 尾盘占比 * 情绪极端因子 * 换手能耗
+        reversal_pressure = raw['closing_flow_ratio_D'] * raw['IS_EMOTIONAL_EXTREME_D'].astype(float) * exhaustion_factor
+        # 转化为风险调节系数 (0.6 代表 40% 的衰减，1.0 代表无衰减)
+        risk_adjustment = (1.0 - reversal_pressure * 0.4).clip(0.6, 1.0)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[溢价回吐风险探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    情绪极端: {raw['IS_EMOTIONAL_EXTREME_D'].loc[probe_ts]}, 自由换手: {raw['turnover_rate_f_D'].loc[probe_ts]:.2f}%")
+            print(f"    尾盘占比: {raw['closing_flow_ratio_D'].loc[probe_ts]:.4f}, 能耗因子: {exhaustion_factor.loc[probe_ts]:.4f}")
+            print(f"    >>> 最终风险调节系数: {risk_adjustment.loc[probe_ts]:.4f}")
+        return risk_adjustment.astype(np.float32)
+
+    def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V38.0 · T+1 日内衰减与修复模型：集成“分歧转一致”潜力识别"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        stability = raw['TURNOVER_STABILITY_INDEX_D'].fillna(0.5).clip(0, 1) [cite: 2]
+        is_limit_up = (raw['close_D'] >= raw['up_limit_D'] * 0.999) [cite: 3]
+        # 1. 基础衰减逻辑：封板占比高且稳定性差
+        bad_board_mask = is_limit_up & (raw['closing_flow_ratio_D'] > 0.4) & (stability < 0.4) [cite: 2, 3]
+        # 2. 核心修复逻辑：低位暴力换手识别 (分歧转一致潜力)
+        # 若获利盘比例处于极低位 (winner_rate_D < 0.15) 且 换手极其充分 (稳定性低)
+        # 代表主力可能在跌破成本后的重新收集 
+        repair_potential = np.where((raw['winner_rate_D'] < 0.15) & (stability < 0.3), 1.5, 1.0) [cite: 4]
+        # 3. 结构性惩罚
+        decay_resistance = (0.6 + stability * 0.4) * np.where(bad_board_mask, 0.6, 1.0) * repair_potential
+        res = pd.Series(decay_resistance, index=df_index).clip(0.3, 1.5)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[烂板修复侦测探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    获利比例: {raw['winner_rate_D'].loc[probe_ts]:.4f}, 换手稳定性: {stability.loc[probe_ts]:.4f}")
+            print(f"    检测修复系数: {repair_potential[df_index.get_loc(probe_ts)]:.2f} (1.5代表具备反转修复力)")
+            print(f"    >>> 最终抗衰减系数: {res.loc[probe_ts]:.4f}")
+        return res.astype(np.float32)
+
+    def _calculate_sector_resonance_modifier(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V38.0 · 板块效应共振算子：集成流一致性判定以解决热度滞后性"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 板块动力学：热度斜率与加速度
+        sector_impulse = (raw['SLOPE_5_THEME_HOTNESS_SCORE_D'] * 0.6 + raw['ACCEL_5_THEME_HOTNESS_SCORE_D'] * 0.4).fillna(0) [cite: 1]
+        # 2. 持续性校验：行业排名加速度与板块流一致性
+        # 只有在排名正在快速提升且板块内资金流向一致时，才确认热度非滞后 [cite: 2, 3]
+        persistence_factor = np.where((raw['industry_rank_accel_D'] > 0) & (raw['flow_consistency_D'] > 0.6), 1.2, 0.8) [cite: 2, 3]
+        # 3. 综合调节
+        resonance_mod = (1.0 + _numba_power_activation(sector_impulse.values, gain=0.5)) * persistence_factor
+        res = pd.Series(resonance_mod, index=df_index)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[板块持久力探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    热度冲量: {sector_impulse.loc[probe_ts]:.4f}, 行业排名加速度: {raw['industry_rank_accel_D'].loc[probe_ts]:.4f}")
+            print(f"    持续性因子: {persistence_factor[df_index.get_loc(probe_ts)]:.2f}")
+            print(f"    >>> 板块共振调节分: {res.loc[probe_ts]:.4f}")
+        return res.clip(0.6, 1.8).astype(np.float32)
 
     def _calculate_fractal_market_analysis(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
         """V24.0 · 分形市场分析（Numba加速）"""

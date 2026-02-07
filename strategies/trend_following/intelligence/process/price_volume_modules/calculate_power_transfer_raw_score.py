@@ -8,18 +8,6 @@ from numba import jit, float64, int64
 from typing import Dict, List, Optional, Any, Tuple
 
 from strategies.trend_following.utils import get_param_value
-@jit(nopython=True)
-def _numba_power_activation(x, alpha=0.01, gain=1.5):
-    """V32.0 · 非对称动力学激活算子：强化极端正向爆发，抑制负向噪音"""
-    res = np.zeros_like(x)
-    for i in range(len(x)):
-        if x[i] > 0:
-            # 正向信号线性增益，捕捉“夺权”爆发力
-            res[i] = x[i] * gain
-        else:
-            # 负向信号渗漏抑制，保留风险底色
-            res[i] = x[i] * alpha
-    return res
 
 class CalculatePowerTransferRawScore:
     """
@@ -27,27 +15,6 @@ class CalculatePowerTransferRawScore:
     """
     def __init__(self):
         pass
-
-    def _setup_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp], Dict]:
-        """
-        设置调试信息，包括是否启用调试、探针日期和临时调试值字典。
-        """
-        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.helper.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
-        _temp_debug_values = {}
-        if is_debug_enabled_for_method and probe_ts:
-            _temp_debug_values[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            _temp_debug_values[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价量动态..."] = ""
-        return is_debug_enabled_for_method, probe_ts, _temp_debug_values
-
 
     def _calculate_dynamic_impulse_norm(self, activated_impulse: pd.Series, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V33.0 · 冲量单位标准化：基于 T 日成交金额的流动性能效折算"""
@@ -124,61 +91,6 @@ class CalculatePowerTransferRawScore:
             print(f"    冲击项(Impulse): {impulse_term.loc[probe_ts]:.4f}, 最终竞价分: {auction_prediction.loc[probe_ts]:.4f}")
         return auction_prediction.astype(np.float32)
 
-    def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V35.0 · 溢价回吐风险预判：基于情绪透支与换手率能效比模型"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 核心逻辑：若T日尾盘占比过高且处于情绪极端，T+1容易出现开盘脉冲后的衰竭
-        # 换手率归一化因子 (假设换手率 > 15% 为高能耗区)
-        exhaustion_factor = (raw['turnover_rate_f_D'] / 15.0).clip(0, 1.5)
-        # 溢价回吐压力 = 尾盘占比 * 情绪极端因子 * 换手能耗
-        reversal_pressure = raw['closing_flow_ratio_D'] * raw['IS_EMOTIONAL_EXTREME_D'].astype(float) * exhaustion_factor
-        # 转化为风险调节系数 (0.6 代表 40% 的衰减，1.0 代表无衰减)
-        risk_adjustment = (1.0 - reversal_pressure * 0.4).clip(0.6, 1.0)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[溢价回吐风险探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    情绪极端: {raw['IS_EMOTIONAL_EXTREME_D'].loc[probe_ts]}, 自由换手: {raw['turnover_rate_f_D'].loc[probe_ts]:.2f}%")
-            print(f"    尾盘占比: {raw['closing_flow_ratio_D'].loc[probe_ts]:.4f}, 能耗因子: {exhaustion_factor.loc[probe_ts]:.4f}")
-            print(f"    >>> 最终风险调节系数: {risk_adjustment.loc[probe_ts]:.4f}")
-        return risk_adjustment.astype(np.float32)
-
-    def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V38.0 · T+1 日内衰减与修复模型：集成“分歧转一致”潜力识别"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        stability = raw['TURNOVER_STABILITY_INDEX_D'].fillna(0.5).clip(0, 1) [cite: 2]
-        is_limit_up = (raw['close_D'] >= raw['up_limit_D'] * 0.999) [cite: 3]
-        # 1. 基础衰减逻辑：封板占比高且稳定性差
-        bad_board_mask = is_limit_up & (raw['closing_flow_ratio_D'] > 0.4) & (stability < 0.4) [cite: 2, 3]
-        # 2. 核心修复逻辑：低位暴力换手识别 (分歧转一致潜力)
-        # 若获利盘比例处于极低位 (winner_rate_D < 0.15) 且 换手极其充分 (稳定性低)
-        # 代表主力可能在跌破成本后的重新收集 
-        repair_potential = np.where((raw['winner_rate_D'] < 0.15) & (stability < 0.3), 1.5, 1.0) [cite: 4]
-        # 3. 结构性惩罚
-        decay_resistance = (0.6 + stability * 0.4) * np.where(bad_board_mask, 0.6, 1.0) * repair_potential
-        res = pd.Series(decay_resistance, index=df_index).clip(0.3, 1.5)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[烂板修复侦测探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    获利比例: {raw['winner_rate_D'].loc[probe_ts]:.4f}, 换手稳定性: {stability.loc[probe_ts]:.4f}")
-            print(f"    检测修复系数: {repair_potential[df_index.get_loc(probe_ts)]:.2f} (1.5代表具备反转修复力)")
-            print(f"    >>> 最终抗衰减系数: {res.loc[probe_ts]:.4f}")
-        return res.astype(np.float32)
-
-    def _calculate_sector_resonance_modifier(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V38.0 · 板块效应共振算子：集成流一致性判定以解决热度滞后性"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 板块动力学：热度斜率与加速度
-        sector_impulse = (raw['SLOPE_5_THEME_HOTNESS_SCORE_D'] * 0.6 + raw['ACCEL_5_THEME_HOTNESS_SCORE_D'] * 0.4).fillna(0) [cite: 1]
-        # 2. 持续性校验：行业排名加速度与板块流一致性
-        # 只有在排名正在快速提升且板块内资金流向一致时，才确认热度非滞后 [cite: 2, 3]
-        persistence_factor = np.where((raw['industry_rank_accel_D'] > 0) & (raw['flow_consistency_D'] > 0.6), 1.2, 0.8) [cite: 2, 3]
-        # 3. 综合调节
-        resonance_mod = (1.0 + _numba_power_activation(sector_impulse.values, gain=0.5)) * persistence_factor
-        res = pd.Series(resonance_mod, index=df_index)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[板块持久力探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    热度冲量: {sector_impulse.loc[probe_ts]:.4f}, 行业排名加速度: {raw['industry_rank_accel_D'].loc[probe_ts]:.4f}")
-            print(f"    持续性因子: {persistence_factor[df_index.get_loc(probe_ts)]:.2f}")
-            print(f"    >>> 板块共振调节分: {res.loc[probe_ts]:.4f}")
-        return res.clip(0.6, 1.8).astype(np.float32)
 
 
 
