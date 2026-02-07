@@ -374,40 +374,50 @@ class CalculatePriceVolumeDynamics:
         return get_param_value(config.get('price_volume_dynamics_params'), {})
 
     def _validate_all_required_signals(self, df: pd.DataFrame, pvd_params: Dict, mtf_slope_accel_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> bool:
-        """V49.0 · 核心信号校验：新增布林带宽动力学 (BBW_DYNAMICS) 依赖校验"""
+        """V50.0 · 核心信号校验：修复题材热度动力学 (THEME_HOTNESS_DYNAMICS) 校验遗漏"""
         fib_windows = [3, 5, 8, 13, 21]
-        # 核心变动：新增 BBW_21_2.0_D 作为动力学基础列
-        dynamic_base_cols = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D']
+        # 核心修复：将 THEME_HOTNESS_SCORE_D 正式列为动力学基础目标
+        dynamic_base_cols = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D']
         base_required = [
             'close_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D',
             'up_limit_D', 'down_limit_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D',
             'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 
             'VPA_EFFICIENCY_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'turnover_rate_f_D',
             'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'price_percentile_position_D',
-            'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D'
+            'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'THEME_HOTNESS_SCORE_D'
         ]
         dynamic_required = [f"{p}_{w}_{c}" for c in dynamic_base_cols for w in fib_windows for p in ['SLOPE', 'ACCEL', 'JERK']]
         all_required = base_required + dynamic_required
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V49.0 · 原料加载层：补全布林带宽动力学数据并执行 MAD 鲁棒清洗"""
+        """V50.0 · 原料加载层：修复题材热度及其衍生项加载逻辑并执行 MAD 鲁棒清洗"""
         raw_signals = {}
         base_cols = ['close_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
-        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D']
-        # 核心变动：新增 BBW_21_2.0_D 到动态清洗目标
-        dynamic_targets = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D']
+        tech_cols = [
+            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 
+            'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 
+            'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 
+            'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'IS_ROUNDING_BOTTOM_D', 
+            'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D'
+        ]
+        # 核心修复：添加 THEME_HOTNESS_SCORE_D 至动力学清洗目标
+        dynamic_targets = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D']
         fib_windows = [3, 5, 8, 13, 21]
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns:
-                raise KeyError(f"CRITICAL: 缺失信号 {col}")
+                raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}，请检查数据层产出")
             raw_signals[col] = df[col].ffill().fillna(0.0)
         for col in dynamic_targets:
             for win in fib_windows:
                 for prefix in ['SLOPE', 'ACCEL', 'JERK']:
                     dyn_col = f"{prefix}_{win}_{col}"
-                    d_series = df[dyn_col].fillna(0.0).copy() if dyn_col in df.columns else pd.Series(0.0, index=df.index)
+                    if dyn_col not in df.columns:
+                        # 降级处理：若缺失则补0，防止 KeyError 中断引擎
+                        raw_signals[dyn_col] = pd.Series(0.0, index=df.index)
+                        continue
+                    d_series = df[dyn_col].fillna(0.0).copy()
                     median = d_series.median()
                     mad = (d_series - median).abs().median()
                     threshold = 5.0 * (mad * 1.4826 + 1e-9)
