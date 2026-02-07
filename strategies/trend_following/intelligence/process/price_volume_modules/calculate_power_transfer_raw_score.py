@@ -8,6 +8,18 @@ from numba import jit, float64, int64
 from typing import Dict, List, Optional, Any, Tuple
 
 from strategies.trend_following.utils import get_param_value
+@jit(nopython=True)
+def _numba_power_activation(x, alpha=0.01, gain=1.5):
+    """V32.0 · 非对称动力学激活算子：强化极端正向爆发，抑制负向噪音"""
+    res = np.zeros_like(x)
+    for i in range(len(x)):
+        if x[i] > 0:
+            # 正向信号线性增益，捕捉“夺权”爆发力
+            res[i] = x[i] * gain
+        else:
+            # 负向信号渗漏抑制，保留风险底色
+            res[i] = x[i] * alpha
+    return res
 
 class CalculatePowerTransferRawScore:
     """
@@ -15,6 +27,27 @@ class CalculatePowerTransferRawScore:
     """
     def __init__(self):
         pass
+
+    def _setup_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp], Dict]:
+        """
+        设置调试信息，包括是否启用调试、探针日期和临时调试值字典。
+        """
+        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
+        probe_ts = None
+        if is_debug_enabled_for_method and self.helper.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
+            for date in reversed(df.index):
+                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                    probe_ts = date
+                    break
+        if probe_ts is None:
+            is_debug_enabled_for_method = False
+        _temp_debug_values = {}
+        if is_debug_enabled_for_method and probe_ts:
+            _temp_debug_values[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+            _temp_debug_values[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价量动态..."] = ""
+        return is_debug_enabled_for_method, probe_ts, _temp_debug_values
+
 
     def _calculate_dynamic_impulse_norm(self, activated_impulse: pd.Series, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V33.0 · 冲量单位标准化：基于 T 日成交金额的流动性能效折算"""
