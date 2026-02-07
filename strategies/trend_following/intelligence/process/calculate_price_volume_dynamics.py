@@ -420,108 +420,75 @@ class CalculatePriceVolumeDynamics:
         return get_param_value(config.get('price_volume_dynamics_params'), {})
 
     def _validate_all_required_signals(self, df: pd.DataFrame, pvd_params: Dict, mtf_slope_accel_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> bool:
-        """V34.0 · 动力学数据完整性校验：强制引入尾盘强度与涨跌停边界数据"""
+        """V41.0 · 动力学数据完整性校验：扩展 VPA 效率的高阶动力学依赖校验"""
         fib_windows = [3, 5, 8, 13, 21]
-        dynamic_base_cols = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D']
+        # [cite_start]核心变动：将 VPA_EFFICIENCY_D 加入动力学校验基准 [cite: 1]
+        dynamic_base_cols = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D']
         base_required = [
             'close_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D',
             'up_limit_D', 'down_limit_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D',
-            'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_release_index_D', 'BBW_21_2.0_D'
+            'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 'VPA_EFFICIENCY_D'
         ]
+        # [cite_start]自动生成 SLOPE/ACCEL/JERK 校验列表 [cite: 1]
         dynamic_required = [f"{p}_{w}_{c}" for c in dynamic_base_cols for w in fib_windows for p in ['SLOPE', 'ACCEL', 'JERK']]
         all_required = base_required + dynamic_required
-        return self.helper._validate_required_signals(df, all_required, method_name)
+        if not self.helper._validate_required_signals(df, all_required, method_name):
+            if is_debug_enabled:
+                print(f"    -> [过程情报警告] {method_name} 关键信号缺失，尤其是 VPA 动力学衍生项")
+            return False
+        return True
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V40.0 · 深度数据接入层：严谨清洗与鲁棒性对齐（动力学专用版）"""
+        """V41.0 · 深度数据接入层：补全 VPA 动力学衍生项并执行 MAD 鲁棒清洗"""
         raw_signals = {}
-        df_len = len(df)
-        print(f"    -> [数据清洗探针] {method_name} 启动全维度动力学原料审计，样本长度: {df_len}...")
-        # 定义基础、结构、动力学核心基准列 [cite: 2]
+        # [cite_start]基础列与结构列定义 [cite: 1, 2, 3]
         base_cols = ['close_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D']
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D']
-        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D']
-        dynamic_targets = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D']
+        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'turnover_rate_f_D', 'industry_strength_rank_D', 'industry_rank_accel_D']
+        # [cite_start]核心变动：将 VPA_EFFICIENCY_D 移入动力学清洗目标池 [cite: 1]
+        dynamic_targets = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D']
         fib_windows = [3, 5, 8, 13, 21]
-        # 1. 核心原料加载与初级清洗 
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns:
-                raise KeyError(f"CRITICAL: 军械库核心列 {col} 缺失，数据链条已断裂！")
+                raise KeyError(f"CRITICAL: 军械库核心列 {col} 缺失，无法继续计算！")
             series = df[col].copy()
-            # 状态类数据执行前向填充，确保筹码相位连续 
-            if col in struct_cols:
-                series = series.ffill().fillna(0.5 if 'entropy' in col or 'concentration' in col else 0.0)
-            else:
-                series = series.fillna(0.0)
-            raw_signals[col] = series
-        # 2. 动力学衍生项加载与高强度清洗（去极值处理）
+            raw_signals[col] = series.ffill().fillna(0.0) if col in struct_cols else series.fillna(0.0)
+        # [cite_start]遍历动力学衍生项并执行去噪 [cite: 1]
         for col in dynamic_targets:
             for win in fib_windows:
                 for prefix in ['SLOPE', 'ACCEL', 'JERK']:
                     dyn_col = f"{prefix}_{win}_{col}"
                     if dyn_col not in df.columns:
-                        print(f"    -> [清洗预警] 动力学衍生项 {dyn_col} 缺失，注入物理零值")
                         raw_signals[dyn_col] = pd.Series(0.0, index=df.index)
                         continue
-                    # 动力学指标去噪：MAD 鲁棒截断，防止激活函数饱和 
                     d_series = df[dyn_col].fillna(0.0).copy()
                     median = d_series.median()
                     mad = (d_series - median).abs().median()
                     threshold = 5.0 * (mad * 1.4826 + 1e-9)
-                    d_series = d_series.clip(lower=median - threshold, upper=median + threshold)
-                    raw_signals[dyn_col] = d_series
-        # 3. 统计学探针输出（暴露数据质量问题）
-        nan_report = {k: v.isna().sum() for k, v in raw_signals.items() if v.isna().sum() > 0}
-        if nan_report:
-            print(f"    -> [质量警报] 以下字段存在未处理的 NaN: {nan_report}")
-        else:
-            print(f"    -> [清洗完成] 全部 {len(raw_signals)} 个信号已完成物理对齐与鲁棒去噪")
-        # 4. 样本详细探针（针对最近一日数据）
-        latest_ts = df.index[-1]
-        print(f"    -> [原料审计 @ {latest_ts.strftime('%Y-%m-%d')}]:")
-        print(f"       [获利比例]: {raw_signals['winner_rate_D'].iloc[-1]:.4f}, [净流入率]: {raw_signals['net_amount_rate_D'].iloc[-1]:.4f}")
-        print(f"       [JERK_3_流入]: {raw_signals['JERK_3_net_amount_rate_D'].iloc[-1]:.4f}, [ACCEL_5_智能钱]: {raw_signals['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].iloc[-1]:.4f}")
+                    raw_signals[dyn_col] = d_series.clip(lower=median - threshold, upper=median + threshold)
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V29.0 · 主力夺权 T+1 预测模型：基于冲量-动量定理与相位转换"""
+        """V41.0 · 主力夺权 T+1 预测模型：修复 VPA 动力学引用并强化冲量计算"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         if not self._validate_all_required_signals(df, {}, {}, method_name, is_debug, probe_ts):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         raw = self._get_raw_signals(df, method_name)
-        # 1. 冲击动能预测 (T -> T+1)
-        # 结合 3日/5日 JERK 和 8日/13日 ACCEL。JERK > 0 代表主力攻击意图在 $T$ 时刻仍在暴力增强
+        # [cite_start]使用补全后的 VPA 斜率数据进行冲量预判 [cite: 1]
         predictive_impulse = (raw['JERK_3_net_amount_rate_D'] * 0.35 + raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'] * 0.45 + raw['SLOPE_8_VPA_EFFICIENCY_D'] * 0.20)
-        # 2. 筹码穿透力预判
-        # 获利盘比例(winner_rate)在 50% 以下时的加速度，是反转夺权的最强动力
-        penetration_force = np.where(raw['winner_rate_D'] < 0.6, raw['ACCEL_8_winner_rate_D'] * 1.5, raw['SLOPE_13_winner_rate_D'])
-        penetration_force = pd.Series(penetration_force, index=df_index)
-        # 3. 结构性相位验证
-        # 几何曲率正向增加配合收缩的布林带宽度(BBW)，是夺权爆发的前兆
+        penetration_force = pd.Series(np.where(raw['winner_rate_D'] < 0.6, raw['ACCEL_8_winner_rate_D'] * 1.5, raw['SLOPE_13_winner_rate_D']), index=df_index)
         structural_potential = (raw['GEOM_ARC_CURVATURE_D'] * 0.6 + (1 - raw['BBW_21_2.0_D']).clip(0, 1) * 0.4)
-        # 4. 能量吸收效率
-        # 高吸收能配合资金流入加速度，判定为主力强力锁盘
         absorption_score = (raw['absorption_energy_D'] * raw['ACCEL_5_net_amount_rate_D']).clip(-1, 1)
-        # 5. 融合决策 (T+1 预判分数)
-        final_prediction = (predictive_impulse * 0.4 + penetration_force * 0.3 + structural_potential * 0.2 + absorption_score * 0.1)
-        # 深度探针：暴露全部原料与中间节点，严禁防御性掩盖
+        # [cite_start]调用内核进行深度夺权计算 [cite: 1]
+        power_transfer_deep = self._calculate_power_transfer_raw_score(df_index, raw, method_name)
+        final_prediction = (predictive_impulse * 0.3 + power_transfer_deep * 0.3 + penetration_force * 0.2 + structural_potential * 0.1 + absorption_score * 0.1)
         if is_debug and probe_ts in df_index:
-            print(f"\n[主力夺权 T+1 预判探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"--- 1. 核心原料数据 (T日现状) ---")
-            print(f"    收盘: {raw['close_D'].loc[probe_ts]:.2f}, 获利比例: {raw['winner_rate_D'].loc[probe_ts]:.4f}")
-            print(f"    净流入率: {raw['net_amount_rate_D'].loc[probe_ts]:.4f}, 协同攻击: {raw['SMART_MONEY_HM_COORDINATED_ATTACK_D'].loc[probe_ts]:.4f}")
-            print(f"    几何曲率: {raw['GEOM_ARC_CURVATURE_D'].loc[probe_ts]:.4f}, 吸收能: {raw['absorption_energy_D'].loc[probe_ts]:.4f}")
-            print(f"--- 2. 高阶动力学节点 (T -> T+1 驱动力) ---")
-            print(f"    JERK_3(流入率): {raw['JERK_3_net_amount_rate_D'].loc[probe_ts]:.4f} (加加速度，主力的冲刺爆发)")
-            print(f"    ACCEL_5(智能钱): {raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].loc[probe_ts]:.4f} (加速度，主力的持续力量)")
-            print(f"    ACCEL_8(获利盘): {raw['ACCEL_8_winner_rate_D'].loc[probe_ts]:.4f} (筹码收复速度)")
-            print(f"--- 3. 预判结果分解 ---")
-            print(f"    [冲击动能]: {predictive_impulse.loc[probe_ts]:.4f}, [筹码穿透]: {penetration_force.loc[probe_ts]:.4f}")
-            print(f"    [结构势能]: {structural_potential.loc[probe_ts]:.4f}, [吸收分值]: {absorption_score.loc[probe_ts]:.4f}")
-            print(f"    >>> T+1 预判综合强度: {final_prediction.loc[probe_ts]:.4f}")
-        return final_prediction.clip(-1, 1).astype(np.float32)
+            print(f"--- [T+1 预判修复探针 @ {probe_ts}] ---")
+            print(f"    VPA效率斜率(8d): {raw['SLOPE_8_VPA_EFFICIENCY_D'].loc[probe_ts]:.4f}")
+            print(f"    预测冲量项: {predictive_impulse.loc[probe_ts]:.4f}, 深度内核分: {power_transfer_deep.loc[probe_ts]:.4f}")
+        return final_prediction.clip(-1.5, 3.5).astype(np.float32)
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
         """V39.0 · 深度夺权内核：正式启用 Numba 多尺度算子集成（MCV 共识动力学版）"""
