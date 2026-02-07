@@ -383,17 +383,17 @@ class CalculatePriceVolumeDynamics:
             'buy_sm_amount_D', 'sell_sm_amount_D',
             'chip_concentration_ratio_D', 'chip_entropy_D', 'chip_stability_D',
             'chip_mean_D', 'chip_std_D', 'chip_skewness_D', 'chip_kurtosis_D',
-            'smart_money_hm_net_buy_D', 'smart_money_hm_coordinated_attack_D',
-            'smart_money_synergy_buy_D', 'smart_money_divergence_hm_buy_inst_sell_D',
-            'vpa_efficiency_D', 'vpa_buy_accum_eff_D', 'vpa_sell_dist_eff_D',
+            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
+            'SMART_MONEY_SYNERGY_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
+            'VPA_EFFICIENCY_D', 'vpa_buy_accum_eff_D', 'vpa_sell_dist_eff_D',
             'vpa_bullish_divergence_D', 'vpa_bearish_divergence_D',
             'order_flow_imbalance_score_D', 'liquidity_slope_D',
             'auction_showdown_score_D', 'closing_acceptance_type_D',
             'breakout_readiness_score_D', 'trend_conviction_score_D',
             'trend_acceleration_score_D', 'uptrend_strength_D',
             'downtrend_strength_D', 'market_sentiment_score_D',
-            'vol_ma_21_D', 'bbw_21_2.0_D', 'atr_14_D', 'rsi_13_D',
-            'adx_14_D', 'macd_13_34_8_D', 'macds_13_34_8_D',
+            'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'RSI_13_D',
+            'ADX_14_D', 'MACD_13_34_8_D', 'MACDs_13_34_8_D',
             'price_to_ma21_ratio_D', 'price_to_ma34_ratio_D',
             'turnover_rate_D', 'turnover_rate_f_D',
             'value_area_migration_D', 'value_area_overlap_pct_D',
@@ -434,11 +434,11 @@ class CalculatePriceVolumeDynamics:
         raw_signals['chip_std_D'] = self.helper._get_safe_series(df, 'chip_std_D', 0.0, method_name)
         raw_signals['chip_skewness_D'] = self.helper._get_safe_series(df, 'chip_skewness_D', 0.0, method_name)
         raw_signals['chip_kurtosis_D'] = self.helper._get_safe_series(df, 'chip_kurtosis_D', 0.0, method_name)
-        raw_signals['smart_money_hm_net_buy_D'] = self.helper._get_safe_series(df, 'smart_money_hm_net_buy_D', 0.0, method_name)
-        raw_signals['smart_money_hm_coordinated_attack_D'] = self.helper._get_safe_series(df, 'smart_money_hm_coordinated_attack_D', 0.0, method_name)
-        raw_signals['smart_money_synergy_buy_D'] = self.helper._get_safe_series(df, 'smart_money_synergy_buy_D', 0.0, method_name)
-        raw_signals['smart_money_divergence_hm_buy_inst_sell_D'] = self.helper._get_safe_series(df, 'smart_money_divergence_hm_buy_inst_sell_D', 0.0, method_name)
-        raw_signals['vpa_efficiency_D'] = self.helper._get_safe_series(df, 'vpa_efficiency_D', 0.0, method_name)
+        raw_signals['SMART_MONEY_HM_NET_BUY_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', 0.0, method_name)
+        raw_signals['SMART_MONEY_HM_COORDINATED_ATTACK_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 0.0, method_name)
+        raw_signals['SMART_MONEY_SYNERGY_BUY_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_SYNERGY_BUY_D', 0.0, method_name)
+        raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0, method_name)
+        raw_signals['VPA_EFFICIENCY_D'] = self.helper._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name)
         raw_signals['vpa_buy_accum_eff_D'] = self.helper._get_safe_series(df, 'vpa_buy_accum_eff_D', 0.0, method_name)
         raw_signals['vpa_sell_dist_eff_D'] = self.helper._get_safe_series(df, 'vpa_sell_dist_eff_D', 0.0, method_name)
         raw_signals['vpa_bullish_divergence_D'] = self.helper._get_safe_series(df, 'vpa_bullish_divergence_D', 0.0, method_name)
@@ -453,13 +453,13 @@ class CalculatePriceVolumeDynamics:
         raw_signals['uptrend_strength_D'] = self.helper._get_safe_series(df, 'uptrend_strength_D', 0.0, method_name)
         raw_signals['downtrend_strength_D'] = self.helper._get_safe_series(df, 'downtrend_strength_D', 0.0, method_name)
         raw_signals['market_sentiment_score_D'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name)
-        raw_signals['vol_ma_21_D'] = self.helper._get_safe_series(df, 'vol_ma_21_D', 0.0, method_name)
-        raw_signals['bbw_21_2.0_D'] = self.helper._get_safe_series(df, 'bbw_21_2.0_D', 0.0, method_name)
-        raw_signals['atr_14_D'] = self.helper._get_safe_series(df, 'atr_14_D', 0.0, method_name)
-        raw_signals['rsi_13_D'] = self.helper._get_safe_series(df, 'rsi_13_D', 50.0, method_name)
-        raw_signals['adx_14_D'] = self.helper._get_safe_series(df, 'adx_14_D', 0.0, method_name)
-        raw_signals['macd_13_34_8_D'] = self.helper._get_safe_series(df, 'macd_13_34_8_D', 0.0, method_name)
-        raw_signals['macds_13_34_8_D'] = self.helper._get_safe_series(df, 'macds_13_34_8_D', 0.0, method_name)
+        raw_signals['VOL_MA_21_D'] = self.helper._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name)
+        raw_signals['BBW_21_2.0_D'] = self.helper._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name)
+        raw_signals['ATR_14_D'] = self.helper._get_safe_series(df, 'ATR_14_D', 0.0, method_name)
+        raw_signals['RSI_13_D'] = self.helper._get_safe_series(df, 'RSI_13_D', 50.0, method_name)
+        raw_signals['ADX_14_D'] = self.helper._get_safe_series(df, 'ADX_14_D', 0.0, method_name)
+        raw_signals['MACD_13_34_8_D'] = self.helper._get_safe_series(df, 'MACD_13_34_8_D', 0.0, method_name)
+        raw_signals['MACDs_13_34_8_D'] = self.helper._get_safe_series(df, 'MACDs_13_34_8_D', 0.0, method_name)
         raw_signals['price_to_ma21_ratio_D'] = self.helper._get_safe_series(df, 'price_to_ma21_ratio_D', 1.0, method_name)
         raw_signals['price_to_ma34_ratio_D'] = self.helper._get_safe_series(df, 'price_to_ma34_ratio_D', 1.0, method_name)
         raw_signals['turnover_rate_D'] = self.helper._get_safe_series(df, 'turnover_rate_D', 0.0, method_name)
@@ -499,7 +499,7 @@ class CalculatePriceVolumeDynamics:
                        order_dominance * deep_weights['order_dominance'] +
                        vpa_confirmation * deep_weights['vpa_confirmation'])
         # 向量化市场适应性调节
-        volatility = raw_signals['bbw_21_2.0_D'].fillna(0.1)
+        volatility = raw_signals['BBW_21_2.0_D'].fillna(0.1)
         vol_adjustment = 1.0 / (1.0 + volatility * 2)
         trend_strength = (raw_signals['uptrend_strength_D'] - raw_signals['downtrend_strength_D']).clip(-1, 1)
         trend_adjustment = 1.0 + trend_strength * 0.3
@@ -509,7 +509,7 @@ class CalculatePriceVolumeDynamics:
         # 向量化风控过滤
         is_limit_up = raw_signals.get('is_limit_up_D', pd.Series(0, index=df_index))
         final_score = final_score * (1 - is_limit_up * 0.8)
-        rsi = raw_signals['rsi_13_D'].fillna(50)
+        rsi = raw_signals['RSI_13_D'].fillna(50)
         overbought_adj = np.where(rsi > 80, 0.3, np.where(rsi > 70, 0.7, 1.0))
         final_score = final_score * overbought_adj
         low_vol_adj = np.where(volume_ratio < 0.5, 0.5, np.where(volume_ratio < 0.7, 0.8, 1.0))
@@ -680,7 +680,7 @@ class CalculatePriceVolumeDynamics:
                        dist_composite * weights['dist'] + 
                        strength_stability * weights['stab'])
         # 7. 市场结构适应性 (向量化)
-        volatility = raw_signals['bbw_21_2.0_D'].fillna(0.1)
+        volatility = raw_signals['BBW_21_2.0_D'].fillna(0.1)
         adj = 1.0 / (1.0 + volatility * 2)
         final_score = total_score * adj
         print(f"    -> [订单流主导探针] 最终分值均值: {final_score.mean():.4f}")
@@ -692,7 +692,7 @@ class CalculatePriceVolumeDynamics:
         # 0. 数据准备
         close = raw_signals['close_D'].fillna(0).values
         vol = raw_signals['volume_D'].fillna(0).values
-        eff = raw_signals.get('vpa_efficiency_D', pd.Series(0.5, index=df_index)).fillna(0.5).values
+        eff = raw_signals.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df_index)).fillna(0.5).values
         pct_change = raw_signals['pct_change_D'].fillna(0).values
         vol_change = raw_signals['volume_D'].pct_change().fillna(0).values
         eff_change = pd.Series(eff, index=df_index).diff().fillna(0).values
@@ -715,7 +715,7 @@ class CalculatePriceVolumeDynamics:
         noisy_eff = eff_s + noise
         gan_score = eff_s.rolling(13).corr(noisy_eff).fillna(0.5)
         # 5. 传统指标融合 (向量化)
-        trad_score = (raw_signals.get('vpa_efficiency_D', pd.Series(0.5, index=df_index)) * 0.4 +
+        trad_score = (raw_signals.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df_index)) * 0.4 +
                       raw_signals.get('vpa_bullish_divergence_D', pd.Series(0, index=df_index)) * 0.3 +
                       raw_signals.get('vpa_buy_accum_eff_D', pd.Series(0.5, index=df_index)) * 0.3)
         # 6. 加权融合
@@ -733,8 +733,8 @@ class CalculatePriceVolumeDynamics:
         n = len(df_index)
         close = raw_signals['close_D'].fillna(0).values
         volume = raw_signals['volume_D'].fillna(0).values
-        rsi = raw_signals.get('rsi_13_D', pd.Series(50, index=df_index)).fillna(50).values
-        adx = raw_signals.get('adx_14_D', pd.Series(20, index=df_index)).fillna(20).values
+        rsi = raw_signals.get('RSI_13_D', pd.Series(50, index=df_index)).fillna(50).values
+        adx = raw_signals.get('ADX_14_D', pd.Series(20, index=df_index)).fillna(20).values
         # Numba计算机制状态
         trend, range_mk, break_mk, rev_mk = _numba_market_regime_scan(close, volume, rsi, adx, n)
         # 向量化加权
