@@ -7,11 +7,7 @@ import pandas_ta as ta
 from numba import jit, float64, int64
 from typing import Dict, List, Optional, Any, Tuple
 
-from strategies.trend_following.utils import (
-    get_params_block, get_param_value, get_adaptive_mtf_normalized_score,
-    is_limit_up, get_adaptive_mtf_normalized_bipolar_score,
-    normalize_score, _robust_geometric_mean
-)
+from strategies.trend_following.utils import get_param_value
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
 @jit(nopython=True)
@@ -373,102 +369,69 @@ class CalculatePriceVolumeDynamics:
         return get_param_value(config.get('price_volume_dynamics_params'), {})
 
     def _validate_all_required_signals(self, df: pd.DataFrame, pvd_params: Dict, mtf_slope_accel_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> bool:
-        """V20.0 · 校验所有必需的军械库信号"""
-        required_signals = [
-            'close_D', 'volume_D', 'open_D', 'high_D', 'low_D', 'pct_change_D',
-            'amount_D', 'net_amount_D', 'net_amount_rate_D',
-            'buy_elg_amount_D', 'sell_elg_amount_D',
-            'buy_lg_amount_D', 'sell_lg_amount_D',
-            'buy_md_amount_D', 'sell_md_amount_D',
-            'buy_sm_amount_D', 'sell_sm_amount_D',
+        """V27.0 · 核心军械库信号及多维动力学衍生指标校验"""
+        base_required = [
+            'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D',
+            'net_amount_D', 'net_amount_rate_D', 'trade_count_D',
+            'buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D', 'sell_lg_amount_D',
+            'buy_md_amount_D', 'sell_md_amount_D', 'buy_sm_amount_D', 'sell_sm_amount_D',
             'chip_concentration_ratio_D', 'chip_entropy_D', 'chip_stability_D',
             'chip_mean_D', 'chip_std_D', 'chip_skewness_D', 'chip_kurtosis_D',
+            'chip_flow_direction_D', 'chip_flow_intensity_D', 'chip_divergence_ratio_D',
+            'cost_5pct_D', 'cost_50pct_D', 'cost_95pct_D', 'winner_rate_D',
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
             'SMART_MONEY_SYNERGY_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
-            'VPA_EFFICIENCY_D', 'vpa_buy_accum_eff_D', 'vpa_sell_dist_eff_D',
-            'vpa_bullish_divergence_D', 'vpa_bearish_divergence_D',
-            'order_flow_imbalance_score_D', 'liquidity_slope_D',
-            'auction_showdown_score_D', 'closing_acceptance_type_D',
-            'breakout_readiness_score_D', 'trend_conviction_score_D',
-            'trend_acceleration_score_D', 'uptrend_strength_D',
-            'downtrend_strength_D', 'market_sentiment_score_D',
-            'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'RSI_13_D',
-            'ADX_14_D', 'MACD_13_34_8_D', 'MACDs_13_34_8_D',
-            'price_to_ma21_ratio_D', 'price_to_ma34_ratio_D',
-            'turnover_rate_D', 'turnover_rate_f_D',
-            'value_area_migration_D', 'value_area_overlap_pct_D',
+            'VPA_EFFICIENCY_D', 'flow_intensity_D', 'flow_stability_D',
+            'uptrend_strength_D', 'downtrend_strength_D', 'market_sentiment_score_D',
+            'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'RSI_13_D', 'ADX_14_D',
+            'price_to_ma21_ratio_D', 'price_to_ma34_ratio_D', 'price_percentile_position_D',
+            'turnover_rate_D', 'turnover_rate_f_D', 'up_limit_D', 'down_limit_D',
             'price_vs_ma_21_ratio_D', 'volume_vs_ma_21_ratio_D'
         ]
-        if not self.helper._validate_required_signals(df, required_signals, method_name):
+        dynamic_required = []
+        fib_windows = [3, 5, 8, 13, 21, 34, 55]
+        dynamic_base_cols = ['net_amount_rate_D', 'chip_concentration_ratio_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D']
+        for col in dynamic_base_cols:
+            for win in fib_windows:
+                dynamic_required.extend([f"SLOPE_{win}_{col}", f"ACCEL_{win}_{col}", f"JERK_{win}_{col}"])
+        all_required = base_required + dynamic_required
+        if not self.helper._validate_required_signals(df, all_required, method_name):
             if is_debug_enabled:
-                print(f"    -> [过程情报警告] {method_name} 缺少军械库核心信号")
+                print(f"    -> [过程情报警告] {method_name} 核心信号或动力学衍生信号缺失")
             return False
-        print(f"    -> [过程情报探针] {method_name} 军械库信号校验通过，共{len(required_signals)}个信号")
         return True
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V20.0 · 获取军械库原始数据信号（主力夺权专用）"""
+        """V27.0 · 提取军械库信号及斐波那契动力学高阶导数（SLOPE/ACCEL/JERK）"""
         raw_signals = {}
-        print(f"    -> [过程情报探针] {method_name} 开始加载军械库原始信号...")
-        raw_signals['close_D'] = self.helper._get_safe_series(df, 'close_D', np.nan, method_name)
-        raw_signals['open_D'] = self.helper._get_safe_series(df, 'open_D', np.nan, method_name)
-        raw_signals['high_D'] = self.helper._get_safe_series(df, 'high_D', np.nan, method_name)
-        raw_signals['low_D'] = self.helper._get_safe_series(df, 'low_D', np.nan, method_name)
-        raw_signals['pct_change_D'] = self.helper._get_safe_series(df, 'pct_change_D', 0.0, method_name)
-        raw_signals['volume_D'] = self.helper._get_safe_series(df, 'volume_D', 0.0, method_name)
-        raw_signals['amount_D'] = self.helper._get_safe_series(df, 'amount_D', 0.0, method_name)
-        raw_signals['net_amount_D'] = self.helper._get_safe_series(df, 'net_amount_D', 0.0, method_name)
-        raw_signals['net_amount_rate_D'] = self.helper._get_safe_series(df, 'net_amount_rate_D', 0.0, method_name)
-        raw_signals['buy_elg_amount_D'] = self.helper._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name)
-        raw_signals['sell_elg_amount_D'] = self.helper._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name)
-        raw_signals['buy_lg_amount_D'] = self.helper._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name)
-        raw_signals['sell_lg_amount_D'] = self.helper._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name)
-        raw_signals['buy_md_amount_D'] = self.helper._get_safe_series(df, 'buy_md_amount_D', 0.0, method_name)
-        raw_signals['sell_md_amount_D'] = self.helper._get_safe_series(df, 'sell_md_amount_D', 0.0, method_name)
-        raw_signals['buy_sm_amount_D'] = self.helper._get_safe_series(df, 'buy_sm_amount_D', 0.0, method_name)
-        raw_signals['sell_sm_amount_D'] = self.helper._get_safe_series(df, 'sell_sm_amount_D', 0.0, method_name)
-        raw_signals['chip_concentration_ratio_D'] = self.helper._get_safe_series(df, 'chip_concentration_ratio_D', 0.0, method_name)
-        raw_signals['chip_entropy_D'] = self.helper._get_safe_series(df, 'chip_entropy_D', 0.0, method_name)
-        raw_signals['chip_stability_D'] = self.helper._get_safe_series(df, 'chip_stability_D', 0.0, method_name)
-        raw_signals['chip_mean_D'] = self.helper._get_safe_series(df, 'chip_mean_D', 0.0, method_name)
-        raw_signals['chip_std_D'] = self.helper._get_safe_series(df, 'chip_std_D', 0.0, method_name)
-        raw_signals['chip_skewness_D'] = self.helper._get_safe_series(df, 'chip_skewness_D', 0.0, method_name)
-        raw_signals['chip_kurtosis_D'] = self.helper._get_safe_series(df, 'chip_kurtosis_D', 0.0, method_name)
-        raw_signals['SMART_MONEY_HM_NET_BUY_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', 0.0, method_name)
-        raw_signals['SMART_MONEY_HM_COORDINATED_ATTACK_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 0.0, method_name)
-        raw_signals['SMART_MONEY_SYNERGY_BUY_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_SYNERGY_BUY_D', 0.0, method_name)
-        raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0, method_name)
-        raw_signals['VPA_EFFICIENCY_D'] = self.helper._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name)
-        raw_signals['vpa_buy_accum_eff_D'] = self.helper._get_safe_series(df, 'vpa_buy_accum_eff_D', 0.0, method_name)
-        raw_signals['vpa_sell_dist_eff_D'] = self.helper._get_safe_series(df, 'vpa_sell_dist_eff_D', 0.0, method_name)
-        raw_signals['vpa_bullish_divergence_D'] = self.helper._get_safe_series(df, 'vpa_bullish_divergence_D', 0.0, method_name)
-        raw_signals['vpa_bearish_divergence_D'] = self.helper._get_safe_series(df, 'vpa_bearish_divergence_D', 0.0, method_name)
-        raw_signals['order_flow_imbalance_score_D'] = self.helper._get_safe_series(df, 'order_flow_imbalance_score_D', 0.0, method_name)
-        raw_signals['liquidity_slope_D'] = self.helper._get_safe_series(df, 'liquidity_slope_D', 0.0, method_name)
-        raw_signals['auction_showdown_score_D'] = self.helper._get_safe_series(df, 'auction_showdown_score_D', 0.0, method_name)
-        raw_signals['closing_acceptance_type_D'] = self.helper._get_safe_series(df, 'closing_acceptance_type_D', 0.0, method_name)
-        raw_signals['breakout_readiness_score_D'] = self.helper._get_safe_series(df, 'breakout_readiness_score_D', 0.0, method_name)
-        raw_signals['trend_conviction_score_D'] = self.helper._get_safe_series(df, 'trend_conviction_score_D', 0.0, method_name)
-        raw_signals['trend_acceleration_score_D'] = self.helper._get_safe_series(df, 'trend_acceleration_score_D', 0.0, method_name)
-        raw_signals['uptrend_strength_D'] = self.helper._get_safe_series(df, 'uptrend_strength_D', 0.0, method_name)
-        raw_signals['downtrend_strength_D'] = self.helper._get_safe_series(df, 'downtrend_strength_D', 0.0, method_name)
-        raw_signals['market_sentiment_score_D'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.0, method_name)
-        raw_signals['VOL_MA_21_D'] = self.helper._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name)
-        raw_signals['BBW_21_2.0_D'] = self.helper._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name)
-        raw_signals['ATR_14_D'] = self.helper._get_safe_series(df, 'ATR_14_D', 0.0, method_name)
-        raw_signals['RSI_13_D'] = self.helper._get_safe_series(df, 'RSI_13_D', 50.0, method_name)
-        raw_signals['ADX_14_D'] = self.helper._get_safe_series(df, 'ADX_14_D', 0.0, method_name)
-        raw_signals['MACD_13_34_8_D'] = self.helper._get_safe_series(df, 'MACD_13_34_8_D', 0.0, method_name)
-        raw_signals['MACDs_13_34_8_D'] = self.helper._get_safe_series(df, 'MACDs_13_34_8_D', 0.0, method_name)
-        raw_signals['price_to_ma21_ratio_D'] = self.helper._get_safe_series(df, 'price_to_ma21_ratio_D', 1.0, method_name)
-        raw_signals['price_to_ma34_ratio_D'] = self.helper._get_safe_series(df, 'price_to_ma34_ratio_D', 1.0, method_name)
-        raw_signals['turnover_rate_D'] = self.helper._get_safe_series(df, 'turnover_rate_D', 0.0, method_name)
-        raw_signals['turnover_rate_f_D'] = self.helper._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name)
-        raw_signals['value_area_migration_D'] = self.helper._get_safe_series(df, 'value_area_migration_D', 0.0, method_name)
-        raw_signals['value_area_overlap_pct_D'] = self.helper._get_safe_series(df, 'value_area_overlap_pct_D', 0.0, method_name)
-        raw_signals['price_vs_ma_21_ratio_D'] = self.helper._get_safe_series(df, 'price_vs_ma_21_ratio_D', 1.0, method_name)
-        raw_signals['volume_vs_ma_21_ratio_D'] = self.helper._get_safe_series(df, 'volume_vs_ma_21_ratio_D', 1.0, method_name)
-        print(f"    -> [过程情报探针] {method_name} 军械库原始信号加载完成，共{len(raw_signals)}个信号")
+        target_cols = [
+            'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D',
+            'net_amount_D', 'net_amount_rate_D', 'trade_count_D',
+            'buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D', 'sell_lg_amount_D',
+            'buy_md_amount_D', 'sell_md_amount_D', 'buy_sm_amount_D', 'sell_sm_amount_D',
+            'chip_concentration_ratio_D', 'chip_entropy_D', 'chip_stability_D',
+            'chip_mean_D', 'chip_std_D', 'chip_skewness_D', 'chip_kurtosis_D',
+            'chip_flow_direction_D', 'chip_flow_intensity_D', 'chip_divergence_ratio_D',
+            'cost_5pct_D', 'cost_50pct_D', 'cost_95pct_D', 'winner_rate_D',
+            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
+            'SMART_MONEY_SYNERGY_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
+            'VPA_EFFICIENCY_D', 'flow_intensity_D', 'flow_stability_D',
+            'uptrend_strength_D', 'downtrend_strength_D', 'market_sentiment_score_D',
+            'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'RSI_13_D', 'ADX_14_D',
+            'price_to_ma21_ratio_D', 'price_to_ma34_ratio_D', 'price_percentile_position_D',
+            'turnover_rate_D', 'turnover_rate_f_D', 'up_limit_D', 'down_limit_D',
+            'price_vs_ma_21_ratio_D', 'volume_vs_ma_21_ratio_D'
+        ]
+        for col in target_cols:
+            default_val = 50.0 if 'RSI' in col else (0.5 if 'score' in col or 'chip' in col else 0.0)
+            raw_signals[col] = self.helper._get_safe_series(df, col, default_val, method_name)
+        fib_windows = [3, 5, 8, 13, 21, 34, 55]
+        dynamic_base_cols = ['net_amount_rate_D', 'chip_concentration_ratio_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D']
+        for col in dynamic_base_cols:
+            for win in fib_windows:
+                for prefix in ['SLOPE', 'ACCEL', 'JERK']:
+                    dyn_col = f"{prefix}_{win}_{col}"
+                    raw_signals[dyn_col] = self.helper._get_safe_series(df, dyn_col, 0.0, method_name)
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
