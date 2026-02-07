@@ -472,7 +472,7 @@ class CalculateMainForceRallyIntent:
         """
         self._probe_print("  开始计算资金记忆...")
         # 初始化资金记忆计算类
-        capital_memory_calculator = CalculateCapitalMemory(df_index, raw_signals.get('capital_flow', pd.Series(0.0, index=df_index)), params)
+        capital_memory_calculator = CalculateCapitalMemory(raw_signals.get('capital_flow', pd.Series(0.0, index=df_index)))
         # 参数
         memory_period = get_param_value(params.get('capital_memory_period'), 21)
         # 1. 多级别资金流合成（向量合成法）
