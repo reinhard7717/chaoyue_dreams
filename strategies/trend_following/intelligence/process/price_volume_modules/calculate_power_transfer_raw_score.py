@@ -92,7 +92,7 @@ class CalculatePowerTransferRawScore:
 
     def _calculate_auction_prediction(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V53.0 · T+1 竞价预判：引入非线性压缩解决量纲爆炸问题"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        is_debug, probe_ts, _ = self.is_debug, self.probe_ts, method_name
         # 1. 计算原始冲击强度
         impulse_term = (raw['JERK_3_net_amount_rate_D'] * 0.6 + raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'] * 0.4)
         activated_imp = _numba_power_activation(impulse_term.values, gain=1.2)
