@@ -10,6 +10,18 @@ from strategies.trend_following.utils import (
     is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
     normalize_score, _robust_geometric_mean
 )
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_price_memory import CalculatePriceMemory
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_capital_memory import CalculateCapitalMemory
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_chip_memory import CalculateChipMemory
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_sentiment_memory import CalculateSentimentMemory
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_enhanced_rs_proxy import EnhancedRSProxyCalculator
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_enhanced_capital_proxy import EnhancedCapitalProxyCalculator
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_enhanced_sentiment_proxy import EnhancedSentimentProxyCalculator
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_enhanced_liquidity_proxy import EnhancedLiquidityProxyCalculator
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_enhanced_volatility_proxy import EnhancedVolatilityProxyCalculator
+from strategies.trend_following.intelligence.process.rally_intent_modules.calculate_enhanced_risk_preference_proxy import EnhancedRiskPreferenceProxyCalculator
+from strategies.trend_following.intelligence.process.rally_intent_modules.assess_signal_quality import SignalQualityAssessor
+
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
 class CalculateMainForceRallyIntent:
@@ -303,9 +315,7 @@ class CalculateMainForceRallyIntent:
         ).clip(-1, 1)
         return phase_sync_score
 
-    def _assess_memory_quality(self, df_index: pd.Index, price_memory: Dict, 
-                              capital_memory: Dict, chip_memory: Dict, 
-                              sentiment_memory: Dict) -> pd.Series:
+    def _assess_memory_quality(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, chip_memory: Dict, sentiment_memory: Dict) -> pd.Series:
         """
         【V3.0】记忆质量评估算法
         核心理念：评估各维度记忆信号的清晰度和可靠性
@@ -344,12 +354,78 @@ class CalculateMainForceRallyIntent:
         ).clip(0, 1)
         return memory_quality_score
 
+    def _estimate_snr(self, series: pd.Series) -> pd.Series:
+        """
+        【V4.6 · 趋势效率版】计算信号信噪比 (SNR)
+        核心理念：基于卡夫曼效率比 (Kaufman Efficiency Ratio) 评估记忆信号的纯度。
+        A股特性：
+        - 高SNR (接近1)：主力锁仓推进，趋势平滑，记忆质量极高。
+        - 低SNR (接近0)：分歧剧烈，信号震荡，记忆不可靠。
+        算法：Signal / Noise = |Net Change| / Sum(|Step Change|)
+        """
+        if series.empty:
+            return pd.Series(0.5, index=series.index)
+            
+        # 设定滚动窗口 (与记忆周期匹配，默认21日)
+        window = 21
+        # 1. 计算信号强度 (Signal Power)
+        # 窗口内的净位移绝对值：|Price_t - Price_{t-n}|
+        # 对于记忆序列，直接计算差值
+        signal_power = series.diff(window).abs()
+        # 2. 计算噪声强度 (Noise Power)
+        # 窗口内每一步变化的绝对值之和 (路径长度)
+        # Sum(|Price_t - Price_{t-1}|) over window
+        volatility = series.diff().abs()
+        noise_power = volatility.rolling(window=window).sum()
+        # 3. 计算信噪比 (Efficiency Ratio)
+        # 避免除零风险
+        snr_raw = signal_power / (noise_power + 1e-9)
+        # 4. 映射与增强
+        # ER 本身在 [0, 1] 之间。
+        # 在A股，ER > 0.4 已经是非常好的趋势，ER > 0.6 是极强趋势
+        # 我们对其进行非线性扩张，使得 0.3-0.6 区间的区分度最大
+        # 使用 Sigmoid 变体：中心点 0.3，陡峭度 10
+        snr_score = 1 / (1 + np.exp(-10 * (snr_raw - 0.3)))
+        # 5. 极小值处理
+        # 如果噪声极小（几乎无波动），视为高质量信号
+        mask_quiet = noise_power < 1e-6
+        snr_score = snr_score.mask(mask_quiet, 1.0)
+        # 前向填充，平滑处理
+        return snr_score.ffill().fillna(0.5)
+
+    def _calculate_sentiment_momentum(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
+        """
+        【V3.5 · 情绪惯性版】计算情绪动量
+        核心理念：量化情绪的"加速"与"衰竭"。
+        A股特性：急涨缓跌。情绪加速上升是主升浪特征，高位动量钝化是见顶前兆。
+        """
+        if sentiment_series.empty:
+            return pd.Series(0.5, index=df_index)
+        # 1. 情绪平滑 (去除日内杂波)
+        # 使用较短周期(如5日)的EMA
+        smooth_sentiment = sentiment_series.ewm(span=5, adjust=False).mean()
+        # 2. 计算一阶动量 (速度)
+        # 3日变化率
+        velocity = smooth_sentiment.diff(3).fillna(0)
+        # 3. 计算二阶动量 (加速度)
+        acceleration = velocity.diff(3).fillna(0)
+        # 4. 动量合成
+        # 归一化处理，假设变化率极值在 +/- 0.3 之间
+        vel_score = np.tanh(velocity * 5) * 0.5 + 0.5
+        acc_score = np.tanh(acceleration * 5) * 0.5 + 0.5
+        # 综合动量：速度为主，加速度为辅（修正拐点）
+        # 结果 > 0.5 代表情绪由弱转强或加速上升
+        momentum_score = (vel_score * 0.6 + acc_score * 0.4).clip(0, 1)
+        return momentum_score
+
     def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
         【V3.0】价格记忆深度计算
         核心理念：价格具有记忆效应，近期价格行为对当前影响更大
         数学模型：指数加权记忆衰减 + 趋势结构识别
         """
+        # 初始化价格记忆计算类
+        price_memory_calculator = CalculatePriceMemory(df_index, raw_signals.get('close', pd.Series(0.0, index=df_index)), params)
         # 参数
         memory_period = get_param_value(params.get('price_memory_period'), 34)
         decay_factor = get_param_value(params.get('price_memory_decay'), 0.94)
@@ -360,17 +436,17 @@ class CalculateMainForceRallyIntent:
         # 指数加权移动平均（EWMA）赋予近期更高权重
         trend_memory_ewma = net_trend_strength.ewm(alpha=1-decay_factor, adjust=False).mean()
         # 2. 价格动量记忆（自适应周期）
-        momentum_memory = self._calculate_adaptive_momentum_memory(
+        momentum_memory = price_memory_calculator.calculate_adaptive_momentum_memory(
             raw_signals.get('close', pd.Series(0.0, index=df_index)),
             df_index, memory_period
         )
         # 3. 波动率记忆（GARCH模型简化版）
-        volatility_memory = self._calculate_volatility_memory(
+        volatility_memory = price_memory_calculator.calculate_volatility_memory(
             raw_signals.get('pct_change', pd.Series(0.0, index=df_index)),
             df_index, memory_period
         )
         # 4. 支撑阻力记忆（关键价格水平记忆）
-        support_resistance_memory = self._calculate_support_resistance_memory(
+        support_resistance_memory = price_memory_calculator.calculate_support_resistance_memory(
             raw_signals, df_index, memory_period
         )
         # 综合价格记忆（使用模糊逻辑融合）
@@ -395,6 +471,8 @@ class CalculateMainForceRallyIntent:
         数学模型：资金流向量合成 + 持续性检测 + 异常检测
         """
         self._probe_print("  开始计算资金记忆...")
+        # 初始化资金记忆计算类
+        capital_memory_calculator = CalculateCapitalMemory(df_index, raw_signals.get('capital_flow', pd.Series(0.0, index=df_index)), params)
         # 参数
         memory_period = get_param_value(params.get('capital_memory_period'), 21)
         # 1. 多级别资金流合成（向量合成法）
@@ -427,22 +505,22 @@ class CalculateMainForceRallyIntent:
         composite_capital_flow = pd.Series(0.0, index=df_index)
         for name, vector, weight in capital_vectors:
             # 归一化处理
-            vector_norm = self._normalize_capital_vector(vector, df_index)
+            vector_norm = capital_memory_calculator._normalize_capital_vector(vector, df_index)
             composite_capital_flow += vector_norm * weight
             self._probe_print(f"  资金向量 '{name}' 权重: {weight:.2f}, 均值: {vector_norm.mean():.4f}")
         # 2. 资金持续性检测（Hurst指数简化版）
         self._probe_print("  计算资金持续性...")
-        persistence_score = self._calculate_capital_persistence(
+        persistence_score = capital_memory_calculator._calculate_capital_persistence(
             composite_capital_flow, df_index, memory_period
         )
         # 3. 资金异常检测（Z-score异常检测）
         self._probe_print("  检测资金异常...")
-        anomaly_score = self._detect_capital_anomaly(
+        anomaly_score = capital_memory_calculator._detect_capital_anomaly(
             composite_capital_flow, df_index, memory_period
         )
         # 4. 资金效率记忆（资金推动价格上涨的效率）
         self._probe_print("  计算资金效率...")
-        efficiency_memory = self._calculate_capital_efficiency(
+        efficiency_memory = capital_memory_calculator._calculate_capital_efficiency(
             composite_capital_flow,
             raw_signals.get('pct_change', pd.Series(0.0, index=df_index)),
             df_index, memory_period
@@ -474,22 +552,23 @@ class CalculateMainForceRallyIntent:
         核心理念：筹码结构演变反映市场参与者的成本分布变化
         数学模型：筹码熵变分析 + 集中度迁移 + 稳定性检测
         """
+        chip_memory_calculator = CalculateChipMemory(df_index, raw_signals, params)
         memory_period = get_param_value(params.get('chip_memory_period'), 55)
         # 1. 筹码熵变记忆（信息熵变化反映筹码混乱度）
-        entropy_memory = self._calculate_chip_entropy_memory(
+        entropy_memory = chip_memory_calculator._calculate_chip_entropy_memory(
             raw_signals, df_index, memory_period
         )
         # 2. 筹码集中度迁移记忆
-        concentration_migration = self._calculate_concentration_migration(
+        concentration_migration = chip_memory_calculator._calculate_concentration_migration(
             raw_signals.get('chip_concentration_ratio', pd.Series(0.0, index=df_index)),
             df_index, memory_period
         )
         # 3. 筹码稳定性记忆（马尔可夫稳定性检测）
-        stability_memory = self._calculate_chip_stability_memory(
+        stability_memory = chip_memory_calculator._calculate_chip_stability_memory(
             raw_signals, df_index, memory_period
         )
         # 4. 筹码压力记忆（获利盘与套牢盘记忆）
-        pressure_memory = self._calculate_chip_pressure_memory(
+        pressure_memory = chip_memory_calculator._calculate_chip_pressure_memory(
             raw_signals, df_index, memory_period
         )
         # 综合筹码记忆（低熵+高集中度+高稳定性+低压力=良好筹码结构）
@@ -513,6 +592,7 @@ class CalculateMainForceRallyIntent:
         核心理念：市场情绪具有惯性和均值回归特性
         数学模型：情绪动量 + 情绪分歧度 + 情绪极端检测
         """
+        sentiment_memory_calculator = CalculateSentimentMemory(df_index, raw_signals, params)
         memory_period = get_param_value(params.get('sentiment_memory_period'), 13)
         # 1. 情绪动量记忆（一阶差分动量）
         sentiment_momentum = self._calculate_sentiment_momentum(
@@ -520,17 +600,17 @@ class CalculateMainForceRallyIntent:
             df_index, memory_period
         )
         # 2. 情绪分歧度记忆（波动率反映分歧）
-        sentiment_divergence = self._calculate_sentiment_divergence(
+        sentiment_divergence = sentiment_memory_calculator._calculate_sentiment_divergence(
             raw_signals.get('market_sentiment', pd.Series(0.0, index=df_index)),
             df_index, memory_period
         )
         # 3. 情绪极端记忆（Z-score检测极端情绪）
-        sentiment_extreme = self._detect_sentiment_extreme(
+        sentiment_extreme = sentiment_memory_calculator._detect_sentiment_extreme(
             raw_signals.get('market_sentiment', pd.Series(0.0, index=df_index)),
             df_index, memory_period
         )
         # 4. 情绪一致性记忆（多指标情绪一致性）
-        sentiment_consistency = self._calculate_sentiment_consistency(
+        sentiment_consistency = sentiment_memory_calculator._calculate_sentiment_consistency(
             raw_signals, df_index, memory_period
         )
         # 综合情绪记忆（适度动量+低分歧+非极端+高一致性=健康情绪）
@@ -593,278 +673,31 @@ class CalculateMainForceRallyIntent:
         integrated_memory_enhanced = integrated_memory * (1 + consistency_factor * 0.3)
         return integrated_memory_enhanced.clip(0, 1)
 
-    def _calculate_support_resistance_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
+    def _detect_market_state(self, price_score: pd.Series, capital_score: pd.Series, chip_score: pd.Series, sentiment_score: pd.Series) -> str:
         """
-        【V3.2 · 筹码结构记忆版】计算支撑阻力记忆分数
-        核心理念：结合'市场平均持仓成本(Rolling VWAP)'与'箱体结构位置'，量化价格的支撑/阻力状态。
-        A股特性：价格位于筹码密集区上方为强支撑(Score>0.5)，下方为强套牢阻力(Score<0.5)。
+        【V4.2 · 相位识别版】基于多维记忆分值动态检测市场核心状态
+        逻辑：通过判定各维度的一致性与动量斜率，识别市场所处的博弈阶段。
         """
-        # 1. 获取基础数据
-        close = raw_signals.get('close', pd.Series(0.0, index=df_index))
-        high = raw_signals.get('high', pd.Series(0.0, index=df_index))
-        low = raw_signals.get('low', pd.Series(0.0, index=df_index))
-        volume = raw_signals.get('volume', pd.Series(0.0, index=df_index))
-        # 2. 计算周期内的滚动成本均价 (Rolling VWAP)
-        # 公式: sum(price * vol) / sum(vol) over memory_period
-        pv = close * volume
-        rolling_pv = pv.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
-        rolling_vol = volume.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
-        # 避免除零，使用ffill填充空值
-        rolling_vwap = (rolling_pv / rolling_vol.replace(0, np.nan)).ffill()
-        # 3. 计算成本偏离度得分 (Cost Deviation Score)
-        # 逻辑：价格 > VWAP -> 获利盘主导 -> 支撑强 -> 分数高
-        # 使用tanh将偏离率映射到 [0, 1] 区间
-        deviation = (close - rolling_vwap) / (rolling_vwap + 1e-9)
-        # 系数10用于放大微小的偏离，使信号更敏感
-        cost_score = np.tanh(deviation * 10) * 0.5 + 0.5
-        # 4. 计算结构位置得分 (Structural Position Score)
-        # 逻辑：接近周期高点为强势(接近阻力突破)，接近低点为弱势
-        rolling_high = high.rolling(window=memory_period, min_periods=int(memory_period/2)).max()
-        rolling_low = low.rolling(window=memory_period, min_periods=int(memory_period/2)).min()
-        range_span = rolling_high - rolling_low
-        # 避免除零
-        position_score = (close - rolling_low) / range_span.replace(0, 1.0)
-        # 5. 综合支撑阻力记忆
-        # 权重分配：成本记忆(筹码)占60%，结构记忆(形态)占40%
-        # 结果说明：接近1表示上方无阻力且获利盘多(强支撑记忆)，接近0表示深套且处于低位(强阻力记忆)
-        support_resistance_memory = (cost_score * 0.6 + position_score.clip(0, 1) * 0.4)
-        return support_resistance_memory.ffill().fillna(0.5)
-
-    def _calculate_adaptive_momentum_memory(self, close_series: pd.Series, df_index: pd.Index, base_period: int) -> pd.Series:
-        """
-        【V3.1 · 紧急修复版】自适应动量记忆计算
-        修复说明：解决Pandas EWM不支持动态span导致的ValueError crash问题。
-        改为使用固定周期计算基础RSI，并在结果层应用波动率调节。
-        """
-        # 1. 计算波动率因子 (保留原逻辑用于后处理)
-        returns = close_series.pct_change().fillna(0)
-        # 使用固定窗口计算波动率
-        volatility = returns.rolling(window=20).std().fillna(0.01)
-        # 2. 计算RSI (使用固定base_period，避免Series ambiguous错误)
-        # 确保base_period为有效整数
-        safe_period = max(2, int(base_period))
-        gains = returns.where(returns > 0, 0)
-        losses = -returns.where(returns < 0, 0)
-        # 使用固定周期的指数加权移动平均
-        avg_gain = gains.ewm(span=safe_period, adjust=False).mean()
-        avg_loss = losses.ewm(span=safe_period, adjust=False).mean()
-        rs = avg_gain / (avg_loss + 1e-9)
-        rsi = 100 - (100 / (1 + rs))
-        # 归一化到[0, 1]
-        rsi_norm = (rsi / 100).clip(0, 1)
-        # 3. 动量加速度（二阶差分）
-        momentum_accel = rsi_norm.diff().diff().fillna(0)
-        # 4. 应用自适应调节 (替代原有的动态周期)
-        # 逻辑：高波动率时(volatility高)，信号置信度略降；低波动率时置信度高
-        # 构建调节因子：波动率越低，因子越接近1.1；波动率越高，因子越接近0.9
-        adaptive_modulator = 1.0 + (0.02 - volatility).clip(-0.05, 0.05)
-        # 综合动量记忆
-        momentum_memory = (rsi_norm * 0.7 + (0.5 + momentum_accel * 0.5) * 0.3)
-        momentum_memory = (momentum_memory * adaptive_modulator).clip(0, 1)
-        return momentum_memory
-
-    def _calculate_volatility_memory(self, returns_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.0】波动率记忆计算（GARCH简化版）
-        数学模型：EWMA波动率 + 波动率聚集效应
-        """
-        # EWMA波动率（RiskMetrics方法）
-        lambda_factor = 0.94
-        squared_returns = returns_series ** 2
-        # 初始化
-        vol_memory = pd.Series(0.0, index=df_index)
-        if len(vol_memory) > 0:
-            vol_memory.iloc[0] = squared_returns.iloc[:min(30, len(squared_returns))].mean()
-        # 递归计算
-        for i in range(1, len(vol_memory)):
-            vol_memory.iloc[i] = (lambda_factor * vol_memory.iloc[i-1] + 
-                                 (1 - lambda_factor) * squared_returns.iloc[i-1])
-        # 年化波动率并归一化（假设年化波动率在10%-50%之间）
-        annualized_vol = np.sqrt(vol_memory * 252)
-        vol_norm = ((annualized_vol - 0.1) / 0.4).clip(0, 1)
-        return vol_norm
-
-    def _calculate_chip_stability_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.3 · 锁仓惯性记忆版】计算筹码稳定性记忆
-        核心理念：通过'低波动持续性'与'缩量惜售特征'，识别主力锁仓行为的真实度。
-        A股特性：真正的筹码稳定表现为指标本身的低方差(不乱动)以及低换手(没人卖)。
-        """
-        # 1. 获取基础信号
-        # chip_stability 原始值通常在 [0, 1] 之间，越高越稳定
-        raw_stability = raw_signals.get('chip_stability', pd.Series(0.5, index=df_index))
-        turnover = raw_signals.get('turnover_rate', pd.Series(0.0, index=df_index))
-        # 2. 计算稳定性的趋势惯性 (Trend Inertia)
-        # 使用EWMA提取长期记忆，衰减因子根据周期调整
-        span_val = max(5, int(memory_period / 2))
-        stability_trend = raw_stability.ewm(span=span_val, adjust=False).mean()
-        # 3. 计算稳定性的波动惩罚 (Variance Penalty)
-        # 逻辑：筹码稳定性指标本身的波动率越低，说明结构越稳固（主力控盘）
-        # 如果稳定性指标上蹿下跳，说明筹码在剧烈交换，记忆不可靠
-        stability_vol = raw_stability.rolling(window=span_val).std().fillna(0)
-        # 归一化波动率，假设 0.2 以上为高波动
-        vol_penalty = (stability_vol / 0.2).clip(0, 1)
-        consistency_score = 1.0 - vol_penalty
-        # 4. 计算缩量确认因子 (Volume Confirmation)
-        # 逻辑：低换手率是筹码稳定的最佳背书（惜售）
-        # 对换手率进行动态归一化 (Rolling Rank)
-        rolling_to_max = turnover.rolling(window=memory_period*2, min_periods=5).max()
-        turnover_ratio = (turnover / rolling_to_max.replace(0, 1)).fillna(1)
-        # 换手越低，确认度越高；换手极高时，稳定性记忆打折
-        volume_confirmation = 1.0 - turnover_ratio.clip(0, 0.8) # 保留0.2的基础分
-        # 5. 综合筹码稳定性记忆
-        # 权重分配：趋势惯性50% + 自身稳定性30% + 缩量确认20%
-        final_memory = (
-            stability_trend * 0.5 +
-            consistency_score * 0.3 +
-            volume_confirmation * 0.2
-        )
-        return final_memory.clip(0, 1)
-
-    def _calculate_chip_entropy_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.0】筹码熵变记忆计算
-        核心理念：使用信息熵衡量筹码分布的混乱程度
-        数学模型：信息熵计算 + 熵变趋势
-        """
-        entropy_scores = pd.Series(0.5, index=df_index)
-        # 获取筹码相关信号
-        chip_signals = [
-            ('chip_concentration_ratio', 0.4),
-            ('chip_convergence_ratio', 0.3),
-            ('chip_divergence_ratio', 0.3)
-        ]
-        for i in range(memory_period, len(df_index)):
-            if i < memory_period:
-                entropy_scores.iloc[i] = 0.5
-                continue
-            entropy_components = []
-            for signal_name, weight in chip_signals:
-                if signal_name not in raw_signals:
-                    continue
-                signal_series = raw_signals[signal_name]
-                # 获取窗口数据
-                window_data = signal_series.iloc[i-memory_period:i]
-                if len(window_data) < 5:
-                    continue
-                # 离散化：将数据分成5个区间
-                try:
-                    # 使用分位数进行离散化
-                    bins = np.quantile(window_data, [0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-                    # 确保边界值唯一
-                    bins = np.unique(bins)
-                    if len(bins) < 2:
-                        continue
-                    # 计算当前值所在区间的概率分布
-                    hist, _ = np.histogram(window_data, bins=bins)
-                    # 转换为概率
-                    prob = hist / len(window_data)
-                    prob = prob[prob > 0]  # 只保留正概率
-                    # 计算信息熵：H = -sum(p * log2(p))
-                    if len(prob) > 0:
-                        entropy = -np.sum(prob * np.log2(prob))
-                        # 归一化：最大熵为log2(n)
-                        max_entropy = np.log2(len(prob))
-                        if max_entropy > 0:
-                            normalized_entropy = entropy / max_entropy
-                            entropy_components.append(normalized_entropy * weight)
-                except:
-                    continue
-            if entropy_components:
-                # 加权平均熵
-                total_weight = sum(weight for _, weight in chip_signals if _ in raw_signals)
-                if total_weight > 0:
-                    entropy_score = sum(entropy_components) / total_weight
-                    entropy_scores.iloc[i] = entropy_score
-                else:
-                    entropy_scores.iloc[i] = 0.5
-        entropy_scores = entropy_scores.ffill().fillna(0.5)
-        return entropy_scores
-
-    def _calculate_chip_pressure_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.4 · 双向筹码压力场版】计算筹码压力记忆分数
-        核心理念：量化"解套抛压"（Trapped Pressure）与"获利兑现"（Profit Taking）的双重风险。
-        A股特性：
-        1. 价格从下方接近成本区时，解套盘抛压最大（即将回本时最想卖）。
-        2. 价格远超成本区时，获利盘兑现欲望增强（恐高）。
-        返回：压力分数 [0, 1]，1表示压力极大（顶部或强阻力位），0表示压力极小（真空区或底部）。
-        """
-        # 1. 准备数据
-        close = raw_signals.get('close', pd.Series(0.0, index=df_index))
-        volume = raw_signals.get('volume', pd.Series(0.0, index=df_index))
-        # 2. 计算市场平均成本 (VWMA - Volume Weighted Moving Average)
-        # 使用 memory_period 作为周期（如55日）
-        pv = close * volume
-        # 动态计算滚动VWMA
-        rolling_pv = pv.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
-        rolling_vol = volume.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
-        vwma = (rolling_pv / rolling_vol.replace(0, np.nan)).ffill()
-        # 3. 计算市场盈亏率 CYS (Cost Yield Simple)
-        # CYS > 0 代表获利，CYS < 0 代表套牢
-        cys = (close - vwma) / (vwma + 1e-9)
-        # 4. 计算解套抛压 (Trapped Pressure) - 针对 CYS < 0 的部分
-        # 逻辑：当 CYS 在 -0.15 到 0 之间时（亏损15%以内），抛压随价格上涨指数级增加
-        # 使用高斯函数模拟：峰值设在 -0.02 (亏损2%时抛压最大，人性使然)，标准差设为 0.08
-        # 当深套（如 -30%）时，抛压反而减小（装死不动）
-        trapped_pressure = np.exp(-((cys - (-0.02)) ** 2) / (2 * (0.08 ** 2)))
-        # 仅保留 CYS < 0.05 的部分作为解套压力（允许小幅获利出逃）
-        trapped_pressure = trapped_pressure.where(cys < 0.05, 0.0)
-        # 5. 计算获利兑现压力 (Profit Pressure) - 针对 CYS > 0 的部分
-        # 逻辑：当获利超过 20% 后，抛压显著增加；超过 40% 极度危险
-        # 使用 Sigmoid 函数：中心点设在 0.25 (25%获利)，斜率 k=15
-        profit_pressure = 1 / (1 + np.exp(-15 * (cys - 0.25)))
-        # 仅保留 CYS >= 0 的部分
-        profit_pressure = profit_pressure.where(cys >= 0, 0.0)
-        # 6. 综合压力记忆
-        # 取两者的最大值，因为同一时间通常只有一种主导压力
-        total_pressure = np.maximum(trapped_pressure, profit_pressure)
-        # 7. 平滑处理
-        # 压力具有记忆性，不会瞬间消失
-        pressure_memory = total_pressure.ewm(span=5, adjust=False).mean()
-        return pressure_memory.clip(0, 1)
-
-    def _calculate_capital_persistence(self, capital_flow: pd.Series, df_index: pd.Index, period: int) -> pd.Series:
-        """
-        【V3.0】资金持续性检测（Hurst指数简化版）
-        数学模型：重标极差分析（R/S）简化版本
-        """
-        persistence_scores = pd.Series(0.5, index=df_index)
-        for i in range(period, len(df_index)):
-            if i < period:
-                continue
-            # 取最近period日数据
-            segment = capital_flow.iloc[i-period:i]
-            if len(segment) < 10:
-                persistence_scores.iloc[i] = 0.5
-                continue
-            # 计算均值
-            mean_val = segment.mean()
-            # 计算累积离差
-            deviations = segment - mean_val
-            cumulative_dev = deviations.cumsum()
-            # 计算极差
-            R = cumulative_dev.max() - cumulative_dev.min()
-            # 计算标准差
-            S = segment.std()
-            # 避免除零
-            if S == 0:
-                persistence_scores.iloc[i] = 0.5
-                continue
-            # R/S比率
-            rs_ratio = R / S
-            # 简化Hurst指数估计
-            # log(R/S) ≈ H * log(n)
-            n = len(segment)
-            if rs_ratio > 0 and n > 1:
-                H = np.log(rs_ratio) / np.log(n)
-            else:
-                H = 0.5
-            # H值映射到[0, 1]
-            # H>0.5: 持续性，H<0.5: 反持续性，H=0.5: 随机
-            persistence_score = (H - 0.3) / 0.4  # 映射到[0,1]，0.3-0.7范围
-            persistence_scores.iloc[i] = persistence_score.clip(0, 1)
-        return persistence_scores
+        # 获取最新一帧的数据
+        p, c, s, ch = price_score.iloc[-1], capital_score.iloc[-1], sentiment_score.iloc[-1], chip_score.iloc[-1]
+        # 计算短期动量斜率（3日均值差）
+        p_slope = price_score.tail(3).diff().mean()
+        c_slope = capital_score.tail(3).diff().mean()
+        # 1. 趋势态判定：价格与资金强共振，且价格分值处于高位或明显上升
+        if (p > 0.6 and c > 0.5 and p_slope > 0) or (p > 0.75):
+            return "trending_up"
+        # 2. 弱势态判定：价格与资金持续走弱
+        if (p < 0.4 and c < 0.4 and p_slope < 0) or (p < 0.25):
+            return "trending_down"
+        # 3. 转折态判定：资金或情绪与价格发生明显的相位背离（A股典型的见顶/见底特征）
+        # 场景：价格还在涨但资金斜率已转负，或者价格低位但资金开始暴增
+        if (p_slope * c_slope < 0) and (abs(c_slope) > 0.05):
+            return "reversing"
+        # 4. 整理态判定：价格波动钝化，筹码集中度或稳定性成为主导变量
+        if abs(p_slope) < 0.02 and 0.4 <= p <= 0.6:
+            return "consolidating"
+        # 默认兜底状态
+        return "consolidating"
 
     def _calculate_memory_consistency(self, *memory_series) -> pd.Series:
         """
@@ -914,342 +747,6 @@ class CalculateMainForceRallyIntent:
         # 综合一致性
         consistency_score = (direction_consistency * 0.6 + correlation_consistency * 0.4).clip(0, 1)
         return consistency_score
-
-    def _normalize_capital_vector(self, capital_series: pd.Series, df_index: pd.Index) -> pd.Series:
-        """
-        【V3.0】资金向量归一化方法
-        核心理念：将原始资金流数据归一化到[-1, 1]范围，保留方向信息
-        数学模型：Robust Z-score归一化，使用滚动窗口统计
-        """
-        if capital_series.empty:
-            return pd.Series(0.0, index=df_index)
-        # 使用滚动窗口统计（21日窗口）
-        window = 21
-        min_periods = int(window * 0.7)  # 70%的最小观测值
-        # 计算滚动均值和标准差
-        rolling_mean = capital_series.rolling(window=window, min_periods=min_periods).mean()
-        rolling_std = capital_series.rolling(window=window, min_periods=min_periods).std()
-        # 避免除零，设置最小标准差
-        min_std = rolling_std.abs().quantile(0.1)  # 取10%分位数作为最小标准差
-        if min_std == 0:
-            min_std = 1e-9
-        rolling_std = rolling_std.clip(lower=min_std)
-        # Robust Z-score归一化：z = (x - mean) / std
-        z_scores = (capital_series - rolling_mean) / rolling_std
-        # 限制极端值（使用tanh函数将Z-score映射到[-1, 1]）
-        normalized = np.tanh(z_scores * 0.5)  # 0.5为缩放因子，控制映射敏感度
-        # 前向填充NaN值
-        normalized = normalized.ffill().fillna(0.0)
-        return normalized
-
-    def _detect_capital_anomaly(self, capital_flow: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.0】资金异常检测方法
-        核心理念：使用统计方法检测资金流的异常波动
-        数学模型：IQR异常检测 + 历史分位数比较
-        """
-        anomaly_scores = pd.Series(0.0, index=df_index)
-        # 使用滚动窗口检测异常
-        window = min(60, memory_period * 3)  # 足够长的窗口以获得稳定统计
-        for i in range(window, len(df_index)):
-            if i < window:
-                anomaly_scores.iloc[i] = 0.0
-                continue
-            # 获取历史窗口数据
-            historical_data = capital_flow.iloc[i-window:i]
-            # 1. IQR方法检测异常（适用于非正态分布）
-            Q1 = historical_data.quantile(0.25)
-            Q3 = historical_data.quantile(0.75)
-            IQR = Q3 - Q1
-            # 避免IQR过小
-            if IQR < 1e-9:
-                IQR = historical_data.std()
-                if IQR < 1e-9:
-                    IQR = 1e-9
-            # 计算当前值与历史分布的偏差
-            current_value = capital_flow.iloc[i]
-            # 下界和上界
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
-            # 2. 计算Z-score异常
-            historical_mean = historical_data.mean()
-            historical_std = historical_data.std()
-            if historical_std < 1e-9:
-                historical_std = 1e-9
-            z_score = abs((current_value - historical_mean) / historical_std)
-            # 3. 计算历史分位数异常
-            percentile_rank = (historical_data <= current_value).sum() / len(historical_data)
-            # 距离中位数的偏差（0.5为中间）
-            quantile_deviation = abs(percentile_rank - 0.5) * 2  # 映射到[0, 1]
-            # 4. 综合异常评分
-            # 如果超出IQR边界，则异常程度较高
-            is_outlier = (current_value < lower_bound) or (current_value > upper_bound)
-            # 异常评分组合
-            anomaly_score = (
-                (1.0 if is_outlier else 0.0) * 0.4 +  # IQR边界异常权重
-                min(z_score / 3.0, 1.0) * 0.4 +       # Z-score异常（3σ对应1.0）
-                quantile_deviation * 0.2              # 分位数异常
-            ).clip(0, 1)
-            anomaly_scores.iloc[i] = anomaly_score
-        # 前向填充初始值
-        anomaly_scores = anomaly_scores.ffill().fillna(0.0)
-        return anomaly_scores
-
-    def _calculate_capital_efficiency(self, capital_flow: pd.Series, price_change: pd.Series, 
-                                     df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.0】资金效率计算方法
-        核心理念：评估单位资金推动价格上涨的效率
-        数学模型：资金-价格弹性系数 + 领先滞后效率
-        """
-        efficiency_scores = pd.Series(0.5, index=df_index)  # 默认中等效率
-        # 确保数据对齐
-        if len(capital_flow) != len(price_change):
-            min_len = min(len(capital_flow), len(price_change))
-            capital_flow = capital_flow.iloc[:min_len]
-            price_change = price_change.iloc[:min_len]
-        # 窗口大小
-        window = min(20, memory_period)
-        for i in range(window, len(df_index)):
-            if i < window:
-                efficiency_scores.iloc[i] = 0.5
-                continue
-            # 1. 计算资金-价格弹性（简单线性回归斜率）
-            capital_window = capital_flow.iloc[i-window:i].values
-            price_window = price_change.iloc[i-window:i].values
-            # 避免零变化
-            if np.std(capital_window) < 1e-9 or np.std(price_window) < 1e-9:
-                efficiency_scores.iloc[i] = 0.5
-                continue
-            # 计算相关系数
-            correlation = np.corrcoef(capital_window, price_window)[0, 1]
-            if np.isnan(correlation):
-                correlation = 0
-            # 2. 计算单位资金推动的价格变化（弹性系数）
-            # 标准化后计算斜率
-            capital_normalized = (capital_window - np.mean(capital_window)) / (np.std(capital_window) + 1e-9)
-            price_normalized = (price_window - np.mean(price_window)) / (np.std(price_window) + 1e-9)
-            # 简单线性回归：斜率 = cov(x,y) / var(x)
-            covariance = np.cov(capital_normalized, price_normalized)[0, 1]
-            variance = np.var(capital_normalized)
-            if variance < 1e-9:
-                slope = 0
-            else:
-                slope = covariance / variance
-            # 3. 计算领先滞后效率（资金是否领先于价格）
-            # 使用交叉相关找到最大相关性的滞后
-            max_corr = 0
-            best_lag = 0
-            for lag in range(-3, 4):  # ±3天滞后
-                if lag <= 0:
-                    # 资金领先（负滞后）
-                    capital_shifted = capital_window[:len(capital_window)+lag] if lag < 0 else capital_window
-                    price_shifted = price_window[-lag:] if lag < 0 else price_window
-                else:
-                    # 价格领先（正滞后）
-                    capital_shifted = capital_window[lag:]
-                    price_shifted = price_window[:len(price_window)-lag]
-                # 确保长度一致
-                min_len = min(len(capital_shifted), len(price_shifted))
-                if min_len < 5:
-                    continue
-                capital_shifted = capital_shifted[:min_len]
-                price_shifted = price_shifted[:min_len]
-                corr = np.corrcoef(capital_shifted, price_shifted)[0, 1]
-                if not np.isnan(corr) and abs(corr) > abs(max_corr):
-                    max_corr = corr
-                    best_lag = lag
-            # 资金领先（负滞后）为高效，价格领先（正滞后）为低效
-            lag_efficiency = max(0, -best_lag) / 3.0  # 映射到[0, 1]，资金领先最多3天
-            # 4. 综合效率评分
-            # 相关系数（方向一致性）
-            correlation_score = (correlation + 1) / 2  # 映射到[0, 1]
-            # 斜率（单位资金推动力）
-            slope_score = np.tanh(slope * 0.5) * 0.5 + 0.5  # 映射到[0, 1]
-            # 综合效率
-            efficiency_score = (
-                correlation_score * 0.4 +      # 方向一致性
-                slope_score * 0.3 +            # 推动力度
-                lag_efficiency * 0.3           # 领先滞后
-            ).clip(0, 1)
-            efficiency_scores.iloc[i] = efficiency_score
-        # 前向填充
-        efficiency_scores = efficiency_scores.ffill().fillna(0.5)
-        return efficiency_scores
-
-    def _calculate_concentration_migration(self, concentration_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.0】筹码集中度迁移记忆计算
-        核心理念：跟踪筹码集中度的变化方向和速度
-        数学模型：趋势斜率 + 动量分析
-        """
-        if concentration_series.empty:
-            return pd.Series(0.5, index=df_index)
-        migration_scores = pd.Series(0.5, index=df_index)
-        # 使用滚动窗口计算趋势
-        window = min(13, memory_period // 2)
-        for i in range(window, len(df_index)):
-            if i < window:
-                migration_scores.iloc[i] = 0.5
-                continue
-            # 获取窗口数据
-            window_data = concentration_series.iloc[i-window:i]
-            if len(window_data) < 3:
-                migration_scores.iloc[i] = 0.5
-                continue
-            # 1. 计算线性趋势斜率
-            x = np.arange(len(window_data))
-            y = window_data.values
-            # 线性回归
-            A = np.vstack([x, np.ones(len(x))]).T
-            try:
-                slope, _ = np.linalg.lstsq(A, y, rcond=None)[0]
-            except:
-                slope = 0
-            # 2. 计算动量（近期变化）
-            recent_change = window_data.iloc[-1] - window_data.iloc[0]
-            momentum = recent_change / (window_data.max() - window_data.min() + 1e-9)
-            # 3. 计算加速度（斜率变化）
-            if i >= window * 2:
-                prev_window = concentration_series.iloc[i-window*2:i-window]
-                if len(prev_window) >= 3:
-                    x_prev = np.arange(len(prev_window))
-                    y_prev = prev_window.values
-                    A_prev = np.vstack([x_prev, np.ones(len(x_prev))]).T
-                    try:
-                        slope_prev, _ = np.linalg.lstsq(A_prev, y_prev, rcond=None)[0]
-                        acceleration = slope - slope_prev
-                    except:
-                        acceleration = 0
-                else:
-                    acceleration = 0
-            else:
-                acceleration = 0
-            # 4. 综合迁移评分（集中度上升为正，下降为负）
-            # 归一化处理
-            slope_score = np.tanh(slope * 10) * 0.5 + 0.5  # 映射到[0, 1]
-            momentum_score = momentum * 0.5 + 0.5  # 映射到[0, 1]
-            accel_score = np.tanh(acceleration * 5) * 0.5 + 0.5  # 映射到[0, 1]
-            migration_score = (
-                slope_score * 0.5 +
-                momentum_score * 0.3 +
-                accel_score * 0.2
-            )
-            migration_scores.iloc[i] = migration_score.clip(0, 1)
-        migration_scores = migration_scores.ffill().fillna(0.5)
-        return migration_scores
-
-    def _calculate_sentiment_momentum(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.5 · 情绪惯性版】计算情绪动量
-        核心理念：量化情绪的"加速"与"衰竭"。
-        A股特性：急涨缓跌。情绪加速上升是主升浪特征，高位动量钝化是见顶前兆。
-        """
-        if sentiment_series.empty:
-            return pd.Series(0.5, index=df_index)
-        # 1. 情绪平滑 (去除日内杂波)
-        # 使用较短周期(如5日)的EMA
-        smooth_sentiment = sentiment_series.ewm(span=5, adjust=False).mean()
-        # 2. 计算一阶动量 (速度)
-        # 3日变化率
-        velocity = smooth_sentiment.diff(3).fillna(0)
-        # 3. 计算二阶动量 (加速度)
-        acceleration = velocity.diff(3).fillna(0)
-        # 4. 动量合成
-        # 归一化处理，假设变化率极值在 +/- 0.3 之间
-        vel_score = np.tanh(velocity * 5) * 0.5 + 0.5
-        acc_score = np.tanh(acceleration * 5) * 0.5 + 0.5
-        # 综合动量：速度为主，加速度为辅（修正拐点）
-        # 结果 > 0.5 代表情绪由弱转强或加速上升
-        momentum_score = (vel_score * 0.6 + acc_score * 0.4).clip(0, 1)
-        return momentum_score
-
-    def _calculate_sentiment_divergence(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.5 · 量价背离版】计算情绪背离度
-        核心理念：识别"价格创新高但情绪未跟随"的顶部背离，或"价格新低但情绪回暖"的底部背离。
-        注意：此方法返回的是"背离风险度"，值越大代表背离越严重(风险/机会越大)，需结合趋势方向判断。
-        """
-        # 需要获取价格序列进行对比（这里假设从self.strategy获取或作为参数传入较复杂，
-        # 简化为使用sentiment自身的趋势背离，即实际值与线性回归值的偏离）
-        # 更优解：计算价格动量与情绪动量的相关性
-        # 这里我们模拟一个"价格动量"的代理变量，假设 raw_signals 已在外部准备好，
-        # 若无法获取，则计算情绪自身的RSI背离特征
-        # 方案：计算情绪指标的短期趋势(5日)与长期趋势(21日)的乖离率
-        # 逻辑：短期情绪过快偏离长期均值，视为不可持续的"情绪超涨/超跌"
-        short_trend = sentiment_series.rolling(window=5).mean()
-        long_trend = sentiment_series.rolling(window=memory_period).mean()
-        # 计算乖离率 (Bias)
-        bias = (short_trend - long_trend) / (long_trend + 1e-9)
-        # 计算背离风险
-        # 逻辑：乖离率过大(>0.2)或过小(<-0.2)都是背离
-        # 使用高斯函数反向映射：乖离率越接近0，分歧越小(0)；乖离率越大，分歧越大(1)
-        divergence_score = 1.0 - np.exp(-((bias) ** 2) / (2 * (0.1 ** 2)))
-        return divergence_score.fillna(0).clip(0, 1)
-
-    def _detect_sentiment_extreme(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.6 · 修复版】检测情绪极端值
-        修复说明：解决 min_periods > window 导致的 ValueError。动态设置 min_periods。
-        核心理念：利用Z-Score识别情绪的"冰点"(Panic)与"沸点"(Euphoria)。
-        """
-        # 动态计算安全的 min_periods，确保不超过 memory_period
-        # 逻辑：至少需要 2 个数据点，且不超过窗口的 80% 或 20 中的较小值（如果窗口很大，至少要20个样本才稳健；如果窗口小，则适配窗口）
-        # 但为了彻底避免错误，最安全的做法是直接取 min(20, memory_period) 且保证 <= memory_period
-        # 这里使用宽松策略：取窗口的 2/3 作为最小样本数，既保证统计意义又不报错
-        safe_min_periods = max(2, int(memory_period * 0.6))
-        # 1. 计算滚动均值与标准差 (Bollinger Band logic)
-        rolling_mean = sentiment_series.rolling(window=memory_period, min_periods=safe_min_periods).mean()
-        rolling_std = sentiment_series.rolling(window=memory_period, min_periods=safe_min_periods).std()
-        # 2. 计算 Z-Score
-        # (当前值 - 历史均值) / 历史波动率
-        z_score = (sentiment_series - rolling_mean) / (rolling_std + 1e-9)
-        # 3. 极端性映射
-        # 我们关注的是"极端程度"，不分方向。方向由外部逻辑判断。
-        # Z > 2 或 Z < -2 视为极端
-        # 映射到 [0, 1]，2倍标准差对应 0.8 分，3倍对应 1.0 分
-        extreme_score = (z_score.abs() / 3.0).clip(0, 1)
-        # 4. 非线性增强
-        # 只有当Z-Score超过1.5时，极端分才开始显著增加
-        extreme_score = extreme_score.where(z_score.abs() > 1.5, extreme_score * 0.5)
-        return extreme_score.fillna(0)
-
-    def _calculate_sentiment_consistency(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.5 · 多维共振版】计算情绪一致性
-        核心理念：当"大盘"、"板块"、"龙头"三者情绪共振时，趋势最强。
-        A股特性：只有龙头涨而板块不跟（一致性低），通常是诱多；全线普涨（一致性高）才是真反转。
-        """
-        # 1. 获取三个维度的情绪指标
-        # 市场整体情绪
-        mkt_sentiment = raw_signals.get('market_sentiment', pd.Series(0.5, index=df_index))
-        # 板块广度 (涨跌家数比等)
-        breadth = raw_signals.get('industry_breadth', pd.Series(0.5, index=df_index))
-        # 龙头强度 (最高板高度、龙头涨幅)
-        leader = raw_signals.get('industry_leader', pd.Series(0.5, index=df_index))
-        # 2. 归一化处理 (确保都在0-1之间，方便比较)
-        # 假设原始信号已经是归一化过的，若没有，建议在此处再次Robust Scaling
-        # 这里直接使用
-        # 3. 计算离散度 (Standard Deviation)
-        # 构建DataFrame以便按行计算
-        components = pd.DataFrame({
-            'mkt': mkt_sentiment,
-            'breadth': breadth,
-            'leader': leader
-        })
-        # 计算横截面标准差
-        std_dev = components.std(axis=1)
-        # 4. 转换为一致性得分
-        # 标准差越小，一致性越高
-        # 假设最大标准差约为 0.5 (全部分散)，我们希望 Std=0 -> Score=1
-        consistency_score = 1.0 - (std_dev / 0.3).clip(0, 1)
-        # 5. 趋势方向确认 (可选增强)
-        # 只有在三者都 > 0.5 (强势共振) 或都 < 0.5 (弱势共振) 时，才给予高分
-        # 若均值在 0.5 附近震荡，即使标准差小，也是无效的一致性
-        mean_val = components.mean(axis=1)
-        intensity_factor = (mean_val - 0.5).abs() * 2  # 0.5->0, 0/1->1
-        final_consistency = consistency_score * (0.5 + 0.5 * intensity_factor)
-        return final_consistency.fillna(0).clip(0, 1)
 
     def _get_empty_context(self, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
@@ -1357,8 +854,7 @@ class CalculateMainForceRallyIntent:
             )
         return normalized_signals
 
-    def _construct_proxy_signals(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], 
-                                normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
+    def _construct_proxy_signals(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
         【V4.0 · 代理信号深度重构版】
         基于幻方量化A股交易经验，深度重构代理信号构建系统
@@ -1413,31 +909,32 @@ class CalculateMainForceRallyIntent:
         2. 板块轮动速度
         3. 相对成交额变化
         """
+        enhanced_rs_proxy_calculator = EnhancedRSProxyCalculator(config)
         rs_components = {}
         # 1. 价格趋势相对强度（MTF趋势）
         price_trend_strength = mtf_signals.get('mtf_price_trend', pd.Series(0.0, index=df_index)).clip(lower=0)
         # 2. 动量相对强度（自适应RSI）
-        rsi_strength = self._calculate_adaptive_rsi_strength(
+        rsi_strength = enhanced_rs_proxy_calculator._calculate_adaptive_rsi_strength(
             normalized_signals.get('RSI_norm', pd.Series(0.5, index=df_index)),
             df_index
         )
         # 3. 加速相对强度（价格加速度）
-        acceleration_strength = self._calculate_price_acceleration_strength(
+        acceleration_strength = enhanced_rs_proxy_calculator._calculate_price_acceleration_strength(
             mtf_signals.get('mtf_price_trend', pd.Series(0.0, index=df_index)),
             df_index
         )
         # 4. 结构相对强度（突破、支撑、阻力）
-        structural_strength = self._calculate_structural_strength(
+        structural_strength = enhanced_rs_proxy_calculator._calculate_structural_strength(
             normalized_signals, mtf_signals, df_index
         )
         # 5. 成交量相对强度（量价配合）
-        volume_strength = self._calculate_volume_relative_strength(
+        volume_strength = enhanced_rs_proxy_calculator._calculate_volume_relative_strength(
             normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index)),
             price_trend_strength,
             df_index
         )
         # 6. 资金流相对强度（资金推动效率）
-        capital_flow_strength = self._calculate_capital_flow_relative_strength(
+        capital_flow_strength = enhanced_rs_proxy_calculator._calculate_capital_flow_relative_strength(
             normalized_signals.get('net_amount_ratio_norm', pd.Series(0.5, index=df_index)),
             price_trend_strength,
             df_index
@@ -1462,8 +959,8 @@ class CalculateMainForceRallyIntent:
         # 使用加权几何平均（强调一致性）
         rs_proxy = self._weighted_geometric_mean(rs_components_values, rs_weights, df_index)
         # 动态调节器：根据市场状态调整强度
-        market_state = self._detect_market_state_for_rs(rs_components_values, df_index)
-        rs_modulator = self._calculate_rs_modulator(market_state, config)
+        market_state = enhanced_rs_proxy_calculator._detect_market_state_for_rs(rs_components_values, df_index)
+        rs_modulator = enhanced_rs_proxy_calculator._calculate_rs_modulator(market_state, config)
         # 最终相对强度代理信号
         enhanced_rs_proxy = (rs_proxy * rs_modulator).clip(0, 1)
         self._probe_print(f"相对强度代理信号构建完成，均值: {enhanced_rs_proxy.mean():.4f}")
@@ -1486,35 +983,36 @@ class CalculateMainForceRallyIntent:
         3. 大单冲击成本
         4. 资金流的方向持续性
         """
+        enhanced_capital_proxy_calculator = EnhancedCapitalProxyCalculator(config)
         capital_components = {}
         # 1. 多级别资金流合成（基于原始日级资金数据）
         # 使用向量合成法，但加入更多维度
-        capital_flow_composite = self._calculate_multi_level_capital_flow(
+        capital_flow_composite = enhanced_capital_proxy_calculator._calculate_multi_level_capital_flow(
             normalized_signals, df_index, config
         )
         # 2. 资本效率因子（CEF）：单位资金推动价格上涨的效率
-        capital_efficiency = self._calculate_capital_efficiency_factor(
+        capital_efficiency = enhanced_capital_proxy_calculator._calculate_capital_efficiency_factor(
             capital_flow_composite,
             mtf_signals.get('mtf_price_trend', pd.Series(0.0, index=df_index)),
             normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index)),
             df_index
         )
         # 3. 资金结构指数（FSI）：资金流向的集中度和稳定性
-        fund_structure_index = self._calculate_fund_structure_index(
+        fund_structure_index = enhanced_capital_proxy_calculator._calculate_fund_structure_index(
             normalized_signals, df_index
         )
         # 4. 资金持续性指数（FPI）：资金流向的持续时间和强度
-        fund_persistence_index = self._calculate_fund_persistence_index(
+        fund_persistence_index = enhanced_capital_proxy_calculator._calculate_fund_persistence_index(
             capital_flow_composite, df_index
         )
         # 5. 资金领先滞后关系（FLR）：资金流向领先价格的程度
-        fund_lead_lag_ratio = self._calculate_fund_lead_lag_ratio(
+        fund_lead_lag_ratio = enhanced_capital_proxy_calculator._calculate_fund_lead_lag_ratio(
             capital_flow_composite,
             mtf_signals.get('mtf_price_trend', pd.Series(0.0, index=df_index)),
             df_index
         )
         # 6. 资金异常检测（FAD）：检测异常资金流动
-        fund_anomaly_detection = self._detect_fund_anomalies(
+        fund_anomaly_detection = enhanced_capital_proxy_calculator._detect_fund_anomalies(
             capital_flow_composite, df_index
         )
         # 综合资本属性代理信号
@@ -1537,8 +1035,8 @@ class CalculateMainForceRallyIntent:
         # 使用非线性合成（Sigmoid加权）
         capital_proxy = self._nonlinear_synthesis(capital_components_values, capital_weights, df_index)
         # 资本属性调节器：根据市场流动性调整
-        liquidity_state = self._assess_market_liquidity_state(normalized_signals, df_index)
-        capital_modulator = self._calculate_capital_modulator(liquidity_state, config)
+        liquidity_state = enhanced_capital_proxy_calculator._assess_market_liquidity_state(normalized_signals, df_index)
+        capital_modulator = enhanced_capital_proxy_calculator._calculate_capital_modulator(liquidity_state, config)
         # 最终资本属性代理信号
         enhanced_capital_proxy = (capital_proxy * capital_modulator).clip(0, 1)
         self._probe_print(f"资本属性代理信号构建完成，均值: {enhanced_capital_proxy.mean():.4f}")
@@ -1561,6 +1059,7 @@ class CalculateMainForceRallyIntent:
         3. 机构调研热度
         4. 投资者情绪调查数据
         """
+        enhanced_sentiment_proxy_calculator = EnhancedSentimentProxyCalculator()
         sentiment_components = {}
         # 1. 基础市场情绪（来自数据层）
         base_sentiment = normalized_signals.get('market_sentiment_norm', pd.Series(0.5, index=df_index))
@@ -1569,19 +1068,19 @@ class CalculateMainForceRallyIntent:
             base_sentiment, df_index
         )
         # 3. 情绪分歧度（市场参与者情绪差异）
-        sentiment_divergence = self._calculate_sentiment_divergence_index(
+        sentiment_divergence = enhanced_sentiment_proxy_calculator._calculate_sentiment_divergence_index(
             normalized_signals, df_index
         )
         # 4. 情绪极端性（情绪处于极端状态的程度）
-        sentiment_extremity = self._calculate_sentiment_extremity_index(
+        sentiment_extremity = enhanced_sentiment_proxy_calculator._calculate_sentiment_extremity_index(
             base_sentiment, df_index
         )
         # 5. 情绪传染性（情绪在板块间的传播）
-        sentiment_contagion = self._calculate_sentiment_contagion_index(
+        sentiment_contagion = enhanced_sentiment_proxy_calculator._calculate_sentiment_contagion_index(
             normalized_signals, df_index
         )
         # 6. 情绪稳定性（情绪的波动和反转）
-        sentiment_stability = self._calculate_sentiment_stability_index(
+        sentiment_stability = enhanced_sentiment_proxy_calculator._calculate_sentiment_stability_index(
             base_sentiment, df_index
         )
         # 综合情绪代理信号
@@ -1602,10 +1101,10 @@ class CalculateMainForceRallyIntent:
             "stability": sentiment_stability.clip(0, 1)
         }
         # 使用模糊逻辑合成
-        sentiment_proxy = self._fuzzy_logic_synthesis(sentiment_components_values, sentiment_weights, df_index)
+        sentiment_proxy = enhanced_sentiment_proxy_calculator._fuzzy_logic_synthesis(sentiment_components_values, sentiment_weights, df_index)
         # 情绪调节器：根据市场阶段调整
         market_phase = self._identify_market_phase(sentiment_components_values, df_index)
-        sentiment_modulator = self._calculate_sentiment_modulator(market_phase, config)
+        sentiment_modulator = enhanced_sentiment_proxy_calculator._calculate_sentiment_modulator(market_phase, config)
         # 最终市场情绪代理信号
         enhanced_sentiment_proxy = (sentiment_proxy * sentiment_modulator).clip(0, 1)
         self._probe_print(f"市场情绪代理信号构建完成，均值: {enhanced_sentiment_proxy.mean():.4f}")
@@ -1628,25 +1127,26 @@ class CalculateMainForceRallyIntent:
         3. 大单冲击成本
         4. 流动性分层数据（不同价格区间的流动性）
         """
+        enhanced_liquidity_proxy_calculator = EnhancedLiquidityProxyCalculator(config)
         liquidity_components = {}
         # 1. 成交量流动性（传统流动性指标）
         volume_liquidity = normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index))
         # 2. 换手率流动性（筹码交换速度）
         turnover_liquidity = normalized_signals.get('turnover_rate_norm', pd.Series(0.5, index=df_index))
         # 3. 订单簿流动性（买卖不平衡度）
-        orderbook_liquidity = self._calculate_orderbook_liquidity_index(
+        orderbook_liquidity = enhanced_liquidity_proxy_calculator._calculate_orderbook_liquidity_index(
             normalized_signals, df_index
         )
         # 4. 冲击成本流动性（大单交易对价格的影响）
-        impact_cost_liquidity = self._calculate_impact_cost_liquidity(
+        impact_cost_liquidity = enhanced_liquidity_proxy_calculator._calculate_impact_cost_liquidity(
             normalized_signals, df_index
         )
         # 5. 流动性分层（不同价格区间的流动性差异）
-        layered_liquidity = self._calculate_layered_liquidity_index(
+        layered_liquidity = enhanced_liquidity_proxy_calculator._calculate_layered_liquidity_index(
             normalized_signals, df_index
         )
         # 6. 流动性风险溢价（流动性不足时的风险补偿）
-        liquidity_risk_premium = self._calculate_liquidity_risk_premium(
+        liquidity_risk_premium = enhanced_liquidity_proxy_calculator._calculate_liquidity_risk_premium(
             volume_liquidity, turnover_liquidity, df_index
         )
         # 综合流动性代理信号（流动性越好，得分越高）
@@ -1667,10 +1167,10 @@ class CalculateMainForceRallyIntent:
             "risk_premium": (1 - liquidity_risk_premium).clip(0, 1)  # 风险溢价越低越好
         }
         # 使用最小二乘优化合成
-        liquidity_proxy = self._optimized_synthesis(liquidity_components_values, liquidity_weights, df_index)
+        liquidity_proxy = enhanced_liquidity_proxy_calculator._optimized_synthesis(liquidity_components_values, liquidity_weights, df_index)
         # 流动性调节器：根据市场波动调整
         market_volatility = normalized_signals.get('volatility_instability_norm', pd.Series(0.5, index=df_index))
-        liquidity_modulator = self._calculate_liquidity_modulator(market_volatility, config)
+        liquidity_modulator = enhanced_liquidity_proxy_calculator._calculate_liquidity_modulator(market_volatility, config)
         # 最终流动性代理信号
         enhanced_liquidity_proxy = (liquidity_proxy * liquidity_modulator).clip(0, 1)
         self._probe_print(f"流动性代理信号构建完成，均值: {enhanced_liquidity_proxy.mean():.4f}")
@@ -1693,32 +1193,33 @@ class CalculateMainForceRallyIntent:
         3. 波动率期限结构
         4. 波动率聚集效应数据
         """
+        enhanced_volatility_proxy_calculator = EnhancedVolatilityProxyCalculator(config)
         volatility_components = {}
         # 1. 历史波动率（基于收益率）
-        historical_volatility = self._calculate_historical_volatility_index(
+        historical_volatility = enhanced_volatility_proxy_calculator._calculate_historical_volatility_index(
             normalized_signals.get('pct_change_norm', pd.Series(0.0, index=df_index)),
             df_index
         )
         # 2. 波动率偏度（上涨波动与下跌波动的不对称性）
-        volatility_skew = self._calculate_volatility_skew_index(
+        volatility_skew = enhanced_volatility_proxy_calculator._calculate_volatility_skew_index(
             normalized_signals.get('pct_change_norm', pd.Series(0.0, index=df_index)),
             df_index
         )
         # 3. 波动率聚集（GARCH效应）
-        volatility_clustering = self._calculate_volatility_clustering_index(
+        volatility_clustering = enhanced_volatility_proxy_calculator._calculate_volatility_clustering_index(
             normalized_signals.get('pct_change_norm', pd.Series(0.0, index=df_index)),
             df_index
         )
         # 4. 波动率微笑（不同行权价的波动率差异）
-        volatility_smile = self._calculate_volatility_smile_index(
+        volatility_smile = enhanced_volatility_proxy_calculator._calculate_volatility_smile_index(
             normalized_signals, df_index
         )
         # 5. 波动率期限结构（不同到期日的波动率）
-        volatility_term_structure = self._calculate_volatility_term_structure_index(
+        volatility_term_structure = enhanced_volatility_proxy_calculator._calculate_volatility_term_structure_index(
             normalized_signals, df_index
         )
         # 6. 波动率风险溢价（预期波动率与实际波动率差异）
-        volatility_risk_premium = self._calculate_volatility_risk_premium_index(
+        volatility_risk_premium = enhanced_volatility_proxy_calculator._calculate_volatility_risk_premium_index(
             historical_volatility, df_index
         )
         # 综合波动性代理信号（适度的波动性最好）
@@ -1732,7 +1233,7 @@ class CalculateMainForceRallyIntent:
         }
         # 波动性得分：不是越低越好，而是适度最好（倒U型）
         volatility_components_values = {
-            "historical": self._inverse_u_transform(historical_volatility, 0.2, 0.5),  # 最优波动率20%-50%
+            "historical": enhanced_volatility_proxy_calculator._inverse_u_transform(historical_volatility, 0.2, 0.5),  # 最优波动率20%-50%
             "skew": (1 - abs(volatility_skew)).clip(0, 1),  # 偏度越小越好
             "clustering": (1 - volatility_clustering).clip(0, 1),  # 聚集效应越低越好
             "smile": (1 - volatility_smile).clip(0, 1),  # 微笑效应越小越好
@@ -1740,10 +1241,10 @@ class CalculateMainForceRallyIntent:
             "risk_premium": (1 - volatility_risk_premium).clip(0, 1)  # 风险溢价越低越好
         }
         # 使用贝叶斯合成
-        volatility_proxy = self._bayesian_synthesis(volatility_components_values, volatility_weights, df_index)
+        volatility_proxy = enhanced_volatility_proxy_calculator._bayesian_synthesis(volatility_components_values, volatility_weights, df_index)
         # 波动性调节器：根据市场阶段调整
-        market_regime = self._identify_volatility_regime(volatility_components_values, df_index)
-        volatility_modulator = self._calculate_volatility_modulator(market_regime, config)
+        market_regime = enhanced_volatility_proxy_calculator._identify_volatility_regime(volatility_components_values, df_index)
+        volatility_modulator = enhanced_volatility_proxy_calculator._calculate_volatility_modulator(market_regime, config)
         # 最终波动性代理信号
         enhanced_volatility_proxy = (volatility_proxy * volatility_modulator).clip(0, 1)
         self._probe_print(f"波动性代理信号构建完成，均值: {enhanced_volatility_proxy.mean():.4f}")
@@ -1766,29 +1267,30 @@ class CalculateMainForceRallyIntent:
         3. 期权偏度指数
         4. 避险资产资金流向
         """
+        enhanced_risk_preference_proxy_calculator = EnhancedRiskPreferenceProxyCalculator()
         risk_preference_components = {}
         # 1. 风险资产表现（高风险板块 vs 低风险板块）
-        risky_asset_performance = self._calculate_risky_asset_performance_index(
+        risky_asset_performance = enhanced_risk_preference_proxy_calculator._calculate_risky_asset_performance_index(
             normalized_signals, df_index
         )
         # 2. 风险规避程度（避险资产资金流向）
-        risk_aversion_degree = self._calculate_risk_aversion_degree_index(
+        risk_aversion_degree = enhanced_risk_preference_proxy_calculator._calculate_risk_aversion_degree_index(
             normalized_signals, df_index
         )
         # 3. 风险转移（资金从避险资产流向风险资产）
-        risk_transfer = self._calculate_risk_transfer_index(
+        risk_transfer = enhanced_risk_preference_proxy_calculator._calculate_risk_transfer_index(
             normalized_signals, df_index
         )
         # 4. 风险定价（风险溢价水平）
-        risk_pricing = self._calculate_risk_pricing_index(
+        risk_pricing = enhanced_risk_preference_proxy_calculator._calculate_risk_pricing_index(
             normalized_signals, df_index
         )
         # 5. 风险情绪（投资者对风险的容忍度）
-        risk_sentiment = self._calculate_risk_sentiment_index(
+        risk_sentiment = enhanced_risk_preference_proxy_calculator._calculate_risk_sentiment_index(
             normalized_signals, df_index
         )
         # 6. 风险传导（风险在资产间的传播）
-        risk_contagion = self._calculate_risk_contagion_index(
+        risk_contagion = enhanced_risk_preference_proxy_calculator._calculate_risk_contagion_index(
             normalized_signals, df_index
         )
         # 综合风险偏好代理信号（风险偏好高=得分高）
@@ -1809,10 +1311,10 @@ class CalculateMainForceRallyIntent:
             "risk_contagion": (1 - risk_contagion).clip(0, 1)  # 风险传导越低越好
         }
         # 使用神经网络启发式合成
-        risk_preference_proxy = self._neural_inspired_synthesis(risk_preference_components_values, risk_weights, df_index)
+        risk_preference_proxy = enhanced_risk_preference_proxy_calculator._neural_inspired_synthesis(risk_preference_components_values, risk_weights, df_index)
         # 风险偏好调节器：根据经济周期调整
-        economic_cycle = self._identify_economic_cycle(risk_preference_components_values, df_index)
-        risk_preference_modulator = self._calculate_risk_preference_modulator(economic_cycle, config)
+        economic_cycle = enhanced_risk_preference_proxy_calculator._identify_economic_cycle(risk_preference_components_values, df_index)
+        risk_preference_modulator = enhanced_risk_preference_proxy_calculator._calculate_risk_preference_modulator(economic_cycle, config)
         # 最终风险偏好代理信号
         enhanced_risk_preference_proxy = (risk_preference_proxy * risk_preference_modulator).clip(0, 1)
         self._probe_print(f"风险偏好代理信号构建完成，均值: {enhanced_risk_preference_proxy.mean():.4f}")
@@ -1945,8 +1447,7 @@ class CalculateMainForceRallyIntent:
         self._probe_print(f"动态权重合成完成，综合代理信号均值: {final_proxy_signals['comprehensive_proxy'].mean():.4f}")
         return final_proxy_signals
 
-    def _assess_signal_quality(self, rs_proxy: Dict, capital_proxy: Dict, sentiment_proxy: Dict,
-                              liquidity_proxy: Dict, volatility_proxy: Dict, risk_preference_proxy: Dict) -> pd.Series:
+    def _assess_signal_quality(self, rs_proxy: Dict, capital_proxy: Dict, sentiment_proxy: Dict, liquidity_proxy: Dict, volatility_proxy: Dict, risk_preference_proxy: Dict) -> pd.Series:
         """
         【V4.0】代理信号质量评估方法
         核心理念：综合评估各代理信号的可靠性、稳定性、一致性和预测能力
@@ -1960,6 +1461,7 @@ class CalculateMainForceRallyIntent:
         6. 信号完整性（数据缺失率）
         返回：综合信号质量评分，范围[0, 1]，1表示最高质量
         """
+        signal_quality_assessor = SignalQualityAssessor(self.config)
         self._probe_print("=== 开始评估代理信号质量 ===")
         # 提取各代理信号的时间序列（使用增强版信号）
         rs_signal = rs_proxy.get("enhanced_rs_proxy", pd.Series(0.5, index=rs_proxy.get("raw_rs_proxy", pd.Series()).index))
@@ -1983,16 +1485,16 @@ class CalculateMainForceRallyIntent:
             if signal_series.empty:
                 individual_qualities[signal_name] = pd.Series(0.5, index=signal_series.index)
                 continue
-            signal_quality = self._calculate_individual_signal_quality(signal_series, signal_name)
+            signal_quality = signal_quality_assessor._calculate_individual_signal_quality(signal_series, signal_name)
             individual_qualities[signal_name] = signal_quality
             self._probe_print(f"  {signal_name}信号质量均值: {signal_quality.mean():.4f}")
         # 2. 计算信号间的一致性质量
-        consistency_quality = self._calculate_signal_consistency_quality(all_signals)
+        consistency_quality = signal_quality_assessor._calculate_signal_consistency_quality(all_signals)
         # 3. 计算信号的预测有效性（滞后相关性分析）
-        predictive_quality = self._calculate_predictive_quality(all_signals)
+        predictive_quality = signal_quality_assessor._calculate_predictive_quality(all_signals)
         # 4. 综合信号质量（加权合成）
         # 动态权重：根据各信号的历史表现调整权重
-        dynamic_weights = self._calculate_dynamic_quality_weights(individual_qualities, consistency_quality, predictive_quality)
+        dynamic_weights = signal_quality_assessor._calculate_dynamic_quality_weights(individual_qualities, consistency_quality, predictive_quality)
         # 合成综合信号质量
         comprehensive_quality = pd.Series(0.0, index=rs_signal.index)
         for i in range(len(comprehensive_quality)):
@@ -2028,374 +1530,84 @@ class CalculateMainForceRallyIntent:
         self._probe_print(f"综合信号质量评估完成，均值: {comprehensive_quality.mean():.4f}")
         return comprehensive_quality.clip(0, 1)
 
-    def _calculate_individual_signal_quality(self, signal_series: pd.Series, signal_name: str) -> pd.Series:
-        """
-        【V4.0】计算单个信号的个体质量指标
-        评估维度：
-        1. 稳定性（波动率倒数）
-        2. 信噪比（趋势强度/噪声强度）
-        3. 极端值频率（异常值比例）
-        4. 数据完整性（缺失值比例）
-        """
-        if signal_series.empty:
-            return pd.Series(0.5, index=signal_series.index)
-        quality_scores = pd.Series(0.5, index=signal_series.index)
-        for i in range(len(signal_series)):
-            if i < 20:  # 需要足够的数据来计算质量
-                quality_scores.iloc[i] = 0.5
-                continue
-            # 1. 稳定性评分（基于滚动窗口波动率）
-            window_data = signal_series.iloc[max(0, i-20):i]
-            if len(window_data) >= 10:
-                volatility = window_data.std()
-                if volatility > 0:
-                    # 波动率越低，稳定性越高（倒U型，适中最好）
-                    # 对于大多数代理信号，0.1-0.3的波动率是理想的
-                    optimal_volatility = 0.2
-                    stability_score = 1.0 - min(abs(volatility - optimal_volatility) / optimal_volatility, 1.0)
-                else:
-                    stability_score = 0.5
-            else:
-                stability_score = 0.5
-            # 2. 信噪比评分（趋势强度 vs 噪声强度）
-            if len(window_data) >= 15:
-                # 计算趋势（线性回归斜率）
-                x = np.arange(len(window_data))
-                y = window_data.values
-                try:
-                    slope, _ = np.linalg.lstsq(np.vstack([x, np.ones(len(x))]).T, y, rcond=None)[0]
-                    # 趋势强度的绝对值
-                    trend_strength = abs(slope) * 100  # 放大到合理范围
-                    # 噪声强度（去趋势后的残差标准差）
-                    residuals = y - (slope * x + _)
-                    noise_strength = np.std(residuals)
-                    if noise_strength > 0:
-                        snr = trend_strength / noise_strength
-                        # SNR在1-3之间为理想范围
-                        snr_score = min(snr / 3.0, 1.0)
-                    else:
-                        snr_score = 1.0 if trend_strength > 0 else 0.5
-                except:
-                    snr_score = 0.5
-            else:
-                snr_score = 0.5
-            # 3. 极端值频率评分
-            if len(window_data) >= 20:
-                # 使用IQR方法检测极端值
-                Q1 = window_data.quantile(0.25)
-                Q3 = window_data.quantile(0.75)
-                IQR = Q3 - Q1
-                if IQR > 0:
-                    lower_bound = Q1 - 1.5 * IQR
-                    upper_bound = Q3 + 1.5 * IQR
-                    outliers = window_data[(window_data < lower_bound) | (window_data > upper_bound)]
-                    outlier_ratio = len(outliers) / len(window_data)
-                    # 极端值越少越好
-                    extreme_score = 1.0 - outlier_ratio
-                else:
-                    extreme_score = 1.0
-            else:
-                extreme_score = 0.5
-            # 4. 数据完整性评分
-            # 计算窗口内缺失值比例
-            if len(window_data) > 0:
-                missing_ratio = window_data.isna().sum() / len(window_data)
-                completeness_score = 1.0 - missing_ratio
-            else:
-                completeness_score = 1.0
-            # 综合个体质量评分
-            # 权重分配：稳定性30%，信噪比30%，极端值20%，完整性20%
-            individual_quality = (
-                stability_score * 0.3 +
-                snr_score * 0.3 +
-                extreme_score * 0.2 +
-                completeness_score * 0.2
-            )
-            quality_scores.iloc[i] = individual_quality
-        # 前向填充并平滑
-        quality_scores = quality_scores.ffill().fillna(0.5)
-        quality_scores = quality_scores.rolling(window=5, min_periods=3).mean().fillna(0.5)
-        return quality_scores.clip(0, 1)
-
-    def _calculate_signal_consistency_quality(self, all_signals: Dict[str, pd.Series]) -> pd.Series:
-        """
-        【V4.0】计算信号间的一致性质量
-        评估维度：
-        1. 方向一致性（各信号方向相同的比例）
-        2. 幅度一致性（变化幅度相关性）
-        3. 时序一致性（领先滞后关系的稳定性）
-        """
-        # 获取第一个信号的索引作为基准
-        first_signal = next(iter(all_signals.values()))
-        if first_signal.empty:
-            return pd.Series(0.5, index=first_signal.index)
-        consistency_scores = pd.Series(0.5, index=first_signal.index)
-        for i in range(len(consistency_scores)):
-            if i < 30:  # 需要足够的数据
-                consistency_scores.iloc[i] = 0.5
-                continue
-            # 获取最近30天的数据窗口
-            window_start = max(0, i-30)
-            window_end = i
-            # 收集各信号在窗口内的数据
-            window_signals = {}
-            for signal_name, signal_series in all_signals.items():
-                if len(signal_series) > window_end:
-                    window_data = signal_series.iloc[window_start:window_end]
-                    if len(window_data) >= 10:
-                        window_signals[signal_name] = window_data
-            if len(window_signals) < 2:
-                consistency_scores.iloc[i] = 0.5
-                continue
-            # 1. 方向一致性评分
-            direction_scores = []
-            for day in range(max(0, window_end-5), window_end):  # 最近5天
-                if day >= len(first_signal):
-                    continue
-                directions = []
-                for signal_name, signal_series in window_signals.items():
-                    if day < len(signal_series):
-                        # 计算方向（与前一天比较）
-                        if day > 0 and (day-1) < len(signal_series):
-                            change = signal_series.iloc[day] - signal_series.iloc[day-1]
-                            direction = 1 if change > 0 else (-1 if change < 0 else 0)
-                            directions.append(direction)
-                if len(directions) >= 2:
-                    # 计算方向一致比例
-                    positive_count = sum(1 for d in directions if d > 0)
-                    negative_count = sum(1 for d in directions if d < 0)
-                    max_uniform = max(positive_count, negative_count)
-                    direction_consistency = max_uniform / len(directions) if len(directions) > 0 else 0
-                    direction_scores.append(direction_consistency)
-            direction_avg = np.mean(direction_scores) if direction_scores else 0.5
-            # 2. 幅度一致性评分（相关系数）
-            correlation_scores = []
-            signal_names = list(window_signals.keys())
-            for j in range(len(signal_names)):
-                for k in range(j+1, len(signal_names)):
-                    signal1 = window_signals[signal_names[j]]
-                    signal2 = window_signals[signal_names[k]]
-                    if len(signal1) >= 10 and len(signal2) >= 10:
-                        # 确保长度一致
-                        min_len = min(len(signal1), len(signal2))
-                        signal1_trimmed = signal1.iloc[:min_len]
-                        signal2_trimmed = signal2.iloc[:min_len]
-                        # 计算相关系数
-                        corr = signal1_trimmed.corr(signal2_trimmed)
-                        if not np.isnan(corr):
-                            correlation_scores.append(abs(corr))  # 取绝对值
-            correlation_avg = np.mean(correlation_scores) if correlation_scores else 0.5
-            # 3. 时序一致性评分（领先滞后关系的稳定性）
-            timing_scores = []
-            # 简化实现：计算信号变化的同步性
-            for j in range(len(signal_names)):
-                for k in range(j+1, len(signal_names)):
-                    signal1 = window_signals[signal_names[j]]
-                    signal2 = window_signals[signal_names[k]]
-                    if len(signal1) >= 10 and len(signal2) >= 10:
-                        # 计算一阶差分的相关性（同步性）
-                        diff1 = signal1.diff().dropna()
-                        diff2 = signal2.diff().dropna()
-                        if len(diff1) >= 5 and len(diff2) >= 5:
-                            min_len = min(len(diff1), len(diff2))
-                            diff1_trimmed = diff1.iloc[:min_len]
-                            diff2_trimmed = diff2.iloc[:min_len]
-                            
-                            sync_corr = diff1_trimmed.corr(diff2_trimmed)
-                            if not np.isnan(sync_corr):
-                                timing_scores.append(abs(sync_corr))
-            timing_avg = np.mean(timing_scores) if timing_scores else 0.5
-            # 综合一致性评分
-            consistency_score = (
-                direction_avg * 0.4 +
-                correlation_avg * 0.4 +
-                timing_avg * 0.2
-            )
-            consistency_scores.iloc[i] = consistency_score
-        # 平滑处理
-        consistency_scores = consistency_scores.ffill().fillna(0.5)
-        consistency_scores = consistency_scores.rolling(window=5, min_periods=3).mean().fillna(0.5)
-        return consistency_scores.clip(0, 1)
-
-    def _calculate_predictive_quality(self, all_signals: Dict[str, pd.Series]) -> pd.Series:
-        """
-        【V4.0】计算信号的预测有效性质量
-        评估维度：信号对未来价格变动的预测能力
-        数学模型：滞后相关性分析 + 信息系数（IC）
-        """
-        # 注意：这里需要价格数据，假设我们有一个全局的价格序列
-        # 由于在上下文中没有价格数据，我们将使用相对强度信号作为代理
-        # 简化实现：使用信号自身的变化来评估预测能力
-        # 在实际应用中，应该使用信号与未来收益的相关性
-        predictive_scores = pd.Series(0.5, index=next(iter(all_signals.values())).index)
-        for i in range(len(predictive_scores)):
-            if i < 40:  # 需要足够的历史数据
-                predictive_scores.iloc[i] = 0.5
-                continue
-            # 使用最近20天的数据评估预测能力
-            window_start = max(0, i-20)
-            window_end = i
-            # 收集各信号的预测能力评分
-            signal_predictive_scores = []
-            for signal_name, signal_series in all_signals.items():
-                if len(signal_series) <= window_end:
-                    continue
-                window_data = signal_series.iloc[window_start:window_end]
-                if len(window_data) < 10:
-                    continue
-                # 计算信号变化的预测能力
-                # 简化：假设信号的趋势变化具有一定的持续性
-                # 实际中应该计算信号与未来n日收益的相关性
-                # 计算信号的自相关性（滞后1期）
-                if len(window_data) >= 10:
-                    autocorr = window_data.autocorr(lag=1)
-                    if not np.isnan(autocorr):
-                        # 适度的正自相关表示有一定的预测能力
-                        # 但过高的自相关可能意味着信号过于平滑，反应迟钝
-                        if autocorr > 0:
-                            # 0.1-0.4的自相关为理想范围
-                            if autocorr < 0.1:
-                                pred_score = autocorr / 0.1
-                            elif autocorr > 0.4:
-                                pred_score = 1.0 - (autocorr - 0.4) / 0.6
-                            else:
-                                pred_score = 1.0
-                        else:
-                            pred_score = 0.0
-                        signal_predictive_scores.append(pred_score)
-            # 计算平均预测能力
-            if signal_predictive_scores:
-                predictive_score = np.mean(signal_predictive_scores)
-            else:
-                predictive_score = 0.5
-            predictive_scores.iloc[i] = predictive_score
-        # 平滑处理
-        predictive_scores = predictive_scores.ffill().fillna(0.5)
-        predictive_scores = predictive_scores.rolling(window=10, min_periods=5).mean().fillna(0.5)
-        return predictive_scores.clip(0, 1)
-
-    def _calculate_dynamic_quality_weights(self, individual_qualities: Dict[str, pd.Series], 
-                                         consistency_quality: pd.Series, 
-                                         predictive_quality: pd.Series) -> Dict[str, pd.Series]:
-        """
-        【V4.0】计算动态质量权重
-        核心理念：根据各信号的历史表现动态调整其在质量评估中的权重
-        表现好的信号获得更高权重，表现差的信号权重降低
-        """
-        # 初始化权重
-        dynamic_weights = {}
-        # 获取时间索引
-        if individual_qualities:
-            index = next(iter(individual_qualities.values())).index
-        else:
-            return {}
-        # 为每个信号创建权重序列
-        for signal_name in individual_qualities:
-            dynamic_weights[signal_name] = pd.Series(1.0 / len(individual_qualities), index=index)
-        # 如果只有1-2个信号，直接返回等权重
-        if len(individual_qualities) <= 2:
-            return dynamic_weights
-        # 动态调整权重（基于最近的表现）
-        for i in range(len(index)):
-            if i < 30:  # 前30天使用等权重
-                continue
-            # 计算各信号最近20天的平均质量
-            recent_qualities = {}
-            total_quality = 0
-            for signal_name, quality_series in individual_qualities.items():
-                if i < len(quality_series):
-                    recent_window = quality_series.iloc[max(0, i-20):i]
-                    recent_avg = recent_window.mean() if len(recent_window) > 0 else 0.5
-                    recent_qualities[signal_name] = recent_avg
-                    total_quality += recent_avg
-                else:
-                    recent_qualities[signal_name] = 0.5
-                    total_quality += 0.5
-            # 计算归一化权重
-            if total_quality > 0:
-                for signal_name in individual_qualities:
-                    if signal_name in recent_qualities:
-                        # 权重与质量成正比
-                        normalized_weight = recent_qualities[signal_name] / total_quality
-                        # 限制权重范围：0.05 - 0.4
-                        normalized_weight = max(0.05, min(normalized_weight, 0.4))
-                        dynamic_weights[signal_name].iloc[i] = normalized_weight
-                    else:
-                        dynamic_weights[signal_name].iloc[i] = 1.0 / len(individual_qualities)
-        return dynamic_weights
-
     def _detect_comprehensive_market_state(self, rs_signal: pd.Series, capital_signal: pd.Series,
                                           sentiment_signal: pd.Series, liquidity_signal: pd.Series,
                                           volatility_signal: pd.Series, risk_preference_signal: pd.Series) -> pd.Series:
         """
-        【V4.0】综合市场状态检测方法
-        核心理念：基于多个代理信号综合判断市场状态
-        市场状态分类：
-        1. trending_up（趋势上涨）
-        2. trending_down（趋势下跌）
-        3. consolidating（震荡整理）
-        4. reversing_up（反转上涨）
-        5. reversing_down（反转下跌）
-        6. crisis（危机模式）
+        【V4.7 · 动量增强版】综合市场状态检测方法
+        核心优化：引入信号强度(Strength)变量，剔除低斜率的"伪趋势"，增强反转识别的准确性。
         """
         market_states = pd.Series("consolidating", index=rs_signal.index)
+        
+        # 设定动态阈值
+        STRONG_TREND_THRESHOLD = 0.15  # 强趋势斜率阈值
+        REVERSAL_IMPULSE_THRESHOLD = 0.20  # 反转冲量阈值
+
         for i in range(len(market_states)):
-            if i < 30:  # 需要足够的历史数据
+            if i < 30:
                 market_states.iloc[i] = "consolidating"
                 continue
-            # 获取当前信号值
+            # 1. 获取当前信号值
             rs_val = rs_signal.iloc[i] if i < len(rs_signal) else 0.5
             capital_val = capital_signal.iloc[i] if i < len(capital_signal) else 0.5
             sentiment_val = sentiment_signal.iloc[i] if i < len(sentiment_signal) else 0.5
             liquidity_val = liquidity_signal.iloc[i] if i < len(liquidity_signal) else 0.5
             volatility_val = volatility_signal.iloc[i] if i < len(volatility_signal) else 0.5
             risk_val = risk_preference_signal.iloc[i] if i < len(risk_preference_signal) else 0.5
-            # 获取最近20天的信号值用于趋势判断
+            # 2. 获取趋势方向
             window_start = max(0, i-20)
             rs_window = rs_signal.iloc[window_start:i] if i < len(rs_signal) else pd.Series()
             capital_window = capital_signal.iloc[window_start:i] if i < len(capital_signal) else pd.Series()
             sentiment_window = sentiment_signal.iloc[window_start:i] if i < len(sentiment_signal) else pd.Series()
-            # 计算趋势
             rs_trend = self._calculate_trend_direction(rs_window)
             capital_trend = self._calculate_trend_direction(capital_window)
             sentiment_trend = self._calculate_trend_direction(sentiment_window)
-            # 计算信号强度
+            # 3. 计算并使用信号强度 (Magnitude of Trend)
             rs_strength = abs(rs_trend)
             capital_strength = abs(capital_trend)
             sentiment_strength = abs(sentiment_trend)
-            # 规则1：危机模式检测
-            # 高波动性 + 低风险偏好 + 低流动性
+            # --- 状态判定逻辑 ---
+            # 规则1：危机模式检测 (Crisis)
+            # 逻辑：高波动 + 低风险偏好 + 低流动性，且资金或情绪在加速恶化
             if volatility_val > 0.7 and risk_val < 0.3 and liquidity_val < 0.3:
-                market_states.iloc[i] = "crisis"
-                continue
-            # 规则2：趋势上涨检测
-            # 相对强度强 + 资金流入 + 情绪积极
-            if rs_val > 0.7 and capital_val > 0.6 and sentiment_val > 0.6:
-                if rs_trend > 0.1 and capital_trend > 0.1:  # 趋势向上
+                # 确认恶化趋势具有强度
+                if capital_strength > 0.1 or sentiment_strength > 0.1: 
+                    market_states.iloc[i] = "crisis"
+                    continue
+            # 规则2：趋势上涨检测 (Trending Up)
+            # 逻辑：高绝对值 + 正向趋势 + 足够强度的斜率(过滤缓慢爬升)
+            if rs_val > 0.65 and capital_val > 0.6 and sentiment_val > 0.6:
+                # 必须同时满足方向向上且动量充足
+                if (rs_trend > 0 and rs_strength > STRONG_TREND_THRESHOLD and 
+                    capital_trend > 0 and capital_strength > STRONG_TREND_THRESHOLD):
                     market_states.iloc[i] = "trending_up"
                     continue
-            # 规则3：趋势下跌检测
-            # 相对强度弱 + 资金流出 + 情绪消极
-            if rs_val < 0.3 and capital_val < 0.4 and sentiment_val < 0.4:
-                if rs_trend < -0.1 and capital_trend < -0.1:  # 趋势向下
+            # 规则3：趋势下跌检测 (Trending Down)
+            # 逻辑：低绝对值 + 负向趋势 + 足够强度的斜率(过滤阴跌，阴跌往往归为调整或危机)
+            if rs_val < 0.35 and capital_val < 0.4 and sentiment_val < 0.4:
+                if (rs_trend < 0 and rs_strength > STRONG_TREND_THRESHOLD and 
+                    capital_trend < 0 and capital_strength > STRONG_TREND_THRESHOLD):
                     market_states.iloc[i] = "trending_down"
                     continue
-            # 规则4：反转上涨检测
-            # 相对强度开始转强 + 资金开始流入 + 情绪改善
-            if rs_trend > 0.2 and capital_trend > 0.2 and sentiment_trend > 0.2:
-                # 但当前值还不太高
-                if rs_val < 0.6 and capital_val < 0.6:
+            # 规则4：反转上涨检测 (Reversing Up)
+            # 逻辑：趋势斜率显著转正(Impulse) + 绝对值未达高位
+            # 反转需要更大的动量来确认，防止骗线
+            if (rs_trend > 0 and rs_strength > REVERSAL_IMPULSE_THRESHOLD and 
+                capital_trend > 0 and capital_strength > REVERSAL_IMPULSE_THRESHOLD):
+                # 只有在低位或中位时才叫反转/启动
+                if rs_val < 0.65 and capital_val < 0.65:
                     market_states.iloc[i] = "reversing_up"
                     continue
-            # 规则5：反转下跌检测
-            # 相对强度开始转弱 + 资金开始流出 + 情绪恶化
-            if rs_trend < -0.2 and capital_trend < -0.2 and sentiment_trend < -0.2:
-                # 但当前值还不太低
+            # 规则5：反转下跌检测 (Reversing Down)
+            # 逻辑：趋势斜率显著转负 + 绝对值在高位(顶部反转)
+            if (rs_trend < 0 and rs_strength > REVERSAL_IMPULSE_THRESHOLD and 
+                sentiment_trend < 0 and sentiment_strength > REVERSAL_IMPULSE_THRESHOLD):
                 if rs_val > 0.4 and capital_val > 0.4:
                     market_states.iloc[i] = "reversing_down"
                     continue
-            # 默认状态：震荡整理
+            # 默认状态
             market_states.iloc[i] = "consolidating"
+
         return market_states
 
     def _calculate_trend_direction(self, series: pd.Series) -> float:
@@ -2513,9 +1725,7 @@ class CalculateMainForceRallyIntent:
         self._probe_print("=== 动态权重计算完成 ===")
         return final_weights
 
-    def _calculate_market_state_factors(self, df_index: pd.Index, 
-                                       normalized_signals: Dict[str, pd.Series],
-                                       mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series],mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V4.0】七维度市场状态因子计算
         核心理念：综合七个维度全面评估市场状态
