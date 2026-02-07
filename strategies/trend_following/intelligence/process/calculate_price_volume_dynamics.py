@@ -432,34 +432,36 @@ class CalculatePriceVolumeDynamics:
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V49.0 · 主力夺权全局总线：集成四层安全阀调节矩阵（含波动率聚集调节）"""
+        """V52.0 · 全局调度总线：集成五层安全阀（新增板块溢出分形衰减）"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         if not self._validate_all_required_signals(df, {}, {}, method_name, is_debug, probe_ts):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         raw = self._get_raw_signals(df, method_name)
-        # --- 第一阶段：计算物理引擎分与几何势能分 ---
+        # --- 第一阶段：计算物理与几何核心强度 ---
         physical_base = self._calculate_power_transfer_raw_score(df_index, raw, method_name)
         geo_conf = (1.0 - raw['GEOM_REG_R2_D']).clip(0, 1)
         act_curv = pd.Series(_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0), index=df_index)
         geo_resonance = act_curv * geo_conf * (raw['IS_ROUNDING_BOTTOM_D'].astype(float) * 1.2 + 0.5)
-        # --- 第二阶段：合成强度基准 ---
+        # --- 第二阶段：合成基础强度 ---
         unadjusted_intensity = (physical_base * 0.70 + geo_resonance * 0.30)
-        # --- 第三阶段：四层安全阀调节 (Risk, Decay, Sector, Volatility) ---
-        risk_valve = self._calculate_premium_reversal_risk(raw, df_index, method_name)
-        decay_valve = self._calculate_intraday_decay_model(raw, df_index, method_name)
-        sector_valve = self._calculate_sector_resonance_modifier(raw, df_index, method_name)
-        vol_valve = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name) # V49 核心
-        # --- 第四阶段：实战修正与链式合成 ---
-        accessibility_filter = self._calculate_entry_accessibility_score(raw, df_index, method_name)
-        final_meta_score = unadjusted_intensity * risk_valve * decay_valve * sector_valve * vol_valve * accessibility_filter
+        # --- 第三阶段：五层安全阀调节矩阵 ---
+        risk_v = self._calculate_premium_reversal_risk(raw, df_index, method_name)     # 情绪回吐阀 
+        decay_v = self._calculate_intraday_decay_model(raw, df_index, method_name)    # 结构烂板阀 
+        sector_v = self._calculate_sector_resonance_modifier(raw, df_index, method_name) # 板块共振阀 
+        vol_v = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name) # 波动聚集阀 
+        sector_overflow_v = self._calculate_sector_overflow_decay(raw, df_index, method_name) # 板块溢出分形阀 (V52新增) 
+        # --- 第四阶段：实战入场修正 ---
+        access_f = self._calculate_entry_accessibility_score(raw, df_index, method_name) # 入场过滤器 
+        # --- 第五阶段：链式合成最终分值 ---
+        final_score = unadjusted_intensity * risk_v * decay_v * sector_v * vol_v * sector_overflow_v * access_f
         if is_debug and probe_ts in df_index:
-            print(f"\n[PROCESS_META_POWER_TRANSFER 全局合成探针V49 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    [核心强度] 物理分: {physical_base.loc[probe_ts]:.4f}, 几何分: {geo_resonance.loc[probe_ts]:.4f}")
-            print(f"    [阀门调节] 情绪: {risk_valve.loc[probe_ts]:.2f}, 衰减: {decay_valve.loc[probe_ts]:.2f}, 板块: {sector_valve.loc[probe_ts]:.2f}, 波动聚集: {vol_valve.loc[probe_ts]:.2f}")
-            print(f"    >>> 最终 PROCESS_META_POWER_TRANSFER 分值: {final_meta_score.loc[probe_ts]:.4f}")
-        return final_meta_score.clip(-3.5, 5.5).astype(np.float32)
+            print(f"\n[PROCESS_META_POWER_TRANSFER 全链集成探针 V52 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    [核心] 物理: {physical_base.loc[probe_ts]:.4f}, 几何: {geo_resonance.loc[probe_ts]:.4f}")
+            print(f"    [阀门] 板块溢出分形调节: {sector_overflow_v.loc[probe_ts]:.4f}")
+            print(f"    >>> 最终 PROCESS_META_POWER_TRANSFER 分值: {final_score.loc[probe_ts]:.4f}")
+        return final_score.clip(-3.5, 6.0).astype(np.float32)
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
         """V51.0 · 物理引擎：建立从原始(Raw)到最终(Final)的全链路诊断探针"""
@@ -583,6 +585,32 @@ class CalculatePriceVolumeDynamics:
             print(f"    >>> 加速增益: {accel_gain[df_index.get_loc(probe_ts)]:.4f}, 陷阱惩罚: {trap_penalty[df_index.get_loc(probe_ts)]:.4f}")
             print(f"    >>> 最终波动率调节系数: {vol_adj.loc[probe_ts]:.4f}")
         return vol_adj.astype(np.float32)
+
+    def _calculate_sector_overflow_decay(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V52.0 · 板块溢出衰减模型：基于题材热度分形维数 (Fractal Dimension) 的稳定性分析"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 准备分形计算原料 (题材热度)
+        theme_hotness = raw['THEME_HOTNESS_SCORE_D'].fillna(0).values
+        # 调用 Numba 算子计算 13 日分形维数
+        # 将一维序列包装为算子要求的二维结构
+        flow_arrays = np.expand_dims(theme_hotness, axis=0) 
+        fractal_dim_vals = _numba_fractal_dimension(flow_arrays, window=13)
+        fractal_dim = pd.Series(fractal_dim_vals, index=df_index)
+        # 2. 计算衰减调节系数
+        # 逻辑：分形维数越高 (熵增)，代表热度越不稳定，衰减压力越大
+        # 1.5 是随机游走的平衡点
+        decay_factor = (1.5 / (fractal_dim + 1e-9)).clip(0.6, 1.2)
+        # 3. 结合热度高位惩罚
+        # 如果热度评分 > 80 且分形维数 > 1.6，触发强力衰减
+        is_exhaustion = (raw['THEME_HOTNESS_SCORE_D'] > 80) & (fractal_dim > 1.6)
+        final_decay = np.where(is_exhaustion, decay_factor * 0.8, decay_factor)
+        res = pd.Series(final_decay, index=df_index)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[板块溢出衰减探针 V52 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    题材热度: {raw['THEME_HOTNESS_SCORE_D'].loc[probe_ts]:.2f}, 13日分形维数: {fractal_dim.loc[probe_ts]:.4f}")
+            print(f"    博弈状态: {'混沌末端' if fractal_dim.loc[probe_ts] > 1.6 else '趋势稳定'}")
+            print(f"    >>> 板块溢出衰减系数: {res.loc[probe_ts]:.4f}")
+        return res.astype(np.float32)
 
     def _calculate_fractal_market_analysis(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
         """V24.0 · 分形市场分析（Numba加速）"""
