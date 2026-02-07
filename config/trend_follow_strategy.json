@@ -152,7 +152,7 @@
         "is_consolidating_D": [5, 13, 21, 34],
         "dynamic_consolidation_duration_D": [5, 13, 21, 34],
         "SMART_MONEY_HM_COORDINATED_ATTACK_D": [5, 13, 21, 34],
-        "THEME_HOTNESS_SCORE_D": [5, 13, 21],
+        "THEME_HOTNESS_SCORE_D": [3, 5, 8, 13, 21],
         "market_sentiment_score_D": [5, 13, 21, 34, 55],
         "counterparty_exhaustion_index_D": [5, 13, 21],
         "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
@@ -212,7 +212,7 @@
         "SMART_MONEY_INST_NET_BUY_D": [5, 13],
         "volume_ratio_D": [5, 13],
         "SMART_MONEY_HM_COORDINATED_ATTACK_D": [5, 13],
-        "THEME_HOTNESS_SCORE_D": [5, 13, 21],
+        "THEME_HOTNESS_SCORE_D": [3, 5, 8, 13, 21],
         "market_sentiment_score_D": [5, 13, 21, 34, 55],
         "counterparty_exhaustion_index_D": [5, 13, 21],
         "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
@@ -249,7 +249,8 @@
             "net_amount_rate_D": [3, 5, 8, 13, 21, 34, 55],
             "winner_rate_D": [3, 5, 8, 13, 21, 34, 55],
             "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
-            "VPA_EFFICIENCY_D": [3, 5, 8, 13, 21]
+            "VPA_EFFICIENCY_D": [3, 5, 8, 13, 21],
+            "THEME_HOTNESS_SCORE_D": [3, 5, 8, 13, 21]
         }
     }
   },
