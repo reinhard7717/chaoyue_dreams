@@ -288,50 +288,43 @@ class CalculateMainForceRallyIntent:
         self._probe_print("=== 历史上下文计算完成 ===")
         return context
 
-    def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, 
-                                     capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
+    def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
         """
-        【V3.0】相位同步检测算法
-        核心理念：检测价格趋势与资金流向的相位关系，领先滞后分析
-        数学模型：Hilbert变换相位差 + 交叉相关分析
+        【V4.0 · 动态互相关相位版】相位同步检测算法
+        修改说明：引入互相关滞后矩阵（Cross-Correlation Matrix），识别资金与价格的领先滞后相位，捕捉主力先行信号。
+        版本号：2026.02.07.06
         """
-        # 简化版：使用一阶差分的相关性分析
-        price_trend = price_memory.get("trend_memory", pd.Series(0.0, index=df_index))
-        capital_flow = capital_memory.get("composite_capital_flow", pd.Series(0.0, index=df_index))
-        # 1. 一阶差分（近似导数）
-        price_diff = price_trend.diff().fillna(0)
-        capital_diff = capital_flow.diff().fillna(0)
-        # 2. 滚动窗口相关性（21日窗口）
-        window = 21
-        phase_correlation = price_diff.rolling(window=window).corr(capital_diff)
-        # 3. 领先滞后分析（交叉相关）
-        lead_lag_score = pd.Series(0.0, index=df_index)
-        for i in range(window, len(df_index)):
-            if i < window:
-                continue
-            # 计算不同滞后期的相关性
-            max_corr = 0
-            best_lag = 0
-            for lag in range(-5, 6):  # ±5日滞后
-                if i + lag < window or i + lag >= len(df_index):
-                    continue
-                # 对齐序列
-                price_segment = price_trend.iloc[i-window:i]
-                capital_segment = capital_flow.iloc[i-window+lag:i+lag] if lag >= 0 else capital_flow.iloc[i-window:i].shift(-lag)
-                # 计算相关性
-                corr = price_segment.corr(capital_segment)
-                if abs(corr) > abs(max_corr):
-                    max_corr = corr
-                    best_lag = lag
-            # 资金领先为正，价格领先为负
-            lead_lag_score.iloc[i] = best_lag / 5.0  # 归一化到[-1, 1]
-        # 4. 相位同步综合评分
-        # 高正相关+资金领先=强相位同步（看涨）
-        # 高负相关+价格领先=弱相位同步（看跌或背离）
-        phase_sync_score = (
-            phase_correlation.fillna(0) * 0.6 +
-            lead_lag_score * 0.4
-        ).clip(-1, 1)
+        # 1. 提取核心记忆序列并进行极轻微平滑以去噪
+        price_trend = price_memory.get("trend_memory", pd.Series(0.0, index=df_index)).ewm(span=3).mean()
+        capital_flow = capital_memory.get("composite_capital_flow", pd.Series(0.0, index=df_index)).ewm(span=3).mean()
+        # 2. 定义扫描参数
+        max_lag = 5  # 最大扫描5日滞后
+        window = 21  # 滚动相关窗口
+        lag_correlations = {}
+        # 3. 计算互相关矩阵：扫描资金领先/滞后价格的各个相位
+        for lag in range(-max_lag, max_lag + 1):
+            # 将资金序列平移，计算其与价格的相关性
+            # lag > 0 代表资金领先价格（资金在t-lag时的特征与价格在t时的特征相关）
+            shifted_capital = capital_flow.shift(lag)
+            lag_correlations[lag] = price_trend.rolling(window=window, min_periods=window//2).corr(shifted_capital)
+        # 4. 汇总滞后特征
+        corr_df = pd.DataFrame(lag_correlations)
+        # 找到每个时间点相关性绝对值最大的滞后量
+        best_lag = corr_df.abs().idxmax(axis=1).fillna(0)
+        max_corr = corr_df.lookup(corr_df.index, best_lag) if hasattr(corr_df, 'lookup') else corr_df.values[np.arange(len(corr_df)), corr_df.columns.get_indexer(best_lag)]
+        # 5. 计算相位同步得分
+        # 逻辑：max_corr 代表同步强度，best_lag 代表相位领先性
+        # 在A股，资金领先价格（best_lag > 0）是强看涨标志
+        sync_strength = pd.Series(max_corr, index=df_index)
+        # 领先溢价因子：如果是资金领先，给予正向增益；如果是价格领先，视为诱多/跟风，给予负向修正
+        lead_premium = (best_lag / max_lag).clip(-1, 1)
+        # 6. 引入一致性过滤器（相位相干性）
+        # 如果滞后量在短期内频繁剧烈跳变，说明信号不可靠
+        lag_stability = 1 - best_lag.diff().abs().rolling(window=5).mean().div(max_lag).fillna(0).clip(0, 1)
+        # 7. 综合判定
+        # 分数 = 同步强度 * (1 + 领先溢价 * 0.5) * 稳定性
+        phase_sync_score = (sync_strength * (1 + lead_premium * 0.5) * lag_stability).clip(-1, 1)
+        self._probe_print(f"相位同步检测完成: 平均滞后相位 {best_lag.mean():.2f}d, 信号稳定性 {lag_stability.mean():.4f}")
         return phase_sync_score
 
     def _assess_memory_quality(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, chip_memory: Dict, sentiment_memory: Dict) -> pd.Series:
@@ -2384,28 +2377,49 @@ class CalculateMainForceRallyIntent:
     def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, 
                                   obstacle_clearance_score: pd.Series, mtf_signals: Dict[str, pd.Series], 
                                   normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series],
-                                  historical_context: Dict[str, pd.Series], rally_intent_synthesis_params: Dict) -> pd.Series:
+                                  historical_context: Dict[str, Any], rally_intent_synthesis_params: Dict) -> pd.Series:
         """
-        【V5.0 · 运动学增强版】集成诱空与共振逻辑
+        【V5.5 · 共振门控版】主力多头意图深度合成
+        修改思路：放弃线性加权，改用几何合成逻辑，并引入相位同步与历史一致性作为核心增益锚点。
+        版本号：2026.02.07.08
         """
-        # 计算新增的博弈特征
+        # 1. 提取额外博弈特征
+        # 识别“动量底背离”诱空信号
         bear_trap_bonus = self._detect_bear_trap(df_index, mtf_signals, normalized_signals)
+        # 捕捉短中长周期加速度一致性
         acceleration_resonance = self._calculate_acceleration_resonance(df_index, mtf_signals)
-        # 基础意图合成 (由攻击性、控制力、障碍清除构成)
-        bullish_intent_base = (
-            (aggressiveness_score * dynamic_weights["aggressiveness"] +
-             control_score * dynamic_weights["control"] +
-             obstacle_clearance_score * dynamic_weights["obstacle_clearance"]) /
-            (dynamic_weights["aggressiveness"] + dynamic_weights["control"] + dynamic_weights["obstacle_clearance"])
-        )
-        # 动态增强：诱空成功后的报复性拉升与多周期共振爆发
-        # 增强系数：加速共振贡献30%，诱空加成20%
-        enhanced_intent = (bullish_intent_base * 0.5 + acceleration_resonance * 0.3 + bear_trap_bonus * 0.2).clip(0, 1)
-        # 应用长期趋势调节
-        long_term_trend_modulator = 1.0
-        if historical_context.get('hc_enabled'):
-            long_term_trend_modulator = (1 + historical_context.get('integrated_memory', 0) * 0.1)
-        return (enhanced_intent * long_term_trend_modulator).clip(0, 1)
+        # 2. 基础意图合成 (几何平均法)
+        # 逻辑：三个维度必须均无明显缺陷，拉升意图才成立
+        components = {
+            "aggressiveness": aggressiveness_score,
+            "control": control_score,
+            "obstacle_clearance": obstacle_clearance_score
+        }
+        weights = {
+            "aggressiveness": dynamic_weights.get("aggressiveness", 0.35),
+            "control": dynamic_weights.get("control", 0.35),
+            "obstacle_clearance": dynamic_weights.get("obstacle_clearance", 0.30)
+        }
+        # 使用工具函数进行稳健几何平均合成
+        bullish_intent_base = _robust_geometric_mean(components, weights, df_index)
+        # 3. 动态共振增强 (Resonance Enhancement)
+        # 引入相位同步评分：当资金与价格相位对齐时，增强意图置信度
+        phase_sync = historical_context.get('phase_sync', pd.Series(0.0, index=df_index))
+        # 综合增强因子：共振(30%) + 诱空(20%) + 相位对齐(10%)
+        enhancement_factor = (acceleration_resonance * 0.3 + bear_trap_bonus * 0.2 + (phase_sync.clip(0, 1)) * 0.1)
+        # 非线性叠加：在基础意图之上应用增益
+        enhanced_intent = (bullish_intent_base * (1 + enhancement_factor)).clip(0, 1)
+        # 4. 历史上下文记忆调节 (Memory Modulation)
+        # 利用集成记忆（Integrated Memory）作为底色调节
+        long_term_modulator = 1.0
+        if historical_context.get('hc_enabled', False):
+            integrated_mem = historical_context.get('integrated_memory', pd.Series(0.5, index=df_index))
+            # 长期记忆越深厚，短期信号的稳定性越高，系数设定在 [0.95, 1.15] 之间
+            long_term_modulator = 0.95 + (integrated_mem * 0.2)
+        # 5. 最终输出
+        final_bullish_intent = (enhanced_intent * long_term_modulator).clip(0, 1)
+        self._probe_print(f"多头意图合成完成: 基础 {bullish_intent_base.mean():.4f}, 增益后 {final_bullish_intent.mean():.4f}")
+        return final_bullish_intent
 
     def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], 
                                  mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series],
@@ -2503,22 +2517,28 @@ class CalculateMainForceRallyIntent:
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, 
                                     proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V2.0】应用情境调节器 - 基于新指标
+        【V2.1 · 键名对齐修复版】应用情境调节器
+        修改说明：修正 KeyError: 'liquidity_proxy'，将键名统一为 'liquidity_tide_proxy'，并增加 get() 安全保护。
+        版本号：2026.02.07.07
         """
-        # 相对强度和资本属性调节
-        modulated_intent = final_rally_intent * proxy_signals['rs_modulator'] * proxy_signals['capital_modulator']
-        # 市场情绪调节
-        market_sentiment_modulator = (1 + proxy_signals['market_sentiment_proxy'] * 0.1)
+        # 1. 相对强度和资本属性调节
+        rs_mod = proxy_signals.get('rs_modulator', pd.Series(1.0, index=df_index))
+        cap_mod = proxy_signals.get('capital_modulator', pd.Series(1.0, index=df_index))
+        modulated_intent = final_rally_intent * rs_mod * cap_mod
+        # 2. 市场情绪调节 (系数 0.1)
+        sentiment_proxy = proxy_signals.get('market_sentiment_proxy', pd.Series(0.5, index=df_index))
+        market_sentiment_modulator = (1 + (sentiment_proxy - 0.5) * 0.2)
         modulated_intent = modulated_intent * market_sentiment_modulator
-        # 流动性调节
-        liquidity_modulator = (1 + proxy_signals['liquidity_proxy'] * 0.05)
+        # 3. 核心修复：流动性调节 (系数 0.05)
+        # 将原本错误的 'liquidity_proxy' 修正为 'liquidity_tide_proxy'
+        liq_proxy = proxy_signals.get('liquidity_tide_proxy', pd.Series(0.5, index=df_index))
+        liquidity_modulator = (1 + (liq_proxy - 0.5) * 0.1)
         modulated_intent = modulated_intent * liquidity_modulator
-        # 筹码稳定性调节
-        chip_stability_modulator = (1 + mtf_signals['mtf_chip_concentration_trend'].clip(lower=0) * 0.05)
+        # 4. 筹码稳定性调节
+        chip_trend = mtf_signals.get('mtf_chip_concentration_trend', pd.Series(0.0, index=df_index))
+        chip_stability_modulator = (1 + chip_trend.clip(lower=0) * 0.05)
         modulated_intent = modulated_intent * chip_stability_modulator
-        # 限制范围
-        modulated_intent = modulated_intent.clip(-1, 1)
-        return modulated_intent
+        return modulated_intent.clip(-1, 1)
 
     def _output_probe_info(self, df_index: pd.Index, final_rally_intent: pd.Series):
         """
