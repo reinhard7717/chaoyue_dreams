@@ -596,28 +596,35 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_adaptive_momentum_memory(self, close_series: pd.Series, df_index: pd.Index, base_period: int) -> pd.Series:
         """
-        【V3.0】自适应动量记忆计算
-        数学模型：自适应周期RSI + 动量加速度
+        【V3.1 · 紧急修复版】自适应动量记忆计算
+        修复说明：解决Pandas EWM不支持动态span导致的ValueError crash问题。
+        改为使用固定周期计算基础RSI，并在结果层应用波动率调节。
         """
-        # 自适应周期：根据波动率调整
+        # 1. 计算波动率因子 (保留原逻辑用于后处理)
         returns = close_series.pct_change().fillna(0)
+        # 使用固定窗口计算波动率
         volatility = returns.rolling(window=20).std().fillna(0.01)
-        # 高波动时缩短周期，低波动时延长周期
-        adaptive_period = base_period * (1 / (1 + volatility * 10)).clip(0.5, 2.0)
-        # 计算自适应RSI
+        # 2. 计算RSI (使用固定base_period，避免Series ambiguous错误)
+        # 确保base_period为有效整数
+        safe_period = max(2, int(base_period))
         gains = returns.where(returns > 0, 0)
         losses = -returns.where(returns < 0, 0)
-        # 使用指数加权
-        avg_gain = gains.ewm(span=adaptive_period, adjust=False).mean()
-        avg_loss = losses.ewm(span=adaptive_period, adjust=False).mean()
+        # 使用固定周期的指数加权移动平均
+        avg_gain = gains.ewm(span=safe_period, adjust=False).mean()
+        avg_loss = losses.ewm(span=safe_period, adjust=False).mean()
         rs = avg_gain / (avg_loss + 1e-9)
         rsi = 100 - (100 / (1 + rs))
         # 归一化到[0, 1]
         rsi_norm = (rsi / 100).clip(0, 1)
-        # 动量加速度（二阶差分）
+        # 3. 动量加速度（二阶差分）
         momentum_accel = rsi_norm.diff().diff().fillna(0)
+        # 4. 应用自适应调节 (替代原有的动态周期)
+        # 逻辑：高波动率时(volatility高)，信号置信度略降；低波动率时置信度高
+        # 构建调节因子：波动率越低，因子越接近1.1；波动率越高，因子越接近0.9
+        adaptive_modulator = 1.0 + (0.02 - volatility).clip(-0.05, 0.05)
         # 综合动量记忆
-        momentum_memory = (rsi_norm * 0.7 + (0.5 + momentum_accel * 0.5) * 0.3).clip(0, 1)
+        momentum_memory = (rsi_norm * 0.7 + (0.5 + momentum_accel * 0.5) * 0.3)
+        momentum_memory = (momentum_memory * adaptive_modulator).clip(0, 1)
         return momentum_memory
 
     def _calculate_volatility_memory(self, returns_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
