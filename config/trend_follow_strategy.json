@@ -248,7 +248,8 @@
             "net_amount_D": [5, 13, 21, 34, 55],
             "net_amount_rate_D": [3, 5, 8, 13, 21, 34, 55],
             "winner_rate_D": [3, 5, 8, 13, 21, 34, 55],
-            "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55]
+            "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
+            "VPA_EFFICIENCY_D": [3, 5, 8, 13, 21]
         }
     }
   },
