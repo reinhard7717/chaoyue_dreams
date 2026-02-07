@@ -43,42 +43,61 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V8.0 · 逻辑精简版】主计算流程：移除缺失的Flag列映射，确保策略启动的兼容性
+        【V9.0 · 工业级逻辑中枢】主力拉升意图主计算流程
+        修改说明：重新梳理逻辑时序，确保记忆、代理、权重与风险模块的零延迟耦合。
+        版本号：2025.02.07.01
         """
         self._probe_output = []
         params = self._get_parameters(config)
-        # 触发自检，此时已不包含缺失的三个Flag列
+        df_index = df.index
+        # 1. 数据完整性与基础信号准备
         if not self._check_data_integrity(df):
-            self._probe_print("警告: 发现基础数据列不完整，将尝试使用安全值填充。")
+            self._probe_print("警告: 发现基础数据列不完整，启动安全值填充策略。")
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
-        df_index = df.index
+        # 2. 信号预处理层 (Normalization & MTF)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
+        # 3. 历史上下文层 (Memory System)
+        # 必须先计算动态周期，再注入历史上下文计算
+        dynamic_memory_period = self._calculate_dynamic_period(df_index, raw_signals)
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, params['historical_context_params'])
+        historical_context['dynamic_memory_period'] = dynamic_memory_period
+        # 4. 智能代理层 (Proxy Layer)
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
+        # 5. 权重决策层 (Weighting Layer)
+        # 依据代理信号识别的市场政权(Regime)分配动态权重
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals)
+        # 6. 核心维度得分层 (Scoring Layer)
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals)
+        # 7. 风险裁决层 (Risk Adjudication)
+        # 核心逻辑：利用 V6.0 版风险共振引擎生成非线性惩罚项
+        total_risk_penalty = self._adjudicate_risk(
+            df_index, raw_signals, mtf_signals, normalized_signals, 
+            dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params']
+        )
+        # 8. 综合意图合成层 (Synthesis Layer)
         bullish_intent = self._synthesize_bullish_intent(
             df_index, aggressiveness_score, control_score, obstacle_clearance_score,
             mtf_signals, normalized_signals, dynamic_weights, historical_context,
             params['rally_intent_synthesis_params']
         )
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'])
+        # 9. 最终修饰与极端行情保护
+        # 先应用风险惩罚，再结合看跌分数
         penalized_bullish_part = bullish_intent * (1 - total_risk_penalty)
         final_rally_intent = (penalized_bullish_part + bearish_score).clip(-1, 1)
+        # 应用情境调节器（RS与资本属性微调）
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals)
-        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (total_risk_penalty > 0.5), final_rally_intent * (1 - total_risk_penalty))
+        # A股封板保护逻辑
+        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (total_risk_penalty > 0.5), final_rally_intent * 0.5)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
-        self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
-        self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
-        self.strategy.atomic_states["_DEBUG_rally_obstacle_clearance"] = obstacle_clearance_score
-        self.strategy.atomic_states["_DEBUG_rally_bullish_intent"] = bullish_intent
-        self.strategy.atomic_states["_DEBUG_rally_bearish_score"] = bearish_score
+        # 10. 调试信息回填
         self.strategy.atomic_states["_DEBUG_rally_total_risk_penalty"] = total_risk_penalty
+        self.strategy.atomic_states["_DEBUG_rally_bullish_intent"] = bullish_intent
+        self.strategy.atomic_states["_DEBUG_dynamic_period"] = dynamic_memory_period
         if self._is_probe_enabled(df):
             self._output_probe_info(df_index, final_rally_intent)
         return final_rally_intent.astype(np.float32)
@@ -2391,24 +2410,46 @@ class CalculateMainForceRallyIntent:
                         dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series,
                         rally_intent_synthesis_params: Dict) -> pd.Series:
         """
-        【V5.0 · 背离惩罚版】引入量价背离作为核心风险减分项
+        【V6.0 · 风险多维共振版】深度裁决主力拉升中的异常风险
+        逻辑：构建“技术-结构-背离-动能”四位一体的风险监控矩阵，识别A股典型的“多杀多”与“诱多”陷阱。
         """
-        # 计算量价背离惩罚
-        vp_divergence_penalty = self._calculate_volume_price_divergence(df_index, mtf_signals)
-        # 基础风险评估 (派发风险 + 技术风险)
-        distribution_risk = normalized_signals.get('distribution_score_norm', pd.Series(0.0, index=df_index))
-        technical_risk = (1 - normalized_signals.get('ADX_norm', pd.Series(0.5, index=df_index)))
-        # 综合风险惩罚因子
-        total_risk_penalty_raw = (
-            distribution_risk * 0.4 +
-            technical_risk * 0.3 +
-            vp_divergence_penalty * 0.3  # 背离占风险权重的30%
+        # 1. 技术性风险：趋势竭尽与超买回归 (ADX低位 + RSI高位)
+        adx_norm = normalized_signals.get('ADX_norm', pd.Series(0.5, index=df_index))
+        rsi_norm = normalized_signals.get('RSI_norm', pd.Series(0.5, index=df_index))
+        tech_risk = ((1 - adx_norm) * 0.4 + (rsi_norm - 0.7).clip(lower=0) * 0.6).clip(0, 1)
+        # 2. 结构性风险：高位派发与筹码分歧
+        dist_risk = normalized_signals.get('distribution_score_norm', pd.Series(0.0, index=df_index))
+        chip_div = normalized_signals.get('chip_divergence_ratio_norm', pd.Series(0.0, index=df_index))
+        struct_risk = (dist_risk * 0.7 + chip_div * 0.3).clip(0, 1)
+        # 3. 背离性风险：量价背离 + 资金流向背离
+        vp_div = self._calculate_volume_price_divergence(df_index, mtf_signals)
+        # 计算资金-价格背离：价格斜率 > 0 且 资金流入斜率 < 0 (诱多特征)
+        p_slope = mtf_signals.get('SLOPE_5_price_trend', pd.Series(0.0, index=df_index))
+        c_slope = mtf_signals.get('SLOPE_5_net_amount_trend', pd.Series(0.0, index=df_index))
+        cap_div_raw = ((p_slope > 0) & (c_slope < 0)).astype(float) * p_slope.abs()
+        cap_div_norm = (cap_div_raw / (cap_div_raw.rolling(60).max() + 1e-9)).fillna(0).clip(0, 1)
+        div_risk = (vp_div * 0.5 + cap_div_norm * 0.5).clip(0, 1)
+        # 4. A股动能风险：识别“多杀多”滞涨陷阱
+        # 逻辑：当量能极大(volume_ratio)但价格推进效率(absolute_change)极低时，风险陡增
+        vol_ratio = normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index))
+        abs_strength = normalized_signals.get('absolute_change_strength_norm', pd.Series(0.5, index=df_index))
+        exhaustion_risk = (vol_ratio * (1 - abs_strength)).rolling(window=3).mean().fillna(0).clip(0, 1)
+        # 5. 风险综合评分 (基于MRF模型权重)
+        risk_weights = {"tech": 0.15, "struct": 0.25, "div": 0.35, "exh": 0.25}
+        total_risk_raw = (
+            tech_risk * risk_weights["tech"] +
+            struct_risk * risk_weights["struct"] +
+            div_risk * risk_weights["div"] +
+            exhaustion_risk * risk_weights["exh"]
         ).clip(0, 1)
-        # 应用Sigmoid函数进行非线性惩罚
-        risk_sensitivity = get_param_value(rally_intent_synthesis_params.get('risk_sensitivity'), 2.5)
-        sigmoid_center = get_param_value(rally_intent_synthesis_params.get('sigmoid_center'), 0.6)
-        total_risk_penalty = 1 / (1 + np.exp(risk_sensitivity * (total_risk_penalty_raw - sigmoid_center)))
-        return (1 - total_risk_penalty).clip(0, 1)
+        # 6. 非线性惩罚映射 (Sigmoid Penalty Engine)
+        # 当综合风险触及阈值时，惩罚分值加速攀升
+        sensitivity = get_param_value(rally_intent_synthesis_params.get('risk_sensitivity'), 5.0)
+        threshold = get_param_value(rally_intent_synthesis_params.get('risk_threshold'), 0.6)
+        # 惩罚函数：1 / (1 + exp(-k*(risk - threshold)))
+        risk_penalty = 1 / (1 + np.exp(-sensitivity * (total_risk_raw - threshold)))
+        self._probe_print(f"风险裁决完成: 综合风险层 {total_risk_raw.mean():.4f}, 动态惩罚力度 {risk_penalty.mean():.4f}")
+        return risk_penalty.clip(0, 1)
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, 
                                     proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> pd.Series:
