@@ -91,20 +91,21 @@ class CalculatePowerTransferRawScore:
         return res.astype(np.float32)
 
     def _calculate_auction_prediction(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V34.0 · T+1 开盘竞价预判：基于尾盘动量外推模型"""
-        is_debug, probe_ts, _ = self.is_debug, self.probe_ts, method_name
-        # 核心逻辑：尾盘强度 * (1 + 爆发冲量)
-        # 捕捉 $T$ 日最后 30 分钟的资金抢筹是否具有持续性
+        """V53.0 · T+1 竞价预判：引入非线性压缩解决量纲爆炸问题"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 计算原始冲击强度
         impulse_term = (raw['JERK_3_net_amount_rate_D'] * 0.6 + raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'] * 0.4)
-        auction_strength = raw['closing_flow_intensity_D'] * (1.0 + _numba_power_activation(impulse_term.values, gain=1.2))
-        # 引入溢价预期因子
-        auction_prediction = auction_strength * (raw['T1_PREMIUM_EXPECTATION_D'] + 0.5)
+        activated_imp = _numba_power_activation(impulse_term.values, gain=1.2)
+        # 2. 计算竞价原始分值
+        auction_strength = raw['closing_flow_intensity_D'] * (1.0 + activated_imp)
+        auction_prediction_raw = auction_strength * (raw['T1_PREMIUM_EXPECTATION_D'] + 0.5)
+        # 3. 核心改进：使用 tanh(x/100) 将数百的分值映射至 [-2, 2] 的标准分空间
+        auc_prediction = np.tanh(auction_prediction_raw / 100.0) * 2.0
+        res = pd.Series(auc_prediction, index=df_index)
         if is_debug and probe_ts in df_index:
-            print(f"\n[T+1 竞价预判探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    尾盘强度: {raw['closing_flow_intensity_D'].loc[probe_ts]:.4f}, 溢价预期: {raw['T1_PREMIUM_EXPECTATION_D'].loc[probe_ts]:.4f}")
-            print(f"    冲击项(Impulse): {impulse_term.loc[probe_ts]:.4f}, 最终竞价分: {auction_prediction.loc[probe_ts]:.4f}")
-        return auction_prediction.astype(np.float32)
-
+            print(f"\n[竞价量纲修正探针 V53 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    原始分值: {auction_prediction_raw.loc[probe_ts]:.4f}, 压缩后分值: {res.loc[probe_ts]:.4f}")
+        return res.astype(np.float32)
 
 
 

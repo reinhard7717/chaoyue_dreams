@@ -258,7 +258,6 @@ def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.
     n = len(data)
     est = np.zeros(n)
     p = np.zeros(n)
-    # 寻找第一个非空值作为初始状态
     first_valid = 0
     for i in range(n):
         if not np.isnan(data[i]) and not np.isnan(vol_adj[i]) and not np.isnan(confidence[i]):
@@ -267,7 +266,6 @@ def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.
             break
     p[first_valid] = 1.0
     for i in range(first_valid + 1, n):
-        # 实时检测 NaN，若检测到则状态平移
         if np.isnan(data[i]) or np.isnan(vol_adj[i]) or np.isnan(confidence[i]):
             est[i] = est[i-1]
             p[i] = p[i-1]
@@ -432,76 +430,61 @@ class CalculatePriceVolumeDynamics:
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V52.0 · 全局调度总线：集成五层安全阀（新增板块溢出分形衰减）"""
+        """V53.0 · 主力夺权全局总线：集成五层安全阀调节矩阵与入场可获得性修正"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         if not self._validate_all_required_signals(df, {}, {}, method_name, is_debug, probe_ts):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         raw = self._get_raw_signals(df, method_name)
-        # --- 第一阶段：计算物理与几何核心强度 ---
+        # 1. 计算物理引擎分与几何势能分（基础强度层）
         physical_base = self._calculate_power_transfer_raw_score(df_index, raw, method_name)
         geo_conf = (1.0 - raw['GEOM_REG_R2_D']).clip(0, 1)
         act_curv = pd.Series(_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0), index=df_index)
         geo_resonance = act_curv * geo_conf * (raw['IS_ROUNDING_BOTTOM_D'].astype(float) * 1.2 + 0.5)
-        # --- 第二阶段：合成基础强度 ---
+        # 2. 合成未修正的综合强度
         unadjusted_intensity = (physical_base * 0.70 + geo_resonance * 0.30)
-        # --- 第三阶段：五层安全阀调节矩阵 ---
-        risk_v = self._calculate_premium_reversal_risk(raw, df_index, method_name)     # 情绪回吐阀 
-        decay_v = self._calculate_intraday_decay_model(raw, df_index, method_name)    # 结构烂板阀 
-        sector_v = self._calculate_sector_resonance_modifier(raw, df_index, method_name) # 板块共振阀 
-        vol_v = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name) # 波动聚集阀 
-        sector_overflow_v = self._calculate_sector_overflow_decay(raw, df_index, method_name) # 板块溢出分形阀 (V52新增) 
-        # --- 第四阶段：实战入场修正 ---
-        access_f = self._calculate_entry_accessibility_score(raw, df_index, method_name) # 入场过滤器 
-        # --- 第五阶段：链式合成最终分值 ---
+        # 3. 五层安全阀调节矩阵（风险控制层）
+        risk_v = self._calculate_premium_reversal_risk(raw, df_index, method_name)
+        decay_v = self._calculate_intraday_decay_model(raw, df_index, method_name)
+        sector_v = self._calculate_sector_resonance_modifier(raw, df_index, method_name)
+        vol_v = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name)
+        sector_overflow_v = self._calculate_sector_overflow_decay(raw, df_index, method_name)
+        # 4. 实战修正与链式乘法合成
+        access_f = self._calculate_entry_accessibility_score(raw, df_index, method_name)
         final_score = unadjusted_intensity * risk_v * decay_v * sector_v * vol_v * sector_overflow_v * access_f
         if is_debug and probe_ts in df_index:
-            print(f"\n[PROCESS_META_POWER_TRANSFER 全链集成探针 V52 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    [核心] 物理: {physical_base.loc[probe_ts]:.4f}, 几何: {geo_resonance.loc[probe_ts]:.4f}")
-            print(f"    [阀门] 板块溢出分形调节: {sector_overflow_v.loc[probe_ts]:.4f}")
-            print(f"    >>> 最终 PROCESS_META_POWER_TRANSFER 分值: {final_score.loc[probe_ts]:.4f}")
+            print(f"\n[PROCESS_META_POWER_TRANSFER 全链集成探针 V53 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    [核心] 物理基准: {physical_base.loc[probe_ts]:.4f}, 几何共振: {geo_resonance.loc[probe_ts]:.4f}")
+            print(f"    [阀门] 情绪: {risk_v.loc[probe_ts]:.2f}, 衰减: {decay_v.loc[probe_ts]:.2f}, 板块溢出: {sector_overflow_v.loc[probe_ts]:.2f}")
+            print(f"    >>> 最终输出分值: {final_score.loc[probe_ts]:.4f}")
         return final_score.clip(-3.5, 6.0).astype(np.float32)
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V51.0 · 物理引擎：建立从原始(Raw)到最终(Final)的全链路诊断探针"""
+        """V53.0 · 物理动力引擎：集成共识速度与量纲压缩后的竞价预判"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        score_calculter = CalculatePowerTransferRawScore(is_debug, probe_ts)
-        # 1. 准备去噪参数 (执行前置清洗，修复 NaN 根源)
+        # 1. 动力学去噪与冲量激活
         vol_adj = raw['BBW_21_2.0_D'].fillna(0.1).values
-        # 修复点：添加 .fillna(1.0) 确保前20行均值缺失时不产生 NaN
-        rolling_tc_mean = raw['trade_count_D'].rolling(21).mean().replace(0, 1)
-        conf_series = (raw['trade_count_D'] / rolling_tc_mean).fillna(1.0)
-        conf = conf_series.values
-        # 2. 核心去噪计算
-        jerk_raw = raw['JERK_3_net_amount_rate_D'].fillna(0).values
-        accel_raw = raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].fillna(0).values
-        jerk_c_vals = _numba_adaptive_denoise_dynamics(jerk_raw, vol_adj, conf)
-        accel_c_vals = _numba_adaptive_denoise_dynamics(accel_raw, vol_adj, conf)
-        jerk_c = pd.Series(jerk_c_vals, index=df_index)
-        accel_c = pd.Series(accel_c_vals, index=df_index)
-        # 3. 冲击激活 (ReLU 变体)
-        instant_impulse_raw = (jerk_c * 0.45 + accel_c * 0.55)
-        act_impulse = pd.Series(_numba_power_activation(instant_impulse_raw.values, gain=1.8), index=df_index)
-        # 4. 标准化与补偿
-        norm_impulse = score_calculter._calculate_dynamic_impulse_norm(act_impulse, raw, df_index, method_name)
-        comp_impulse = score_calculter._calculate_limit_price_compensation(norm_impulse, raw, df_index, method_name)
-        # 5. 跨日预测矩阵 (物理部分)
-        auc_pred = score_calculter._calculate_auction_prediction(raw, df_index, method_name)
-        # 6. MCV 共识速度
+        rolling_tc = raw['trade_count_D'].rolling(21).mean().replace(0, 1)
+        conf = (raw['trade_count_D'] / rolling_tc).fillna(1.0).values
+        j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_amount_rate_D'].fillna(0).values, vol_adj, conf)
+        a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].fillna(0).values, vol_adj, conf)
+        act_impulse = pd.Series(_numba_power_activation((j_c * 0.45 + a_c * 0.55), gain=1.8), index=df_index)
+        # 2. 标准化与补偿（物理修正）
+        norm_impulse = self._calculate_dynamic_impulse_norm(act_impulse, raw, df_index, method_name)
+        comp_impulse = self._calculate_limit_price_compensation(norm_impulse, raw, df_index, method_name)
+        # 3. T+1 竞价预判（已在内部执行量纲压缩）
+        auc_pred = self._calculate_auction_prediction(raw, df_index, method_name)
+        # 4. MCV 多尺度共识速度
         fib_wins = np.array([3, 5, 8, 13, 21], dtype=np.int64)
-        _, fib_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values, fib_wins)
-        mcv_consensus = pd.Series(np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10]), fib_slopes), index=df_index)
-        # 物理总分合成
+        _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values, fib_wins)
+        mcv_consensus = pd.Series(np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10]), f_slopes), index=df_index)
+        # 5. 物理引擎合成（权重微调：提升持续性占比）
         physical_engine_score = (comp_impulse * 8.0 * 0.30 + auc_pred * 0.30 + mcv_consensus * 0.40)
-        # --- 全链路诊断探针 ---
         if is_debug and probe_ts in df_index:
-            print(f"\n[物理引擎全链路审计 V51 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"  [节点1: 原料层] JERK_Raw: {jerk_raw[df_index.get_loc(probe_ts)]:.4f}, ACCEL_Raw: {accel_raw[df_index.get_loc(probe_ts)]:.4f}")
-            print(f"  [节点2: 去噪层] Confidence: {conf_series.loc[probe_ts]:.4f}, JERK_Clean: {jerk_c.loc[probe_ts]:.4f}, ACCEL_Clean: {accel_c.loc[probe_ts]:.4f}")
-            print(f"  [节点3: 激活层] 原始冲量: {instant_impulse_raw.loc[probe_ts]:.4f}, ReLU激活后: {act_impulse.loc[probe_ts]:.4f}")
-            print(f"  [节点4: 修正层] 标准化冲量: {norm_impulse.loc[probe_ts]:.4f}, 补偿后冲量: {comp_impulse.loc[probe_ts]:.4f}")
-            print(f"  [节点5: 汇总层] 物理分: {physical_engine_score.loc[probe_ts]:.4f}")
+            print(f"\n[物理引擎量纲审计 V53 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    补偿后冲量: {comp_impulse.loc[probe_ts]:.6f}, 竞价压缩分: {auc_pred.loc[probe_ts]:.4f}")
+            print(f"    MCV共识速度: {mcv_consensus.loc[probe_ts]:.4f}, 物理合成总分: {physical_engine_score.loc[probe_ts]:.4f}")
         return physical_engine_score.astype(np.float32)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -522,43 +505,30 @@ class CalculatePriceVolumeDynamics:
         return risk_adjustment.astype(np.float32)
 
     def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V48.0 · 修复引用语法错误并增强烂板修复逻辑的鲁棒性"""
+        """V53.0 · 日内衰减模型：修复语法错误并优化烂板修复逻辑"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         stability = raw['TURNOVER_STABILITY_INDEX_D'].fillna(0.5).clip(0, 1)
         is_limit_up = (raw['close_D'] >= raw['up_limit_D'] * 0.999)
-        # 1. 基础衰减逻辑：封板占比高且稳定性差
+        # 1. 基础衰减逻辑
         bad_board_mask = is_limit_up & (raw['closing_flow_ratio_D'] > 0.4) & (stability < 0.4)
-        # 2. 核心修复逻辑：低位暴力换手识别 (分歧转一致潜力)
-        # 确保 winner_rate_D 参与计算前已对齐
+        # 2. 修复逻辑
         winner_rate = raw['winner_rate_D'].fillna(0.5)
         repair_potential = np.where((winner_rate < 0.15) & (stability < 0.3), 1.5, 1.0)
-        # 3. 结构性惩罚与抗衰减计算
+        # 3. 结果合成
         decay_resistance = (0.6 + stability * 0.4) * np.where(bad_board_mask, 0.6, 1.0) * repair_potential
         res = pd.Series(decay_resistance, index=df_index).clip(0.3, 1.5)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[烂板修复侦测探针V48 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    获利比例: {winner_rate.loc[probe_ts]:.4f}, 换手稳定性: {stability.loc[probe_ts]:.4f}")
-            print(f"    检测修复系数: {repair_potential[df_index.get_loc(probe_ts)]:.2f}")
-            print(f"    >>> 最终抗衰减系数: {res.loc[probe_ts]:.4f}")
         return res.astype(np.float32)
 
     def _calculate_sector_resonance_modifier(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V48.0 · 修复引用语法错误并校准板块持久力因子权重"""
+        """V53.0 · 板块共振算子：移除干扰语法并校准持续性判定"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 板块动力学：热度斜率与加速度
+        # 1. 动力学冲量
         sector_impulse = (raw['SLOPE_5_THEME_HOTNESS_SCORE_D'] * 0.6 + raw['ACCEL_5_THEME_HOTNESS_SCORE_D'] * 0.4).fillna(0)
-        # 2. 持续性校验：行业排名加速度与板块流一致性
-        # 移除语法残留，校准判定阈值至0.65
+        # 2. 持续性校验
         persistence_factor = np.where((raw['industry_rank_accel_D'] > 0) & (raw['flow_consistency_D'] > 0.65), 1.2, 0.8)
-        # 3. 综合调节算子合成
+        # 3. 调节器合成
         resonance_mod = (1.0 + _numba_power_activation(sector_impulse.values, gain=0.5)) * persistence_factor
-        res = pd.Series(resonance_mod, index=df_index)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[板块持久力探针V48 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    热度冲量: {sector_impulse.loc[probe_ts]:.4f}, 行业排名加速度: {raw['industry_rank_accel_D'].loc[probe_ts]:.4f}")
-            print(f"    持续性因子: {persistence_factor[df_index.get_loc(probe_ts)]:.2f}")
-            print(f"    >>> 板块共振调节分: {res.loc[probe_ts]:.4f}")
-        return res.clip(0.6, 1.8).astype(np.float32)
+        return pd.Series(resonance_mod, index=df_index).clip(0.6, 1.8).astype(np.float32)
 
     def _calculate_volatility_clustering_adjustment(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V49.0 · 波动率聚集调节：识别“二次加速”与“波动率陷阱”"""
@@ -587,30 +557,19 @@ class CalculatePriceVolumeDynamics:
         return vol_adj.astype(np.float32)
 
     def _calculate_sector_overflow_decay(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V52.0 · 板块溢出衰减模型：基于题材热度分形维数 (Fractal Dimension) 的稳定性分析"""
+        """V53.0 · 板块分形衰减：利用分形维数判定热度博弈稳定性"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 准备分形计算原料 (题材热度)
+        # 1. 分形维数计算
         theme_hotness = raw['THEME_HOTNESS_SCORE_D'].fillna(0).values
-        # 调用 Numba 算子计算 13 日分形维数
-        # 将一维序列包装为算子要求的二维结构
         flow_arrays = np.expand_dims(theme_hotness, axis=0) 
         fractal_dim_vals = _numba_fractal_dimension(flow_arrays, window=13)
         fractal_dim = pd.Series(fractal_dim_vals, index=df_index)
-        # 2. 计算衰减调节系数
-        # 逻辑：分形维数越高 (熵增)，代表热度越不稳定，衰减压力越大
-        # 1.5 是随机游走的平衡点
+        # 2. 衰减系数映射
         decay_factor = (1.5 / (fractal_dim + 1e-9)).clip(0.6, 1.2)
-        # 3. 结合热度高位惩罚
-        # 如果热度评分 > 80 且分形维数 > 1.6，触发强力衰减
+        # 3. 高位耗竭惩罚
         is_exhaustion = (raw['THEME_HOTNESS_SCORE_D'] > 80) & (fractal_dim > 1.6)
         final_decay = np.where(is_exhaustion, decay_factor * 0.8, decay_factor)
-        res = pd.Series(final_decay, index=df_index)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[板块溢出衰减探针 V52 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    题材热度: {raw['THEME_HOTNESS_SCORE_D'].loc[probe_ts]:.2f}, 13日分形维数: {fractal_dim.loc[probe_ts]:.4f}")
-            print(f"    博弈状态: {'混沌末端' if fractal_dim.loc[probe_ts] > 1.6 else '趋势稳定'}")
-            print(f"    >>> 板块溢出衰减系数: {res.loc[probe_ts]:.4f}")
-        return res.astype(np.float32)
+        return pd.Series(final_decay, index=df_index).astype(np.float32)
 
     def _calculate_fractal_market_analysis(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
         """V24.0 · 分形市场分析（Numba加速）"""
