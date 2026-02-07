@@ -257,6 +257,93 @@ class CalculateMainForceRallyIntent:
         self._probe_print("=== 历史上下文计算完成 ===")
         return context
 
+    def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, 
+                                     capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
+        """
+        【V3.0】相位同步检测算法
+        核心理念：检测价格趋势与资金流向的相位关系，领先滞后分析
+        数学模型：Hilbert变换相位差 + 交叉相关分析
+        """
+        # 简化版：使用一阶差分的相关性分析
+        price_trend = price_memory.get("trend_memory", pd.Series(0.0, index=df_index))
+        capital_flow = capital_memory.get("composite_capital_flow", pd.Series(0.0, index=df_index))
+        # 1. 一阶差分（近似导数）
+        price_diff = price_trend.diff().fillna(0)
+        capital_diff = capital_flow.diff().fillna(0)
+        # 2. 滚动窗口相关性（21日窗口）
+        window = 21
+        phase_correlation = price_diff.rolling(window=window).corr(capital_diff)
+        # 3. 领先滞后分析（交叉相关）
+        lead_lag_score = pd.Series(0.0, index=df_index)
+        for i in range(window, len(df_index)):
+            if i < window:
+                continue
+            # 计算不同滞后期的相关性
+            max_corr = 0
+            best_lag = 0
+            for lag in range(-5, 6):  # ±5日滞后
+                if i + lag < window or i + lag >= len(df_index):
+                    continue
+                # 对齐序列
+                price_segment = price_trend.iloc[i-window:i]
+                capital_segment = capital_flow.iloc[i-window+lag:i+lag] if lag >= 0 else capital_flow.iloc[i-window:i].shift(-lag)
+                # 计算相关性
+                corr = price_segment.corr(capital_segment)
+                if abs(corr) > abs(max_corr):
+                    max_corr = corr
+                    best_lag = lag
+            # 资金领先为正，价格领先为负
+            lead_lag_score.iloc[i] = best_lag / 5.0  # 归一化到[-1, 1]
+        # 4. 相位同步综合评分
+        # 高正相关+资金领先=强相位同步（看涨）
+        # 高负相关+价格领先=弱相位同步（看跌或背离）
+        phase_sync_score = (
+            phase_correlation.fillna(0) * 0.6 +
+            lead_lag_score * 0.4
+        ).clip(-1, 1)
+        return phase_sync_score
+
+    def _assess_memory_quality(self, df_index: pd.Index, price_memory: Dict, 
+                              capital_memory: Dict, chip_memory: Dict, 
+                              sentiment_memory: Dict) -> pd.Series:
+        """
+        【V3.0】记忆质量评估算法
+        核心理念：评估各维度记忆信号的清晰度和可靠性
+        数学模型：信噪比估计 + 稳定性检测 + 一致性评估
+        """
+        # 1. 信噪比估计（信号强度/噪声强度）
+        price_snr = self._estimate_snr(
+            price_memory.get("trend_memory", pd.Series(0.0, index=df_index))
+        )
+        capital_snr = self._estimate_snr(
+            capital_memory.get("composite_capital_flow", pd.Series(0.0, index=df_index))
+        )
+        chip_snr = self._estimate_snr(
+            chip_memory.get("integrated_chip_memory", pd.Series(0.5, index=df_index))
+        )
+        sentiment_snr = self._estimate_snr(
+            sentiment_memory.get("integrated_sentiment_memory", pd.Series(0.5, index=df_index))
+        )
+        # 2. 稳定性评分（低波动=高稳定性）
+        price_stability = 1 - price_memory.get("volatility_memory", pd.Series(0.5, index=df_index))
+        capital_stability = 1 - capital_memory.get("anomaly_score", pd.Series(0.5, index=df_index))
+        chip_stability = chip_memory.get("stability_memory", pd.Series(0.5, index=df_index))
+        sentiment_stability = 1 - sentiment_memory.get("sentiment_divergence", pd.Series(0.5, index=df_index))
+        # 3. 一致性评估（各维度间相关性）
+        consistency_score = self._calculate_memory_consistency(
+            price_memory.get("integrated_price_memory", pd.Series(0.5, index=df_index)),
+            capital_memory.get("integrated_capital_memory", pd.Series(0.5, index=df_index)).clip(0, 1),
+            chip_memory.get("integrated_chip_memory", pd.Series(0.5, index=df_index)),
+            sentiment_memory.get("integrated_sentiment_memory", pd.Series(0.5, index=df_index))
+        )
+        # 4. 综合记忆质量评分
+        memory_quality_score = (
+            (price_snr + capital_snr + chip_snr + sentiment_snr) / 4 * 0.4 +
+            (price_stability + capital_stability + chip_stability + sentiment_stability) / 4 * 0.4 +
+            consistency_score * 0.2
+        ).clip(0, 1)
+        return memory_quality_score
+
     def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
         【V3.0】价格记忆深度计算
@@ -507,92 +594,42 @@ class CalculateMainForceRallyIntent:
         integrated_memory_enhanced = integrated_memory * (1 + consistency_factor * 0.3)
         return integrated_memory_enhanced.clip(0, 1)
 
-    def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, 
-                                     capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
+    def _calculate_support_resistance_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
         """
-        【V3.0】相位同步检测算法
-        核心理念：检测价格趋势与资金流向的相位关系，领先滞后分析
-        数学模型：Hilbert变换相位差 + 交叉相关分析
+        【V3.2 · 筹码结构记忆版】计算支撑阻力记忆分数
+        核心理念：结合'市场平均持仓成本(Rolling VWAP)'与'箱体结构位置'，量化价格的支撑/阻力状态。
+        A股特性：价格位于筹码密集区上方为强支撑(Score>0.5)，下方为强套牢阻力(Score<0.5)。
         """
-        # 简化版：使用一阶差分的相关性分析
-        price_trend = price_memory.get("trend_memory", pd.Series(0.0, index=df_index))
-        capital_flow = capital_memory.get("composite_capital_flow", pd.Series(0.0, index=df_index))
-        # 1. 一阶差分（近似导数）
-        price_diff = price_trend.diff().fillna(0)
-        capital_diff = capital_flow.diff().fillna(0)
-        # 2. 滚动窗口相关性（21日窗口）
-        window = 21
-        phase_correlation = price_diff.rolling(window=window).corr(capital_diff)
-        # 3. 领先滞后分析（交叉相关）
-        lead_lag_score = pd.Series(0.0, index=df_index)
-        for i in range(window, len(df_index)):
-            if i < window:
-                continue
-            # 计算不同滞后期的相关性
-            max_corr = 0
-            best_lag = 0
-            for lag in range(-5, 6):  # ±5日滞后
-                if i + lag < window or i + lag >= len(df_index):
-                    continue
-                # 对齐序列
-                price_segment = price_trend.iloc[i-window:i]
-                capital_segment = capital_flow.iloc[i-window+lag:i+lag] if lag >= 0 else capital_flow.iloc[i-window:i].shift(-lag)
-                # 计算相关性
-                corr = price_segment.corr(capital_segment)
-                if abs(corr) > abs(max_corr):
-                    max_corr = corr
-                    best_lag = lag
-            # 资金领先为正，价格领先为负
-            lead_lag_score.iloc[i] = best_lag / 5.0  # 归一化到[-1, 1]
-        # 4. 相位同步综合评分
-        # 高正相关+资金领先=强相位同步（看涨）
-        # 高负相关+价格领先=弱相位同步（看跌或背离）
-        phase_sync_score = (
-            phase_correlation.fillna(0) * 0.6 +
-            lead_lag_score * 0.4
-        ).clip(-1, 1)
-        return phase_sync_score
-
-    def _assess_memory_quality(self, df_index: pd.Index, price_memory: Dict, 
-                              capital_memory: Dict, chip_memory: Dict, 
-                              sentiment_memory: Dict) -> pd.Series:
-        """
-        【V3.0】记忆质量评估算法
-        核心理念：评估各维度记忆信号的清晰度和可靠性
-        数学模型：信噪比估计 + 稳定性检测 + 一致性评估
-        """
-        # 1. 信噪比估计（信号强度/噪声强度）
-        price_snr = self._estimate_snr(
-            price_memory.get("trend_memory", pd.Series(0.0, index=df_index))
-        )
-        capital_snr = self._estimate_snr(
-            capital_memory.get("composite_capital_flow", pd.Series(0.0, index=df_index))
-        )
-        chip_snr = self._estimate_snr(
-            chip_memory.get("integrated_chip_memory", pd.Series(0.5, index=df_index))
-        )
-        sentiment_snr = self._estimate_snr(
-            sentiment_memory.get("integrated_sentiment_memory", pd.Series(0.5, index=df_index))
-        )
-        # 2. 稳定性评分（低波动=高稳定性）
-        price_stability = 1 - price_memory.get("volatility_memory", pd.Series(0.5, index=df_index))
-        capital_stability = 1 - capital_memory.get("anomaly_score", pd.Series(0.5, index=df_index))
-        chip_stability = chip_memory.get("stability_memory", pd.Series(0.5, index=df_index))
-        sentiment_stability = 1 - sentiment_memory.get("sentiment_divergence", pd.Series(0.5, index=df_index))
-        # 3. 一致性评估（各维度间相关性）
-        consistency_score = self._calculate_memory_consistency(
-            price_memory.get("integrated_price_memory", pd.Series(0.5, index=df_index)),
-            capital_memory.get("integrated_capital_memory", pd.Series(0.5, index=df_index)).clip(0, 1),
-            chip_memory.get("integrated_chip_memory", pd.Series(0.5, index=df_index)),
-            sentiment_memory.get("integrated_sentiment_memory", pd.Series(0.5, index=df_index))
-        )
-        # 4. 综合记忆质量评分
-        memory_quality_score = (
-            (price_snr + capital_snr + chip_snr + sentiment_snr) / 4 * 0.4 +
-            (price_stability + capital_stability + chip_stability + sentiment_stability) / 4 * 0.4 +
-            consistency_score * 0.2
-        ).clip(0, 1)
-        return memory_quality_score
+        # 1. 获取基础数据
+        close = raw_signals.get('close', pd.Series(0.0, index=df_index))
+        high = raw_signals.get('high', pd.Series(0.0, index=df_index))
+        low = raw_signals.get('low', pd.Series(0.0, index=df_index))
+        volume = raw_signals.get('volume', pd.Series(0.0, index=df_index))
+        # 2. 计算周期内的滚动成本均价 (Rolling VWAP)
+        # 公式: sum(price * vol) / sum(vol) over memory_period
+        pv = close * volume
+        rolling_pv = pv.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
+        rolling_vol = volume.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
+        # 避免除零，使用ffill填充空值
+        rolling_vwap = (rolling_pv / rolling_vol.replace(0, np.nan)).ffill()
+        # 3. 计算成本偏离度得分 (Cost Deviation Score)
+        # 逻辑：价格 > VWAP -> 获利盘主导 -> 支撑强 -> 分数高
+        # 使用tanh将偏离率映射到 [0, 1] 区间
+        deviation = (close - rolling_vwap) / (rolling_vwap + 1e-9)
+        # 系数10用于放大微小的偏离，使信号更敏感
+        cost_score = np.tanh(deviation * 10) * 0.5 + 0.5
+        # 4. 计算结构位置得分 (Structural Position Score)
+        # 逻辑：接近周期高点为强势(接近阻力突破)，接近低点为弱势
+        rolling_high = high.rolling(window=memory_period, min_periods=int(memory_period/2)).max()
+        rolling_low = low.rolling(window=memory_period, min_periods=int(memory_period/2)).min()
+        range_span = rolling_high - rolling_low
+        # 避免除零
+        position_score = (close - rolling_low) / range_span.replace(0, 1.0)
+        # 5. 综合支撑阻力记忆
+        # 权重分配：成本记忆(筹码)占60%，结构记忆(形态)占40%
+        # 结果说明：接近1表示上方无阻力且获利盘多(强支撑记忆)，接近0表示深套且处于低位(强阻力记忆)
+        support_resistance_memory = (cost_score * 0.6 + position_score.clip(0, 1) * 0.4)
+        return support_resistance_memory.ffill().fillna(0.5)
 
     def _calculate_adaptive_momentum_memory(self, close_series: pd.Series, df_index: pd.Index, base_period: int) -> pd.Series:
         """
@@ -647,6 +684,66 @@ class CalculateMainForceRallyIntent:
         annualized_vol = np.sqrt(vol_memory * 252)
         vol_norm = ((annualized_vol - 0.1) / 0.4).clip(0, 1)
         return vol_norm
+
+    def _calculate_chip_entropy_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
+        """
+        【V3.0】筹码熵变记忆计算
+        核心理念：使用信息熵衡量筹码分布的混乱程度
+        数学模型：信息熵计算 + 熵变趋势
+        """
+        entropy_scores = pd.Series(0.5, index=df_index)
+        # 获取筹码相关信号
+        chip_signals = [
+            ('chip_concentration_ratio', 0.4),
+            ('chip_convergence_ratio', 0.3),
+            ('chip_divergence_ratio', 0.3)
+        ]
+        for i in range(memory_period, len(df_index)):
+            if i < memory_period:
+                entropy_scores.iloc[i] = 0.5
+                continue
+            entropy_components = []
+            for signal_name, weight in chip_signals:
+                if signal_name not in raw_signals:
+                    continue
+                signal_series = raw_signals[signal_name]
+                # 获取窗口数据
+                window_data = signal_series.iloc[i-memory_period:i]
+                if len(window_data) < 5:
+                    continue
+                # 离散化：将数据分成5个区间
+                try:
+                    # 使用分位数进行离散化
+                    bins = np.quantile(window_data, [0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+                    # 确保边界值唯一
+                    bins = np.unique(bins)
+                    if len(bins) < 2:
+                        continue
+                    # 计算当前值所在区间的概率分布
+                    hist, _ = np.histogram(window_data, bins=bins)
+                    # 转换为概率
+                    prob = hist / len(window_data)
+                    prob = prob[prob > 0]  # 只保留正概率
+                    # 计算信息熵：H = -sum(p * log2(p))
+                    if len(prob) > 0:
+                        entropy = -np.sum(prob * np.log2(prob))
+                        # 归一化：最大熵为log2(n)
+                        max_entropy = np.log2(len(prob))
+                        if max_entropy > 0:
+                            normalized_entropy = entropy / max_entropy
+                            entropy_components.append(normalized_entropy * weight)
+                except:
+                    continue
+            if entropy_components:
+                # 加权平均熵
+                total_weight = sum(weight for _, weight in chip_signals if _ in raw_signals)
+                if total_weight > 0:
+                    entropy_score = sum(entropy_components) / total_weight
+                    entropy_scores.iloc[i] = entropy_score
+                else:
+                    entropy_scores.iloc[i] = 0.5
+        entropy_scores = entropy_scores.ffill().fillna(0.5)
+        return entropy_scores
 
     def _calculate_capital_persistence(self, capital_flow: pd.Series, df_index: pd.Index, period: int) -> pd.Series:
         """
@@ -900,66 +997,6 @@ class CalculateMainForceRallyIntent:
         # 前向填充
         efficiency_scores = efficiency_scores.ffill().fillna(0.5)
         return efficiency_scores
-
-    def _calculate_chip_entropy_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.0】筹码熵变记忆计算
-        核心理念：使用信息熵衡量筹码分布的混乱程度
-        数学模型：信息熵计算 + 熵变趋势
-        """
-        entropy_scores = pd.Series(0.5, index=df_index)
-        # 获取筹码相关信号
-        chip_signals = [
-            ('chip_concentration_ratio', 0.4),
-            ('chip_convergence_ratio', 0.3),
-            ('chip_divergence_ratio', 0.3)
-        ]
-        for i in range(memory_period, len(df_index)):
-            if i < memory_period:
-                entropy_scores.iloc[i] = 0.5
-                continue
-            entropy_components = []
-            for signal_name, weight in chip_signals:
-                if signal_name not in raw_signals:
-                    continue
-                signal_series = raw_signals[signal_name]
-                # 获取窗口数据
-                window_data = signal_series.iloc[i-memory_period:i]
-                if len(window_data) < 5:
-                    continue
-                # 离散化：将数据分成5个区间
-                try:
-                    # 使用分位数进行离散化
-                    bins = np.quantile(window_data, [0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-                    # 确保边界值唯一
-                    bins = np.unique(bins)
-                    if len(bins) < 2:
-                        continue
-                    # 计算当前值所在区间的概率分布
-                    hist, _ = np.histogram(window_data, bins=bins)
-                    # 转换为概率
-                    prob = hist / len(window_data)
-                    prob = prob[prob > 0]  # 只保留正概率
-                    # 计算信息熵：H = -sum(p * log2(p))
-                    if len(prob) > 0:
-                        entropy = -np.sum(prob * np.log2(prob))
-                        # 归一化：最大熵为log2(n)
-                        max_entropy = np.log2(len(prob))
-                        if max_entropy > 0:
-                            normalized_entropy = entropy / max_entropy
-                            entropy_components.append(normalized_entropy * weight)
-                except:
-                    continue
-            if entropy_components:
-                # 加权平均熵
-                total_weight = sum(weight for _, weight in chip_signals if _ in raw_signals)
-                if total_weight > 0:
-                    entropy_score = sum(entropy_components) / total_weight
-                    entropy_scores.iloc[i] = entropy_score
-                else:
-                    entropy_scores.iloc[i] = 0.5
-        entropy_scores = entropy_scores.ffill().fillna(0.5)
-        return entropy_scores
 
     def _calculate_concentration_migration(self, concentration_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
         """
