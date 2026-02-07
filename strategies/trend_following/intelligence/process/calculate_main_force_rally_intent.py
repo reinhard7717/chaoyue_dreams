@@ -1189,13 +1189,18 @@ class CalculateMainForceRallyIntent:
 
     def _detect_sentiment_extreme(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
         """
-        【V3.5 · 冰点沸点检测】检测情绪极端值
+        【V3.6 · 修复版】检测情绪极端值
+        修复说明：解决 min_periods > window 导致的 ValueError。动态设置 min_periods。
         核心理念：利用Z-Score识别情绪的"冰点"(Panic)与"沸点"(Euphoria)。
-        A股特性：冰点出买点，沸点出卖点。
         """
+        # 动态计算安全的 min_periods，确保不超过 memory_period
+        # 逻辑：至少需要 2 个数据点，且不超过窗口的 80% 或 20 中的较小值（如果窗口很大，至少要20个样本才稳健；如果窗口小，则适配窗口）
+        # 但为了彻底避免错误，最安全的做法是直接取 min(20, memory_period) 且保证 <= memory_period
+        # 这里使用宽松策略：取窗口的 2/3 作为最小样本数，既保证统计意义又不报错
+        safe_min_periods = max(2, int(memory_period * 0.6))
         # 1. 计算滚动均值与标准差 (Bollinger Band logic)
-        rolling_mean = sentiment_series.rolling(window=memory_period, min_periods=20).mean()
-        rolling_std = sentiment_series.rolling(window=memory_period, min_periods=20).std()
+        rolling_mean = sentiment_series.rolling(window=memory_period, min_periods=safe_min_periods).mean()
+        rolling_std = sentiment_series.rolling(window=memory_period, min_periods=safe_min_periods).std()
         # 2. 计算 Z-Score
         # (当前值 - 历史均值) / 历史波动率
         z_score = (sentiment_series - rolling_mean) / (rolling_std + 1e-9)
