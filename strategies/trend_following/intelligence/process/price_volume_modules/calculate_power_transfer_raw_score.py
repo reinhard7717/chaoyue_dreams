@@ -13,12 +13,14 @@ class CalculatePowerTransferRawScore:
     """
     PROCESS_META_POWER_TRANSFER_RAW_SCORE
     """
-    def __init__(self):
+    def __init__(self, is_debug, probe_ts):
+        self.is_debug = is_debug
+        self.probe_ts = probe_ts
         pass
 
     def _calculate_dynamic_impulse_norm(self, activated_impulse: pd.Series, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V33.0 · 冲量单位标准化：基于 T 日成交金额的流动性能效折算"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        is_debug, probe_ts, _ = self.is_debug, self.probe_ts, method_name
         # 1. 获取流动性质量因子 (Inertia Mass)
         # 使用成交金额及其 21 日均值衡量个股的“体量惯性”
         current_amount = raw['amount_D'].replace(0, 1e-9)
@@ -50,7 +52,7 @@ class CalculatePowerTransferRawScore:
 
     def _calculate_limit_price_compensation(self, norm_impulse: pd.Series, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V35.0 · 全维度价格限制补偿：包含跌停负压映射与动态权重标定"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        is_debug, probe_ts, _ = self.is_debug, self.probe_ts, method_name
         # 1. 动态权重标定：基于流一致性 (Consistency Weight)
         # 一致性越高，越相信协同攻击信号；一致性低，则增加压力释放指数的权重
         cons_w = raw['flow_consistency_D'].clip(0.3, 0.9)
@@ -78,7 +80,7 @@ class CalculatePowerTransferRawScore:
 
     def _calculate_auction_prediction(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V34.0 · T+1 开盘竞价预判：基于尾盘动量外推模型"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        is_debug, probe_ts, _ = self.is_debug, self.probe_ts, method_name
         # 核心逻辑：尾盘强度 * (1 + 爆发冲量)
         # 捕捉 $T$ 日最后 30 分钟的资金抢筹是否具有持续性
         impulse_term = (raw['JERK_3_net_amount_rate_D'] * 0.6 + raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'] * 0.4)

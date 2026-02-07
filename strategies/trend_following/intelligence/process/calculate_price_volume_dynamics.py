@@ -450,8 +450,8 @@ class CalculatePriceVolumeDynamics:
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
         """V47.0 · 物理动力引擎：专注于冲量合成与竞价预判（剔除安全阀调节逻辑）"""
-        score_calculter = CalculatePowerTransferRawScore()
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        score_calculter = CalculatePowerTransferRawScore(is_debug, probe_ts)
         # 1. Numba 高性能多尺度动力学提取 (MCV 共识)
         fib_wins = np.array([3, 5, 8, 13, 21], dtype=np.int64)
         base_series = raw['net_amount_rate_D'].values
