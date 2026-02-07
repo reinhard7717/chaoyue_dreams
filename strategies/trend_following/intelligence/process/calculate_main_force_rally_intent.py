@@ -548,8 +548,7 @@ class CalculateMainForceRallyIntent:
             "integrated_sentiment_memory": sentiment_memory_score
         }
 
-    def _fuse_integrated_memory(self, price_memory: Dict, capital_memory: Dict, 
-                                chip_memory: Dict, sentiment_memory: Dict, params: Dict) -> pd.Series:
+    def _fuse_integrated_memory(self, price_memory: Dict, capital_memory: Dict, chip_memory: Dict, sentiment_memory: Dict, params: Dict) -> pd.Series:
         """
         【V3.0】综合记忆融合算法
         核心理念：多维度记忆的加权几何平均，强调一致性
@@ -685,6 +684,43 @@ class CalculateMainForceRallyIntent:
         vol_norm = ((annualized_vol - 0.1) / 0.4).clip(0, 1)
         return vol_norm
 
+    def _calculate_chip_stability_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
+        """
+        【V3.3 · 锁仓惯性记忆版】计算筹码稳定性记忆
+        核心理念：通过'低波动持续性'与'缩量惜售特征'，识别主力锁仓行为的真实度。
+        A股特性：真正的筹码稳定表现为指标本身的低方差(不乱动)以及低换手(没人卖)。
+        """
+        # 1. 获取基础信号
+        # chip_stability 原始值通常在 [0, 1] 之间，越高越稳定
+        raw_stability = raw_signals.get('chip_stability', pd.Series(0.5, index=df_index))
+        turnover = raw_signals.get('turnover_rate', pd.Series(0.0, index=df_index))
+        # 2. 计算稳定性的趋势惯性 (Trend Inertia)
+        # 使用EWMA提取长期记忆，衰减因子根据周期调整
+        span_val = max(5, int(memory_period / 2))
+        stability_trend = raw_stability.ewm(span=span_val, adjust=False).mean()
+        # 3. 计算稳定性的波动惩罚 (Variance Penalty)
+        # 逻辑：筹码稳定性指标本身的波动率越低，说明结构越稳固（主力控盘）
+        # 如果稳定性指标上蹿下跳，说明筹码在剧烈交换，记忆不可靠
+        stability_vol = raw_stability.rolling(window=span_val).std().fillna(0)
+        # 归一化波动率，假设 0.2 以上为高波动
+        vol_penalty = (stability_vol / 0.2).clip(0, 1)
+        consistency_score = 1.0 - vol_penalty
+        # 4. 计算缩量确认因子 (Volume Confirmation)
+        # 逻辑：低换手率是筹码稳定的最佳背书（惜售）
+        # 对换手率进行动态归一化 (Rolling Rank)
+        rolling_to_max = turnover.rolling(window=memory_period*2, min_periods=5).max()
+        turnover_ratio = (turnover / rolling_to_max.replace(0, 1)).fillna(1)
+        # 换手越低，确认度越高；换手极高时，稳定性记忆打折
+        volume_confirmation = 1.0 - turnover_ratio.clip(0, 0.8) # 保留0.2的基础分
+        # 5. 综合筹码稳定性记忆
+        # 权重分配：趋势惯性50% + 自身稳定性30% + 缩量确认20%
+        final_memory = (
+            stability_trend * 0.5 +
+            consistency_score * 0.3 +
+            volume_confirmation * 0.2
+        )
+        return final_memory.clip(0, 1)
+
     def _calculate_chip_entropy_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
         """
         【V3.0】筹码熵变记忆计算
@@ -744,6 +780,49 @@ class CalculateMainForceRallyIntent:
                     entropy_scores.iloc[i] = 0.5
         entropy_scores = entropy_scores.ffill().fillna(0.5)
         return entropy_scores
+
+    def _calculate_chip_pressure_memory(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
+        """
+        【V3.4 · 双向筹码压力场版】计算筹码压力记忆分数
+        核心理念：量化"解套抛压"（Trapped Pressure）与"获利兑现"（Profit Taking）的双重风险。
+        A股特性：
+        1. 价格从下方接近成本区时，解套盘抛压最大（即将回本时最想卖）。
+        2. 价格远超成本区时，获利盘兑现欲望增强（恐高）。
+        返回：压力分数 [0, 1]，1表示压力极大（顶部或强阻力位），0表示压力极小（真空区或底部）。
+        """
+        # 1. 准备数据
+        close = raw_signals.get('close', pd.Series(0.0, index=df_index))
+        volume = raw_signals.get('volume', pd.Series(0.0, index=df_index))
+        # 2. 计算市场平均成本 (VWMA - Volume Weighted Moving Average)
+        # 使用 memory_period 作为周期（如55日）
+        pv = close * volume
+        # 动态计算滚动VWMA
+        rolling_pv = pv.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
+        rolling_vol = volume.rolling(window=memory_period, min_periods=int(memory_period/2)).sum()
+        vwma = (rolling_pv / rolling_vol.replace(0, np.nan)).ffill()
+        # 3. 计算市场盈亏率 CYS (Cost Yield Simple)
+        # CYS > 0 代表获利，CYS < 0 代表套牢
+        cys = (close - vwma) / (vwma + 1e-9)
+        # 4. 计算解套抛压 (Trapped Pressure) - 针对 CYS < 0 的部分
+        # 逻辑：当 CYS 在 -0.15 到 0 之间时（亏损15%以内），抛压随价格上涨指数级增加
+        # 使用高斯函数模拟：峰值设在 -0.02 (亏损2%时抛压最大，人性使然)，标准差设为 0.08
+        # 当深套（如 -30%）时，抛压反而减小（装死不动）
+        trapped_pressure = np.exp(-((cys - (-0.02)) ** 2) / (2 * (0.08 ** 2)))
+        # 仅保留 CYS < 0.05 的部分作为解套压力（允许小幅获利出逃）
+        trapped_pressure = trapped_pressure.where(cys < 0.05, 0.0)
+        # 5. 计算获利兑现压力 (Profit Pressure) - 针对 CYS > 0 的部分
+        # 逻辑：当获利超过 20% 后，抛压显著增加；超过 40% 极度危险
+        # 使用 Sigmoid 函数：中心点设在 0.25 (25%获利)，斜率 k=15
+        profit_pressure = 1 / (1 + np.exp(-15 * (cys - 0.25)))
+        # 仅保留 CYS >= 0 的部分
+        profit_pressure = profit_pressure.where(cys >= 0, 0.0)
+        # 6. 综合压力记忆
+        # 取两者的最大值，因为同一时间通常只有一种主导压力
+        total_pressure = np.maximum(trapped_pressure, profit_pressure)
+        # 7. 平滑处理
+        # 压力具有记忆性，不会瞬间消失
+        pressure_memory = total_pressure.ewm(span=5, adjust=False).mean()
+        return pressure_memory.clip(0, 1)
 
     def _calculate_capital_persistence(self, capital_flow: pd.Series, df_index: pd.Index, period: int) -> pd.Series:
         """
@@ -1060,6 +1139,113 @@ class CalculateMainForceRallyIntent:
         migration_scores = migration_scores.ffill().fillna(0.5)
         return migration_scores
 
+    def _calculate_sentiment_momentum(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
+        """
+        【V3.5 · 情绪惯性版】计算情绪动量
+        核心理念：量化情绪的"加速"与"衰竭"。
+        A股特性：急涨缓跌。情绪加速上升是主升浪特征，高位动量钝化是见顶前兆。
+        """
+        if sentiment_series.empty:
+            return pd.Series(0.5, index=df_index)
+        # 1. 情绪平滑 (去除日内杂波)
+        # 使用较短周期(如5日)的EMA
+        smooth_sentiment = sentiment_series.ewm(span=5, adjust=False).mean()
+        # 2. 计算一阶动量 (速度)
+        # 3日变化率
+        velocity = smooth_sentiment.diff(3).fillna(0)
+        # 3. 计算二阶动量 (加速度)
+        acceleration = velocity.diff(3).fillna(0)
+        # 4. 动量合成
+        # 归一化处理，假设变化率极值在 +/- 0.3 之间
+        vel_score = np.tanh(velocity * 5) * 0.5 + 0.5
+        acc_score = np.tanh(acceleration * 5) * 0.5 + 0.5
+        # 综合动量：速度为主，加速度为辅（修正拐点）
+        # 结果 > 0.5 代表情绪由弱转强或加速上升
+        momentum_score = (vel_score * 0.6 + acc_score * 0.4).clip(0, 1)
+        return momentum_score
+
+    def _calculate_sentiment_divergence(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
+        """
+        【V3.5 · 量价背离版】计算情绪背离度
+        核心理念：识别"价格创新高但情绪未跟随"的顶部背离，或"价格新低但情绪回暖"的底部背离。
+        注意：此方法返回的是"背离风险度"，值越大代表背离越严重(风险/机会越大)，需结合趋势方向判断。
+        """
+        # 需要获取价格序列进行对比（这里假设从self.strategy获取或作为参数传入较复杂，
+        # 简化为使用sentiment自身的趋势背离，即实际值与线性回归值的偏离）
+        # 更优解：计算价格动量与情绪动量的相关性
+        # 这里我们模拟一个"价格动量"的代理变量，假设 raw_signals 已在外部准备好，
+        # 若无法获取，则计算情绪自身的RSI背离特征
+        # 方案：计算情绪指标的短期趋势(5日)与长期趋势(21日)的乖离率
+        # 逻辑：短期情绪过快偏离长期均值，视为不可持续的"情绪超涨/超跌"
+        short_trend = sentiment_series.rolling(window=5).mean()
+        long_trend = sentiment_series.rolling(window=memory_period).mean()
+        # 计算乖离率 (Bias)
+        bias = (short_trend - long_trend) / (long_trend + 1e-9)
+        # 计算背离风险
+        # 逻辑：乖离率过大(>0.2)或过小(<-0.2)都是背离
+        # 使用高斯函数反向映射：乖离率越接近0，分歧越小(0)；乖离率越大，分歧越大(1)
+        divergence_score = 1.0 - np.exp(-((bias) ** 2) / (2 * (0.1 ** 2)))
+        return divergence_score.fillna(0).clip(0, 1)
+
+    def _detect_sentiment_extreme(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
+        """
+        【V3.5 · 冰点沸点检测】检测情绪极端值
+        核心理念：利用Z-Score识别情绪的"冰点"(Panic)与"沸点"(Euphoria)。
+        A股特性：冰点出买点，沸点出卖点。
+        """
+        # 1. 计算滚动均值与标准差 (Bollinger Band logic)
+        rolling_mean = sentiment_series.rolling(window=memory_period, min_periods=20).mean()
+        rolling_std = sentiment_series.rolling(window=memory_period, min_periods=20).std()
+        # 2. 计算 Z-Score
+        # (当前值 - 历史均值) / 历史波动率
+        z_score = (sentiment_series - rolling_mean) / (rolling_std + 1e-9)
+        # 3. 极端性映射
+        # 我们关注的是"极端程度"，不分方向。方向由外部逻辑判断。
+        # Z > 2 或 Z < -2 视为极端
+        # 映射到 [0, 1]，2倍标准差对应 0.8 分，3倍对应 1.0 分
+        extreme_score = (z_score.abs() / 3.0).clip(0, 1)
+        # 4. 非线性增强
+        # 只有当Z-Score超过1.5时，极端分才开始显著增加
+        extreme_score = extreme_score.where(z_score.abs() > 1.5, extreme_score * 0.5)
+        return extreme_score.fillna(0)
+
+    def _calculate_sentiment_consistency(self, raw_signals: Dict[str, pd.Series], df_index: pd.Index, memory_period: int) -> pd.Series:
+        """
+        【V3.5 · 多维共振版】计算情绪一致性
+        核心理念：当"大盘"、"板块"、"龙头"三者情绪共振时，趋势最强。
+        A股特性：只有龙头涨而板块不跟（一致性低），通常是诱多；全线普涨（一致性高）才是真反转。
+        """
+        # 1. 获取三个维度的情绪指标
+        # 市场整体情绪
+        mkt_sentiment = raw_signals.get('market_sentiment', pd.Series(0.5, index=df_index))
+        # 板块广度 (涨跌家数比等)
+        breadth = raw_signals.get('industry_breadth', pd.Series(0.5, index=df_index))
+        # 龙头强度 (最高板高度、龙头涨幅)
+        leader = raw_signals.get('industry_leader', pd.Series(0.5, index=df_index))
+        # 2. 归一化处理 (确保都在0-1之间，方便比较)
+        # 假设原始信号已经是归一化过的，若没有，建议在此处再次Robust Scaling
+        # 这里直接使用
+        # 3. 计算离散度 (Standard Deviation)
+        # 构建DataFrame以便按行计算
+        components = pd.DataFrame({
+            'mkt': mkt_sentiment,
+            'breadth': breadth,
+            'leader': leader
+        })
+        # 计算横截面标准差
+        std_dev = components.std(axis=1)
+        # 4. 转换为一致性得分
+        # 标准差越小，一致性越高
+        # 假设最大标准差约为 0.5 (全部分散)，我们希望 Std=0 -> Score=1
+        consistency_score = 1.0 - (std_dev / 0.3).clip(0, 1)
+        # 5. 趋势方向确认 (可选增强)
+        # 只有在三者都 > 0.5 (强势共振) 或都 < 0.5 (弱势共振) 时，才给予高分
+        # 若均值在 0.5 附近震荡，即使标准差小，也是无效的一致性
+        mean_val = components.mean(axis=1)
+        intensity_factor = (mean_val - 0.5).abs() * 2  # 0.5->0, 0/1->1
+        final_consistency = consistency_score * (0.5 + 0.5 * intensity_factor)
+        return final_consistency.fillna(0).clip(0, 1)
+
     def _get_empty_context(self, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
         【V3.0】返回空的历史上下文（禁用时使用）
@@ -1212,8 +1398,7 @@ class CalculateMainForceRallyIntent:
         self._probe_print("=== 代理信号构建完成 ===")
         return final_proxy_signals
 
-    def _calculate_enhanced_rs_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], 
-                                    normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
+    def _calculate_enhanced_rs_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
         【V4.0】增强版相对强度代理信号
         核心理念：相对强度不仅看价格趋势，还要看动量、加速、结构等多个维度
@@ -1285,8 +1470,7 @@ class CalculateMainForceRallyIntent:
             "market_state": pd.Series(market_state, index=df_index)
         }
 
-    def _calculate_enhanced_capital_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], 
-                                         normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
+    def _calculate_enhanced_capital_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
         【V4.0】增强版资本属性代理信号
         核心理念：资本属性包括资金流向、资金效率、资金结构、资金持续性
@@ -1361,8 +1545,7 @@ class CalculateMainForceRallyIntent:
             "liquidity_state": pd.Series(liquidity_state, index=df_index)
         }
 
-    def _calculate_enhanced_sentiment_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], 
-                                           normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
+    def _calculate_enhanced_sentiment_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
         【V4.0】增强版市场情绪代理信号
         核心理念：市场情绪是多维度的，包括贪婪恐惧、一致性、极端性、传染性
@@ -1429,8 +1612,7 @@ class CalculateMainForceRallyIntent:
             "market_phase": pd.Series(market_phase, index=df_index)
         }
 
-    def _calculate_enhanced_liquidity_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], 
-                                           normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
+    def _calculate_enhanced_liquidity_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
         【V4.0】增强版流动性代理信号
         核心理念：流动性包括成交量、换手率、订单簿深度、买卖不平衡度
@@ -1495,8 +1677,7 @@ class CalculateMainForceRallyIntent:
             "market_volatility": market_volatility
         }
 
-    def _calculate_enhanced_volatility_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], 
-                                            normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
+    def _calculate_enhanced_volatility_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
         【V4.0】增强版波动性代理信号
         核心理念：波动性包括历史波动、隐含波动、波动率微笑、波动率聚集
@@ -1569,8 +1750,7 @@ class CalculateMainForceRallyIntent:
             "market_regime": pd.Series(market_regime, index=df_index)
         }
 
-    def _calculate_enhanced_risk_preference_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], 
-                                                normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
+    def _calculate_enhanced_risk_preference_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
         【V4.0】增强版风险偏好代理信号
         核心理念：市场风险偏好决定资金流向和资产价格
