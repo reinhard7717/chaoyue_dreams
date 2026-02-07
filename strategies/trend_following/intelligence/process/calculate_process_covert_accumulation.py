@@ -15,7 +15,8 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateProcessCovertAccumulation:
     """
-    计算“隐蔽吸筹”的专属信号。PROCESS_META_COVERT_ACCUMULATION
+    计算“隐蔽吸筹”的专属信号。
+    PROCESS_META_COVERT_ACCUMULATION
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
             self.strategy = strategy_instance
@@ -165,86 +166,101 @@ class CalculateProcessCovertAccumulation:
 
     def _calculate_derived_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]):
         """
-        【V4.0 · 高阶导数物理建模版】基于斐波那契窗口计算斜率、加速度与加加速度。
-        - 逻辑：通过 pandas_ta 计算三阶导数 JERK，捕捉主力吸筹从“线性增长”到“非线性爆发”的临界点。
+        【V4.1 · 物理高阶导数修正版】基于斐波那契序列计算三阶导数 JERK。
+        - 核心说明：针对核心资金流和结构指标，计算 SLOPE -> ACCEL -> JERK，捕捉隐蔽吸筹的动能突变点。
         """
         fib_windows = [5, 8, 13, 21, 34, 55]
-        # 核心监控指标：资金流与结构压缩
-        core_base_signals = [
+        # 定义需要进行高阶导数分析的核心基准信号
+        derivative_targets = [
             'stealth_flow_ratio_D', 
             'SMART_MONEY_INST_NET_BUY_D', 
             'MA_POTENTIAL_COMPRESSION_RATE_D',
             'VPA_MF_ADJUSTED_EFF_D',
-            'chip_stability_D'
+            'chip_stability_D',
+            'market_sentiment_score_D'
         ]
-        for base in core_base_signals:
+        for base in derivative_targets:
             if base not in df.columns:
                 continue
             for period in fib_windows:
-                # 1. 一阶导数：斜率 (Velocity)
-                slope_col = f'SLOPE_{period}_{base}'
-                if slope_col not in df.columns:
-                    df[slope_col] = ta.slope(df[base], length=period)
-                # 2. 二阶导数：加速度 (Acceleration)
-                accel_col = f'ACCEL_{period}_{base}'
-                if accel_col not in df.columns and slope_col in df.columns:
-                    df[accel_col] = ta.slope(df[slope_col], length=period)
-                # 3. 三阶导数：加加速度 (Jerk/Jolt)
-                jerk_col = f'JERK_{period}_{base}'
-                if jerk_col not in df.columns and accel_col in df.columns:
-                    df[jerk_col] = ta.slope(df[accel_col], length=period)
-        # 兼容旧逻辑的累积计算
-        for base in ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']:
+                # 1. 计算一阶导数 (Velocity)
+                s_col = f'SLOPE_{period}_{base}'
+                if s_col not in df.columns:
+                    df[s_col] = ta.slope(df[base], length=period)
+                # 2. 计算二阶导数 (Acceleration)
+                a_col = f'ACCEL_{period}_{base}'
+                if a_col not in df.columns and s_col in df.columns:
+                    df[a_col] = ta.slope(df[s_col], length=period)
+                # 3. 计算三阶导数 (Jerk)
+                j_col = f'JERK_{period}_{base}'
+                if j_col not in df.columns and a_col in df.columns:
+                    df[j_col] = ta.slope(df[a_col], length=period)
+        # 处理累积求和信号 (维持 V3.1 兼容性)
+        acc_targets = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']
+        for base in acc_targets:
             if base in df.columns:
                 for window in cumulative_flow_windows:
-                    col_name = f'{base}_{window}d_sum'
-                    if col_name not in df.columns:
-                        df[col_name] = df[base].rolling(window, min_periods=1).sum()
+                    c_col = f'{base}_{window}d_sum'
+                    if c_col not in df.columns:
+                        df[c_col] = df[base].rolling(window, min_periods=1).sum()
 
     def _validate_and_get_raw_signals(self, df: pd.DataFrame, method_name: str, price_weakness_slope_window: int, low_volatility_bbw_window: int, mtf_slope_accel_weights: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]) -> Optional[Dict[str, pd.Series]]:
         """
-        【V4.0 · 高阶导数物理建模版】校验并获取包含高阶导数的全量信号。
-        - 逻辑：动态加载针对斐波那契窗口生成的 SLOPE/ACCEL/JERK 特征。
+        【V4.1 · 物理高阶导数修正版】校验并获取全量特征，修复 KeyError: 'emo_extreme'。
+        - 修复说明：确保 IS_EMOTIONAL_EXTREME_D 正确映射至 emo_extreme 键名，并动态注入所有斐波那契高阶导数信号。
         """
         self._calculate_derived_signals(df, mtf_slope_accel_weights, cumulative_flow_windows, cumulative_acc_windows)
-        fib_windows = [5, 8, 13, 21, 34, 55]
-        core_indicators = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D']
-        required_columns = [
-            'IS_ROUNDING_BOTTOM_D', 'afternoon_flow_ratio_D', 'closing_flow_intensity_D',
-            'long_term_chip_ratio_D', 'chip_stability_D', 'VPA_MF_ADJUSTED_EFF_D'
+        # 1. 基础信号校验清单 (基于军械库 [cite: 1, 2, 3])
+        essential_cols = [
+            'IS_EMOTIONAL_EXTREME_D', 'BBW_21_2.0_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
+            'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'GEOM_ARC_CURVATURE_D',
+            'afternoon_flow_ratio_D', 'closing_flow_intensity_D', 'flow_consistency_D',
+            'long_term_chip_ratio_D', 'chip_stability_D', 'VPA_MF_ADJUSTED_EFF_D',
+            'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'accumulation_score_D',
+            'MA_POTENTIAL_TENSION_INDEX_D', 'market_sentiment_score_D'
         ]
-        # 动态添加高阶导数校验
-        for base in core_indicators:
-            for period in fib_windows:
-                required_columns.extend([f'SLOPE_{period}_{base}', f'ACCEL_{period}_{base}', f'JERK_{period}_{base}'])
-        if not self.helper._validate_required_signals(df, required_columns, method_name):
+        if not self.helper._validate_required_signals(df, essential_cols, method_name):
             return None
-        raw_signals = {col: df[col] for col in required_columns if col in df.columns}
-        # 映射至语义化字典以便后续计算
-        semantic_signals = {
-            'stealth_flow_main': df['stealth_flow_ratio_D'],
-            'inst_buy_main': df['SMART_MONEY_INST_NET_BUY_D'],
-            'compression_main': df['MA_POTENTIAL_COMPRESSION_RATE_D'],
+        # 2. 构建语义化映射，解决 KeyError
+        raw_signals = {
+            'emo_extreme': df['IS_EMOTIONAL_EXTREME_D'],
+            'vol_bbw': df['BBW_21_2.0_D'],
+            'ma_compression': df['MA_POTENTIAL_COMPRESSION_RATE_D'],
+            'rounding_bottom': df['IS_ROUNDING_BOTTOM_D'],
+            'golden_pit': df['IS_GOLDEN_PIT_D'],
+            'arc_curvature': df['GEOM_ARC_CURVATURE_D'],
             'afternoon_flow': df['afternoon_flow_ratio_D'],
             'closing_intensity': df['closing_flow_intensity_D'],
+            'flow_consistency': df['flow_consistency_D'],
+            'long_term_chip': df['long_term_chip_ratio_D'],
             'chip_stability': df['chip_stability_D'],
             'mf_efficiency': df['VPA_MF_ADJUSTED_EFF_D'],
-            'long_term_chip': df['long_term_chip_ratio_D']
+            'stealth_flow': df['stealth_flow_ratio_D'],
+            'inst_buy': df['SMART_MONEY_INST_NET_BUY_D'],
+            'acc_score': df['accumulation_score_D'],
+            'structural_tension': df['MA_POTENTIAL_TENSION_INDEX_D'],
+            'market_sentiment': df['market_sentiment_score_D']
         }
-        # 存储高阶导数引用
-        for base in core_indicators:
-            for period in fib_windows:
-                semantic_signals[f'jerk_{base}_{period}'] = df[f'JERK_{period}_{base}']
-                semantic_signals[f'accel_{base}_{period}'] = df[f'ACCEL_{period}_{base}']
-                semantic_signals[f'slope_{base}_{period}'] = df[f'SLOPE_{period}_{base}']
-        _temp_debug_values["semantic_signals"] = semantic_signals
-        return semantic_signals
+        # 3. 动态注入高阶导数 (斐波那契窗口)
+        fib_windows = [5, 8, 13, 21, 34, 55]
+        derivative_bases = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D']
+        for base in derivative_bases:
+            for p in fib_windows:
+                for prefix in ['SLOPE', 'ACCEL', 'JERK']:
+                    col_key = f'{prefix.lower()}_{base}_{p}'
+                    col_name = f'{prefix}_{p}_{base}'
+                    if col_name in df.columns:
+                        raw_signals[col_key] = df[col_name]
+        _temp_debug_values["raw_signals_v41"] = {k: "Active" for k in raw_signals.keys()}
+        return raw_signals
 
     def _calculate_market_context_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, market_context_weights: Dict, price_weakness_slope_window: int, low_volatility_bbw_window: int, method_name: str, _temp_debug_values: Dict, neutral_range_threshold: float) -> pd.Series:
         """
-        【V3.1 · 多维深度探测版】计算市场背景分数。
-        - 逻辑：增加形态学权重，利用圆弧底识别和金坑确认（Golden Pit）定位高胜率吸筹结构。
+        【V4.1 · 物理高阶导数修正版】计算市场背景评分。
+        - 逻辑深化：利用修复后的 emo_extreme 捕捉情绪冰点，并结合均线压缩加速度识别横盘末端的结构爆发力。
         """
+        # 引入均线压缩的加速度 (21日周期) 识别结构紧凑度变化
+        accel_compression = raw_signals.get('accel_MA_POTENTIAL_COMPRESSION_RATE_D_21', pd.Series(0.0, index=df_index))
         scores = {
             "sentiment_extreme": self.helper._normalize_series(raw_signals['emo_extreme'], df_index, bipolar=False),
             "vol_compression": self.helper._normalize_series(raw_signals['vol_bbw'], df_index, ascending=False),
@@ -252,10 +268,12 @@ class CalculateProcessCovertAccumulation:
             "golden_pit": self.helper._normalize_series(raw_signals['golden_pit'], df_index, bipolar=False),
             "arc_curvature": self.helper._normalize_series(raw_signals['arc_curvature'], df_index, bipolar=False),
             "is_consolidating": self.helper._normalize_series(raw_signals['ma_compression'], df_index, bipolar=False),
-            "structural_tension": (1 - self.helper._normalize_series(raw_signals['structural_tension'], df_index))
+            "structural_tension": (1 - self.helper._normalize_series(raw_signals['structural_tension'], df_index)),
+            "compression_accel": self.helper._normalize_series(accel_compression, df_index, bipolar=True)
         }
+        # 更新权重配置以匹配新增的 compression_accel (若配置中未定义则通过 helper 容错)
         market_context_score = _robust_geometric_mean(scores, market_context_weights, df_index)
-        _temp_debug_values["market_context_score"] = market_context_score
+        _temp_debug_values["market_context_v41"] = scores
         return market_context_score
 
     def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict, **kwargs) -> pd.Series:
