@@ -8,6 +8,18 @@ from numba import jit, float64, int64
 from typing import Dict, List, Optional, Any, Tuple
 
 from strategies.trend_following.utils import get_param_value
+@jit(nopython=True)
+def _numba_power_activation(x, alpha=0.01, gain=1.5):
+    """V32.0 · 非对称动力学激活算子：强化极端正向爆发，抑制负向噪音"""
+    res = np.zeros_like(x)
+    for i in range(len(x)):
+        if x[i] > 0:
+            # 正向信号线性增益，捕捉“夺权”爆发力
+            res[i] = x[i] * gain
+        else:
+            # 负向信号渗漏抑制，保留风险底色
+            res[i] = x[i] * alpha
+    return res
 
 class CalculatePowerTransferRawScore:
     """
