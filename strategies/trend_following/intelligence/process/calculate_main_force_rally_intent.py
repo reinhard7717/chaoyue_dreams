@@ -290,42 +290,29 @@ class CalculateMainForceRallyIntent:
 
     def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
         """
-        【V4.0 · 动态互相关相位版】相位同步检测算法
-        修改说明：引入互相关滞后矩阵（Cross-Correlation Matrix），识别资金与价格的领先滞后相位，捕捉主力先行信号。
-        版本号：2026.02.07.06
+        【V4.1 · 鲁棒相位版】相位同步检测
+        修改说明：增加对滚动相关性 NaN 值的强制拦截，确保 sync_strength 始终有效。
+        版本号：2026.02.07.09
         """
-        # 1. 提取核心记忆序列并进行极轻微平滑以去噪
         price_trend = price_memory.get("trend_memory", pd.Series(0.0, index=df_index)).ewm(span=3).mean()
         capital_flow = capital_memory.get("composite_capital_flow", pd.Series(0.0, index=df_index)).ewm(span=3).mean()
-        # 2. 定义扫描参数
-        max_lag = 5  # 最大扫描5日滞后
-        window = 21  # 滚动相关窗口
+        max_lag = 5
+        window = 21
         lag_correlations = {}
-        # 3. 计算互相关矩阵：扫描资金领先/滞后价格的各个相位
         for lag in range(-max_lag, max_lag + 1):
-            # 将资金序列平移，计算其与价格的相关性
-            # lag > 0 代表资金领先价格（资金在t-lag时的特征与价格在t时的特征相关）
             shifted_capital = capital_flow.shift(lag)
-            lag_correlations[lag] = price_trend.rolling(window=window, min_periods=window//2).corr(shifted_capital)
-        # 4. 汇总滞后特征
+            # 核心修复：填充相关性计算产生的 NaN (通常由平直曲线导致)
+            corr_series = price_trend.rolling(window=window, min_periods=5).corr(shifted_capital).fillna(0.0)
+            lag_correlations[lag] = corr_series
         corr_df = pd.DataFrame(lag_correlations)
-        # 找到每个时间点相关性绝对值最大的滞后量
         best_lag = corr_df.abs().idxmax(axis=1).fillna(0)
+        # 获取最大相关性值并强制去空
         max_corr = corr_df.lookup(corr_df.index, best_lag) if hasattr(corr_df, 'lookup') else corr_df.values[np.arange(len(corr_df)), corr_df.columns.get_indexer(best_lag)]
-        # 5. 计算相位同步得分
-        # 逻辑：max_corr 代表同步强度，best_lag 代表相位领先性
-        # 在A股，资金领先价格（best_lag > 0）是强看涨标志
-        sync_strength = pd.Series(max_corr, index=df_index)
-        # 领先溢价因子：如果是资金领先，给予正向增益；如果是价格领先，视为诱多/跟风，给予负向修正
+        sync_strength = pd.Series(max_corr, index=df_index).fillna(0.0)
         lead_premium = (best_lag / max_lag).clip(-1, 1)
-        # 6. 引入一致性过滤器（相位相干性）
-        # 如果滞后量在短期内频繁剧烈跳变，说明信号不可靠
         lag_stability = 1 - best_lag.diff().abs().rolling(window=5).mean().div(max_lag).fillna(0).clip(0, 1)
-        # 7. 综合判定
-        # 分数 = 同步强度 * (1 + 领先溢价 * 0.5) * 稳定性
         phase_sync_score = (sync_strength * (1 + lead_premium * 0.5) * lag_stability).clip(-1, 1)
-        self._probe_print(f"相位同步检测完成: 平均滞后相位 {best_lag.mean():.2f}d, 信号稳定性 {lag_stability.mean():.4f}")
-        return phase_sync_score
+        return phase_sync_score.fillna(0.0)
 
     def _assess_memory_quality(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, chip_memory: Dict, sentiment_memory: Dict) -> pd.Series:
         """
@@ -2379,93 +2366,74 @@ class CalculateMainForceRallyIntent:
                                   normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series],
                                   historical_context: Dict[str, Any], rally_intent_synthesis_params: Dict) -> pd.Series:
         """
-        【V5.5 · 共振门控版】主力多头意图深度合成
-        修改思路：放弃线性加权，改用几何合成逻辑，并引入相位同步与历史一致性作为核心增益锚点。
-        版本号：2026.02.07.08
+        【V5.6 · 探针增强版】主力多头意图深度合成
+        修改说明：增加中间变量 NaN 探针输出，并对增强因子实施强制填充，切断污染链路。
         """
-        # 1. 提取额外博弈特征
-        # 识别“动量底背离”诱空信号
-        bear_trap_bonus = self._detect_bear_trap(df_index, mtf_signals, normalized_signals)
-        # 捕捉短中长周期加速度一致性
-        acceleration_resonance = self._calculate_acceleration_resonance(df_index, mtf_signals)
-        # 2. 基础意图合成 (几何平均法)
-        # 逻辑：三个维度必须均无明显缺陷，拉升意图才成立
-        components = {
-            "aggressiveness": aggressiveness_score,
-            "control": control_score,
-            "obstacle_clearance": obstacle_clearance_score
-        }
-        weights = {
-            "aggressiveness": dynamic_weights.get("aggressiveness", 0.35),
-            "control": dynamic_weights.get("control", 0.35),
-            "obstacle_clearance": dynamic_weights.get("obstacle_clearance", 0.30)
-        }
-        # 使用工具函数进行稳健几何平均合成
-        bullish_intent_base = _robust_geometric_mean(components, weights, df_index)
-        # 3. 动态共振增强 (Resonance Enhancement)
-        # 引入相位同步评分：当资金与价格相位对齐时，增强意图置信度
-        phase_sync = historical_context.get('phase_sync', pd.Series(0.0, index=df_index))
-        # 综合增强因子：共振(30%) + 诱空(20%) + 相位对齐(10%)
-        enhancement_factor = (acceleration_resonance * 0.3 + bear_trap_bonus * 0.2 + (phase_sync.clip(0, 1)) * 0.1)
-        # 非线性叠加：在基础意图之上应用增益
+        bear_trap_bonus = self._detect_bear_trap(df_index, mtf_signals, normalized_signals).fillna(0)
+        acceleration_resonance = self._calculate_acceleration_resonance(df_index, mtf_signals).fillna(0)
+        components = {"aggressiveness": aggressiveness_score.fillna(0.5), "control": control_score.fillna(0.5), "obstacle_clearance": obstacle_clearance_score.fillna(0.5)}
+        weights = {"aggressiveness": dynamic_weights.get("aggressiveness", 0.35), "control": dynamic_weights.get("control", 0.35), "obstacle_clearance": dynamic_weights.get("obstacle_clearance", 0.30)}
+        bullish_intent_base = _robust_geometric_mean(components, weights, df_index).fillna(0.5)
+        phase_sync = historical_context.get('phase_sync', pd.Series(0.0, index=df_index)).fillna(0.0)
+        # 调试探针：检查分量状态
+        if self.probe_dates:
+            self._probe_print(f"  [DEBUG] base={bullish_intent_base.iloc[-1]:.4f}, sync={phase_sync.iloc[-1]:.4f}, resonance={acceleration_resonance.iloc[-1]:.4f}")
+        # 核心修复：对增强因子进行强制 clip 和 fillna
+        enhancement_factor = (acceleration_resonance * 0.3 + bear_trap_bonus * 0.2 + (phase_sync.clip(0, 1)) * 0.1).fillna(0.0)
         enhanced_intent = (bullish_intent_base * (1 + enhancement_factor)).clip(0, 1)
-        # 4. 历史上下文记忆调节 (Memory Modulation)
-        # 利用集成记忆（Integrated Memory）作为底色调节
         long_term_modulator = 1.0
         if historical_context.get('hc_enabled', False):
-            integrated_mem = historical_context.get('integrated_memory', pd.Series(0.5, index=df_index))
-            # 长期记忆越深厚，短期信号的稳定性越高，系数设定在 [0.95, 1.15] 之间
+            integrated_mem = historical_context.get('integrated_memory', pd.Series(0.5, index=df_index)).fillna(0.5)
             long_term_modulator = 0.95 + (integrated_mem * 0.2)
-        # 5. 最终输出
-        final_bullish_intent = (enhanced_intent * long_term_modulator).clip(0, 1)
-        self._probe_print(f"多头意图合成完成: 基础 {bullish_intent_base.mean():.4f}, 增益后 {final_bullish_intent.mean():.4f}")
+        final_bullish_intent = (enhanced_intent * long_term_modulator).fillna(enhanced_intent).clip(0, 1)
         return final_bullish_intent
 
     def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], 
                                  mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series],
-                                 historical_context: Dict[str, pd.Series]) -> pd.Series:
+                                 historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V3.0 · 杀跌冲击增强版】计算复合看跌意图
-        修改说明：引入负向JERK冲击因子捕捉恐慌杀跌，并修复了历史上下文中的变量引用错误。
-        版本号：2026.02.07.03
+        【V3.1 · 鲁棒自检版】计算复合看跌意图
+        修改说明：建立三层 NaN 拦截机制，确保在极端数据波动下看跌意图分值不坍塌。
+        版本号：2026.02.07.09
         """
-        # 1. 资金底色调节：若中长期资金记忆（Integrated Capital Memory）为正，则对看跌评分产生缓冲作用
+        # 1. 资金记忆调节器 (从子字典安全提取)
         mf_flow_memory_anti_bearish_modulator = 1.0
         if historical_context.get('hc_enabled', False):
-            # 修正：从 capital_memory 嵌套字典中提取综合资金记忆
-            cap_memory = historical_context.get('capital_memory', {}).get('integrated_capital_memory', pd.Series(0.0, index=df_index))
-            # 资金记忆越深厚，越能抵御短期砸盘，系数 [0.8, 1.0]
-            mf_flow_memory_anti_bearish_modulator = (1 - cap_memory.clip(lower=0) * 0.2).clip(0.8, 1.0)
+            # 路径防御：防止 nested dict 缺失
+            cap_mem_dict = historical_context.get('capital_memory', {})
+            cap_memory = cap_mem_dict.get('integrated_capital_memory', pd.Series(0.5, index=df_index)).fillna(0.5)
+            # 资金底色越强，对看跌信号的容忍度越高（减损看跌分值）
+            mf_flow_memory_anti_bearish_modulator = (1 - cap_memory.clip(0, 1) * 0.2).clip(0.8, 1.0)
         # 2. 杀跌冲击计算 (Panic Jerk)
-        # 捕捉价格下行加速度的突变 (Negative Jerk)
-        price_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index))
-        # 捕捉资金外流加速度的突变
-        money_jerk = mtf_signals.get('JERK_5_net_amount_trend', pd.Series(0.0, index=df_index))
-        # 使用修正后的归一化接口：捕捉负向极值产生的冲击力
-        panic_jerk_impact = (
-            normalize_score(price_jerk.mask(price_jerk > 0, 0).abs(), target_index=df_index, windows=60) * 0.5 +
-            normalize_score(money_jerk.mask(money_jerk > 0, 0).abs(), target_index=df_index, windows=60) * 0.5
-        ).clip(0, 1)
-        # 3. 基础看跌成分构成
+        # 提取负向加速度突变，并强制填补空值
+        p_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index)).fillna(0)
+        m_jerk = mtf_signals.get('JERK_5_net_amount_trend', pd.Series(0.0, index=df_index)).fillna(0)
+        # 仅捕获下行冲击 (Jerk < 0)
+        panic_p = normalize_score(p_jerk.mask(p_jerk > 0, 0).abs(), target_index=df_index, windows=60).fillna(0)
+        panic_m = normalize_score(m_jerk.mask(m_jerk > 0, 0).abs(), target_index=df_index, windows=60).fillna(0)
+        panic_impact = (panic_p * 0.6 + panic_m * 0.4).clip(0, 1)
+        # 3. 看跌成分聚合与权重校验
         bearish_components = {
-            "distribution": normalized_signals.get('distribution_score_norm', pd.Series(0.0, index=df_index)),
-            "behavior_dist": normalized_signals.get('behavior_distribution_norm', pd.Series(0.0, index=df_index)),
-            "trend_weakness": normalized_signals.get('downtrend_strength_norm', pd.Series(0.0, index=df_index)),
-            "chip_divergence": normalized_signals.get('chip_divergence_ratio_norm', pd.Series(0.0, index=df_index)),
-            "panic_impact": panic_jerk_impact
+            "distribution": normalized_signals.get('distribution_score_norm', pd.Series(0.0, index=df_index)).fillna(0),
+            "behavior_dist": normalized_signals.get('behavior_distribution_norm', pd.Series(0.0, index=df_index)).fillna(0),
+            "downtrend": normalized_signals.get('downtrend_strength_norm', pd.Series(0.0, index=df_index)).fillna(0),
+            "chip_div": normalized_signals.get('chip_divergence_ratio_norm', pd.Series(0.0, index=df_index)).fillna(0),
+            "panic": panic_impact
         }
-        # 权重分配：强调派发行为与杀跌冲击
+        # 确保权重总和为 1.0
         bearish_weights = {
             "distribution": 0.25, "behavior_dist": 0.20,
-            "trend_weakness": 0.20, "chip_divergence": 0.15,
-            "panic_impact": 0.20
+            "downtrend": 0.20, "chip_div": 0.15,
+            "panic": 0.20
         }
-        # 4. 几何平均合成看跌原始分
-        bearish_score_raw = _robust_geometric_mean(bearish_components, bearish_weights, df_index).clip(0, 1)
-        # 5. 应用调节器与负向转化
-        # A股特性：高位派发往往伴随急跌，但在资金记忆丰厚的票上，跌幅往往会有博弈性质的托盘
+        # 4. 稳健几何平均计算
+        # 内部已包含 eps 处理，此处外层二次保底
+        bearish_score_raw = _robust_geometric_mean(bearish_components, bearish_weights, df_index).fillna(0.0).clip(0, 1)
+        # 5. 探针采样：在自检阶段输出看跌分量状态
+        if self.probe_dates:
+            self._probe_print(f"  [BEAR_CHECK] raw={bearish_score_raw.iloc[-1]:.4f}, panic={panic_impact.iloc[-1]:.4f}, mod={mf_flow_memory_anti_bearish_modulator.iloc[-1]:.4f}")
+        # 6. 合成最终负向分值
         bearish_score_modulated = (bearish_score_raw * mf_flow_memory_anti_bearish_modulator).clip(0, 1)
-        # 转换为最终负值分值
         return -bearish_score_modulated
 
     def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], 
