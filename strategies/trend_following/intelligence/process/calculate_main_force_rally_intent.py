@@ -31,17 +31,17 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.0 · 数据解耦版】主计算流程：由内部计算转向直接接驳数据层预计算指标
+        【V8.0 · 逻辑精简版】主计算流程：移除缺失的Flag列映射，确保策略启动的兼容性
         """
         self._probe_output = []
         params = self._get_parameters(config)
+        # 触发自检，此时已不包含缺失的三个Flag列
         if not self._check_data_integrity(df):
-            self._probe_print("警告: 发现数据列缺失，计算逻辑将尝试使用安全默认值替代。")
+            self._probe_print("警告: 发现基础数据列不完整，将尝试使用安全值填充。")
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         df_index = df.index
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
-        # 传递raw_signals以直接使用预计算的S/A/J指标
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, params['historical_context_params'])
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
@@ -106,7 +106,7 @@ class CalculateMainForceRallyIntent:
 
     def _get_required_column_map(self) -> Dict[str, str]:
         """
-        【V7.0 · 核心清单动态重构】定义所有必需列，并动态注入运动学三阶指标清单
+        【V8.0 · 映射清单精简版】移除数据层不提供的 'IS_BREAKOUT_D' 等Flag列
         """
         col_map = {
             'close': 'close_D', 'high': 'high_D', 'low': 'low_D', 'open': 'open_D',
@@ -138,20 +138,17 @@ class CalculateMainForceRallyIntent:
             'market_sentiment': 'market_sentiment_score_D', 'industry_breadth': 'industry_breadth_score_D',
             'industry_leader': 'industry_leader_score_D', 'industry_strength_rank': 'industry_strength_rank_D',
             'breakout_quality': 'breakout_quality_score_D', 'breakout_confidence': 'breakout_confidence_D',
-            'breakout_potential': 'breakout_potential_D', 'is_breakout': 'IS_BREAKOUT_D',
+            'breakout_potential': 'breakout_potential_D',
             'uptrend_strength': 'uptrend_strength_D', 'downtrend_strength': 'downtrend_strength_D',
-            'trend_confirmation': 'trend_confirmation_score_D', 'is_trend_continuation': 'IS_TREND_CONTINUATION_D',
-            'is_trend_reversal': 'IS_TREND_REVERSAL_D',
+            'trend_confirmation': 'trend_confirmation_score_D',
             'accumulation_score': 'accumulation_score_D', 'distribution_score': 'distribution_score_D',
             'behavior_accumulation': 'behavior_accumulation_D', 'behavior_distribution': 'behavior_distribution_D'
         }
-        # 运动学核心基准映射
         kinematic_bases = {
             'price_trend': 'close_D', 'volume_trend': 'volume_D',
             'net_amount_trend': 'net_amount_D', 'flow_intensity': 'flow_intensity_D',
             'chip_concentration': 'chip_concentration_ratio_D'
         }
-        # 动态注入斐波那契周期的三阶指标
         for signal_name, col_name in kinematic_bases.items():
             for p in [5, 13, 21, 55]:
                 for metric in ['SLOPE', 'ACCEL', 'JERK']:
@@ -173,7 +170,7 @@ class CalculateMainForceRallyIntent:
 
     def _get_raw_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 信号获取重构】基于映射表动态获取原始信号
+        【V8.0 · 动态加载版】基于精简后的映射清单自动加载原始信号
         """
         raw_signals = {}
         method_name = "_get_raw_signals"

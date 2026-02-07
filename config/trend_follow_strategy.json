@@ -164,6 +164,9 @@
         "PDI_14_D": [5, 8],
         "turnover_rate_f_D": [5, 13, 21, 34, 55],
         "OCH_D": [5, 13, 21],
+        "chip_concentration_ratio_D": [5, 13, 21, 34, 55],
+        "flow_intensity_D": [5, 13, 21, 34, 55],
+        "net_amount_D": [5, 13, 21, 34, 55],
         "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [5, 13],
         "VOL_MA_5_D": [5, 13],
@@ -215,6 +218,9 @@
         "PDI_14_D": [5, 8],
         "turnover_rate_f_D": [5, 13, 21, 34, 55],
         "OCH_D": [5, 13, 21],
+        "chip_concentration_ratio_D": [5, 13, 21, 34, 55],
+        "flow_intensity_D": [5, 13, 21, 34, 55],
+        "net_amount_D": [5, 13, 21, 34, 55],
         "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [5, 13],
         "VOL_MA_5_D": [5, 13],
@@ -225,7 +231,12 @@
         "enabled": true,
         "series_to_jerk": {
             "EMA_5_D": [5, 13],
-            "EMA_21_D": [13, 21]
+            "EMA_21_D": [13, 21],
+            "close_D": [5, 13, 21, 34, 55],
+            "volume_D": [5, 13, 21, 34, 55],
+            "chip_concentration_ratio_D": [5, 13, 21, 34, 55],
+            "flow_intensity_D": [5, 13, 21, 34, 55],
+            "net_amount_D": [5, 13, 21, 34, 55]
         }
     }
   },
