@@ -424,31 +424,6 @@ class CalculateMainForceRallyIntent:
         # 前向填充，平滑处理
         return snr_score.ffill().fillna(0.5)
 
-    def _calculate_sentiment_momentum(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int) -> pd.Series:
-        """
-        【V3.5 · 情绪惯性版】计算情绪动量
-        核心理念：量化情绪的"加速"与"衰竭"。
-        A股特性：急涨缓跌。情绪加速上升是主升浪特征，高位动量钝化是见顶前兆。
-        """
-        if sentiment_series.empty:
-            return pd.Series(0.5, index=df_index)
-        # 1. 情绪平滑 (去除日内杂波)
-        # 使用较短周期(如5日)的EMA
-        smooth_sentiment = sentiment_series.ewm(span=5, adjust=False).mean()
-        # 2. 计算一阶动量 (速度)
-        # 3日变化率
-        velocity = smooth_sentiment.diff(3).fillna(0)
-        # 3. 计算二阶动量 (加速度)
-        acceleration = velocity.diff(3).fillna(0)
-        # 4. 动量合成
-        # 归一化处理，假设变化率极值在 +/- 0.3 之间
-        vel_score = np.tanh(velocity * 5) * 0.5 + 0.5
-        acc_score = np.tanh(acceleration * 5) * 0.5 + 0.5
-        # 综合动量：速度为主，加速度为辅（修正拐点）
-        # 结果 > 0.5 代表情绪由弱转强或加速上升
-        momentum_score = (vel_score * 0.6 + acc_score * 0.4).clip(0, 1)
-        return momentum_score
-
     def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
         【V3.0】价格记忆深度计算
@@ -1081,64 +1056,51 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_enhanced_sentiment_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.0】增强版市场情绪代理信号
-        核心理念：市场情绪是多维度的，包括贪婪恐惧、一致性、极端性、传染性
-        数学模型：情绪复合指数（SCI） + 情绪分歧度 + 情绪极端性
-        数据层需要新增：
-        1. 社交媒体情绪指数
-        2. 新闻情绪分析
-        3. 机构调研热度
-        4. 投资者情绪调查数据
+        【V4.1 · 接口修复版】增强版市场情绪代理信号
+        修改说明：修复调用 _calculate_sentiment_momentum 时缺失 memory_period 参数导致的 TypeError。
         """
         enhanced_sentiment_proxy_calculator = EnhancedSentimentProxyCalculator()
-        sentiment_components = {}
-        # 1. 基础市场情绪（来自数据层）
+        # 显式获取情绪记忆周期参数，默认 13 日
+        memory_period = get_param_value(config.get('sentiment_memory_period'), 13)
+        # 1. 基础市场情绪
         base_sentiment = normalized_signals.get('market_sentiment_norm', pd.Series(0.5, index=df_index))
-        # 2. 情绪动量（情绪变化速度）
+        # 2. 情绪动量（传入缺失的 memory_period）
         sentiment_momentum = self._calculate_sentiment_momentum(
-            base_sentiment, df_index
+            base_sentiment, df_index, memory_period
         )
-        # 3. 情绪分歧度（市场参与者情绪差异）
+        # 3. 情绪分歧度
         sentiment_divergence = enhanced_sentiment_proxy_calculator._calculate_sentiment_divergence_index(
             normalized_signals, df_index
         )
-        # 4. 情绪极端性（情绪处于极端状态的程度）
+        # 4. 情绪极端性
         sentiment_extremity = enhanced_sentiment_proxy_calculator._calculate_sentiment_extremity_index(
             base_sentiment, df_index
         )
-        # 5. 情绪传染性（情绪在板块间的传播）
+        # 5. 情绪传染性
         sentiment_contagion = enhanced_sentiment_proxy_calculator._calculate_sentiment_contagion_index(
             normalized_signals, df_index
         )
-        # 6. 情绪稳定性（情绪的波动和反转）
+        # 6. 情绪稳定性
         sentiment_stability = enhanced_sentiment_proxy_calculator._calculate_sentiment_stability_index(
             base_sentiment, df_index
         )
-        # 综合情绪代理信号
+        # 综合权重
         sentiment_weights = {
-            "base": 0.25,
-            "momentum": 0.20,
-            "divergence": 0.15,
-            "extremity": 0.15,
-            "contagion": 0.15,
-            "stability": 0.10
+            "base": 0.25, "momentum": 0.20, "divergence": 0.15,
+            "extremity": 0.15, "contagion": 0.15, "stability": 0.10
         }
         sentiment_components_values = {
             "base": base_sentiment.clip(0, 1),
-            "momentum": (sentiment_momentum * 0.5 + 0.5).clip(0, 1),  # 映射到[0,1]
-            "divergence": (1 - sentiment_divergence).clip(0, 1),  # 分歧越低越好
-            "extremity": (1 - sentiment_extremity).clip(0, 1),  # 极端性越低越好
+            "momentum": (sentiment_momentum * 0.5 + 0.5).clip(0, 1),
+            "divergence": (1 - sentiment_divergence).clip(0, 1),
+            "extremity": (1 - sentiment_extremity).clip(0, 1),
             "contagion": sentiment_contagion.clip(0, 1),
             "stability": sentiment_stability.clip(0, 1)
         }
-        # 使用模糊逻辑合成
         sentiment_proxy = enhanced_sentiment_proxy_calculator._fuzzy_logic_synthesis(sentiment_components_values, sentiment_weights, df_index)
-        # 情绪调节器：根据市场阶段调整
-        market_phase = self._identify_market_phase(sentiment_components_values, df_index)
+        market_phase = self._identify_market_phase(df_index, {"sentiment_state": base_sentiment}, normalized_signals)
         sentiment_modulator = enhanced_sentiment_proxy_calculator._calculate_sentiment_modulator(market_phase, config)
-        # 最终市场情绪代理信号
         enhanced_sentiment_proxy = (sentiment_proxy * sentiment_modulator).clip(0, 1)
-        self._probe_print(f"市场情绪代理信号构建完成，均值: {enhanced_sentiment_proxy.mean():.4f}")
         return {
             "raw_sentiment_proxy": sentiment_proxy,
             "enhanced_sentiment_proxy": enhanced_sentiment_proxy,
@@ -1146,6 +1108,25 @@ class CalculateMainForceRallyIntent:
             "sentiment_components": sentiment_components_values,
             "market_phase": pd.Series(market_phase, index=df_index)
         }
+
+    def _calculate_sentiment_momentum(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int = 13) -> pd.Series:
+        """
+        【V3.6 · 健壮性增强版】计算情绪动量
+        修改说明：为 memory_period 增加默认值，确保接口调用的鲁棒性。
+        """
+        if sentiment_series.empty:
+            return pd.Series(0.5, index=df_index)
+        # 1. 情绪平滑 (使用 5 日 EMA 过滤杂波)
+        smooth_sentiment = sentiment_series.ewm(span=5, adjust=False).mean()
+        # 2. 计算一阶动量 (3 日变化率)
+        velocity = smooth_sentiment.diff(3).fillna(0)
+        # 3. 计算二阶动量 (3 日加速度)
+        acceleration = velocity.diff(3).fillna(0)
+        # 4. 动量合成
+        vel_score = np.tanh(velocity * 5) * 0.5 + 0.5
+        acc_score = np.tanh(acceleration * 5) * 0.5 + 0.5
+        momentum_score = (vel_score * 0.6 + acc_score * 0.4).clip(0, 1)
+        return momentum_score
 
     def _calculate_enhanced_liquidity_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
