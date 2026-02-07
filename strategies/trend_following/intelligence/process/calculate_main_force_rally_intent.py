@@ -71,7 +71,7 @@ class CalculateMainForceRallyIntent:
         # 6. 核心维度得分层 (Scoring Layer)
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context)
-        obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals)
+        obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals, historical_context)
         # 7. 风险裁决层 (Risk Adjudication)
         # 核心逻辑：利用 V6.0 版风险共振引擎生成非线性惩罚项
         total_risk_penalty = self._adjudicate_risk(
@@ -2300,18 +2300,20 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_control_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V2.0】计算控制力分数 - 基于新指标
+        【V2.1 · 字典路径修复版】计算控制力分数
+        修改说明：修复 KeyError，将筹码稳定性调节器指向正确的 chip_memory 子字典路径。
+        版本号：2026.02.07.04
         """
         control_components = {
-            "chip_concentration": normalized_signals['chip_concentration_ratio_norm'].clip(lower=0),
-            "chip_convergence": normalized_signals['chip_convergence_ratio_norm'].clip(lower=0),
-            "chip_stability": normalized_signals['chip_stability_norm'].clip(lower=0),
-            "flow_consistency": normalized_signals['flow_consistency_norm'].clip(lower=0),
-            "flow_stability": normalized_signals['flow_stability_norm'].clip(lower=0),
-            "inflow_persistence": normalized_signals['inflow_persistence_norm'].clip(lower=0),
-            "trend_confirmation": normalized_signals['trend_confirmation_norm'].clip(lower=0),
-            "breakout_confidence": normalized_signals['breakout_confidence_norm'].clip(lower=0),
-            "behavior_accumulation": normalized_signals['behavior_accumulation_norm'].clip(lower=0)
+            "chip_concentration": normalized_signals.get('chip_concentration_ratio_norm', pd.Series(0.5, index=df_index)).clip(lower=0),
+            "chip_convergence": normalized_signals.get('chip_convergence_ratio_norm', pd.Series(0.5, index=df_index)).clip(lower=0),
+            "chip_stability": normalized_signals.get('chip_stability_norm', pd.Series(0.5, index=df_index)).clip(lower=0),
+            "flow_consistency": normalized_signals.get('flow_consistency_norm', pd.Series(0.5, index=df_index)).clip(lower=0),
+            "flow_stability": normalized_signals.get('flow_stability_norm', pd.Series(0.5, index=df_index)).clip(lower=0),
+            "inflow_persistence": normalized_signals.get('inflow_persistence_norm', pd.Series(0.5, index=df_index)).clip(lower=0),
+            "trend_confirmation": normalized_signals.get('trend_confirmation_norm', pd.Series(0.5, index=df_index)).clip(lower=0),
+            "breakout_confidence": normalized_signals.get('breakout_confidence_norm', pd.Series(0.5, index=df_index)).clip(lower=0),
+            "behavior_accumulation": normalized_signals.get('behavior_accumulation_norm', pd.Series(0.5, index=df_index)).clip(lower=0)
         }
         control_weights = {
             "chip_concentration": 0.15, "chip_convergence": 0.12, "chip_stability": 0.12,
@@ -2319,33 +2321,64 @@ class CalculateMainForceRallyIntent:
             "trend_confirmation": 0.10, "breakout_confidence": 0.11, "behavior_accumulation": 0.10
         }
         control_score = _robust_geometric_mean(control_components, control_weights, df_index).clip(0, 1)
-        # 应用筹码集中度稳定性调节器
-        if historical_context['hc_enabled']:
+        # 修正：从 historical_context 的子字典中提取稳定性调节因子
+        if historical_context.get('hc_enabled', False):
+            chip_mem = historical_context.get('chip_memory', {})
+            # 使用 stability_memory 作为筹码锁定强度的反馈
+            chip_stability_feedback = chip_mem.get('stability_memory', pd.Series(0.5, index=df_index))
             chip_stability_modulator = 0.05
-            control_score = (control_score * (1 + historical_context['mtf_chip_concentration_stability'] * chip_stability_modulator)).clip(0, 1)
+            # 通过 (feedback - 0.5) 将分值转化为 [-0.5, 0.5] 的增益/减损系数
+            control_score = (control_score * (1 + (chip_stability_feedback - 0.5) * chip_stability_modulator)).clip(0, 1)
         return control_score
 
-    def _calculate_obstacle_clearance_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series]) -> pd.Series:
+    def _calculate_obstacle_clearance_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V2.0】计算障碍清除分数 - 基于新指标
+        【V3.0 · 筹码真空探测版】计算障碍清除分数
+        逻辑：通过识别“上方套牢盘真空区”与“阻力平台穿透效率”，量化主力拉升的物理阻碍程度。
+        A股特性：重点捕捉放量冲过密集套牢区后，进入“缩量控盘拉升”阶段的真空溢价。
+        版本号：2026.02.07.05
         """
-        obstacle_clearance_components = {
-            "volume_ratio": normalized_signals['volume_ratio_norm'].clip(lower=0),
-            "turnover_rate": normalized_signals['turnover_rate_norm'].clip(lower=0),
-            "net_amount_ratio": normalized_signals['net_amount_ratio_norm'].clip(lower=0),
-            "flow_momentum": normalized_signals['flow_momentum_5d_norm'].clip(lower=0),
-            "chip_flow_intensity": normalized_signals['chip_flow_intensity_norm'].clip(lower=0),
-            "breakout_potential": normalized_signals['breakout_potential_norm'].clip(lower=0),
-            "behavior_consolidation": normalized_signals['behavior_consolidation_norm'].clip(lower=0) if 'behavior_consolidation_norm' in normalized_signals else pd.Series(0.5, index=df_index),
-            "absolute_change": normalized_signals['absolute_change_strength_norm'].clip(lower=0)
+        # 1. 基础运动学分量提取
+        vol_ratio = normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index))
+        abs_change = normalized_signals.get('absolute_change_strength_norm', pd.Series(0.5, index=df_index))
+        # 2. 支撑阻力位置感知 (来自价格记忆模块)
+        # sr_mem > 0.5 表示价格已站在主要阻力平台之上，进入相对安全区
+        sr_mem = historical_context.get('price_memory', {}).get('support_resistance_memory', pd.Series(0.5, index=df_index))
+        # 3. 筹码压力与真空度计算 (Vacuum Detection)
+        chip_mem = historical_context.get('chip_memory', {})
+        # 筹码压力记忆：越高代表上方套牢盘越密集
+        chip_pressure = chip_mem.get('pressure_memory', pd.Series(0.5, index=df_index))
+        # 筹码稳定性：越高代表筹码在当前价位锁定越稳
+        chip_stability = chip_mem.get('stability_memory', pd.Series(0.5, index=df_index))
+        # 定义真空度：(1 - 压力) 与 稳定性的加权。当上方无压力且底部稳定时，真空度最高
+        vacuum_score = ((1 - chip_pressure) * 0.7 + chip_stability * 0.3).clip(0, 1)
+        # 4. 计算推进效率因子 (Efficiency of Progress)
+        # 公式：E = (Price_Change_Strength) / (Volume_Ratio + epsilon)
+        # 逻辑：真空区特征是“低量高效拉升”，而阻力区特征是“放量滞涨（肉磨子行情）”
+        raw_efficiency = abs_change / (vol_ratio + 1e-9)
+        # 对效率进行动态归一化，捕捉相对于过去60日的爆发性效率
+        efficiency_norm = normalize_score(raw_efficiency, target_index=df_index, windows=60)
+        # 5. 障碍清除意图合成 (使用专家加权几何平均)
+        # 权重分配：SR记忆决定基准，真空度决定上限，效率决定即时成色
+        oc_components = {
+            "sr_position": sr_mem,
+            "vacuum_index": vacuum_score,
+            "clearance_efficiency": efficiency_norm,
+            "breakout_potential": normalized_signals.get('breakout_potential_norm', pd.Series(0.5, index=df_index)),
+            "net_flow_strength": normalized_signals.get('net_amount_ratio_norm', pd.Series(0.5, index=df_index))
         }
-        obstacle_clearance_weights = {
-            "volume_ratio": 0.15, "turnover_rate": 0.15, "net_amount_ratio": 0.15,
-            "flow_momentum": 0.15, "chip_flow_intensity": 0.10,
-            "breakout_potential": 0.15, "behavior_consolidation": 0.10,
-            "absolute_change": 0.05
+        oc_weights = {
+            "sr_position": 0.30,
+            "vacuum_index": 0.25,
+            "clearance_efficiency": 0.20,
+            "breakout_potential": 0.15,
+            "net_flow_strength": 0.10
         }
-        obstacle_clearance_score = _robust_geometric_mean(obstacle_clearance_components, obstacle_clearance_weights, df_index).clip(0, 1)
+        obstacle_clearance_score = _robust_geometric_mean(oc_components, oc_weights, df_index).clip(0, 1)
+        # 6. 特殊逻辑：高位缩量背离惩罚
+        # 如果效率极高但成交量萎缩到极致（地量），在A股可能是流动性枯竭，而非真空，需小幅修正
+        extreme_low_vol = (vol_ratio < 0.1)
+        obstacle_clearance_score = obstacle_clearance_score.mask(extreme_low_vol, obstacle_clearance_score * 0.9)
         return obstacle_clearance_score
 
     def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, 
