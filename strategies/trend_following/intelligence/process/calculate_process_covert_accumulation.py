@@ -166,43 +166,30 @@ class CalculateProcessCovertAccumulation:
 
     def _calculate_derived_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]):
         """
-        【V4.1 · 物理高阶导数修正版】基于斐波那契序列计算三阶导数 JERK。
-        - 核心说明：针对核心资金流和结构指标，计算 SLOPE -> ACCEL -> JERK，捕捉隐蔽吸筹的动能突变点。
+        【V4.2 · 物理突变与接口修复版】计算三阶导数 JERK 特征。
+        - 逻辑：针对 A 股吸筹特性的 stealth_flow_ratio_D 计算物理三阶导数。
         """
         fib_windows = [5, 8, 13, 21, 34, 55]
-        # 定义需要进行高阶导数分析的核心基准信号
-        derivative_targets = [
-            'stealth_flow_ratio_D', 
-            'SMART_MONEY_INST_NET_BUY_D', 
-            'MA_POTENTIAL_COMPRESSION_RATE_D',
-            'VPA_MF_ADJUSTED_EFF_D',
-            'chip_stability_D',
-            'market_sentiment_score_D'
-        ]
+        # 基于军械库清单的核心资金流字段
+        derivative_targets = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D']
         for base in derivative_targets:
-            if base not in df.columns:
-                continue
+            if base not in df.columns: continue
             for period in fib_windows:
-                # 1. 计算一阶导数 (Velocity)
+                # 速度 (Slope)
                 s_col = f'SLOPE_{period}_{base}'
-                if s_col not in df.columns:
-                    df[s_col] = ta.slope(df[base], length=period)
-                # 2. 计算二阶导数 (Acceleration)
+                if s_col not in df.columns: df[s_col] = ta.slope(df[base], length=period)
+                # 加速度 (Accel)
                 a_col = f'ACCEL_{period}_{base}'
-                if a_col not in df.columns and s_col in df.columns:
-                    df[a_col] = ta.slope(df[s_col], length=period)
-                # 3. 计算三阶导数 (Jerk)
+                if a_col not in df.columns and s_col in df.columns: df[a_col] = ta.slope(df[s_col], length=period)
+                # 加加速度 (Jerk)
                 j_col = f'JERK_{period}_{base}'
-                if j_col not in df.columns and a_col in df.columns:
-                    df[j_col] = ta.slope(df[a_col], length=period)
-        # 处理累积求和信号 (维持 V3.1 兼容性)
-        acc_targets = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']
-        for base in acc_targets:
+                if j_col not in df.columns and a_col in df.columns: df[j_col] = ta.slope(df[a_col], length=period)
+        # 兼容性累积计算
+        for base in ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']:
             if base in df.columns:
                 for window in cumulative_flow_windows:
                     c_col = f'{base}_{window}d_sum'
-                    if c_col not in df.columns:
-                        df[c_col] = df[base].rolling(window, min_periods=1).sum()
+                    if c_col not in df.columns: df[c_col] = df[base].rolling(window, min_periods=1).sum()
 
     def _validate_and_get_raw_signals(self, df: pd.DataFrame, method_name: str, price_weakness_slope_window: int, low_volatility_bbw_window: int, mtf_slope_accel_weights: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]) -> Optional[Dict[str, pd.Series]]:
         """
@@ -276,34 +263,37 @@ class CalculateProcessCovertAccumulation:
         _temp_debug_values["market_context_v41"] = scores
         return market_context_score
 
-    def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict, **kwargs) -> pd.Series:
+    def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_flow_weights: Dict, cumulative_acc_windows: List[int], cumulative_acc_weights: Dict, daily_mf_flow_weight: float, cumulative_mf_flow_weight: float, daily_acc_weight: float, cumulative_acc_weight: float, new_raw_signals_weights: Dict, main_force_accumulation_resonance_weight: float, new_raw_signals_weights_v2: Dict, covert_order_flow_resonance_weight: float) -> pd.Series:
         """
-        【V4.0 · 高阶导数物理建模版】集成 JERK 突变特征的隐蔽行动评分。
-        - 逻辑：将物理学中的“冲量”概念引入资金流分析，识别主力建仓的瞬时放量突变。
+        【V4.2 · 物理突变与接口修复版】计算隐蔽行动分数。
+        - 修复说明：严格对齐 19 个位置参数，解决 TypeError。
+        - 深度逻辑：集成 stealth_flow_ratio_D 的斐波那契 JERK (加加速度) 信号，捕捉主力吸筹的非线性爆发。
         """
-        # 计算核心指标的多周期 JERK 综合分
-        stealth_jerk_score = pd.Series(0.0, index=df_index)
+        # 1. 提取核心指标的高阶导数评分 (斐波那契: 5, 8, 13, 21, 34, 55)
         fib_windows = [5, 8, 13, 21, 34, 55]
+        jerk_score_stealth = pd.Series(0.0, index=df_index, dtype=np.float32)
         for p in fib_windows:
-            stealth_jerk_score += self.helper._normalize_series(raw_signals[f'jerk_stealth_flow_ratio_D_{p}'], df_index)
-        stealth_jerk_score /= len(fib_windows)
-        # 计算机构买入的加速度分
-        inst_buy_accel_score = pd.Series(0.0, index=df_index)
-        for p in fib_windows:
-            inst_buy_accel_score += self.helper._normalize_series(raw_signals[f'accel_SMART_MONEY_INST_NET_BUY_D_{p}'], df_index, bipolar=True)
-        inst_buy_accel_score = (inst_buy_accel_score / len(fib_windows) + 1) / 2
+            key = f'jerk_stealth_flow_ratio_D_{p}'
+            if key in raw_signals:
+                jerk_score_stealth += self.helper._normalize_series(raw_signals[key], df_index, bipolar=True)
+        jerk_score_stealth = (jerk_score_stealth / len(fib_windows) + 1) / 2
+        # 2. 基础信号评分构建
         scores = {
-            "stealth_flow_jerk": stealth_jerk_score,
-            "inst_buy_accel": inst_buy_accel_score,
-            "stealth_flow_slope": self.helper._normalize_series(raw_signals['slope_stealth_flow_ratio_D_13'], df_index),
-            "afternoon_bias": self.helper._normalize_series(raw_signals['afternoon_flow'], df_index),
-            "closing_intensity": self.helper._normalize_series(raw_signals['closing_intensity'], df_index),
-            "flow_consistency": self.helper._normalize_series(df['flow_consistency_D'], df_index),
-            "mf_efficiency": self.helper._normalize_series(raw_signals['mf_efficiency'], df_index),
-            "accumulation_signal": self.helper._normalize_series(df['accumulation_score_D'], df_index),
-            "inst_net_buy": self.helper._normalize_series(raw_signals['inst_buy_main'], df_index, bipolar=True)
+            "stealth_ops": self.helper._normalize_series(raw_signals['stealth_flow'], df_index, bipolar=False),
+            "inst_net_buy": self.helper._normalize_series(raw_signals['inst_buy'], df_index, bipolar=True),
+            "stealth_flow_jerk": jerk_score_stealth,
+            "afternoon_bias": self.helper._normalize_series(raw_signals['afternoon_flow'], df_index, bipolar=False),
+            "closing_intensity": self.helper._normalize_series(raw_signals['closing_intensity'], df_index, bipolar=False),
+            "mf_efficiency": self.helper._normalize_series(raw_signals['mf_efficiency'], df_index, bipolar=False),
+            "flow_consistency": self.helper._normalize_series(raw_signals['flow_consistency'], df_index, bipolar=False),
+            "contextualized_hidden_accumulation": self.helper._normalize_series(raw_signals['acc_score'], df_index, bipolar=False)
         }
-        covert_action_score = _robust_geometric_mean(scores, covert_action_weights, df_index)
+        # 3. 权重容错处理与融合
+        final_covert_weights = covert_action_weights.copy()
+        if "stealth_flow_jerk" not in final_covert_weights:
+            final_covert_weights["stealth_flow_jerk"] = 0.15 # 动态注入高阶导数权重
+        covert_action_score = _robust_geometric_mean(scores, final_covert_weights, df_index)
+        _temp_debug_values["隐蔽行动_V42"] = {k: v for k, v in scores.items()}
         _temp_debug_values["covert_action_score"] = covert_action_score
         return covert_action_score
 
