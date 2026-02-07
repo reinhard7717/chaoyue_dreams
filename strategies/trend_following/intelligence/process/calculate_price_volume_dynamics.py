@@ -463,6 +463,7 @@ class CalculatePriceVolumeDynamics:
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
         """V53.0 · 物理动力引擎：集成共识速度与量纲压缩后的竞价预判"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        score_calculate = CalculatePowerTransferRawScore(is_debug, probe_ts)
         # 1. 动力学去噪与冲量激活
         vol_adj = raw['BBW_21_2.0_D'].fillna(0.1).values
         rolling_tc = raw['trade_count_D'].rolling(21).mean().replace(0, 1)
@@ -471,10 +472,10 @@ class CalculatePriceVolumeDynamics:
         a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].fillna(0).values, vol_adj, conf)
         act_impulse = pd.Series(_numba_power_activation((j_c * 0.45 + a_c * 0.55), gain=1.8), index=df_index)
         # 2. 标准化与补偿（物理修正）
-        norm_impulse = self._calculate_dynamic_impulse_norm(act_impulse, raw, df_index, method_name)
-        comp_impulse = self._calculate_limit_price_compensation(norm_impulse, raw, df_index, method_name)
+        norm_impulse = score_calculate._calculate_dynamic_impulse_norm(act_impulse, raw, df_index, method_name)
+        comp_impulse = score_calculate._calculate_limit_price_compensation(norm_impulse, raw, df_index, method_name)
         # 3. T+1 竞价预判（已在内部执行量纲压缩）
-        auc_pred = self._calculate_auction_prediction(raw, df_index, method_name)
+        auc_pred = score_calculate._calculate_auction_prediction(raw, df_index, method_name)
         # 4. MCV 多尺度共识速度
         fib_wins = np.array([3, 5, 8, 13, 21], dtype=np.int64)
         _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values, fib_wins)
