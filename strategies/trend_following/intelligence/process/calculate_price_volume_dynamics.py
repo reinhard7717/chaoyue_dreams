@@ -254,20 +254,27 @@ def _numba_complex_systems(close, volume, sentiment, n):
     return criticality, adaptation
 @jit(nopython=True)
 def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.05):
-    """V31.0 · 自适应动力学去噪算子：基于波动率调节的卡尔曼变体"""
+    """V51.0 · 自适应去噪算子：增加 NaN 容错与断路保护"""
     n = len(data)
     est = np.zeros(n)
     p = np.zeros(n)
-    est[0] = data[0]
-    p[0] = 1.0
-    for i in range(1, n):
-        # 测量噪声 R 随波动率正相关，随置信度负相关
-        # 波动率大或置信度低时，R 变大，模型更倾向于相信预测值而非当前观测值
+    # 寻找第一个非空值作为初始状态
+    first_valid = 0
+    for i in range(n):
+        if not np.isnan(data[i]) and not np.isnan(vol_adj[i]) and not np.isnan(confidence[i]):
+            est[i] = data[i]
+            first_valid = i
+            break
+    p[first_valid] = 1.0
+    for i in range(first_valid + 1, n):
+        # 实时检测 NaN，若检测到则状态平移
+        if np.isnan(data[i]) or np.isnan(vol_adj[i]) or np.isnan(confidence[i]):
+            est[i] = est[i-1]
+            p[i] = p[i-1]
+            continue
         meas_noise = (vol_adj[i] * 2.0) / (confidence[i] + 1e-9)
-        # 预测步骤
         curr_est = est[i-1]
         curr_p = p[i-1] + process_noise
-        # 更新步骤
         k_gain = curr_p / (curr_p + meas_noise)
         est[i] = curr_est + k_gain * (data[i] - curr_est)
         p[i] = (1 - k_gain) * curr_p
@@ -455,35 +462,44 @@ class CalculatePriceVolumeDynamics:
         return final_meta_score.clip(-3.5, 5.5).astype(np.float32)
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V47.0 · 物理动力引擎：专注于冲量合成与竞价预判（剔除安全阀调节逻辑）"""
+        """V51.0 · 物理引擎：建立从原始(Raw)到最终(Final)的全链路诊断探针"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         score_calculter = CalculatePowerTransferRawScore(is_debug, probe_ts)
-        # 1. Numba 高性能多尺度动力学提取 (MCV 共识)
-        fib_wins = np.array([3, 5, 8, 13, 21], dtype=np.int64)
-        base_series = raw['net_amount_rate_D'].values
-        _, fib_slopes = _numba_fast_rolling_dynamics(base_series, fib_wins)
-        mcv_weights = np.array([0.35, 0.25, 0.20, 0.10, 0.10])
-        mcv_consensus = pd.Series(np.dot(mcv_weights, fib_slopes), index=df_index)
-        # 2. 动力学去噪与 ReLU 激活 (物理爆发项)
+        # 1. 准备去噪参数 (执行前置清洗，修复 NaN 根源)
         vol_adj = raw['BBW_21_2.0_D'].fillna(0.1).values
-        conf = (raw['trade_count_D'] / raw['trade_count_D'].rolling(21).mean().replace(0, 1)).values
-        jerk_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_amount_rate_D'].values, vol_adj, conf)
-        accel_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values, vol_adj, conf)
-        act_impulse = pd.Series(_numba_power_activation((jerk_c * 0.45 + accel_c * 0.55), gain=1.8), index=df_index)
-        # 3. 流动性标准化与涨跌停补偿
+        # 修复点：添加 .fillna(1.0) 确保前20行均值缺失时不产生 NaN
+        rolling_tc_mean = raw['trade_count_D'].rolling(21).mean().replace(0, 1)
+        conf_series = (raw['trade_count_D'] / rolling_tc_mean).fillna(1.0)
+        conf = conf_series.values
+        # 2. 核心去噪计算
+        jerk_raw = raw['JERK_3_net_amount_rate_D'].fillna(0).values
+        accel_raw = raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].fillna(0).values
+        jerk_c_vals = _numba_adaptive_denoise_dynamics(jerk_raw, vol_adj, conf)
+        accel_c_vals = _numba_adaptive_denoise_dynamics(accel_raw, vol_adj, conf)
+        jerk_c = pd.Series(jerk_c_vals, index=df_index)
+        accel_c = pd.Series(accel_c_vals, index=df_index)
+        # 3. 冲击激活 (ReLU 变体)
+        instant_impulse_raw = (jerk_c * 0.45 + accel_c * 0.55)
+        act_impulse = pd.Series(_numba_power_activation(instant_impulse_raw.values, gain=1.8), index=df_index)
+        # 4. 标准化与补偿
         norm_impulse = score_calculter._calculate_dynamic_impulse_norm(act_impulse, raw, df_index, method_name)
         comp_impulse = score_calculter._calculate_limit_price_compensation(norm_impulse, raw, df_index, method_name)
-        # 4. T+1 竞价预判分量
+        # 5. 跨日预测矩阵 (物理部分)
         auc_pred = score_calculter._calculate_auction_prediction(raw, df_index, method_name)
-        # 5. 筹码穿透分量
-        penetration = (raw['ACCEL_8_winner_rate_D'].rolling(3).median() * 0.7).fillna(0)
-        # 6. 核心物理分值合成 (不带调节阀)
-        # 物理公式：Score_Base = \sum (Impulse \cdot w_i)
-        physical_engine_score = (comp_impulse * 8.0 * 0.30 + auc_pred * 0.30 + penetration * 0.25 + mcv_consensus * 0.15)
+        # 6. MCV 共识速度
+        fib_wins = np.array([3, 5, 8, 13, 21], dtype=np.int64)
+        _, fib_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values, fib_wins)
+        mcv_consensus = pd.Series(np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10]), fib_slopes), index=df_index)
+        # 物理总分合成
+        physical_engine_score = (comp_impulse * 8.0 * 0.30 + auc_pred * 0.30 + mcv_consensus * 0.40)
+        # --- 全链路诊断探针 ---
         if is_debug and probe_ts in df_index:
-            print(f"\n[V47.0 物理引擎探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    共识速度(MCV): {mcv_consensus.loc[probe_ts]:.4f}, 补偿冲量: {comp_impulse.loc[probe_ts]:.4f}")
-            print(f"    竞价预判: {auc_pred.loc[probe_ts]:.4f}, 物理引擎总分: {physical_engine_score.loc[probe_ts]:.4f}")
+            print(f"\n[物理引擎全链路审计 V51 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"  [节点1: 原料层] JERK_Raw: {jerk_raw[df_index.get_loc(probe_ts)]:.4f}, ACCEL_Raw: {accel_raw[df_index.get_loc(probe_ts)]:.4f}")
+            print(f"  [节点2: 去噪层] Confidence: {conf_series.loc[probe_ts]:.4f}, JERK_Clean: {jerk_c.loc[probe_ts]:.4f}, ACCEL_Clean: {accel_c.loc[probe_ts]:.4f}")
+            print(f"  [节点3: 激活层] 原始冲量: {instant_impulse_raw.loc[probe_ts]:.4f}, ReLU激活后: {act_impulse.loc[probe_ts]:.4f}")
+            print(f"  [节点4: 修正层] 标准化冲量: {norm_impulse.loc[probe_ts]:.4f}, 补偿后冲量: {comp_impulse.loc[probe_ts]:.4f}")
+            print(f"  [节点5: 汇总层] 物理分: {physical_engine_score.loc[probe_ts]:.4f}")
         return physical_engine_score.astype(np.float32)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
