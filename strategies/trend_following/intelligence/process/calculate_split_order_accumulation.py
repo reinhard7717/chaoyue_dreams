@@ -100,44 +100,61 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_synthetic_smart_proxy(self, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
         """
-        【V7.1.0 · 合成聪明钱代理逻辑 · 信号替代优化】
-        当 SMART_MONEY_INST_NET_BUY_D 静默时，通过主力净额与大单净额合成机构代理信号。
-        设计公式: Proxy = (MF_Amount * Large_Order_Net * Synergy_Buy) ^ (1/3)
+        【V7.2.0 · 拆单伪装还原版 · SSMP逻辑深化】
+        通过特大单与隐秘流向系数，还原被伪装成中户/大单的机构拆单行为。
+        - 核心逻辑: 利用 stealth_flow_ratio_D 对 buy_md_amount_D 执行“身份还原”。
+        - 版本说明: 2026-02-08 优化，增强对机构拆单行为的穿透识别，区分中户跟风。
         """
-        mf_amount = self.helper._get_safe_series(df, 'net_mf_amount_D', 0.0)
-        large_order_net = self.helper._get_safe_series(df, 'tick_large_order_net_D', 0.0)
+        # 1. 提取显性机构资金 [cite: 1]
+        elg_buy = self.helper._get_safe_series(df, 'buy_elg_amount_D', 0.0)
+        mf_net = self.helper._get_safe_series(df, 'net_mf_amount_D', 0.0)
+        # 2. 执行“拆单伪装还原”：中单/大单中蕴含的机构拆单部分 
+        md_buy = self.helper._get_safe_series(df, 'buy_md_amount_D', 0.0)
+        lg_buy = self.helper._get_safe_series(df, 'buy_lg_amount_D', 0.0)
+        stealth_ratio = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', 0.0)
+        # 计算隐秘机构流：中单和大单在隐秘系数作用下的机构属性还原 
+        hidden_inst_flow = (md_buy + lg_buy) * stealth_ratio
+        # 3. 协同性因子 [cite: 1]
         synergy_buy = self.helper._get_safe_series(df, 'SMART_MONEY_SYNERGY_BUY_D', 0.0)
         proxy_components = {
-            "mf_amount": self.helper._normalize_series(mf_amount, df_index, bipolar=True),
-            "large_order": self.helper._normalize_series(large_order_net, df_index, bipolar=True),
+            "explicit_inst": self.helper._normalize_series(elg_buy + mf_net, df_index, bipolar=True),
+            "hidden_inst": self.helper._normalize_series(hidden_inst_flow, df_index, bipolar=True),
             "synergy": self.helper._normalize_series(synergy_buy, df_index, bipolar=False)
         }
-        # 利用几何平均进行非线性合成，确保资金与协同性共振时信号才生效
-        return _robust_geometric_mean(proxy_components, {"mf_amount": 0.4, "large_order": 0.4, "synergy": 0.2}, df_index).fillna(0.0)
+        # 几何平均确保只有在显性或隐秘机构流具备规模，且有协同性时，信号才生效 
+        return _robust_geometric_mean(proxy_components, {"explicit_inst": 0.4, "hidden_inst": 0.4, "synergy": 0.2}, df_index).fillna(0.0)
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V7.1.0 · 信号自适应替换版】
-        深度整合 SSMP 合成代理逻辑，确保在原子指标静默时模型依然具备意图穿透力。
+        【V7.3.0 · 筹码熵控验证版 · 信号获取重构】
+        整合筹码熵(chip_entropy_D)识别锁仓特征，多维印证拆单还原后的吸筹真实性。
+        - 核心增强: 引入筹码熵减(Entropy Reduction)作为结构有序度的判定依据。
+        - 逻辑穿透: 只有当拆单资金流入伴随筹码熵的负向斜率时，才判定为确定性的锁仓吸筹。
         """
         df_index = df.index
+        # 1. 扩充原始指标：加入筹码熵、稳定性与各级买入额
         raw_df_columns = [
             'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D',
-            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_SYNERGY_BUY_D', 'net_mf_amount_D',
-            'tick_large_order_net_D', 'VPA_MF_ADJUSTED_EFF_D', 'absorption_energy_D',
-            'chip_concentration_ratio_D', 'flow_intensity_D', 'GEOM_ARC_CURVATURE_D',
-            'IS_MARKET_LEADER_D', 'TURNOVER_STABILITY_INDEX_D', 'tick_data_quality_score_D',
-            'THEME_HOTNESS_SCORE_D', 'PRICE_ENTROPY_D', 'close_D'
+            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_SYNERGY_BUY_D', 'buy_elg_amount_D',
+            'buy_lg_amount_D', 'buy_md_amount_D', 'net_mf_amount_D', 'tick_large_order_net_D',
+            'VPA_MF_ADJUSTED_EFF_D', 'absorption_energy_D', 'chip_concentration_ratio_D', 
+            'chip_entropy_D', 'chip_stability_D', 'flow_intensity_D', 'GEOM_ARC_CURVATURE_D', 
+            'IS_GOLDEN_PIT_D', 'IS_ROUNDING_BOTTOM_D', 'IS_MARKET_LEADER_D', 
+            'TURNOVER_STABILITY_INDEX_D', 'tick_data_quality_score_D', 'THEME_HOTNESS_SCORE_D', 
+            'PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'close_D'
         ]
         raw_signals = {col: self.helper._get_safe_series(df, col, 0.0, method_name=method_name) for col in raw_df_columns}
         normalized_signals = {}
-        # 计算合成代理 SSMP
+        # 2. 计算合成机构代理信号 (SSMP V2: 包含拆单伪装还原逻辑)
         ssmp_proxy = self._calculate_synthetic_smart_proxy(df, df_index)
-        # 扩展噪声敏感列表
-        noise_sensitive_list = ['accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'net_mf_amount_D']
+        # 3. 噪声敏感列表增加筹码熵维度
+        noise_sensitive_list = [
+            'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 
+            'buy_elg_amount_D', 'chip_entropy_D'
+        ]
         for indicator in noise_sensitive_list:
             base_val = raw_signals[indicator]
-            # 若原始信号处于静默期(std极小)，则对 SSMP 代理执行导数计算作为替代
+            # 逻辑自适应：若原子信号静默，切换至SSMP代理进行导数探测
             if indicator == 'SMART_MONEY_INST_NET_BUY_D' and base_val.std() < 1e-6:
                 active_base = ssmp_proxy
                 prefix = "proxy_"
@@ -148,11 +165,56 @@ class CalculateSplitOrderAccumulation:
             for p in [5, 13]:
                 for deriv_type in ['SLOPE', 'ACCEL', 'JERK']:
                     col_name = f'{deriv_type}_{p}_{indicator}'
-                    raw_deriv = self.helper._get_safe_series(df, col_name, 0.0) if prefix == "" else active_base.diff(p) # 代理层无衍生列需计算
+                    raw_deriv = self.helper._get_safe_series(df, col_name, 0.0) if prefix == "" else active_base.diff(p)
                     clean_deriv = self._apply_derivative_denoising(raw_deriv, active_base, dyn_eps)
                     normalized_signals[f'clean_{prefix}{col_name}'] = self.helper._normalize_series(clean_deriv, df_index, bipolar=True)
-        # 语义化维度构建逻辑保持 V7.0.1 核心框架不变
-        return raw_signals, normalized_signals, {}, {}
+        # 4. 语义化复合结果构建
+        # 4a. 资金意图结果 (包含还原后的隐秘机构动能)
+        intent_comps = {
+            "explicit_inst": self.helper._normalize_series(raw_signals['buy_elg_amount_D'] + raw_signals['net_mf_amount_D'], df_index, bipolar=True),
+            "hidden_inst_slope": normalized_signals.get('clean_proxy_SLOPE_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)),
+            "stealth": self.helper._normalize_series(raw_signals['stealth_flow_ratio_D'], df_index, bipolar=False)
+        }
+        normalized_signals["data_intent_outcome"] = _robust_geometric_mean(intent_comps, {"explicit_inst": 0.3, "hidden_inst_slope": 0.4, "stealth": 0.3}, df_index).fillna(0.0)
+        # 4b. 结构结果深化 (重点引入熵减强度)
+        # 逻辑：熵减强度 = -1 * 降噪后的熵斜率
+        entropy_slope = normalized_signals.get('clean_SLOPE_5_chip_entropy_D', pd.Series(0.0, index=df_index))
+        entropy_reduction = self.helper._normalize_series(-1 * entropy_slope, df_index, bipolar=False)
+        struct_comps = {
+            "stability": self.helper._normalize_series(raw_signals['chip_stability_D'], df_index, bipolar=False),
+            "golden_pit": raw_signals['IS_GOLDEN_PIT_D'].astype(float),
+            "concentration": self.helper._normalize_series(raw_signals['chip_concentration_ratio_D'], df_index, bipolar=False),
+            "entropy_reduction": entropy_reduction
+        }
+        normalized_signals["data_structure_outcome"] = _robust_geometric_mean(
+            struct_comps, 
+            {"stability": 0.2, "golden_pit": 0.3, "concentration": 0.25, "entropy_reduction": 0.25}, 
+            df_index
+        ).fillna(0.0)
+        # 4c. 其余复合维度维持原有动力学逻辑
+        energy_comps = {"abs_energy": self.helper._normalize_series(raw_signals['absorption_energy_D'], df_index, bipolar=False)}
+        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 1.0}, df_index).fillna(0.0)
+        # 5. MTF 与 情境信号
+        mtf_signals = {
+            "mtf_intensity": self.helper._get_mtf_slope_accel_score(df, 'accumulation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            "mtf_cohesion": self.helper._get_mtf_cohesion_score(df, noise_sensitive_list, mtf_slope_accel_weights, df_index, method_name)
+        }
+        context_signals = {
+            "is_leader": raw_signals['IS_MARKET_LEADER_D'].astype(float),
+            "turnover_stability": self.helper._normalize_series(raw_signals['TURNOVER_STABILITY_INDEX_D'], df_index, bipolar=False),
+            "data_quality": self.helper._normalize_series(raw_signals['tick_data_quality_score_D'], df_index, bipolar=False),
+            "theme_hotness": self.helper._normalize_series(raw_signals['THEME_HOTNESS_SCORE_D'], df_index, bipolar=False),
+            "parabolic_warning": self.helper._normalize_series(raw_signals['IS_PARABOLIC_WARNING_D'], df_index, bipolar=False),
+            "parabolic_slope": normalized_signals.get('clean_SLOPE_5_IS_PARABOLIC_WARNING_D', pd.Series(0.0, index=df_index)),
+            "sm_divergence": self.helper._normalize_series(raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'], df_index, bipolar=False),
+            "sm_divergence_slope": normalized_signals.get('clean_SLOPE_5_SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', pd.Series(0.0, index=df_index)),
+            "anomaly_intensity": self.helper._normalize_series(raw_signals['anomaly_intensity_D'], df_index, bipolar=False),
+            "entropy_norm": self.helper._normalize_series(raw_signals['PRICE_ENTROPY_D'], df_index, bipolar=False),
+            "entropy_slope": normalized_signals.get('clean_SLOPE_5_PRICE_ENTROPY_D', pd.Series(0.0, index=df_index)),
+            "compression_accel": normalized_signals.get('clean_ACCEL_5_MA_POTENTIAL_COMPRESSION_RATE_D', pd.Series(0.0, index=df_index)),
+            "sentiment_slope": normalized_signals.get('clean_SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df_index))
+        }
+        return raw_signals, normalized_signals, mtf_signals, context_signals
 
     def _calculate_dynamic_epsilon(self, base_series: pd.Series, window: int = 55, multiplier: float = 0.05) -> pd.Series:
         """
