@@ -46,10 +46,8 @@ class CalculateSplitOrderAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.0.0 · 全维动力学与博弈集成版】
-        计算完整的拆单吸筹强度信号，包含动态降噪、意图奇点、环境熵控及EPC弹性校准。
-        - 核心优化: 彻底去 diff() 化，全流程采用数据层高阶衍生指标。
-        - 逻辑闭环: 从原子信号获取、环境基准计算、意图评分、全息验证到最终的风险平抑。
+        【V7.0.1 · 逻辑闭环版】
+        计算完整的拆单吸筹强度信号，移除所有非语法的引用标记。
         """
         method_name = "calculate_split_order_accumulation"
         is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
@@ -65,35 +63,27 @@ class CalculateSplitOrderAccumulation:
         _temp_debug_values = {}
         df_index = df.index
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', self.default_mtf_slope_accel_weights)
-        # 1. 信号获取与动态降噪
         raw_signals, normalized_signals, mtf_signals, context_signals = self._get_and_normalize_signals(df, mtf_slope_accel_weights, method_name)
-        _temp_debug_values["归一化处理"] = normalized_signals
-        # 2. 动态效率基准线 (环境惯性感知)
         dynamic_efficiency_baseline, baseline_debug_values = self._calculate_dynamic_efficiency_baseline(context_signals, df_index, config)
-        _temp_debug_values["动态效率基准线"] = baseline_debug_values
-        # 3. 计算初步分数 (意图奇点模型 ISM)
         dynamic_preliminary_score, preliminary_debug_values = self._calculate_preliminary_score(normalized_signals, mtf_signals, context_signals, df_index, config)
-        _temp_debug_values["初步计算"] = preliminary_debug_values
-        # 4. 全息验证 (三级相位共振)
         holographic_validation_score, holographic_debug_values = self._calculate_holographic_validation(df, raw_signals, normalized_signals, mtf_signals, context_signals, df_index, config, is_debug_enabled_for_method, probe_ts)
-        _temp_debug_values["全息验证"] = holographic_debug_values
-        # 5. 执行 EPC 弹性校准 (数据质量与资金纯度过滤)
         final_score_raw, final_score_debug_values = self._apply_quality_efficiency_calibration(dynamic_preliminary_score, holographic_validation_score, dynamic_efficiency_baseline, probe_ts, context_signals)
-        _temp_debug_values["质效校准"] = final_score_debug_values
-        # 6. 计算信号背离与抛物线衰减预警 (结合领涨韧性)
         divergence_warning = self._calculate_divergence_warning(final_score_raw, normalized_signals, context_signals, df_index)
-        # 7. 动态风险平抑
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
-        # 逻辑：对于非领涨股，预警值幂次增强(1.5)；对于领涨股，压制力度线性化(1.0)
         suppression_exponent = 1.5 - is_leader * 0.5
         risk_suppression_factor = (1 - divergence_warning.pow(suppression_exponent)).clip(0, 1)
         adjusted_final_score = (final_score_raw * risk_suppression_factor).clip(0, 1)
         if is_debug_enabled_for_method and probe_ts:
+            _temp_debug_values["归一化处理"] = normalized_signals
+            _temp_debug_values["动态效率基准线"] = baseline_debug_values
+            _temp_debug_values["初步计算"] = preliminary_debug_values
+            _temp_debug_values["全息验证"] = holographic_debug_values
+            _temp_debug_values["质效校准"] = final_score_debug_values
             _temp_debug_values["风险平抑"] = {
                 "divergence_warning": divergence_warning,
-                "suppression_exponent": suppression_exponent,
+                "suppression_exponent": pd.Series(suppression_exponent, index=df_index),
                 "risk_suppression_factor": risk_suppression_factor,
-                "adjusted_final_score": adjusted_final_score
+                "final_adjusted_score": adjusted_final_score
             }
             debug_output = {}
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
@@ -102,9 +92,10 @@ class CalculateSplitOrderAccumulation:
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V7.0.0 · 军械库动力学降噪版】
-        整合高阶导数降噪、多维语义复合及环境动能感知。
-        - 核心逻辑: 针对噪声敏感指标执行“掩码过滤+软收缩”降噪，输出高保真导数信号。
+        【V7.0.1 · 语法修复与全维降噪集成版】
+        整合高阶导数动态脱敏处理，基于军械库清单构建高信噪比的原子信号池。
+        - 修复说明: 移除了代码块中所有非Python语法的引用标记，解决 NameError 问题。
+        - 动力学处理: 自动识别并降噪处理数据层提供的 SLOPE, ACCEL, JERK 衍生指标。
         """
         df_index = df.index
         raw_df_columns = [
@@ -122,7 +113,6 @@ class CalculateSplitOrderAccumulation:
         ]
         raw_signals = {col: self.helper._get_safe_series(df, col, 0.0, method_name=method_name) for col in raw_df_columns}
         normalized_signals = {}
-        # 1. 核心噪声敏感指标池及其衍生指标降噪处理
         noise_sensitive_list = [
             'accumulation_score_D', 'stealth_flow_ratio_D', 'VPA_MF_ADJUSTED_EFF_D',
             'SMART_MONEY_INST_NET_BUY_D', 'SMART_MONEY_HM_NET_BUY_D', 'chip_concentration_ratio_D',
@@ -132,43 +122,37 @@ class CalculateSplitOrderAccumulation:
         fib_periods = [5, 13]
         for indicator in noise_sensitive_list:
             base_val = raw_signals[indicator]
-            dyn_eps = self._calculate_dynamic_epsilon(base_val, window=55, multiplier=0.05) [cite: 4]
+            dyn_eps = self._calculate_dynamic_epsilon(base_val, window=55, multiplier=0.05)
             for p in fib_periods:
                 for deriv_type in ['SLOPE', 'ACCEL', 'JERK']:
                     col_name = f'{deriv_type}_{p}_{indicator}'
                     if col_name in df.columns:
                         raw_deriv = self.helper._get_safe_series(df, col_name, 0.0)
-                        clean_deriv = self._apply_derivative_denoising(raw_deriv, base_val, dyn_eps) [cite: 4]
+                        clean_deriv = self._apply_derivative_denoising(raw_deriv, base_val, dyn_eps)
                         normalized_signals[f'clean_{col_name}'] = self.helper._normalize_series(clean_deriv, df_index, bipolar=True)
-        # 2. 语义化复合维度构建
-        # 2a. 资金意图结果 (Intent Outcome)
         intent_comps = {
             "inst_buy": self.helper._normalize_series(raw_signals['SMART_MONEY_INST_NET_BUY_D'], df_index, bipolar=True),
             "inst_slope": normalized_signals.get('clean_SLOPE_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)),
             "stealth": self.helper._normalize_series(raw_signals['stealth_flow_ratio_D'], df_index, bipolar=False)
         }
         normalized_signals["data_intent_outcome"] = _robust_geometric_mean(intent_comps, {"inst_buy": 0.4, "inst_slope": 0.3, "stealth": 0.3}, df_index).fillna(0.0)
-        # 2b. 能量结果 (Energy Outcome)
         energy_comps = {
             "abs_energy": self.helper._normalize_series(raw_signals['absorption_energy_D'], df_index, bipolar=False),
             "energy_slope": normalized_signals.get('clean_SLOPE_5_absorption_energy_D', pd.Series(0.0, index=df_index))
         }
         normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 0.6, "energy_slope": 0.4}, df_index).fillna(0.0)
-        # 2c. 形态结果 (Geom Outcome)
         geom_comps = {
             "curvature": self.helper._normalize_series(raw_signals['GEOM_ARC_CURVATURE_D'], df_index, bipolar=False),
             "reg_slope": self.helper._normalize_series(raw_signals['GEOM_REG_SLOPE_D'], df_index, bipolar=True),
             "rounding": raw_signals['IS_ROUNDING_BOTTOM_D'].astype(float)
         }
         normalized_signals["data_geom_outcome"] = _robust_geometric_mean(geom_comps, {"curvature": 0.4, "reg_slope": 0.3, "rounding": 0.3}, df_index).fillna(0.0)
-        # 2d. 结构结果 (Structure Outcome)
         struct_comps = {
             "stability": self.helper._normalize_series(raw_signals['chip_stability_D'], df_index, bipolar=False),
             "golden_pit": raw_signals['IS_GOLDEN_PIT_D'].astype(float),
             "concentration": self.helper._normalize_series(raw_signals['chip_concentration_ratio_D'], df_index, bipolar=False)
         }
         normalized_signals["data_structure_outcome"] = _robust_geometric_mean(struct_comps, {"stability": 0.3, "golden_pit": 0.4, "concentration": 0.3}, df_index).fillna(0.0)
-        # 3. MTF 与 情境信号深化
         mtf_signals = {
             "mtf_intensity": self.helper._get_mtf_slope_accel_score(df, 'accumulation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
             "mtf_cohesion": self.helper._get_mtf_cohesion_score(df, ['accumulation_score_D', 'stealth_flow_ratio_D', 'absorption_energy_D'], mtf_slope_accel_weights, df_index, method_name)
@@ -195,7 +179,7 @@ class CalculateSplitOrderAccumulation:
             "is_consolidating_norm": raw_signals['is_consolidating_D']
         }
         return raw_signals, normalized_signals, mtf_signals, context_signals
-    
+
     def _calculate_dynamic_epsilon(self, base_series: pd.Series, window: int = 55, multiplier: float = 0.05) -> pd.Series:
         """
         【V5.8.2 · 指标专属动态阈值计算】
