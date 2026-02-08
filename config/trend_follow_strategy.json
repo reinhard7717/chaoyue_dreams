@@ -263,6 +263,7 @@
             "industry_strength_rank_D": [3, 5, 8, 13, 21],
             "turnover_rate_f_D": [3, 5, 8, 13, 21],
             "trade_count_D": [3, 5, 8, 13, 21],
+            "accumulation_score_D": [5, 13, 21],
             "absorption_energy_D": [5, 13, 21],
             "chip_entropy_D": [3, 5, 8, 13, 21]
         }
