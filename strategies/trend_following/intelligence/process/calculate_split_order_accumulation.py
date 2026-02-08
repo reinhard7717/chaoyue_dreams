@@ -126,13 +126,12 @@ class CalculateSplitOrderAccumulation:
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V7.3.0 · 筹码熵控验证版 · 信号获取重构】
-        整合筹码熵(chip_entropy_D)识别锁仓特征，多维印证拆单还原后的吸筹真实性。
-        - 核心增强: 引入筹码熵减(Entropy Reduction)作为结构有序度的判定依据。
-        - 逻辑穿透: 只有当拆单资金流入伴随筹码熵的负向斜率时，才判定为确定性的锁仓吸筹。
+        【V7.5.0 · VPA爆发真实性校验版 · 信号获取重构】
+        整合VPA加速度(VPA_ACCELERATION_5D)识别爆发真实性，多维印证拆单还原后的吸筹真实性。
+        - 核心增强: 引入VPA_ACCELERATION_5D作为量价动力学反馈，过滤情绪化非理性换手。
+        - 逻辑审计: 2026-02-08 更新，将价量动力学指标纳入环境情境池。
         """
         df_index = df.index
-        # 1. 扩充原始指标：加入筹码熵、稳定性与各级买入额
         raw_df_columns = [
             'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'IS_PARABOLIC_WARNING_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_SYNERGY_BUY_D', 'buy_elg_amount_D', 'anomaly_intensity_D',
@@ -141,24 +140,20 @@ class CalculateSplitOrderAccumulation:
             'chip_entropy_D', 'chip_stability_D', 'flow_intensity_D', 'GEOM_ARC_CURVATURE_D', 
             'IS_GOLDEN_PIT_D', 'IS_ROUNDING_BOTTOM_D', 'IS_MARKET_LEADER_D', 
             'TURNOVER_STABILITY_INDEX_D', 'tick_data_quality_score_D', 'THEME_HOTNESS_SCORE_D', 
-            'PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'close_D'
+            'PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'close_D', 'VPA_ACCELERATION_5D'
         ]
         raw_signals = {col: self.helper._get_safe_series(df, col, 0.0, method_name=method_name) for col in raw_df_columns}
         normalized_signals = {}
-        # 2. 计算合成机构代理信号 (SSMP V2: 包含拆单伪装还原逻辑)
         ssmp_proxy = self._calculate_synthetic_smart_proxy(df, df_index)
-        # 3. 噪声敏感列表增加筹码熵维度
         noise_sensitive_list = [
             'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 
             'buy_elg_amount_D', 'chip_entropy_D'
         ]
         for indicator in noise_sensitive_list:
             base_val = raw_signals[indicator]
-            # 模式识别：判断是否需要切换至高灵敏度的合成代理
             if indicator == 'SMART_MONEY_INST_NET_BUY_D' and base_val.std() < 1e-6:
                 active_base = ssmp_proxy
                 prefix = "proxy_"
-                # 强化：当使用代理捕捉拆单时，将降噪门槛系数从 0.05 下调至 0.02
                 current_multiplier = 0.02
             else:
                 active_base = base_val
@@ -169,19 +164,14 @@ class CalculateSplitOrderAccumulation:
                 for deriv_type in ['SLOPE', 'ACCEL', 'JERK']:
                     col_name = f'{deriv_type}_{p}_{indicator}'
                     raw_deriv = self.helper._get_safe_series(df, col_name, 0.0) if prefix == "" else active_base.diff(p)
-                    # 应用具备灵敏度感知的降噪过滤器 
                     clean_deriv = self._apply_derivative_denoising(raw_deriv, active_base, dyn_eps)
                     normalized_signals[f'clean_{prefix}{col_name}'] = self.helper._normalize_series(clean_deriv, df_index, bipolar=True)
-        # 4. 语义化复合结果构建
-        # 4a. 资金意图结果 (包含还原后的隐秘机构动能)
         intent_comps = {
             "explicit_inst": self.helper._normalize_series(raw_signals['buy_elg_amount_D'] + raw_signals['net_mf_amount_D'], df_index, bipolar=True),
             "hidden_inst_slope": normalized_signals.get('clean_proxy_SLOPE_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)),
             "stealth": self.helper._normalize_series(raw_signals['stealth_flow_ratio_D'], df_index, bipolar=False)
         }
         normalized_signals["data_intent_outcome"] = _robust_geometric_mean(intent_comps, {"explicit_inst": 0.3, "hidden_inst_slope": 0.4, "stealth": 0.3}, df_index).fillna(0.0)
-        # 4b. 结构结果深化 (重点引入熵减强度)
-        # 逻辑：熵减强度 = -1 * 降噪后的熵斜率
         entropy_slope = normalized_signals.get('clean_SLOPE_5_chip_entropy_D', pd.Series(0.0, index=df_index))
         entropy_reduction = self.helper._normalize_series(-1 * entropy_slope, df_index, bipolar=False)
         struct_comps = {
@@ -195,10 +185,8 @@ class CalculateSplitOrderAccumulation:
             {"stability": 0.2, "golden_pit": 0.3, "concentration": 0.25, "entropy_reduction": 0.25}, 
             df_index
         ).fillna(0.0)
-        # 4c. 其余复合维度维持原有动力学逻辑
         energy_comps = {"abs_energy": self.helper._normalize_series(raw_signals['absorption_energy_D'], df_index, bipolar=False)}
         normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 1.0}, df_index).fillna(0.0)
-        # 5. MTF 与 情境信号
         mtf_signals = {
             "mtf_intensity": self.helper._get_mtf_slope_accel_score(df, 'accumulation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
             "mtf_cohesion": self.helper._get_mtf_cohesion_score(df, noise_sensitive_list, mtf_slope_accel_weights, df_index, method_name)
@@ -216,7 +204,10 @@ class CalculateSplitOrderAccumulation:
             "entropy_norm": self.helper._normalize_series(raw_signals['PRICE_ENTROPY_D'], df_index, bipolar=False),
             "entropy_slope": normalized_signals.get('clean_SLOPE_5_PRICE_ENTROPY_D', pd.Series(0.0, index=df_index)),
             "compression_accel": normalized_signals.get('clean_ACCEL_5_MA_POTENTIAL_COMPRESSION_RATE_D', pd.Series(0.0, index=df_index)),
-            "sentiment_slope": normalized_signals.get('clean_SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df_index))
+            "sentiment_slope": normalized_signals.get('clean_SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df_index)),
+            "vpa_accel_5d": self.helper._normalize_series(raw_signals['VPA_ACCELERATION_5D'], df_index, bipolar=False),
+            "is_trending": raw_signals['IS_TRENDING_STAGE_D'].astype(float),
+            "is_consolidating_norm": raw_signals['is_consolidating_D']
         }
         return raw_signals, normalized_signals, mtf_signals, context_signals
 
@@ -290,7 +281,17 @@ class CalculateSplitOrderAccumulation:
         acc_accel = self.helper._get_safe_series(df, 'ACCEL_5_accumulation_score_D', 0.0)
         acc_jerk = self.helper._get_safe_series(df, 'JERK_5_accumulation_score_D', 0.0)
         phase_coherence = ((acc_slope > 0) & (acc_accel > 0) & (acc_jerk > 0)).astype(float)
-        rdi_signals["phase_resonance_intensity"] = self.helper._normalize_series(phase_coherence * acc_accel, df_index, bipolar=False)
+        # 战术相位共振 (5日周期)
+        acc_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_accumulation_score_D', 0.0)
+        acc_accel_5 = self.helper._get_safe_series(df, 'ACCEL_5_accumulation_score_D', 0.0)
+        acc_jerk_5 = self.helper._get_safe_series(df, 'JERK_5_accumulation_score_D', 0.0)
+        tactical_resonance = ((acc_slope_5 > 0) & (acc_accel_5 > 0) & (acc_jerk_5 > 0)).astype(float)
+        # 战略相位共振 (13日周期)
+        acc_slope_13 = self.helper._get_safe_series(df, 'SLOPE_13_accumulation_score_D', 0.0)
+        strategic_resonance = (acc_slope_13 > 0).astype(float)
+        rdi_signals["phase_resonance_intensity"] = self.helper._normalize_series(
+            tactical_resonance * 0.7 + strategic_resonance * 0.3, df_index, bipolar=False
+        )
         geom_curvature = self.helper._get_safe_series(df, 'GEOM_ARC_CURVATURE_D', 0.0)
         flow_outcome = normalized_signals.get("data_flow_outcome", pd.Series(0.0, index=df_index))
         rdi_signals["geom_flow_resonance"] = _robust_geometric_mean({
@@ -360,37 +361,43 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V7.0.2 · 引用路径修正版】
-        计算初步吸筹强度。修复了对原始 df 的访问路径。
+        【V7.5.0 · VPA爆发真实性校验版 · 逻辑深化】
+        引入VPA加速度(VPA_ACCELERATION_5D)对奇点爆发进行真实性校验。
+        - 校验逻辑: 若JERK爆发伴随极高的异常强度或较低的量价加速度，则视为非理性恐慌，调低奇点增益。
+        - 逻辑穿透: 只有当高阶动量与量价加速度匹配且异常强度受控时，才判定为真实的掠夺性吸筹。
         """
         preliminary_debug_values = {}
         params = config.get('preliminary_score_params', {})
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
-        # 提取压制因子 (修正: 使用传入的 df)
+        vpa_accel = context_signals.get("vpa_accel_5d", pd.Series(0.0, index=df_index))
+        anomaly_intensity = context_signals.get("anomaly_intensity", pd.Series(0.0, index=df_index))
         price_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_close_D', 0.0)
         vpa_eff_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
         suppression_score = (price_slope_5.clip(upper=0).abs() * 0.7 + vpa_eff_slope_5.clip(upper=0).abs() * 0.3)
-        # 获取核心导数 (修正: 已通过 normalized_signals 获取降噪后的值)
         inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
         intent_singularity = (inst_jerk.clip(lower=0) * 0.6 + stealth_jerk.clip(lower=0) * 0.4)
-        chip_accel = normalized_signals.get('clean_ACCEL_5_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
-        locking_force = chip_accel.clip(lower=0)
-        # 维度融合
+        chip_accel_5 = normalized_signals.get('clean_ACCEL_5_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
+        chip_accel_13 = normalized_signals.get('clean_ACCEL_13_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
+        locking_force = pd.concat([chip_accel_5, chip_accel_13], axis=1).max(axis=1)
+        # 爆发真实性校验因子: 量价加速度支持且非异常脉冲
+        burst_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4).clip(0, 1)
+        print(f"  -- [爆发真实性校验] Mean Auth: {burst_authenticity.mean():.4f}, Max Auth: {burst_authenticity.max():.4f}")
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
             "intent_outcome": normalized_signals.get("data_intent_outcome", pd.Series(0.0, index=df_index)),
             "locking_force": locking_force,
-            "coordinated_attack": context_signals.get("coordinated_attack", pd.Series(0.0, index=df_index))
+            "energy_boost": normalized_signals.get("data_energy_outcome", pd.Series(0.0, index=df_index))
         }
         fusion_weights = get_param_value(params.get('fusion_weights'), {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "coordinated_attack": 0.2})
         preliminary_score_base = _robust_geometric_mean(preliminary_components, fusion_weights, df_index).fillna(0.0)
-        # 奇点修正
-        singularity_multiplier = 1 + self.helper._normalize_series(intent_singularity, df_index, bipolar=False) * 0.25
+        # 奇点修正: 引入真实性校验权重，若 authenticity 接近 0，则 singularity 增益失效
+        singularity_multiplier = 1 + (intent_singularity * burst_authenticity) * 0.25
         final_score = (preliminary_score_base * singularity_multiplier)
         final_score = (final_score * (1 + is_leader * 0.2)).clip(0, 1)
         preliminary_debug_values.update({
             "intent_singularity_boost": intent_singularity,
+            "burst_authenticity": burst_authenticity,
             "locking_force_component": locking_force,
             "preliminary_score_raw": preliminary_score_base
         })
