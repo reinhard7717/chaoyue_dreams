@@ -130,10 +130,10 @@ class CalculateSplitOrderAccumulation:
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V8.5.0 · 分类灵敏降噪与持续性增强版】
-        针对环境指标执行极高灵敏度降噪(0.01)，并整合流向持续性与动量指标。
-        - 核心修正: 解决环境指标斜率为 0 的钝化问题，确保动态基准线前瞻性生效。
-        - 逻辑审计: 2026-02-08 更新，将 flow_consistency_D 纳入环境情境池。
+        【V8.7.0 · 主力活跃度集成版 · 信号全维重构】
+        整合日内主力活跃度(intraday_main_force_activity_D)识别机构主动性动作，增强信号保真度。
+        - 核心增强: 引入日内主力活跃度作为识别“机构拆单”真实性的关键物理印证。
+        - 逻辑审计: 2026-02-08 更新，将高频日内主力特征完整纳入环境情境池。
         """
         df_index = df.index
         raw_df_columns = [
@@ -146,7 +146,7 @@ class CalculateSplitOrderAccumulation:
             'TURNOVER_STABILITY_INDEX_D', 'tick_data_quality_score_D', 'THEME_HOTNESS_SCORE_D', 'market_sentiment_score_D',
             'PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'close_D', 'VPA_ACCELERATION_5D', 'flow_consistency_D',
             'flow_efficiency_D', 'net_energy_flow_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 'tick_chip_transfer_efficiency_D',
-            'flow_momentum_5d_D', 'uptrend_strength_D'
+            'flow_momentum_5d_D', 'uptrend_strength_D', 'game_intensity_D', 'intraday_main_force_activity_D'
         ]
         raw_signals = {col: self.helper._get_safe_series(df, col, 0.0, method_name=method_name) for col in raw_df_columns}
         normalized_signals = {}
@@ -160,10 +160,10 @@ class CalculateSplitOrderAccumulation:
             base_val = raw_signals[indicator]
             active_base = ssmp_proxy if (indicator == 'SMART_MONEY_INST_NET_BUY_D' and base_val.std() < 1e-6) else base_val
             prefix = "proxy_" if (indicator == 'SMART_MONEY_INST_NET_BUY_D' and base_val.std() < 1e-6) else ""
-            # 针对环境特征下调乘数至 0.01
+            periods = [5, 13, 21] if indicator in ['PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D'] else [5, 13]
             current_multiplier = 0.01 if indicator in ['PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D'] else (0.02 if prefix == "proxy_" else 0.05)
             dyn_eps = self._calculate_dynamic_epsilon(active_base, window=55, multiplier=current_multiplier)
-            for p in [5, 13]:
+            for p in periods:
                 for deriv_type in ['SLOPE', 'ACCEL', 'JERK']:
                     col_name = f'{deriv_type}_{p}_{indicator}'
                     raw_deriv = self.helper._get_safe_series(df, col_name, 0.0) if prefix == "" else active_base.diff(p)
@@ -175,12 +175,11 @@ class CalculateSplitOrderAccumulation:
             "consistency": self.helper._normalize_series(raw_signals['flow_consistency_D'], df_index, bipolar=False)
         }
         normalized_signals["data_intent_outcome"] = _robust_geometric_mean(intent_comps, {"explicit": 0.3, "hidden_slope": 0.4, "consistency": 0.3}, df_index).fillna(0.0)
-        entropy_slope_5 = normalized_signals.get('clean_SLOPE_5_chip_entropy_D', pd.Series(0.0, index=df_index))
         struct_comps = {
             "stability": self.helper._normalize_series(raw_signals['chip_stability_D'], df_index, bipolar=False),
             "golden_pit": raw_signals['STATE_GOLDEN_PIT_D'].astype(float),
             "concentration": self.helper._normalize_series(raw_signals['chip_concentration_ratio_D'], df_index, bipolar=False),
-            "entropy_reduction": self.helper._normalize_series(-1 * entropy_slope_5, df_index, bipolar=False),
+            "entropy_reduction": self.helper._normalize_series(-1 * normalized_signals.get('clean_SLOPE_5_chip_entropy_D', pd.Series(0.0, index=df_index)), df_index, bipolar=False),
             "transfer_eff": self.helper._normalize_series(raw_signals['tick_chip_transfer_efficiency_D'], df_index, bipolar=False)
         }
         normalized_signals["data_structure_outcome"] = _robust_geometric_mean(struct_comps, {"stability": 0.15, "golden_pit": 0.25, "concentration": 0.2, "entropy_reduction": 0.2, "transfer_eff": 0.2}, df_index).fillna(0.0)
@@ -188,39 +187,35 @@ class CalculateSplitOrderAccumulation:
         energy_comps = {
             "abs_energy": self.helper._normalize_series(raw_signals['absorption_energy_D'], df_index, bipolar=False),
             "vpa_quality": self.helper._normalize_series(vpa_eff_slope_5, df_index, bipolar=False),
-            "uptrend": self.helper._normalize_series(raw_signals['uptrend_strength_D'], df_index, bipolar=False)
+            "game_int": self.helper._normalize_series(raw_signals['game_intensity_D'], df_index, bipolar=False)
         }
-        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 0.4, "vpa_quality": 0.4, "uptrend": 0.2}, df_index).fillna(0.0)
+        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 0.3, "vpa_quality": 0.4, "game_int": 0.3}, df_index).fillna(0.0)
         mtf_signals = {
             "mtf_intensity": self.helper._get_mtf_slope_accel_score(df, 'accumulation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
             "mtf_cohesion": self.helper._get_mtf_cohesion_score(df, noise_sensitive_list, mtf_slope_accel_weights, df_index, method_name)
         }
         context_signals = {
             "is_leader": raw_signals['IS_MARKET_LEADER_D'].astype(float),
+            "mf_activity": self.helper._normalize_series(raw_signals['intraday_main_force_activity_D'], df_index, bipolar=False),
             "adx_norm": self.helper._normalize_series(raw_signals['ADX_14_D'], df_index, bipolar=False),
             "sentiment_norm": self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, bipolar=False),
             "entropy_norm": self.helper._normalize_series(raw_signals['PRICE_ENTROPY_D'], df_index, bipolar=False),
-            "entropy_slope": normalized_signals.get('clean_SLOPE_5_PRICE_ENTROPY_D', pd.Series(0.0, index=df_index)),
-            "sentiment_slope": normalized_signals.get('clean_SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df_index)),
+            "entropy_slope": normalized_signals.get('clean_SLOPE_21_PRICE_ENTROPY_D', pd.Series(0.0, index=df_index)),
             "compression_accel": normalized_signals.get('clean_ACCEL_5_MA_POTENTIAL_COMPRESSION_RATE_D', pd.Series(0.0, index=df_index)),
-            "data_quality": self.helper._normalize_series(raw_signals['tick_data_quality_score_D'], df_index, bipolar=False),
+            "sentiment_slope": normalized_signals.get('clean_SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df_index)),
+            "anomaly_intensity": self.helper._normalize_series(raw_signals['anomaly_intensity_D'], df_index, bipolar=False),
+            "vpa_accel_5d": self.helper._normalize_series(raw_signals['VPA_ACCELERATION_5D'], df_index, bipolar=False),
+            "flow_accel": self.helper._normalize_series(raw_signals['flow_acceleration_D'], df_index, bipolar=True),
+            "flow_mom": self.helper._normalize_series(raw_signals['flow_momentum_5d_D'], df_index, bipolar=True),
             "turnover_stability": self.helper._normalize_series(raw_signals['TURNOVER_STABILITY_INDEX_D'], df_index, bipolar=False),
+            "data_quality": self.helper._normalize_series(raw_signals['tick_data_quality_score_D'], df_index, bipolar=False),
             "theme_hotness": self.helper._normalize_series(raw_signals['THEME_HOTNESS_SCORE_D'], df_index, bipolar=False),
             "parabolic_warning": self.helper._normalize_series(raw_signals['STATE_PARABOLIC_WARNING_D'], df_index, bipolar=False),
             "parabolic_slope": normalized_signals.get('clean_SLOPE_5_STATE_PARABOLIC_WARNING_D', pd.Series(0.0, index=df_index)),
-            "sm_divergence": self.helper._normalize_series(raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'], df_index, bipolar=False),
-            "sm_divergence_slope": normalized_signals.get('clean_SLOPE_5_SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', pd.Series(0.0, index=df_index)),
-            "synergy_slope": normalized_signals.get('clean_SLOPE_5_SMART_MONEY_SYNERGY_BUY_D', pd.Series(0.0, index=df_index)),
-            "hm_attack": self.helper._normalize_series(raw_signals['HM_COORDINATED_ATTACK_D'], df_index, bipolar=False),
-            "hm_attack_slope": normalized_signals.get('clean_SLOPE_5_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index)),
-            "anomaly_intensity": self.helper._normalize_series(raw_signals['anomaly_intensity_D'], df_index, bipolar=False),
-            "vpa_accel_5d": self.helper._normalize_series(raw_signals['VPA_ACCELERATION_5D'], df_index, bipolar=False),
             "intraday_acc_conf": self.helper._normalize_series(raw_signals['intraday_accumulation_confidence_D'], df_index, bipolar=False),
-            "chip_transfer_eff": self.helper._normalize_series(raw_signals['tick_chip_transfer_efficiency_D'], df_index, bipolar=False),
-            "flow_accel": self.helper._normalize_series(raw_signals['flow_acceleration_D'], df_index, bipolar=True),
-            "flow_mom": self.helper._normalize_series(raw_signals['flow_momentum_5d_D'], df_index, bipolar=True)
+            "chip_transfer_eff": self.helper._normalize_series(raw_signals['tick_chip_transfer_efficiency_D'], df_index, bipolar=False)
         }
-        return raw_signals, normalized_signals, mtf_signals, context_signals
+        return raw_signals, normalized_signals, {}, context_signals
 
     def _calculate_dynamic_epsilon(self, base_series: pd.Series, window: int = 55, multiplier: float = 0.05) -> pd.Series:
         """
@@ -242,15 +237,16 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V8.2.0 · 趋势二阶补偿版 · 全息验证深化】
-        引入趋势下跌中的加速度补偿逻辑，以及协同性斜率溢价。
-        - 补偿逻辑: 当13日趋势斜率为负但加速度为正时，识别为企稳初段，赋予趋势修正溢价。
-        - 协同逻辑: 整合协同性指标斜率，识别共识正在形成的领先信号。
+        【V8.7.0 · 主力活跃度集成版 · 全息验证深化】
+        应用日内主力活跃度(mf_activity)进行机构动作穿透校验，过滤散户自然换手噪音。
+        - 验证逻辑: 引入主力活跃度校验项，对缺乏机构主动性动作支持的信号执行最高15%的压制。
+        - 探针审计: 2026-02-08 增加主力活跃度探针，实时量化日内机构参与度对全息得分的有效支撑。
         """
         holographic_debug_values = {}
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
         intraday_acc_conf = context_signals.get("intraday_acc_conf", pd.Series(1.0, index=df_index))
         chip_transfer_eff = context_signals.get("chip_transfer_eff", pd.Series(0.5, index=df_index))
+        mf_activity = context_signals.get("mf_activity", pd.Series(0.5, index=df_index))
         synergy_slope = context_signals.get("synergy_slope", pd.Series(0.0, index=df_index))
         holographic_state_components = {
             "flow": normalized_signals.get("data_flow_outcome", pd.Series(0.0, index=df_index)),
@@ -258,10 +254,8 @@ class CalculateSplitOrderAccumulation:
             "geom": normalized_signals.get("data_geom_outcome", pd.Series(0.0, index=df_index))
         }
         holographic_state_score = _robust_geometric_mean({k: (v + 1) / 2 for k, v in holographic_state_components.items()}, {"flow": 0.4, "structure": 0.3, "geom": 0.3}, df_index)
-        # 趋势得分与补偿逻辑
         acc_slope_13 = self.helper._get_safe_series(df, 'SLOPE_13_accumulation_score_D', 0.0)
         acc_accel_13 = self.helper._get_safe_series(df, 'ACCEL_13_accumulation_score_D', 0.0)
-        # 二阶企稳补偿: 跌势放缓视为隐含利好
         stabilization_bonus = ((acc_slope_13 < 0) & (acc_accel_13 > 0)).astype(float) * 0.15
         holographic_trend_components = {
             "flow_slope": normalized_signals.get("clean_SLOPE_5_stealth_flow_ratio_D", pd.Series(0.0, index=df_index)),
@@ -271,12 +265,14 @@ class CalculateSplitOrderAccumulation:
         holographic_trend_score = (_robust_geometric_mean({k: (v + 1) / 2 for k, v in holographic_trend_components.items()}, {"flow_slope": 0.4, "acc_slope": 0.4, "vpa_slope": 0.2}, df_index) + stabilization_bonus).clip(0, 1)
         rdi_signals = self._calculate_rdi_signals(df, normalized_signals, df_index, config)
         resonance_bonus = rdi_signals.get("phase_resonance_intensity", pd.Series(0.0, index=df_index))
-        # 综合校正因子: 引入协同性斜率(synergy_slope)领先增益
         synergy_bonus = synergy_slope.clip(lower=0) * 0.1
-        final_correction = (1 + resonance_bonus * 0.2 + synergy_bonus) * (0.7 + 0.3 * intraday_acc_conf) * (0.8 + 0.2 * chip_transfer_eff)
+        # 全息校验核心：整合主力活跃度校验项
+        final_correction = (1 + resonance_bonus * 0.2 + synergy_bonus) * (0.7 + 0.3 * intraday_acc_conf) * (0.8 + 0.2 * chip_transfer_eff) * (0.85 + 0.15 * mf_activity)
         holographic_validation_score = (_robust_geometric_mean({"state": holographic_state_score, "trend": holographic_trend_score}, {"state": 0.5, "trend": 0.5}, df_index) * final_correction).clip(0, 1)
-        print(f"  -- [全息二阶补偿探针] Stab Bonus: {stabilization_bonus.mean():.4f}, Synergy Bonus: {synergy_bonus.mean():.4f}")
+        print(f"  -- [全息活跃度校验探针] MF Activity Mean: {mf_activity.mean():.4f}, Support Multiplier: {(0.85 + 0.15 * mf_activity).mean():.4f}")
         direction = holographic_trend_components["acc_slope"].apply(lambda x: 1 if x >= 0 else -1)
+        if probe_ts is not None and probe_ts in df_index:
+            holographic_debug_values.update({"mf_activity_support": mf_activity.loc[probe_ts], "holographic_val_final": holographic_validation_score.loc[probe_ts]})
         return (holographic_validation_score * direction).clip(-1, 1), holographic_debug_values
 
     def _calculate_rdi_signals(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Dict[str, pd.Series]:
@@ -370,13 +366,12 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V8.5.0 · 多维动量奇点版 · 逻辑深化】
-        引入资金动量(flow_mom)深化奇点判定，解决瞬时加速度缺失的记忆问题。
-        - 奇点重构: 整合资金 5 日动量、机构 JERK 与隐秘 JERK，提供具备时间跨度的爆发判定。
-        - 逻辑审计: 2026-02-08 优化，识别从静默锁仓向动量爆发转化的临界状态。
+        【V8.6.0 · 背离溢价与博弈强化版 · 逻辑深化】
+        引入量价背离溢价(dissonance_premium)，反向修正主力在负动能下的扫盘行为。
+        - 核心修正: 当筹码锁定力强且吸筹爆发但动能为负时，将其识别为高置信度的拆单吸筹，赋予 20% 溢价。
+        - 逻辑穿透: 结合长周期环境尺度与日内博弈强度，解决大盘股环境钝化问题。
         """
         preliminary_debug_values = {}
-        params = config.get('preliminary_score_params', {})
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
         vpa_accel = context_signals.get("vpa_accel_5d", pd.Series(0.0, index=df_index))
         anomaly_intensity = context_signals.get("anomaly_intensity", pd.Series(0.0, index=df_index))
@@ -386,27 +381,26 @@ class CalculateSplitOrderAccumulation:
         chip_accel_13 = normalized_signals.get('clean_ACCEL_13_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
         entropy_slope_13 = normalized_signals.get('clean_SLOPE_13_chip_entropy_D', pd.Series(0.0, index=df_index))
         locking_force = pd.concat([chip_accel_13, (-1 * entropy_slope_13).clip(0, 1)], axis=1).max(axis=1)
-        hm_attack_slope = context_signals.get("hm_attack_slope", pd.Series(0.0, index=df_index))
-        phase_transition_boost = (locking_force > 0.6).astype(float) * hm_attack_slope.clip(lower=0) * 0.5
+        # 背离溢价逻辑: 锁定力强 + 动量微负 = 隐秘扫盘证据
+        dissonance_mask = (locking_force > 0.7) & (flow_mom < 0)
+        dissonance_premium = dissonance_mask.astype(float) * flow_mom.abs() * 0.2
+        # 奇点模型整合溢价
         inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', normalized_signals.get('clean_proxy_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
-        # 奇点模型五维增强：引入 5 日资金动量(flow_mom)
-        intent_singularity = (inst_jerk.clip(lower=0) * 0.2 + stealth_jerk.clip(lower=0) * 0.2 + flow_accel.clip(lower=0) * 0.15 + ind_preheat * 0.25 + flow_mom.clip(lower=0) * 0.2)
+        intent_singularity = (inst_jerk.clip(lower=0) * 0.2 + stealth_jerk.clip(lower=0) * 0.2 + flow_accel.clip(lower=0) * 0.15 + ind_preheat * 0.25 + flow_mom.clip(lower=0) * 0.2 + dissonance_premium)
         base_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4 + is_leader * 0.3).clip(0, 1)
-        locking_exemption = (locking_force > 0.8).astype(float) * 0.4
-        burst_authenticity = (base_authenticity + locking_exemption).clip(0, 1)
-        singularity_multiplier = 1 + (intent_singularity * burst_authenticity + phase_transition_boost) * 0.3
-        print(f"  -- [V8.5.0 奇点探针] Inst Jerk: {inst_jerk.mean():.4f}, Flow Mom: {flow_mom.mean():.4f}, Boost: {intent_singularity.mean():.4f}")
+        burst_authenticity = (base_authenticity + (locking_force > 0.8).astype(float) * 0.4).clip(0, 1)
+        singularity_multiplier = 1 + (intent_singularity * burst_authenticity) * 0.3
+        print(f"  -- [V8.6.0 背离溢价探针] Flow Mom: {flow_mom.loc[df_index[-1]]:.4f}, Dissonance Premium: {dissonance_premium.loc[df_index[-1]]:.4f}")
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
             "intent_outcome": normalized_signals.get("data_intent_outcome", pd.Series(0.0, index=df_index)),
             "locking_force": locking_force,
             "energy_boost": normalized_signals.get("data_energy_outcome", pd.Series(0.0, index=df_index))
         }
-        fusion_weights = get_param_value(params.get('fusion_weights'), {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "energy_boost": 0.2})
-        preliminary_score_base = _robust_geometric_mean(preliminary_components, fusion_weights, df_index).fillna(0.0)
+        preliminary_score_base = _robust_geometric_mean(preliminary_components, {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "energy_boost": 0.2}, df_index).fillna(0.0)
         final_score = (preliminary_score_base * singularity_multiplier * (1 + is_leader * 0.2)).clip(0, 1)
-        preliminary_debug_values.update({"intent_singularity_boost": intent_singularity, "burst_authenticity": burst_authenticity, "locking_force_component": locking_force, "hm_transition_boost": phase_transition_boost})
+        preliminary_debug_values.update({"intent_singularity_boost": intent_singularity, "burst_authenticity": burst_authenticity, "locking_force_component": locking_force, "dissonance_premium": dissonance_premium})
         return final_score, preliminary_debug_values
 
     def _apply_quality_efficiency_calibration(self, dynamic_preliminary_score: pd.Series, holographic_validation_score: pd.Series, dynamic_efficiency_baseline: pd.Series, probe_ts: Optional[pd.Timestamp], context_signals: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
