@@ -161,6 +161,9 @@
         "ATAN_ANGLE_EMA_55_D": [5, 13],
         "MA_VELOCITY_EMA_55_D": [5, 13],
         "MA_ACCELERATION_EMA_55_D": [5, 13],
+        "SMART_MONEY_SYNERGY_BUY_D": [5, 13],
+        "HM_COORDINATED_ATTACK_D": [5, 13],
+        "PRICE_ENTROPY_D": [5, 13],
         "ZIG_5_5.0_D": [5, 13],
         "PDI_14_D": [5, 8],
         "turnover_rate_f_D": [3, 5, 8, 13, 21],
@@ -238,6 +241,9 @@
         "trade_count_D": [3, 5, 8, 13, 21],
         "absorption_energy_D": [5, 13, 21],
         "buy_elg_amount_D": [5, 13, 21],
+        "SMART_MONEY_SYNERGY_BUY_D": [5, 13],
+        "HM_COORDINATED_ATTACK_D": [5, 13],
+        "PRICE_ENTROPY_D": [5, 13],
         "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [3, 5, 8, 13, 21],
         "VOL_MA_5_D": [5, 13],
@@ -268,6 +274,10 @@
             "accumulation_score_D": [5, 13, 21],
             "absorption_energy_D": [5, 13, 21],
             "buy_elg_amount_D": [5, 13, 21],
+            "SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D": [5, 13, 21],
+            "SMART_MONEY_SYNERGY_BUY_D": [5, 13],
+            "HM_COORDINATED_ATTACK_D": [5, 13],
+            "PRICE_ENTROPY_D": [5, 13],
             "chip_entropy_D": [3, 5, 8, 13, 21]
         }
     }

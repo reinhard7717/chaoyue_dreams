@@ -657,39 +657,48 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V6.5 · 熵增与情绪周期识别版】
-        - 优化: 使用样本熵(chip_entropy_D)替代ADX判断市场状态。低熵值+高情绪=强趋势阶段。
-        - 优化: 引入主力控盘度(main_cost_range_ratio_D)动态调整突破信号的阈值。
+        【V7.0.0 · 状态强度模糊化版】
+        - 核心重构: 将布尔信号统一升级为 0-1 的浮点数状态强度(STATE_)。
+        - 逻辑升级: 基于距离阈值的偏离度计算概率/强度，增强对信号演进的感知。
+        - 包含指标: STATE_TRENDING_STAGE_D, STATE_BREAKOUT_CONFIRMED_D, STATE_EMOTIONAL_EXTREME_D, STATE_MARKET_LEADER_D。
         """
         timeframe = 'D'
         if timeframe not in all_dfs: return all_dfs
         df = all_dfs[timeframe].copy()
-        # 1. 基于信息论的市场阶段判定
-        # 低熵代表趋势有序，高熵代表震荡混沌
+        # 1. 趋势阶段强度 (STATE_TRENDING_STAGE)
         if 'chip_entropy_D' in df.columns:
             entropy_ma = df['chip_entropy_D'].rolling(20).mean()
-            is_trending = (df['chip_entropy_D'] < entropy_ma * 0.95).values
+            # 逻辑: 熵值低于均值越多，趋势越有序。映射 0.95-0.85 均值区间到 0-1
+            entropy_diff_ratio = (entropy_ma - df['chip_entropy_D']) / entropy_ma.replace(0, 1)
+            df['STATE_TRENDING_STAGE_D'] = np.clip((entropy_diff_ratio - 0.05) / 0.1, 0, 1).fillna(0)
         else:
-            is_trending = (df['ADX_14_D'] > 25).values if 'ADX_14_D' in df.columns else np.zeros(len(df), dtype=bool)
-        # 2. 动态突破阈值修正
-        # 逻辑：主力控盘度越高，向上突破所需的成交量倍率可以适当放低
-        vol_break_ratio = 1.8 # 默认1.8倍
-        if 'main_cost_range_ratio_D' in df.columns:
-            # 控盘度从0.1-0.9映射到1.2-2.0倍量需求
-            dynamic_vol_req = 2.0 - (df['main_cost_range_ratio_D'] * 0.8)
-            vol_break_cond = (df['volume_D'] > df['VOL_MA_21_D'] * dynamic_vol_req)
+            adx = df['ADX_14_D'] if 'ADX_14_D' in df.columns else pd.Series(20, index=df.index)
+            df['STATE_TRENDING_STAGE_D'] = np.clip((adx - 20) / 20, 0, 1)
+        # 2. 领涨者地位强度 (STATE_MARKET_LEADER)
+        # 逻辑: 整合行业领袖分数与行业排位斜率
+        if 'industry_leader_score_D' in df.columns:
+            leader_score = df['industry_leader_score_D'] / 100.0
+            rank_slope = df.get('industry_rank_slope_D', pd.Series(0, index=df.index))
+            df['STATE_MARKET_LEADER_D'] = np.clip(leader_score * (1 + rank_slope.clip(lower=0)), 0, 1)
         else:
-            vol_break_cond = (df['volume_D'] > df['VOL_MA_21_D'] * vol_break_ratio)
-        # 3. 信号合成 (向量化)
-        df['IS_TRENDING_STAGE_D'] = is_trending
-        if 'VPA_EFFICIENCY_D' in df.columns and 'uptrend_strength_D' in df.columns:
-            # 强趋势+量价效率激增+能量集中
-            df['IS_BREAKOUT_CONFIRMED_D'] = is_trending & vol_break_cond & (df['VPA_EFFICIENCY_D'] > 0)
-        # 4. 反转警告逻辑优化
-        if 'reversal_warning_score_D' in df.columns:
-            # 结合换手率极值和乖离率判定A股特有的“情绪顶”
-            bias_extreme = (df['BIAS_5_D'] > 5) | (df['BIAS_5_D'] < -5)
-            df['IS_EMOTIONAL_EXTREME_D'] = bias_extreme & (df['turnover_rate_D'] > df['turnover_rate_D'].rolling(20).quantile(0.9))
+            df['STATE_MARKET_LEADER_D'] = 0.0
+        # 3. 突破确认强度 (STATE_BREAKOUT_CONFIRMED)
+        vol_ma = df['VOL_MA_21_D'].replace(0, 1)
+        main_cost_ratio = df.get('main_cost_range_ratio_D', pd.Series(0.5, index=df.index))
+        dynamic_vol_req = 2.0 - (main_cost_ratio * 0.8)
+        vol_ratio = df['volume_D'] / vol_ma
+        # 突破强度 = 趋势强度 * 量比强度 * VPA正向效率
+        vpa_eff = df.get('VPA_EFFICIENCY_D', pd.Series(0, index=df.index)).clip(lower=0)
+        vol_strength = np.clip((vol_ratio - 1.0) / (dynamic_vol_req - 1.0), 0, 1)
+        df['STATE_BREAKOUT_CONFIRMED_D'] = (df['STATE_TRENDING_STAGE_D'] * vol_strength * np.clip(vpa_eff * 5, 0, 1)).fillna(0)
+        # 4. 情绪极端强度 (STATE_EMOTIONAL_EXTREME)
+        bias = df.get('BIAS_5_D', pd.Series(0, index=df.index))
+        turnover = df.get('turnover_rate_D', pd.Series(0, index=df.index))
+        to_q90 = turnover.rolling(20).quantile(0.9).replace(0, 1)
+        bias_extreme = np.clip(bias.abs() / 10.0, 0, 1)
+        to_extreme = np.clip(turnover / to_q90, 0, 1)
+        df['STATE_EMOTIONAL_EXTREME_D'] = (bias_extreme * to_extreme).fillna(0)
+        print(f"  -- [模式识别探针] {timeframe} Avg Trending: {df['STATE_TRENDING_STAGE_D'].mean():.4f}, Avg Breakout: {df['STATE_BREAKOUT_CONFIRMED_D'].mean():.4f}")
         all_dfs[timeframe] = df
         return all_dfs
 
@@ -1422,69 +1431,50 @@ class FeatureEngineeringService:
 
     async def calculate_geometric_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.0 · 几何形态与趋势结构引擎】
-        - 核心职责: 量化K线走势的几何特征，为模式识别提供"物理骨架"。
-        - 判定逻辑优化:
-            1. 趋势稳定性 (Linearity): 使用 R-Squared 识别"如丝般顺滑"的强庄股 (R2 > 0.9)。
-            2. 通道位置 (Channel Position): 量化超买超卖的"相对位置"，而非绝对指标。
-               (Z > 2.0: 通道上轨压力; Z < -2.0: 通道下轨支撑/黄金坑)。
-            3. 弧形加速 (Arc Curvature): 识别 "加速主升浪" (Concave Up / 负曲率上涨) 与 "力竭圆弧顶" (Convex / 正曲率)。
-        - 数据依据: 
-            - 依赖原始 close_D 数据进行 Numba 高速回归计算。
-            - 结合 ATR 进行波动率自适应。
+        【V7.0.0 · 几何形态强度模糊化版】
+        - 核心重构: 将布尔信号统一升级为 0-1 的浮点数状态强度(STATE_)。
+        - 判定逻辑优化: 利用线性映射将 R2、通道位置、曲率转换为连续的状态分值。
+        - 包含指标: STATE_ROBUST_TREND_D, STATE_PARABOLIC_WARNING_D, STATE_GOLDEN_PIT_D, STATE_ROUNDING_BOTTOM_D。
         """
         timeframe = 'D'
-        if timeframe not in all_dfs or all_dfs[timeframe].empty:
-            return all_dfs
+        if timeframe not in all_dfs or all_dfs[timeframe].empty: return all_dfs
         df = all_dfs[timeframe]
-        # 核心数据检查
-        if 'close_D' not in df.columns:
-            return all_dfs
-        # 1. 计算几何特征矩阵 (Numba 加速)
-        # 窗口设定: 21天 (典型的月度趋势周期，适合A股波段)
+        if 'close_D' not in df.columns: return all_dfs
         window = 21
         close_values = df['close_D'].values.astype(np.float64)
-        # 调用 Numba 函数
-        # 返回列: [Slope, R2, Channel_Pos, Arc]
         geom_matrix = _numba_calculate_geometric_features(close_values, window)
-        # 2. 结果注入 DataFrame
-        df['GEOM_REG_SLOPE_D'] = geom_matrix[:, 0]
-        df['GEOM_REG_R2_D'] = geom_matrix[:, 1]
-        df['GEOM_CHANNEL_POS_D'] = geom_matrix[:, 2]
-        df['GEOM_ARC_CURVATURE_D'] = geom_matrix[:, 3]
-        # 3. 衍生高级判定逻辑
-        # (A) 强趋势判别 (Strong Trend)
-        # 斜率向上 且 拟合度极高 (稳健上涨，非脉冲)
-        df['IS_ROBUST_TREND_D'] = (df['GEOM_REG_SLOPE_D'] > 0.3) & (df['GEOM_REG_R2_D'] > 0.85)
-        # (B) 加速赶顶预警 (Parabolic Blow-off)
-        # 逻辑: 价格在通道上轨上方 (Pos > 2) 且 呈现下凹加速形态 (Arc < -1.0) 且 斜率极大
-        # A股妖股见顶前常见特征
-        df['IS_PARABOLIC_WARNING_D'] = (
-            (df['GEOM_CHANNEL_POS_D'] > 2.0) & 
-            (df['GEOM_ARC_CURVATURE_D'] < -1.0) & 
-            (df['GEOM_REG_SLOPE_D'] > 1.0)
-        )
-        # (C) 黄金坑/回踩支撑 (Golden Pit / Pullback)
-        # 逻辑: 长期趋势向上 (Slope > 0) 但 短期打到通道下轨 (Pos < -1.5)
-        # 这是一个极佳的"反转博弈"买点
-        df['IS_GOLDEN_PIT_D'] = (
-            (df['GEOM_REG_SLOPE_D'] > 0.1) & 
-            (df['GEOM_CHANNEL_POS_D'] < -1.5)
-        )
-        # (D) 圆弧底蓄势 (Rounding Bottom)
-        # 逻辑: 斜率走平 (接近0) 且 呈现上凸形态 (Arc > 0.5, 价格在弦之上，在这个语境下如果是底部，
-        # 意味着价格先跌后涨，弦在上方? 不，这里简化逻辑：
-        # 如果是底部，Price应该在弦下方(Concave Up)? 
-        # 修正逻辑：
-        # 底部形态通常是：价格先抑后扬。弦连接左高右高，价格在下方 -> Arc为负。
-        # 顶部形态：价格先扬后抑。弦连接左低右低，价格在上方 -> Arc为正。
-        # 圆弧底特征：Slope接近0，Arc为负(下凹)。
-        df['IS_ROUNDING_BOTTOM_D'] = (
-            (df['GEOM_REG_SLOPE_D'].abs() < 0.2) & 
-            (df['GEOM_ARC_CURVATURE_D'] < -0.5)
-        )
+        slope = geom_matrix[:, 0]
+        r2 = geom_matrix[:, 1]
+        pos = geom_matrix[:, 2]
+        arc = geom_matrix[:, 3]
+        # 1. 稳健趋势强度 (STATE_ROBUST_TREND)
+        # 逻辑: 斜率 > 0.3 且 R2 > 0.85 为满分趋势
+        slope_score = np.clip(slope / 0.5, 0, 1)
+        r2_score = np.clip((r2 - 0.5) / 0.4, 0, 1)
+        df['STATE_ROBUST_TREND_D'] = (slope_score * r2_score).astype(np.float32)
+        # 2. 抛物线赶顶预警强度 (STATE_PARABOLIC_WARNING)
+        # 逻辑: Pos > 2.0, Arc < -1.0, Slope > 1.0。越偏离阈值，分值越高
+        pos_warn = np.clip((pos - 1.5) / 1.5, 0, 1)
+        arc_warn = np.clip((-arc - 0.5) / 1.5, 0, 1)
+        slope_warn = np.clip((slope - 0.5) / 1.5, 0, 1)
+        df['STATE_PARABOLIC_WARNING_D'] = (pos_warn * arc_warn * slope_warn).astype(np.float32)
+        # 3. 黄金坑强度 (STATE_GOLDEN_PIT)
+        # 逻辑: 长期斜率 > 0 且 短期打到下轨 (Pos < -1.5)
+        long_slope_support = np.clip(slope / 0.3, 0, 1)
+        dip_intensity = np.clip((-pos - 1.0) / 2.0, 0, 1)
+        df['STATE_GOLDEN_PIT_D'] = (long_slope_support * dip_intensity).astype(np.float32)
+        # 4. 圆弧底蓄势强度 (STATE_ROUNDING_BOTTOM)
+        # 逻辑: 斜率绝对值小 (接近0) 且 呈现下凹形态 (Arc < -0.5)
+        flatness = np.clip(1 - np.abs(slope) / 0.3, 0, 1)
+        bottom_arc = np.clip((-arc - 0.2) / 0.8, 0, 1)
+        df['STATE_ROUNDING_BOTTOM_D'] = (flatness * bottom_arc).astype(np.float32)
+        # 注入基础几何列
+        df['GEOM_REG_SLOPE_D'] = slope
+        df['GEOM_REG_R2_D'] = r2
+        df['GEOM_CHANNEL_POS_D'] = pos
+        df['GEOM_ARC_CURVATURE_D'] = arc
+        print(f"  -- [几何特征探针] {timeframe} Avg Robust: {df['STATE_ROBUST_TREND_D'].mean():.4f}, Max Parabolic: {df['STATE_PARABOLIC_WARNING_D'].max():.4f}")
         all_dfs[timeframe] = df
-        logger.info("几何特征计算完成 (V2.0)。")
         return all_dfs
 
     async def calculate_breakout_quality_score_v4(self, df_daily: pd.DataFrame, params: dict) -> pd.DataFrame:
