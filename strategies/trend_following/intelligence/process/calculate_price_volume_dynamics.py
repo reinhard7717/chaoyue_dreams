@@ -1,4 +1,5 @@
 # strategies/trend_following/intelligence/process/calculate_price_volume_dynamics.py
+# 价格和成交量的动态变化 已完成
 import json
 import os
 import pandas as pd

@@ -1,4 +1,5 @@
 # 文件: strategies/trend_following/intelligence/process/calculate_main_force_rally_intent.py
+# 主力 rally 意图计算 已完成
 import json
 import os
 import pandas as pd
@@ -51,8 +52,6 @@ class CalculateMainForceRallyIntent:
         params = self._get_parameters(config)
         df_index = df.index
         # 1. 数据完整性与基础信号准备
-        if not self._check_data_integrity(df):
-            self._probe_print("警告: 发现基础数据列不完整，启动安全值填充策略。")
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         # 2. 信号预处理层 (Normalization & MTF)
@@ -196,7 +195,6 @@ class CalculateMainForceRallyIntent:
         if missing_columns:
             self._probe_print(f"!!! 数据完整性异常 !!! 缺失关键列: {sorted(list(missing_columns))}")
             return False
-        self._probe_print("数据完整性检查通过，所有必需列均已就绪。")
         return True
 
     def _get_raw_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -248,7 +246,6 @@ class CalculateMainForceRallyIntent:
         3. 周期自适应：根据市场状态动态调整记忆周期
         4. 相位同步检测：识别主力行为与价格趋势的相位关系
         """
-        self._probe_print("=== 历史上下文计算开始 ===")
         # 参数配置
         hc_enabled = get_param_value(params.get('enabled'), True)
         if not hc_enabled:
@@ -285,7 +282,6 @@ class CalculateMainForceRallyIntent:
             "hc_enabled": hc_enabled,
             "dynamic_memory_period": self._calculate_dynamic_period(df_index, raw_signals)
         }
-        self._probe_print("=== 历史上下文计算完成 ===")
         return context
 
     def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
@@ -475,7 +471,6 @@ class CalculateMainForceRallyIntent:
         核心理念：主力资金行为具有持续性，大单资金流向是先行指标
         数学模型：资金流向量合成 + 持续性检测 + 异常检测
         """
-        self._probe_print("  开始计算资金记忆...")
         # 初始化资金记忆计算类
         capital_memory_calculator = CalculateCapitalMemory(raw_signals.get('capital_flow', pd.Series(0.0, index=df_index)))
         # 参数
@@ -487,44 +482,36 @@ class CalculateMainForceRallyIntent:
             elg_net = (raw_signals['buy_elg_amount'] - raw_signals['sell_elg_amount'])
             elg_vector = elg_net.rolling(window=5, min_periods=3).mean()  # 5日平滑
             capital_vectors.append(("elg", elg_vector, 0.35))
-            self._probe_print(f"  特大单净流向计算完成，样本数: {len(elg_vector.dropna())}")
         # 大单净流向
         if 'buy_lg_amount' in raw_signals and 'sell_lg_amount' in raw_signals:
             lg_net = (raw_signals['buy_lg_amount'] - raw_signals['sell_lg_amount'])
             lg_vector = lg_net.rolling(window=3, min_periods=2).mean()  # 3日平滑
             capital_vectors.append(("lg", lg_vector, 0.30))
-            self._probe_print(f"  大单净流向计算完成，样本数: {len(lg_vector.dropna())}")
         # 中单净流向
         if 'buy_md_amount' in raw_signals and 'sell_md_amount' in raw_signals:
             md_net = (raw_signals['buy_md_amount'] - raw_signals['sell_md_amount'])
             md_vector = md_net.rolling(window=2, min_periods=1).mean()  # 2日平滑
             capital_vectors.append(("md", md_vector, 0.20))
-            self._probe_print(f"  中单净流向计算完成，样本数: {len(md_vector.dropna())}")
         # 小单净流向（反向指标，权重为负）
         if 'buy_sm_amount' in raw_signals and 'sell_sm_amount' in raw_signals:
             sm_net = (raw_signals['buy_sm_amount'] - raw_signals['sell_sm_amount'])
             sm_vector = -sm_net.rolling(window=1).mean()  # 当日，反向
             capital_vectors.append(("sm", sm_vector, 0.15))
-            self._probe_print(f"  小单净流向计算完成（反向指标）")
         # 向量合成
         composite_capital_flow = pd.Series(0.0, index=df_index)
         for name, vector, weight in capital_vectors:
             # 归一化处理
             vector_norm = capital_memory_calculator._normalize_capital_vector(vector, df_index)
             composite_capital_flow += vector_norm * weight
-            self._probe_print(f"  资金向量 '{name}' 权重: {weight:.2f}, 均值: {vector_norm.mean():.4f}")
         # 2. 资金持续性检测（Hurst指数简化版）
-        self._probe_print("  计算资金持续性...")
         persistence_score = capital_memory_calculator._calculate_capital_persistence(
             composite_capital_flow, df_index, memory_period
         )
         # 3. 资金异常检测（Z-score异常检测）
-        self._probe_print("  检测资金异常...")
         anomaly_score = capital_memory_calculator._detect_capital_anomaly(
             composite_capital_flow, df_index, memory_period
         )
         # 4. 资金效率记忆（资金推动价格上涨的效率）
-        self._probe_print("  计算资金效率...")
         efficiency_memory = capital_memory_calculator._calculate_capital_efficiency(
             composite_capital_flow,
             raw_signals.get('pct_change', pd.Series(0.0, index=df_index)),
@@ -537,12 +524,6 @@ class CalculateMainForceRallyIntent:
             (1 - anomaly_score) * 0.20 +  # 异常越低越好
             efficiency_memory * 0.15
         ).clip(-1, 1)
-        self._probe_print(f"  资金记忆计算完成:")
-        self._probe_print(f"    - 综合资金流均值: {composite_capital_flow.mean():.4f}")
-        self._probe_print(f"    - 持续性得分均值: {persistence_score.mean():.4f}")
-        self._probe_print(f"    - 异常得分均值: {anomaly_score.mean():.4f}")
-        self._probe_print(f"    - 效率记忆均值: {efficiency_memory.mean():.4f}")
-        self._probe_print(f"    - 综合资金记忆均值: {capital_memory_score.mean():.4f}")
         return {
             "composite_capital_flow": composite_capital_flow,
             "persistence_score": persistence_score,
@@ -877,7 +858,6 @@ class CalculateMainForceRallyIntent:
         5. 波动性调整因子（VAF）
         6. 风险偏好指数（RPI）
         """
-        self._probe_print("=== 代理信号构建开始 ===")
         # 1. 相对强度代理信号（增强版）
         rs_proxy = self._calculate_enhanced_rs_proxy(df_index, mtf_signals, normalized_signals, config)
         # 2. 资本属性代理信号（多维度资本分析）
@@ -901,7 +881,6 @@ class CalculateMainForceRallyIntent:
             liquidity_proxy, volatility_proxy, risk_preference_proxy,
             signal_quality, config
         )
-        self._probe_print("=== 代理信号构建完成 ===")
         return final_proxy_signals
 
     def _calculate_enhanced_rs_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
@@ -968,7 +947,6 @@ class CalculateMainForceRallyIntent:
         rs_modulator = enhanced_rs_proxy_calculator._calculate_rs_modulator(market_state, config)
         # 最终相对强度代理信号
         enhanced_rs_proxy = (rs_proxy * rs_modulator).clip(0, 1)
-        self._probe_print(f"相对强度代理信号构建完成，均值: {enhanced_rs_proxy.mean():.4f}")
         return {
             "raw_rs_proxy": rs_proxy,
             "enhanced_rs_proxy": enhanced_rs_proxy,
@@ -1044,7 +1022,6 @@ class CalculateMainForceRallyIntent:
         capital_modulator = enhanced_capital_proxy_calculator._calculate_capital_modulator(liquidity_state, config)
         # 最终资本属性代理信号
         enhanced_capital_proxy = (capital_proxy * capital_modulator).clip(0, 1)
-        self._probe_print(f"资本属性代理信号构建完成，均值: {enhanced_capital_proxy.mean():.4f}")
         return {
             "raw_capital_proxy": capital_proxy,
             "enhanced_capital_proxy": enhanced_capital_proxy,
@@ -1184,7 +1161,6 @@ class CalculateMainForceRallyIntent:
         liquidity_modulator = enhanced_liquidity_proxy_calculator._calculate_liquidity_modulator(market_volatility, config)
         # 最终流动性代理信号
         enhanced_liquidity_proxy = (liquidity_proxy * liquidity_modulator).clip(0, 1)
-        self._probe_print(f"流动性代理信号构建完成，均值: {enhanced_liquidity_proxy.mean():.4f}")
         return {
             "raw_liquidity_proxy": liquidity_proxy,
             "enhanced_liquidity_proxy": enhanced_liquidity_proxy,
@@ -1258,7 +1234,6 @@ class CalculateMainForceRallyIntent:
         volatility_modulator = enhanced_volatility_proxy_calculator._calculate_volatility_modulator(market_regime, config)
         # 最终波动性代理信号
         enhanced_volatility_proxy = (volatility_proxy * volatility_modulator).clip(0, 1)
-        self._probe_print(f"波动性代理信号构建完成，均值: {enhanced_volatility_proxy.mean():.4f}")
         return {
             "raw_volatility_proxy": volatility_proxy,
             "enhanced_volatility_proxy": enhanced_volatility_proxy,
@@ -1328,7 +1303,6 @@ class CalculateMainForceRallyIntent:
         risk_preference_modulator = enhanced_risk_preference_proxy_calculator._calculate_risk_preference_modulator(economic_cycle, config)
         # 最终风险偏好代理信号
         enhanced_risk_preference_proxy = (risk_preference_proxy * risk_preference_modulator).clip(0, 1)
-        self._probe_print(f"风险偏好代理信号构建完成，均值: {enhanced_risk_preference_proxy.mean():.4f}")
         return {
             "raw_risk_preference_proxy": risk_preference_proxy,
             "enhanced_risk_preference_proxy": enhanced_risk_preference_proxy,
@@ -1455,7 +1429,6 @@ class CalculateMainForceRallyIntent:
             final_proxy_signals["risk_preference_proxy"].iloc[i] = risk_preference_val
             final_proxy_signals["comprehensive_proxy"].iloc[i] = final_value
             final_proxy_signals["market_state"].iloc[i] = current_state
-        self._probe_print(f"动态权重合成完成，综合代理信号均值: {final_proxy_signals['comprehensive_proxy'].mean():.4f}")
         return final_proxy_signals
 
     def _assess_signal_quality(self, rs_proxy: Dict, capital_proxy: Dict, sentiment_proxy: Dict, liquidity_proxy: Dict, volatility_proxy: Dict, risk_preference_proxy: Dict) -> pd.Series:
@@ -1473,7 +1446,6 @@ class CalculateMainForceRallyIntent:
         返回：综合信号质量评分，范围[0, 1]，1表示最高质量
         """
         signal_quality_assessor = SignalQualityAssessor()
-        self._probe_print("=== 开始评估代理信号质量 ===")
         # 提取各代理信号的时间序列（使用增强版信号）
         rs_signal = rs_proxy.get("enhanced_rs_proxy", pd.Series(0.5, index=rs_proxy.get("raw_rs_proxy", pd.Series()).index))
         capital_signal = capital_proxy.get("enhanced_capital_proxy", pd.Series(0.5, index=capital_proxy.get("raw_capital_proxy", pd.Series()).index))
@@ -1498,7 +1470,6 @@ class CalculateMainForceRallyIntent:
                 continue
             signal_quality = signal_quality_assessor._calculate_individual_signal_quality(signal_series, signal_name)
             individual_qualities[signal_name] = signal_quality
-            self._probe_print(f"  {signal_name}信号质量均值: {signal_quality.mean():.4f}")
         # 2. 计算信号间的一致性质量
         consistency_quality = signal_quality_assessor._calculate_signal_consistency_quality(all_signals)
         # 3. 计算信号的预测有效性（滞后相关性分析）
@@ -1538,7 +1509,6 @@ class CalculateMainForceRallyIntent:
                 comprehensive_quality.iloc[i] = 0.5
         # 平滑处理
         comprehensive_quality = comprehensive_quality.rolling(window=5, min_periods=3).mean().fillna(0.7)
-        self._probe_print(f"综合信号质量评估完成，均值: {comprehensive_quality.mean():.4f}")
         return comprehensive_quality.clip(0, 1)
 
     def _detect_comprehensive_market_state(self, rs_signal: pd.Series, capital_signal: pd.Series,
@@ -1701,7 +1671,6 @@ class CalculateMainForceRallyIntent:
         【V4.5 · 政权锚定优化版】动态权重计算系统
         修改说明：引入政权锚定机制与相关性惩罚，解决极端行情下的权重漂移与共线性过载问题。
         """
-        self._probe_print("=== 动态权重深度优化计算开始 ===")
         # 1. 计算基础市场状态因子与阶段识别
         market_state_factors = self._calculate_market_state_factors(df_index, normalized_signals, mtf_signals)
         market_phase = self._identify_market_phase(df_index, market_state_factors, normalized_signals)
@@ -1732,7 +1701,6 @@ class CalculateMainForceRallyIntent:
         # 信号质量越高，温度越低，权重分布越“尖锐”；质量低时，温度高，权重分布越“平滑”
         signal_quality = self.strategy.atomic_states.get("_DEBUG_signal_quality", pd.Series(0.7, index=df_index))
         final_weights = self._normalize_weights_with_temperature(df_index, smoothed_weights, signal_quality)
-        self._probe_print("=== 动态权重优化计算完成 ===")
         return final_weights
 
     def _normalize_weights_with_temperature(self, df_index: pd.Index, weights_dict: Dict[str, pd.Series], signal_quality: pd.Series) -> Dict[str, pd.Series]:
@@ -2204,7 +2172,6 @@ class CalculateMainForceRallyIntent:
         jerk_impact = (price_jerk_norm * 0.6 + money_jerk_norm * 0.4).clip(0, 1)
         # 4. 非线性增强：当Jerk爆发时，代表主力意图转为暴力攻击
         aggressiveness_score = (base_aggressiveness * (1 + jerk_impact * 0.5)).clip(0, 1)
-        self._probe_print(f"攻击性得分(含JERK冲击): {aggressiveness_score.mean():.4f}")
         return aggressiveness_score
 
     def _calculate_basic_aggressiveness(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series]) -> pd.Series:
@@ -2239,7 +2206,6 @@ class CalculateMainForceRallyIntent:
         bear_trap_signal = momentum_reversal.astype(float) * chip_stability
         # 平滑并归一化
         bear_trap_score = bear_trap_signal.rolling(window=3).mean().fillna(0).clip(0, 1)
-        self._probe_print(f"诱空陷阱识别均值: {bear_trap_score.mean():.4f}")
         return bear_trap_score
 
     def _calculate_volume_price_divergence(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series]) -> pd.Series:
@@ -2272,7 +2238,6 @@ class CalculateMainForceRallyIntent:
         # 引入量纲：共振时的绝对加速度强度
         avg_accel = (accel_5.clip(lower=0) + accel_13.clip(lower=0) + accel_21.clip(lower=0)) / 3
         final_resonance = (resonance_score * (1 + avg_accel)).clip(0, 1)
-        self._probe_print(f"加速度共振强度均值: {final_resonance.mean():.4f}")
         return final_resonance
 
     def _calculate_control_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, pd.Series]) -> pd.Series:
@@ -2372,9 +2337,6 @@ class CalculateMainForceRallyIntent:
         weights = {"aggressiveness": dynamic_weights.get("aggressiveness", 0.35), "control": dynamic_weights.get("control", 0.35), "obstacle_clearance": dynamic_weights.get("obstacle_clearance", 0.30)}
         bullish_intent_base = _robust_geometric_mean(components, weights, df_index).fillna(0.5)
         phase_sync = historical_context.get('phase_sync', pd.Series(0.0, index=df_index)).fillna(0.0)
-        # 调试探针：检查分量状态
-        if self.probe_dates:
-            self._probe_print(f"  [DEBUG] base={bullish_intent_base.iloc[-1]:.4f}, sync={phase_sync.iloc[-1]:.4f}, resonance={acceleration_resonance.iloc[-1]:.4f}")
         # 核心修复：对增强因子进行强制 clip 和 fillna
         enhancement_factor = (acceleration_resonance * 0.3 + bear_trap_bonus * 0.2 + (phase_sync.clip(0, 1)) * 0.1).fillna(0.0)
         enhanced_intent = (bullish_intent_base * (1 + enhancement_factor)).clip(0, 1)
@@ -2426,9 +2388,6 @@ class CalculateMainForceRallyIntent:
         # 4. 稳健几何平均计算
         # 内部已包含 eps 处理，此处外层二次保底
         bearish_score_raw = _robust_geometric_mean(bearish_components, bearish_weights, df_index).fillna(0.0).clip(0, 1)
-        # 5. 探针采样：在自检阶段输出看跌分量状态
-        if self.probe_dates:
-            self._probe_print(f"  [BEAR_CHECK] raw={bearish_score_raw.iloc[-1]:.4f}, panic={panic_impact.iloc[-1]:.4f}, mod={mf_flow_memory_anti_bearish_modulator.iloc[-1]:.4f}")
         # 6. 合成最终负向分值
         bearish_score_modulated = (bearish_score_raw * mf_flow_memory_anti_bearish_modulator).clip(0, 1)
         return -bearish_score_modulated
@@ -2476,7 +2435,6 @@ class CalculateMainForceRallyIntent:
         threshold = get_param_value(rally_intent_synthesis_params.get('risk_threshold'), 0.6)
         # 惩罚函数：1 / (1 + exp(-k*(risk - threshold)))
         risk_penalty = 1 / (1 + np.exp(-sensitivity * (total_risk_raw - threshold)))
-        self._probe_print(f"风险裁决完成: 综合风险层 {total_risk_raw.mean():.4f}, 动态惩罚力度 {risk_penalty.mean():.4f}")
         return risk_penalty.clip(0, 1)
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, 
