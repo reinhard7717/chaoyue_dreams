@@ -100,29 +100,33 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_synthetic_smart_proxy(self, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
         """
-        【V7.2.0 · 拆单伪装还原版 · SSMP逻辑深化】
-        通过特大单与隐秘流向系数，还原被伪装成中户/大单的机构拆单行为。
-        - 核心逻辑: 利用 stealth_flow_ratio_D 对 buy_md_amount_D 执行“身份还原”。
-        - 版本说明: 2026-02-08 优化，增强对机构拆单行为的穿透识别，区分中户跟风。
+        【V7.7.0 · 效率补偿还原版 · 替代指标重构】
+        利用流向效率(flow_efficiency_D)与净能量流(net_energy_flow_D)替代缺失的厚度指标。
+        - 核心逻辑: 针对低换手下的资金挪移，利用效率因子放大隐秘机构流的权重。
+        - 逻辑审计: 2026-02-08 修复，移除不存在的 flow_thickness_ratio_D，改用 flow_efficiency_D。
         """
-        # 1. 提取显性机构资金 [cite: 1]
+        # 1. 提取显性与还原后的机构资金 [cite: 1, 3]
         elg_buy = self.helper._get_safe_series(df, 'buy_elg_amount_D', 0.0)
         mf_net = self.helper._get_safe_series(df, 'net_mf_amount_D', 0.0)
-        # 2. 执行“拆单伪装还原”：中单/大单中蕴含的机构拆单部分 
         md_buy = self.helper._get_safe_series(df, 'buy_md_amount_D', 0.0)
         lg_buy = self.helper._get_safe_series(df, 'buy_lg_amount_D', 0.0)
         stealth_ratio = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', 0.0)
-        # 计算隐秘机构流：中单和大单在隐秘系数作用下的机构属性还原 
         hidden_inst_flow = (md_buy + lg_buy) * stealth_ratio
-        # 3. 协同性因子 [cite: 1]
+        # 2. 引入效率与能量替代因子 
+        flow_eff = self.helper._get_safe_series(df, 'flow_efficiency_D', 0.0)
+        energy_flow = self.helper._get_safe_series(df, 'net_energy_flow_D', 0.0)
         synergy_buy = self.helper._get_safe_series(df, 'SMART_MONEY_SYNERGY_BUY_D', 0.0)
+        # 3. 归一化与多维耦合
         proxy_components = {
-            "explicit_inst": self.helper._normalize_series(elg_buy + mf_net, df_index, bipolar=True),
-            "hidden_inst": self.helper._normalize_series(hidden_inst_flow, df_index, bipolar=True),
-            "synergy": self.helper._normalize_series(synergy_buy, df_index, bipolar=False)
+            "explicit": self.helper._normalize_series(elg_buy + mf_net, df_index, bipolar=True),
+            "hidden": self.helper._normalize_series(hidden_inst_flow, df_index, bipolar=True),
+            "efficiency": self.helper._normalize_series(flow_eff, df_index, bipolar=False),
+            "energy": self.helper._normalize_series(energy_flow, df_index, bipolar=True)
         }
-        # 几何平均确保只有在显性或隐秘机构流具备规模，且有协同性时，信号才生效 
-        return _robust_geometric_mean(proxy_components, {"explicit_inst": 0.4, "hidden_inst": 0.4, "synergy": 0.2}, df_index).fillna(0.0)
+        print(f"  -- [V7.7.0 代理合成探针] Eff: {flow_eff.mean():.4f}, Energy: {energy_flow.mean():.4f}")
+        # 4. 非线性协同融合
+        weights = {"explicit": 0.3, "hidden": 0.3, "efficiency": 0.2, "energy": 0.2}
+        return _robust_geometric_mean(proxy_components, weights, df_index).fillna(0.0)
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
@@ -135,7 +139,7 @@ class CalculateSplitOrderAccumulation:
         raw_df_columns = [
             'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'IS_PARABOLIC_WARNING_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_SYNERGY_BUY_D', 'buy_elg_amount_D', 'anomaly_intensity_D', 'IS_TRENDING_STAGE_D', 'VPA_ACCELERATION_5D',
-            'buy_lg_amount_D', 'buy_md_amount_D', 'net_mf_amount_D', 'tick_large_order_net_D', 'is_consolidating_D',
+            'buy_lg_amount_D', 'buy_md_amount_D', 'net_mf_amount_D', 'tick_large_order_net_D', 'is_consolidating_D', 'flow_efficiency_D', 'net_energy_flow_D',
             'VPA_MF_ADJUSTED_EFF_D', 'absorption_energy_D', 'chip_concentration_ratio_D', 
             'chip_entropy_D', 'chip_stability_D', 'flow_intensity_D', 'GEOM_ARC_CURVATURE_D', 
             'IS_GOLDEN_PIT_D', 'IS_ROUNDING_BOTTOM_D', 'IS_MARKET_LEADER_D', 
@@ -361,37 +365,42 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V7.5.0 · VPA爆发真实性校验版 · 逻辑深化】
-        引入VPA加速度(VPA_ACCELERATION_5D)对奇点爆发进行真实性校验。
-        - 校验逻辑: 若JERK爆发伴随极高的异常强度或较低的量价加速度，则视为非理性恐慌，调低奇点增益。
-        - 逻辑穿透: 只有当高阶动量与量价加速度匹配且异常强度受控时，才判定为真实的掠夺性吸筹。
+        【V7.6.0 · 筹码双模锁定与真实性容错版】
+        重构锁定力计算逻辑，整合集中度加速度与熵减强度，并对领涨股提供真实性容错。
+        - 核心增强: locking_force 现在由集中度(Concentration)与熵减(Entropy Reduction)双模驱动。
+        - 逻辑审计: 针对 2025-12-30 诊断中 locking_force 为 0 的问题进行了针对性修复。
         """
         preliminary_debug_values = {}
         params = config.get('preliminary_score_params', {})
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
         vpa_accel = context_signals.get("vpa_accel_5d", pd.Series(0.0, index=df_index))
         anomaly_intensity = context_signals.get("anomaly_intensity", pd.Series(0.0, index=df_index))
-        price_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_close_D', 0.0)
-        vpa_eff_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
-        suppression_score = (price_slope_5.clip(upper=0).abs() * 0.7 + vpa_eff_slope_5.clip(upper=0).abs() * 0.3)
+        # 1. 结构锁定力双模驱动 (Locking Force Dual-Mode)
+        chip_accel_13 = normalized_signals.get('clean_ACCEL_13_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
+        # 引入熵减作为锁定力的第二驱动源
+        entropy_slope_13 = normalized_signals.get('clean_SLOPE_13_chip_entropy_D', pd.Series(0.0, index=df_index))
+        entropy_reduction_force = (-1 * entropy_slope_13).clip(0, 1)
+        # 极大值耦合：确保任一维度锁定即可触发信号
+        locking_force = pd.concat([chip_accel_13, entropy_reduction_force], axis=1).max(axis=1)
+        # 2. 爆发真实性校验与领涨容错 (Authenticity with Leader Resilience)
+        base_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4).clip(0, 1)
+        # 领涨股获得 30% 的真实性宽容度
+        burst_authenticity = (base_authenticity + is_leader * 0.3).clip(0, 1)
+        print(f"  -- [V7.6.0 真实性校验] Leader: {is_leader.mean():.2f}, Final Auth: {burst_authenticity.loc[df_index[-1]]:.4f}")
+        # 3. 意图奇点增强
         inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
         intent_singularity = (inst_jerk.clip(lower=0) * 0.6 + stealth_jerk.clip(lower=0) * 0.4)
-        chip_accel_5 = normalized_signals.get('clean_ACCEL_5_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
-        chip_accel_13 = normalized_signals.get('clean_ACCEL_13_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
-        locking_force = pd.concat([chip_accel_5, chip_accel_13], axis=1).max(axis=1)
-        # 爆发真实性校验因子: 量价加速度支持且非异常脉冲
-        burst_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4).clip(0, 1)
-        print(f"  -- [爆发真实性校验] Mean Auth: {burst_authenticity.mean():.4f}, Max Auth: {burst_authenticity.max():.4f}")
+        # 4. 综合维度融合
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
             "intent_outcome": normalized_signals.get("data_intent_outcome", pd.Series(0.0, index=df_index)),
             "locking_force": locking_force,
             "energy_boost": normalized_signals.get("data_energy_outcome", pd.Series(0.0, index=df_index))
         }
-        fusion_weights = get_param_value(params.get('fusion_weights'), {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "coordinated_attack": 0.2})
+        fusion_weights = get_param_value(params.get('fusion_weights'), {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "energy_boost": 0.2})
         preliminary_score_base = _robust_geometric_mean(preliminary_components, fusion_weights, df_index).fillna(0.0)
-        # 奇点修正: 引入真实性校验权重，若 authenticity 接近 0，则 singularity 增益失效
+        # 5. 奇点倍增集成
         singularity_multiplier = 1 + (intent_singularity * burst_authenticity) * 0.25
         final_score = (preliminary_score_base * singularity_multiplier)
         final_score = (final_score * (1 + is_leader * 0.2)).clip(0, 1)
