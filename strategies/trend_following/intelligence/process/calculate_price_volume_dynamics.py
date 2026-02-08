@@ -308,10 +308,9 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V68.0 · 原料加载层：集成 VWAP/Winner/Rank 的自适应量纲矫正与大单数据降级"""
+        """V68.1 · 原料加载层：集成 VWAP 与主力资金的【单位无关自适应对齐器】"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
-        # ... (列定义保持不变) ...
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
         tech_cols = [
@@ -323,8 +322,8 @@ class CalculatePriceVolumeDynamics:
             'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D',
             'market_sentiment_score_D'
         ]
-
-        # 1. 基础加载
+        
+        # 1. 基础数据加载
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns:
                 raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
@@ -333,51 +332,53 @@ class CalculatePriceVolumeDynamics:
             else:
                 raw_signals[col] = df[col].fillna(0.0)
 
-        # 2. VWAP 自适应矫正 (Adaptive Correction)
-        # 逻辑：合成 -> 检查乖离 -> 缩放对齐
-        if 'VWAP_D' not in df.columns:
-            vwap = raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)
-        else:
-            vwap = df['VWAP_D'].copy()
-        # 填充 NaN
-        vwap = vwap.fillna(raw_signals['close_D'])
-        # 诊断并修复量纲 (只检查非零点)
-        mean_close = raw_signals['close_D'].mean()
-        mean_vwap = vwap.replace(0, np.nan).mean()
-        if pd.notna(mean_vwap) and mean_vwap > 0:
-            ratio = mean_vwap / mean_close
-            if ratio < 0.2: # VWAP 偏小 (如 1.15 vs 11.5)
-                scale_factor = 10.0 ** np.round(np.log10(1/ratio))
-                vwap *= scale_factor
-            elif ratio > 5.0: # VWAP 偏大
-                scale_factor = 10.0 ** np.round(np.log10(1/ratio))
-                vwap *= scale_factor
-        raw_signals['VWAP_D'] = vwap
+        # 2. VWAP 自适应量纲对齐 (VWAP Unit Alignment)
+        # 初始计算：直接相除 (可能存在单位错配)
+        raw_vwap = raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)
+        raw_vwap = raw_vwap.fillna(raw_signals['close_D'])
+        
+        # 对齐逻辑：计算 VWAP/Close 的中位数比例 (使用中位数抗干扰)
+        # 仅取最近 50 天有交易的数据进行校准
+        recent_closes = raw_signals['close_D'].iloc[-50:]
+        recent_vwaps = raw_vwap.iloc[-50:].replace(0, np.nan)
+        
+        scale_factor = 1.0
+        if len(recent_vwaps.dropna()) > 0:
+            median_ratio = (recent_vwaps / recent_closes).median()
+            # 如果比例偏离 1.0 太多 (0.5 ~ 2.0 之外)，则寻找最近的 10 的幂次
+            if pd.notna(median_ratio) and (median_ratio < 0.5 or median_ratio > 2.0):
+                # 例如 ratio = 0.01 (相差100倍)，log10(0.01) = -2，需要 * 100
+                power_diff = np.round(np.log10(median_ratio))
+                scale_factor = 10.0 ** (-power_diff)
+        
+        raw_signals['VWAP_D'] = raw_vwap * scale_factor
 
-        # 3. 获利盘归一化 (Winner Rate Normalization)
-        # 如果最大值 > 1.0 (例如 80.5)，则除以 100
-        if raw_signals['winner_rate_D'].max() > 1.1:
+        # 3. 主力资金量纲对齐 (Smart Money Unit Alignment)
+        # 逻辑：主力净买入通常占总成交额的 1% - 20%。如果占比极小 (<0.0001)，说明单位是“元”vs“万”
+        sm_net = raw_signals['SMART_MONEY_HM_NET_BUY_D']
+        amt = raw_signals['amount_D'].replace(0, 1e9) # 防止除零
+        
+        sm_ratio = (sm_net.abs() / amt).median()
+        sm_scale = 1.0
+        
+        if pd.notna(sm_ratio) and sm_ratio > 0 and sm_ratio < 0.0001:
+            # 常见情况：主力是“元”，成交额是“万” -> ratio ~ 0.0001，无需调整？
+            # 不，如果 ratio < 1e-4，说明主力数值太小，可能是“万元” vs “元”？
+            # 修正：通常是 SMART_MONEY 单位偏小。
+            # 简单策略：如果中位数比率小于 1/10000，则乘以 10000
+            # 动态寻找 10 的幂
+            power_diff = np.round(np.log10(sm_ratio))
+            # 目标量级是 0.01 (-2)
+            if power_diff < -2:
+                sm_scale = 10.0 ** (-2 - power_diff) # 补偿到 1% 量级
+        
+        raw_signals['SMART_MONEY_HM_NET_BUY_D'] = sm_net * sm_scale
+
+        # 4. 获利盘归一化 (防止百分比溢出)
+        if raw_signals['winner_rate_D'].max() > 5.0: # 阈值设为 5.0 防止误伤 1.x 的浮动
             raw_signals['winner_rate_D'] = raw_signals['winner_rate_D'] / 100.0
 
-        # 4. 行业排名归一化 (Rank Normalization)
-        # 目标：将 1-100 的排名映射到适合动力学的数值，或者保持原样但调整逻辑
-        # 如果输入是 0.3222 (归一化值)，无需处理
-        # 如果输入是 32 (名次)，也无需处理，但在使用时需注意
-        # 既然 V62.1 探针显示 0.3222，说明已经是归一化数据(可能是百分比位)，无需除以100
-
-        # 5. 主力大单数据降级 (Smart Money Fallback)
-        sm_net = raw_signals['SMART_MONEY_HM_NET_BUY_D']
-        if sm_net.abs().sum() < 1e-5: # 全是 0
-            # 尝试用 ELG+LG 合成
-            synth_sm = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D']) + \
-                       (raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D'])
-            if synth_sm.abs().sum() > 1e-5:
-                raw_signals['SMART_MONEY_HM_NET_BUY_D'] = synth_sm
-            else:
-                # 再次降级：用净流入率 * 成交额
-                raw_signals['SMART_MONEY_HM_NET_BUY_D'] = raw_signals['net_amount_rate_D'] * raw_signals['amount_D']
-
-        # 6. 鲁棒动力学提取
+        # 5. 鲁棒动力学提取 (使用修正后的数据)
         threshold_map = {
             'net_amount_rate_D': (0.01, 0.005),
             'winner_rate_D': (0.01, 0.005),
@@ -390,17 +391,18 @@ class CalculatePriceVolumeDynamics:
             'pct_change_D': (0.0001, 0.0001),
             'close_D': (0.1, 0.01),
             'market_sentiment_score_D': (0.1, 0.1),
-            'industry_strength_rank_D': (0.001, 0.001), # 针对 0.3222 这种小数，大幅降低阈值
+            'industry_strength_rank_D': (0.001, 0.001),
             'turnover_rate_f_D': (0.01, 0.01),
             'trade_count_D': (10, 5)
         }
+        
         dynamic_targets = list(threshold_map.keys())
         fib_windows = [3, 5, 8, 13, 21]
+        
         if is_debug and probe_ts in df.index:
-            print(f"\n[动力学原料自适应矫正 V68.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    VWAP矫正后: {raw_signals['VWAP_D'].loc[probe_ts]:.2f} (Close: {raw_signals['close_D'].loc[probe_ts]:.2f})")
-            print(f"    WinnerRate: {raw_signals['winner_rate_D'].loc[probe_ts]:.4f}")
-            print(f"    SmartMoney: {raw_signals['SMART_MONEY_HM_NET_BUY_D'].loc[probe_ts]:.2f}")
+            print(f"\n[数据自适应对齐探针 V68.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    [VWAP] 原始均值: {raw_vwap.mean():.2f}, 缩放系数: {scale_factor:.1f} -> 最终VWAP: {raw_signals['VWAP_D'].loc[probe_ts]:.2f}")
+            print(f"    [主力] 原始占比: {sm_ratio:.2e}, 缩放系数: {sm_scale:.1f} -> 修正后值: {raw_signals['SMART_MONEY_HM_NET_BUY_D'].loc[probe_ts]:.2f}")
 
         for col in dynamic_targets:
             abs_th, chg_th = threshold_map.get(col, (1e-4, 1e-5))
