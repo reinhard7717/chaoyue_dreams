@@ -46,8 +46,8 @@ class CalculateSplitOrderAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.0.1 · 逻辑闭环版】
-        计算完整的拆单吸筹强度信号，移除所有非语法的引用标记。
+        【V7.0.2 · 数据引用修复版】
+        计算拆单吸筹强度。修正了参数传递逻辑，确保 df 始终通过参数链传递，解决 AttributeError。
         """
         method_name = "calculate_split_order_accumulation"
         is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
@@ -63,28 +63,36 @@ class CalculateSplitOrderAccumulation:
         _temp_debug_values = {}
         df_index = df.index
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', self.default_mtf_slope_accel_weights)
+        # 1. 获取信号
         raw_signals, normalized_signals, mtf_signals, context_signals = self._get_and_normalize_signals(df, mtf_slope_accel_weights, method_name)
+        # 2. 计算基准线
         dynamic_efficiency_baseline, baseline_debug_values = self._calculate_dynamic_efficiency_baseline(context_signals, df_index, config)
-        dynamic_preliminary_score, preliminary_debug_values = self._calculate_preliminary_score(normalized_signals, mtf_signals, context_signals, df_index, config)
+        # 3. 计算初步分数 (新增传递 df)
+        dynamic_preliminary_score, preliminary_debug_values = self._calculate_preliminary_score(df, normalized_signals, mtf_signals, context_signals, df_index, config)
+        # 4. 全息验证 (已具备 df)
         holographic_validation_score, holographic_debug_values = self._calculate_holographic_validation(df, raw_signals, normalized_signals, mtf_signals, context_signals, df_index, config, is_debug_enabled_for_method, probe_ts)
+        # 5. 校准
         final_score_raw, final_score_debug_values = self._apply_quality_efficiency_calibration(dynamic_preliminary_score, holographic_validation_score, dynamic_efficiency_baseline, probe_ts, context_signals)
+        # 6. 背离预警
         divergence_warning = self._calculate_divergence_warning(final_score_raw, normalized_signals, context_signals, df_index)
+        # 7. 风险平抑
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
         suppression_exponent = 1.5 - is_leader * 0.5
         risk_suppression_factor = (1 - divergence_warning.pow(suppression_exponent)).clip(0, 1)
         adjusted_final_score = (final_score_raw * risk_suppression_factor).clip(0, 1)
         if is_debug_enabled_for_method and probe_ts:
-            _temp_debug_values["归一化处理"] = normalized_signals
-            _temp_debug_values["动态效率基准线"] = baseline_debug_values
-            _temp_debug_values["初步计算"] = preliminary_debug_values
-            _temp_debug_values["全息验证"] = holographic_debug_values
-            _temp_debug_values["质效校准"] = final_score_debug_values
-            _temp_debug_values["风险平抑"] = {
-                "divergence_warning": divergence_warning,
-                "suppression_exponent": pd.Series(suppression_exponent, index=df_index),
-                "risk_suppression_factor": risk_suppression_factor,
-                "final_adjusted_score": adjusted_final_score
-            }
+            _temp_debug_values.update({
+                "归一化处理": normalized_signals,
+                "动态效率基准线": baseline_debug_values,
+                "初步计算": preliminary_debug_values,
+                "全息验证": holographic_debug_values,
+                "质效校准": final_score_debug_values,
+                "风险平抑": {
+                    "divergence_warning": divergence_warning,
+                    "risk_suppression_factor": risk_suppression_factor,
+                    "final_adjusted_score": adjusted_final_score
+                }
+            })
             debug_output = {}
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
             self._print_debug_info(method_name, probe_ts, debug_output, _temp_debug_values, adjusted_final_score)
@@ -199,114 +207,75 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V6.0.0 · 动力学全息验证版 · 彻底去 diff 化】
-        计算全息验证分数，利用高阶导数(SLOPE/ACCEL/JERK)构建三维博弈判定矩阵。
-        - 核心优化: 彻底移除 diff()，改用降噪后的 clean_SLOPE 判定趋势方向。
-        - 逻辑深化: 引入“相位共振”判定，通过吸筹加速度与加加速度的协同识别主力真实意图。
-        - 自适应调整: 针对领涨股(Market Leader)执行特殊的非线性权重修正。
+        【V7.0.2 · 引用路径修正版】
+        全息验证计算。修正了向 RDI 信号传递 df 的逻辑。
         """
         holographic_debug_values = {}
         params = config.get('holographic_validation_params', {})
-        # 1. 获取动态权重基础 (ADX 决定趋势权重，Leader 属性决定形态权重)
         adx_norm = context_signals.get("adx_norm", pd.Series(0.5, index=df_index))
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
-        # 动态权重：趋势越强，Trend 权重越高；领涨股更看重状态(State)稳健性
         trend_weight_base = (0.4 + adx_norm * 0.2).clip(0.3, 0.6)
         state_weight_base = 1 - trend_weight_base
-        # 2. 状态融合 (State Fusion) - 静态质量评估
         holographic_state_components = {
             "flow": normalized_signals.get("data_flow_outcome", pd.Series(0.0, index=df_index)),
             "structure": normalized_signals.get("data_structure_outcome", pd.Series(0.0, index=df_index)),
             "geom": normalized_signals.get("data_geom_outcome", pd.Series(0.0, index=df_index))
         }
-        state_fusion_weights = {"flow": 0.4, "structure": 0.3, "geom": 0.3}
-        # 使用几何平均融合各维度状态
-        holographic_state_score = _robust_geometric_mean(
-            {k: (v + 1) / 2 for k, v in holographic_state_components.items()}, 
-            state_fusion_weights, 
-            df_index
-        )
-        # 3. 趋势融合 (Trend Fusion) - 动力学评估 (使用 clean_SLOPE 替代 diff)
-        # 提取降噪后的核心斜率指标
+        holographic_state_score = _robust_geometric_mean({k: (v + 1) / 2 for k, v in holographic_state_components.items()}, {"flow": 0.4, "structure": 0.3, "geom": 0.3}, df_index)
         holographic_trend_components = {
             "flow_slope": normalized_signals.get("clean_SLOPE_5_stealth_flow_ratio_D", pd.Series(0.0, index=df_index)),
             "acc_slope": normalized_signals.get("clean_SLOPE_5_accumulation_score_D", pd.Series(0.0, index=df_index)),
             "vpa_slope": normalized_signals.get("clean_SLOPE_5_VPA_MF_ADJUSTED_EFF_D", pd.Series(0.0, index=df_index))
         }
-        trend_fusion_weights = {"flow_slope": 0.4, "acc_slope": 0.4, "vpa_slope": 0.2}
-        holographic_trend_score = _robust_geometric_mean(
-            {k: (v + 1) / 2 for k, v in holographic_trend_components.items()},
-            trend_fusion_weights,
-            df_index
-        )
-        # 4. RDI 能量修正与相位判定
-        rdi_signals = self._calculate_rdi_signals(normalized_signals, df_index, config)
-        # 相位共振奖励：当 SLOPE/ACCEL/JERK 达成三阶方向一致
+        holographic_trend_score = _robust_geometric_mean({k: (v + 1) / 2 for k, v in holographic_trend_components.items()}, {"flow_slope": 0.4, "acc_slope": 0.4, "vpa_slope": 0.2}, df_index)
+        # 修正: 向 RDI 方法传递 df
+        rdi_signals = self._calculate_rdi_signals(df, normalized_signals, df_index, config)
         resonance_bonus = rdi_signals.get("phase_resonance_intensity", pd.Series(0.0, index=df_index))
-        # 高级背离惩罚：能量耗尽判定
         div_penalty = rdi_signals.get("advanced_divergence", pd.Series(0.0, index=df_index))
-        # 5. 最终非线性合成
         overall_components = {"state": holographic_state_score, "trend": holographic_trend_score}
         overall_weights = {"state": state_weight_base, "trend": trend_weight_base}
         holographic_val_raw = _robust_geometric_mean(overall_components, overall_weights, df_index)
-        # 应用博弈修正：领涨股对背离更有韧性，普通股严厉惩罚
         final_correction = (1 + resonance_bonus * 0.2) * (1 - div_penalty * (0.3 - is_leader * 0.15))
         holographic_validation_score = (holographic_val_raw * final_correction).clip(0, 1)
-        # 6. 方向判定：使用吸筹斜率(SLOPE)决定信号的正负导向
-        # 若 acc_slope > 0 且 state 为正，视为吸筹(+)；否则需谨慎评估
         direction = holographic_trend_components["acc_slope"].apply(lambda x: 1 if x >= 0 else -1)
         if probe_ts is not None and probe_ts in df_index:
             holographic_debug_values.update({
                 "holographic_state_score": holographic_state_score.loc[probe_ts],
                 "holographic_trend_score": holographic_trend_score.loc[probe_ts],
-                "phase_resonance": resonance_bonus.loc[probe_ts],
-                "final_correction": final_correction.loc[probe_ts]
+                "phase_resonance": resonance_bonus.loc[probe_ts]
             })
         return (holographic_validation_score * direction).clip(-1, 1), holographic_debug_values
 
-    def _calculate_rdi_signals(self, normalized_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Dict[str, pd.Series]:
+    def _calculate_rdi_signals(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.7.0 · 高阶能量博弈版 · RDI深度重构】
-        深化共振(R)、扩展背离(D)、精确拐点(I)的计算逻辑。
-        - 深度共振: 引入 SLOPE/ACCEL/JERK 三阶相位共振判定。
-        - 扩展背离: 增加“价格熵-效率”背离与“压盘-隐秘流向”背离。
-        - 精确拐点: 利用 JERK 奇点与 GAP 动量捕捉反转博弈的瞬时爆发点。
+        【V7.0.2 · 引用路径修正版】
+        计算 RDI 信号。修正了对原始 df 的访问路径。
         """
         rdi_signals = {}
-        params = config.get('rdi_params', {})
-        # 1. 深度共振 (Phase Resonance) - 三阶导数方向一致性
-        # 选取吸筹得分与隐秘流向作为核心相位参考
-        acc_slope = self.helper._get_safe_series(self.strategy.df, 'SLOPE_5_accumulation_score_D', 0.0)
-        acc_accel = self.helper._get_safe_series(self.strategy.df, 'ACCEL_5_accumulation_score_D', 0.0)
-        acc_jerk = self.helper._get_safe_series(self.strategy.df, 'JERK_5_accumulation_score_D', 0.0)
-        # 相位共振判定：当速度、加速度、加加速度均为正时，能量处于爆发稳态
+        # 修正: 使用传入的 df 替代 self.strategy.df
+        acc_slope = self.helper._get_safe_series(df, 'SLOPE_5_accumulation_score_D', 0.0)
+        acc_accel = self.helper._get_safe_series(df, 'ACCEL_5_accumulation_score_D', 0.0)
+        acc_jerk = self.helper._get_safe_series(df, 'JERK_5_accumulation_score_D', 0.0)
         phase_coherence = ((acc_slope > 0) & (acc_accel > 0) & (acc_jerk > 0)).astype(float)
         rdi_signals["phase_resonance_intensity"] = self.helper._normalize_series(phase_coherence * acc_accel, df_index, bipolar=False)
-        # 2. 几何共振 - 形态曲率与资金流的耦合
-        geom_curvature = self.helper._get_safe_series(self.strategy.df, 'GEOM_ARC_CURVATURE_D', 0.0)
+        geom_curvature = self.helper._get_safe_series(df, 'GEOM_ARC_CURVATURE_D', 0.0)
         flow_outcome = normalized_signals.get("data_flow_outcome", pd.Series(0.0, index=df_index))
         rdi_signals["geom_flow_resonance"] = _robust_geometric_mean({
             "curvature": self.helper._normalize_series(geom_curvature, df_index, bipolar=False),
             "flow": flow_outcome
         }, {"curvature": 0.5, "flow": 0.5}, df_index)
-        # 3. 扩展背离 (Entropy & Stealth Divergence)
-        price_slope = self.helper._get_safe_series(self.strategy.df, 'SLOPE_5_close_D', 0.0)
-        price_entropy = self.helper._get_safe_series(self.strategy.df, 'PRICE_ENTROPY_D', 0.0)
-        vpa_eff = self.helper._get_safe_series(self.strategy.df, 'VPA_MF_ADJUSTED_EFF_D', 0.0)
-        # 效率背离：价格下跌但价量效率提升
+        price_slope = self.helper._get_safe_series(df, 'SLOPE_5_close_D', 0.0)
+        price_entropy = self.helper._get_safe_series(df, 'PRICE_ENTROPY_D', 0.0)
+        vpa_eff = self.helper._get_safe_series(df, 'VPA_MF_ADJUSTED_EFF_D', 0.0)
         eff_divergence = (price_slope < 0).astype(float) * self.helper._normalize_series(vpa_eff, df_index, bipolar=False)
-        # 熵减背离：价格震荡（熵高）但主力隐秘流向集中度提升
-        stealth_accel = self.helper._get_safe_series(self.strategy.df, 'ACCEL_5_stealth_flow_ratio_D', 0.0)
+        stealth_accel = self.helper._get_safe_series(df, 'ACCEL_5_stealth_flow_ratio_D', 0.0)
         entropy_divergence = self.helper._normalize_series(price_entropy, df_index, bipolar=False) * (stealth_accel > 0).astype(float)
         rdi_signals["advanced_divergence"] = _robust_geometric_mean({
             "eff_div": eff_divergence,
             "entropy_div": entropy_divergence
         }, {"eff_div": 0.6, "entropy_div": 0.4}, df_index)
-        # 4. 精确拐点 (Inflection Oddity)
-        # 寻找 JERK 从负值极大转向正值的奇点
         jerk_inflection = (acc_jerk > 0) & (acc_jerk.shift(1) <= 0)
-        gap_momentum = self.helper._get_safe_series(self.strategy.df, 'GAP_MOMENTUM_STRENGTH_D', 0.0)
-        # 结合缺口动量，识别“不回头”式拐点
+        gap_momentum = self.helper._get_safe_series(df, 'GAP_MOMENTUM_STRENGTH_D', 0.0)
         rdi_signals["inflection_point"] = self.helper._normalize_series(
             jerk_inflection.astype(float) * (1 + self.helper._normalize_series(gap_momentum, df_index, bipolar=False)),
             df_index, bipolar=False
@@ -356,28 +325,25 @@ class CalculateSplitOrderAccumulation:
             })
         return dynamic_baseline, baseline_debug_values
 
-    def _calculate_preliminary_score(self, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
+    def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V6.4.0 · 意图奇点模型版 · 动力学深度深化】
-        计算基于多阶导数共振的初步吸筹强度。
-        - 核心逻辑: 引入“意图奇点”判定，通过机构买入与隐秘流向的 JERK 识别掠夺性吸筹。
-        - 结构增强: 利用筹码集中度的加速度(ACCEL)识别吸筹的锁定效应。
-        - 爆发修正: 将高阶导数的物理量(JERK)转化为非线性权重增益，增强信号的爆发力。
+        【V7.0.2 · 引用路径修正版】
+        计算初步吸筹强度。修复了对原始 df 的访问路径。
         """
         preliminary_debug_values = {}
         params = config.get('preliminary_score_params', {})
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
-        # 1. 掠夺性意图因子 (Predatory Intent - 基于 JERK)
-        # 提取核心指标的加加速度奇点 
+        # 提取压制因子 (修正: 使用传入的 df)
+        price_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_close_D', 0.0)
+        vpa_eff_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
+        suppression_score = (price_slope_5.clip(upper=0).abs() * 0.7 + vpa_eff_slope_5.clip(upper=0).abs() * 0.3)
+        # 获取核心导数 (修正: 已通过 normalized_signals 获取降噪后的值)
         inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
-        # 奇点共振：当机构和拆单同时出现正向加加速度
         intent_singularity = (inst_jerk.clip(lower=0) * 0.6 + stealth_jerk.clip(lower=0) * 0.4)
-        # 2. 筹码锁定加速度 (Chip Locking Accel)
-        # 筹码集中度加速度转正代表洗盘接近尾声 
         chip_accel = normalized_signals.get('clean_ACCEL_5_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
         locking_force = chip_accel.clip(lower=0)
-        # 3. 维度综合融合 (ISM 模型)
+        # 维度融合
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
             "intent_outcome": normalized_signals.get("data_intent_outcome", pd.Series(0.0, index=df_index)),
@@ -386,18 +352,14 @@ class CalculateSplitOrderAccumulation:
         }
         fusion_weights = get_param_value(params.get('fusion_weights'), {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "coordinated_attack": 0.2})
         preliminary_score_base = _robust_geometric_mean(preliminary_components, fusion_weights, df_index).fillna(0.0)
-        # 4. 奇点增益修正
-        # 意图奇点作为爆发系数，对基础分数执行非线性放大
+        # 奇点修正
         singularity_multiplier = 1 + self.helper._normalize_series(intent_singularity, df_index, bipolar=False) * 0.25
-        # 5. 最终集成与领涨修正
         final_score = (preliminary_score_base * singularity_multiplier)
-        # 领涨股获得额外的结构性溢价 [cite: 1]
         final_score = (final_score * (1 + is_leader * 0.2)).clip(0, 1)
         preliminary_debug_values.update({
             "intent_singularity_boost": intent_singularity,
             "locking_force_component": locking_force,
-            "preliminary_score_raw": preliminary_score_base,
-            "singularity_multiplier": singularity_multiplier
+            "preliminary_score_raw": preliminary_score_base
         })
         return final_score, preliminary_debug_values
 
