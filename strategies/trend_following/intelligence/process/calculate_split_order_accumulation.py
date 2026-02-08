@@ -154,18 +154,22 @@ class CalculateSplitOrderAccumulation:
         ]
         for indicator in noise_sensitive_list:
             base_val = raw_signals[indicator]
-            # 逻辑自适应：若原子信号静默，切换至SSMP代理进行导数探测
+            # 模式识别：判断是否需要切换至高灵敏度的合成代理
             if indicator == 'SMART_MONEY_INST_NET_BUY_D' and base_val.std() < 1e-6:
                 active_base = ssmp_proxy
                 prefix = "proxy_"
+                # 强化：当使用代理捕捉拆单时，将降噪门槛系数从 0.05 下调至 0.02
+                current_multiplier = 0.02
             else:
                 active_base = base_val
                 prefix = ""
-            dyn_eps = self._calculate_dynamic_epsilon(active_base, window=55, multiplier=0.05)
+                current_multiplier = 0.05
+            dyn_eps = self._calculate_dynamic_epsilon(active_base, window=55, multiplier=current_multiplier)
             for p in [5, 13]:
                 for deriv_type in ['SLOPE', 'ACCEL', 'JERK']:
                     col_name = f'{deriv_type}_{p}_{indicator}'
                     raw_deriv = self.helper._get_safe_series(df, col_name, 0.0) if prefix == "" else active_base.diff(p)
+                    # 应用具备灵敏度感知的降噪过滤器 
                     clean_deriv = self._apply_derivative_denoising(raw_deriv, active_base, dyn_eps)
                     normalized_signals[f'clean_{prefix}{col_name}'] = self.helper._normalize_series(clean_deriv, df_index, bipolar=True)
         # 4. 语义化复合结果构建
@@ -218,10 +222,11 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_dynamic_epsilon(self, base_series: pd.Series, window: int = 55, multiplier: float = 0.05) -> pd.Series:
         """
-        【V5.8.2 · 指标专属动态阈值计算】
-        计算原子指标的内生底噪门槛。
+        【V7.1.1 · 动态灵敏度版】
+        计算原子指标的内生底噪门槛。增加对乘数的外部支持，以应对高隐秘性的拆单动作。
         """
         rolling_std = base_series.rolling(window=window, min_periods=1).std().fillna(0.0)
+        # 利用传入的 multiplier 灵活控制显著性门槛
         return (rolling_std * multiplier).replace(0, 1e-6)
 
     def _apply_derivative_denoising(self, derivative_series: pd.Series, base_series: pd.Series, dynamic_epsilon: pd.Series) -> pd.Series:
