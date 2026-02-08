@@ -312,27 +312,30 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_dynamic_efficiency_baseline(self, context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V8.9.0 · 底噪增强投影模型 · 动态基准线重构】
-        结合物理底噪锚点对排名特征进行二次修正。
-        - 核心逻辑: 利用已执行零基抑制(ANF)的稳定排名计算环境偏移。
-        - 风险规避: 即使指标变动排名第一，若绝对变动未达底噪，基准线偏移将趋于 0。
-        - 逻辑审计: 2026-02-08 优化，彻底解决“1000元派发导致无限大斜率排名”的噪音陷阱。
+        【V9.0.0 · 情绪极性分流版 · 动态基准线重构】
+        优化情绪斜率对基准线的影响逻辑，从“盲目惩罚”转向“极性增益”。
+        - 核心修正: 情绪斜率(sentiment_slope) > 0 时视为环境向好，下调基准线释放信号空间。
+        - 逻辑审计: 2026-02-08 更新，解决情绪转暖初期因“不稳定性”导致信号被过度压制的问题。
         """
         baseline_debug_values = {}
         base_baseline = get_param_value(config.get('dynamic_efficiency_baseline_params', {}).get('base_baseline'), 0.15)
         entropy_norm = context_signals.get("entropy_norm", pd.Series(0.5, index=df_index))
         sentiment_norm = context_signals.get("sentiment_norm", pd.Series(0.5, index=df_index))
-        # 动能排名项：使用已执行抑制逻辑的稳定排名
-        entropy_rank = context_signals.get("entropy_rank", pd.Series(0.5, index=df_index))
-        chaos_term = (entropy_rank - 0.5).clip(lower=0) * 0.25
-        compression_rank = context_signals.get("compression_rank", pd.Series(0.5, index=df_index))
-        opportunity_term = (compression_rank - 0.7).clip(lower=0) * 0.3
-        sent_slope_abs = context_signals.get("sentiment_slope", pd.Series(0.0, index=df_index)).abs()
-        instability_factor = sent_slope_abs * 0.15
-        # 综合偏移量：基于物理底噪锚点修正后的投影项
-        baseline_shift = (entropy_norm * 0.1 + chaos_term + instability_factor) - (opportunity_term + sentiment_norm * 0.05)
+        sentiment_slope = context_signals.get("sentiment_slope", pd.Series(0.0, index=df_index))
+        # 1. 动能排名项 (维持 V8.9.0 物理底噪压制)
+        chaos_term = (context_signals.get("entropy_rank", pd.Series(0.5, index=df_index)) - 0.5).clip(lower=0) * 0.25
+        opportunity_term = (context_signals.get("compression_rank", pd.Series(0.5, index=df_index)) - 0.7).clip(lower=0) * 0.3
+        # 2. 情绪极性分流逻辑
+        # 情绪好转(+) -> 溢价 -> 降低基准线；情绪恶化(-) -> 惩罚 -> 抬高基准线
+        sentiment_impact = np.where(sentiment_slope > 0, -sentiment_slope * 0.1, sentiment_slope.abs() * 0.15)
+        # 3. 综合偏移量计算
+        baseline_shift = (entropy_norm * 0.1 + chaos_term + sentiment_impact) - (opportunity_term + sentiment_norm * 0.05)
         dynamic_baseline = (base_baseline * (1 + np.tanh(baseline_shift))).clip(0.05, 0.35)
-        baseline_debug_values.update({"chaos_rank_term": chaos_term, "opportunity_rank_term": opportunity_term, "instability_penalty_term": instability_factor, "final_baseline_shift": baseline_shift, "dynamic_baseline_value": dynamic_baseline})
+        baseline_debug_values.update({
+            "chaos_rank_term": chaos_term,
+            "sentiment_impact_term": pd.Series(sentiment_impact, index=df_index),
+            "dynamic_baseline_value": dynamic_baseline
+        })
         return dynamic_baseline, baseline_debug_values
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
