@@ -199,8 +199,8 @@ class CalculateProcessCovertAccumulation:
         - 版本：5.0.0
         """
         essential_cols = [
-            'IS_EMOTIONAL_EXTREME_D', 'BBW_21_2.0_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
-            'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'GEOM_ARC_CURVATURE_D',
+            'STATE_EMOTIONAL_EXTREME_D', 'BBW_21_2.0_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
+            'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'GEOM_ARC_CURVATURE_D',
             'afternoon_flow_ratio_D', 'closing_flow_intensity_D', 'flow_consistency_D',
             'long_term_chip_ratio_D', 'chip_stability_D', 'VPA_MF_ADJUSTED_EFF_D',
             'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'accumulation_score_D',
@@ -212,11 +212,11 @@ class CalculateProcessCovertAccumulation:
             return None
         self._calculate_derived_signals(df, mtf_slope_accel_weights, cumulative_flow_windows, cumulative_acc_windows)
         raw_signals = {
-            'emo_extreme': df['IS_EMOTIONAL_EXTREME_D'],
+            'emo_extreme': df['STATE_EMOTIONAL_EXTREME_D'],
             'vol_bbw': df['BBW_21_2.0_D'],
             'ma_compression': df['MA_POTENTIAL_COMPRESSION_RATE_D'],
-            'rounding_bottom': df['IS_ROUNDING_BOTTOM_D'],
-            'golden_pit': df['IS_GOLDEN_PIT_D'],
+            'rounding_bottom': df['STATE_ROUNDING_BOTTOM_D'],
+            'golden_pit': df['STATE_GOLDEN_PIT_D'],
             'arc_curvature': df['GEOM_ARC_CURVATURE_D'],
             'afternoon_flow': df['afternoon_flow_ratio_D'],
             'closing_intensity': df['closing_flow_intensity_D'],

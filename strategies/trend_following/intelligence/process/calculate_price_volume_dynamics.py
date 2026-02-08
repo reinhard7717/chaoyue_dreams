@@ -280,8 +280,8 @@ class CalculatePriceVolumeDynamics:
             'up_limit_D', 'down_limit_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D',
             'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 
             'VPA_EFFICIENCY_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'turnover_rate_f_D',
-            'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'price_percentile_position_D',
-            'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 
+            'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'price_percentile_position_D',
+            'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 
             'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'cost_50pct_D',
             'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'trade_count_D',
             'market_sentiment_score_D', 'industry_strength_rank_D', 'industry_rank_accel_D'
@@ -296,7 +296,7 @@ class CalculatePriceVolumeDynamics:
         raw_signals = {}
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
-        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D']
+        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D']
         # 1. 基础数据加载
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns: raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
@@ -346,7 +346,7 @@ class CalculatePriceVolumeDynamics:
         physical_base = self._calculate_power_transfer_raw_score(df_index, raw, method_name)
         geo_conf = (1.0 - raw['GEOM_REG_R2_D']).clip(0, 1)
         act_curv = pd.Series(_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0), index=df_index)
-        geo_resonance = act_curv * geo_conf * (raw['IS_ROUNDING_BOTTOM_D'].astype(float) * 1.2 + 0.5)
+        geo_resonance = act_curv * geo_conf * (raw['STATE_ROUNDING_BOTTOM_D'].astype(float) * 1.2 + 0.5)
         vwap_propulsion = self._calculate_vwap_propulsion_score(raw, df_index, method_name)
         # 合成：物理(50%) + 几何(25%) + VWAP(25%)
         unadjusted_intensity = (physical_base * 0.50 + geo_resonance * 0.25 + vwap_propulsion * 0.25)
@@ -423,12 +423,12 @@ class CalculatePriceVolumeDynamics:
         # 换手率归一化因子 (假设换手率 > 15% 为高能耗区)
         exhaustion_factor = (raw['turnover_rate_f_D'] / 15.0).clip(0, 1.5)
         # 溢价回吐压力 = 尾盘占比 * 情绪极端因子 * 换手能耗
-        reversal_pressure = raw['closing_flow_ratio_D'] * raw['IS_EMOTIONAL_EXTREME_D'].astype(float) * exhaustion_factor
+        reversal_pressure = raw['closing_flow_ratio_D'] * raw['STATE_EMOTIONAL_EXTREME_D'].astype(float) * exhaustion_factor
         # 转化为风险调节系数 (0.6 代表 40% 的衰减，1.0 代表无衰减)
         risk_adjustment = (1.0 - reversal_pressure * 0.4).clip(0.6, 1.0)
         if is_debug and probe_ts in df_index:
             print(f"\n[溢价回吐风险探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    情绪极端: {raw['IS_EMOTIONAL_EXTREME_D'].loc[probe_ts]}, 自由换手: {raw['turnover_rate_f_D'].loc[probe_ts]:.2f}%")
+            print(f"    情绪极端: {raw['STATE_EMOTIONAL_EXTREME_D'].loc[probe_ts]}, 自由换手: {raw['turnover_rate_f_D'].loc[probe_ts]:.2f}%")
             print(f"    尾盘占比: {raw['closing_flow_ratio_D'].loc[probe_ts]:.4f}, 能耗因子: {exhaustion_factor.loc[probe_ts]:.4f}")
             print(f"    >>> 最终风险调节系数: {risk_adjustment.loc[probe_ts]:.4f}")
         return risk_adjustment.astype(np.float32)
