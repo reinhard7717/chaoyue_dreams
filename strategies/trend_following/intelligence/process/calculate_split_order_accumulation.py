@@ -130,10 +130,10 @@ class CalculateSplitOrderAccumulation:
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V8.7.0 · 主力活跃度集成版 · 信号全维重构】
-        整合日内主力活跃度(intraday_main_force_activity_D)识别机构主动性动作，增强信号保真度。
-        - 核心增强: 引入日内主力活跃度作为识别“机构拆单”真实性的关键物理印证。
-        - 逻辑审计: 2026-02-08 更新，将高频日内主力特征完整纳入环境情境池。
+        【V8.9.0 · 物理底噪压制版 · 信号全维重构】
+        引入物理底噪锚点(PNF)，防止在静默期因微小变动导致历史排名虚高。
+        - 核心修正: 在计算环境指标排名时，若绝对变动低于底噪(ANF)，排名强行置为 0.5。
+        - 指标审计: 2026-02-08 更新，解决主力静默期后的“第一笔派发”导致逻辑失灵的问题。
         """
         df_index = df.index
         raw_df_columns = [
@@ -151,11 +151,7 @@ class CalculateSplitOrderAccumulation:
         raw_signals = {col: self.helper._get_safe_series(df, col, 0.0, method_name=method_name) for col in raw_df_columns}
         normalized_signals = {}
         ssmp_proxy = self._calculate_synthetic_smart_proxy(df, df_index)
-        noise_sensitive_list = [
-            'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'buy_elg_amount_D', 
-            'chip_entropy_D', 'SMART_MONEY_SYNERGY_BUY_D', 'HM_COORDINATED_ATTACK_D', 'market_sentiment_score_D',
-            'PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'STATE_PARABOLIC_WARNING_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'
-        ]
+        noise_sensitive_list = ['accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'buy_elg_amount_D', 'chip_entropy_D', 'SMART_MONEY_SYNERGY_BUY_D', 'HM_COORDINATED_ATTACK_D', 'market_sentiment_score_D', 'PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'STATE_PARABOLIC_WARNING_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D']
         for indicator in noise_sensitive_list:
             base_val = raw_signals[indicator]
             active_base = ssmp_proxy if (indicator == 'SMART_MONEY_INST_NET_BUY_D' and base_val.std() < 1e-6) else base_val
@@ -169,39 +165,26 @@ class CalculateSplitOrderAccumulation:
                     raw_deriv = self.helper._get_safe_series(df, col_name, 0.0) if prefix == "" else active_base.diff(p)
                     clean_deriv = self._apply_derivative_denoising(raw_deriv, active_base, dyn_eps)
                     normalized_signals[f'clean_{prefix}{col_name}'] = self.helper._normalize_series(clean_deriv, df_index, bipolar=True)
-        intent_comps = {
-            "explicit": self.helper._normalize_series(raw_signals['buy_elg_amount_D'] + raw_signals['net_mf_amount_D'], df_index, bipolar=True),
-            "hidden_slope": normalized_signals.get('clean_proxy_SLOPE_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)),
-            "consistency": self.helper._normalize_series(raw_signals['flow_consistency_D'], df_index, bipolar=False)
-        }
+        intent_comps = {"explicit": self.helper._normalize_series(raw_signals['buy_elg_amount_D'] + raw_signals['net_mf_amount_D'], df_index, bipolar=True), "hidden_slope": normalized_signals.get('clean_proxy_SLOPE_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)), "consistency": self.helper._normalize_series(raw_signals['flow_consistency_D'], df_index, bipolar=False)}
         normalized_signals["data_intent_outcome"] = _robust_geometric_mean(intent_comps, {"explicit": 0.3, "hidden_slope": 0.4, "consistency": 0.3}, df_index).fillna(0.0)
-        struct_comps = {
-            "stability": self.helper._normalize_series(raw_signals['chip_stability_D'], df_index, bipolar=False),
-            "golden_pit": raw_signals['STATE_GOLDEN_PIT_D'].astype(float),
-            "concentration": self.helper._normalize_series(raw_signals['chip_concentration_ratio_D'], df_index, bipolar=False),
-            "entropy_reduction": self.helper._normalize_series(-1 * normalized_signals.get('clean_SLOPE_5_chip_entropy_D', pd.Series(0.0, index=df_index)), df_index, bipolar=False),
-            "transfer_eff": self.helper._normalize_series(raw_signals['tick_chip_transfer_efficiency_D'], df_index, bipolar=False)
-        }
-        normalized_signals["data_structure_outcome"] = _robust_geometric_mean(struct_comps, {"stability": 0.15, "golden_pit": 0.25, "concentration": 0.2, "entropy_reduction": 0.2, "transfer_eff": 0.2}, df_index).fillna(0.0)
-        vpa_eff_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
-        energy_comps = {
-            "abs_energy": self.helper._normalize_series(raw_signals['absorption_energy_D'], df_index, bipolar=False),
-            "vpa_quality": self.helper._normalize_series(vpa_eff_slope_5, df_index, bipolar=False),
-            "game_int": self.helper._normalize_series(raw_signals['game_intensity_D'], df_index, bipolar=False)
-        }
-        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 0.3, "vpa_quality": 0.4, "game_int": 0.3}, df_index).fillna(0.0)
-        mtf_signals = {
-            "mtf_intensity": self.helper._get_mtf_slope_accel_score(df, 'accumulation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            "mtf_cohesion": self.helper._get_mtf_cohesion_score(df, noise_sensitive_list, mtf_slope_accel_weights, df_index, method_name)
-        }
+        # 针对环境熵和压缩率引入百分位排名与底噪抑制
+        entropy = raw_signals['PRICE_ENTROPY_D']
+        entropy_diff = entropy.diff(5).abs()
+        entropy_anf = entropy.rolling(60).std() * 0.1 # 物理底噪设为历史波动的10%
+        entropy_rank = entropy.rolling(60).rank(pct=True)
+        # 抑制逻辑: 若变动低于底噪，排位强行中性化(0.5)
+        stable_entropy_rank = entropy_rank.where(entropy_diff > entropy_anf, 0.5)
+        compression = raw_signals['MA_POTENTIAL_COMPRESSION_RATE_D']
+        comp_rank = compression.rolling(60).rank(pct=True)
+        stable_comp_rank = comp_rank.where(compression.diff(5).abs() > (compression.rolling(60).std() * 0.1), 0.5)
         context_signals = {
             "is_leader": raw_signals['IS_MARKET_LEADER_D'].astype(float),
             "mf_activity": self.helper._normalize_series(raw_signals['intraday_main_force_activity_D'], df_index, bipolar=False),
             "adx_norm": self.helper._normalize_series(raw_signals['ADX_14_D'], df_index, bipolar=False),
             "sentiment_norm": self.helper._normalize_series(raw_signals['market_sentiment_score_D'], df_index, bipolar=False),
-            "entropy_norm": self.helper._normalize_series(raw_signals['PRICE_ENTROPY_D'], df_index, bipolar=False),
-            "entropy_slope": normalized_signals.get('clean_SLOPE_21_PRICE_ENTROPY_D', pd.Series(0.0, index=df_index)),
-            "compression_accel": normalized_signals.get('clean_ACCEL_5_MA_POTENTIAL_COMPRESSION_RATE_D', pd.Series(0.0, index=df_index)),
+            "entropy_norm": self.helper._normalize_series(entropy, df_index, bipolar=False),
+            "entropy_rank": stable_entropy_rank,
+            "compression_rank": stable_comp_rank,
             "sentiment_slope": normalized_signals.get('clean_SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df_index)),
             "anomaly_intensity": self.helper._normalize_series(raw_signals['anomaly_intensity_D'], df_index, bipolar=False),
             "vpa_accel_5d": self.helper._normalize_series(raw_signals['VPA_ACCELERATION_5D'], df_index, bipolar=False),
@@ -212,9 +195,15 @@ class CalculateSplitOrderAccumulation:
             "theme_hotness": self.helper._normalize_series(raw_signals['THEME_HOTNESS_SCORE_D'], df_index, bipolar=False),
             "parabolic_warning": self.helper._normalize_series(raw_signals['STATE_PARABOLIC_WARNING_D'], df_index, bipolar=False),
             "parabolic_slope": normalized_signals.get('clean_SLOPE_5_STATE_PARABOLIC_WARNING_D', pd.Series(0.0, index=df_index)),
+            "sm_divergence": self.helper._normalize_series(raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'], df_index, bipolar=False),
+            "sm_divergence_slope": normalized_signals.get('clean_SLOPE_5_SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', pd.Series(0.0, index=df_index)),
+            "synergy_slope": normalized_signals.get('clean_SLOPE_5_SMART_MONEY_SYNERGY_BUY_D', pd.Series(0.0, index=df_index)),
+            "hm_attack": self.helper._normalize_series(raw_signals['HM_COORDINATED_ATTACK_D'], df_index, bipolar=False),
+            "hm_attack_slope": normalized_signals.get('clean_SLOPE_5_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index)),
             "intraday_acc_conf": self.helper._normalize_series(raw_signals['intraday_accumulation_confidence_D'], df_index, bipolar=False),
             "chip_transfer_eff": self.helper._normalize_series(raw_signals['tick_chip_transfer_efficiency_D'], df_index, bipolar=False)
         }
+        print(f"  -- [V8.9.0 零基抑制探针] Entropy Rank Mean: {stable_entropy_rank.mean():.4f}, Comp Rank Mean: {stable_comp_rank.mean():.4f}")
         return raw_signals, normalized_signals, {}, context_signals
 
     def _calculate_dynamic_epsilon(self, base_series: pd.Series, window: int = 55, multiplier: float = 0.05) -> pd.Series:
@@ -323,45 +312,27 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_dynamic_efficiency_baseline(self, context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V6.2.0 · 环境动能投影模型版 · 动态基准线深化】
-        计算前瞻性动态效率基准线。
-        - 核心逻辑: 引入环境熵斜率、压缩加速度及情绪斜率，通过“投影补偿”预判环境变化对吸筹判定的影响。
-        - 判定思路: 
-            1. 熵增斜率(+) -> 噪音正在扩散 -> 抬高基准线。
-            2. 压缩加速度(+) -> 变盘能量正在积聚 -> 主动调低基准线以捕捉早期渗入。
-            3. 情绪变化率剧烈 -> 市场处于不稳定性阶段 -> 提高基准线以滤除情绪噪音。
+        【V8.9.0 · 底噪增强投影模型 · 动态基准线重构】
+        结合物理底噪锚点对排名特征进行二次修正。
+        - 核心逻辑: 利用已执行零基抑制(ANF)的稳定排名计算环境偏移。
+        - 风险规避: 即使指标变动排名第一，若绝对变动未达底噪，基准线偏移将趋于 0。
+        - 逻辑审计: 2026-02-08 优化，彻底解决“1000元派发导致无限大斜率排名”的噪音陷阱。
         """
         baseline_debug_values = {}
-        params = config.get('dynamic_efficiency_baseline_params', {})
-        base_baseline = get_param_value(params.get('base_baseline'), 0.15)
-        # 1. 基础环境状态项
+        base_baseline = get_param_value(config.get('dynamic_efficiency_baseline_params', {}).get('base_baseline'), 0.15)
         entropy_norm = context_signals.get("entropy_norm", pd.Series(0.5, index=df_index))
         sentiment_norm = context_signals.get("sentiment_norm", pd.Series(0.5, index=df_index))
-        # 2. 动能投影项 (Momentum Projections)
-        # 熵增斜率：若噪音在扩散，增加防御门槛
-        entropy_slope = context_signals.get("entropy_slope", pd.Series(0.0, index=df_index))
-        chaos_momentum = entropy_slope.clip(lower=0) * 0.2
-        # 压缩加速度：若均线加速收敛，视为反转前夕，释放穿透空间
-        comp_accel = context_signals.get("compression_accel", pd.Series(0.0, index=df_index))
-        opportunity_momentum = comp_accel.clip(lower=0) * 0.15
-        # 情绪不稳定性：情绪变动过快（无论正负）均增加不确定性
+        # 动能排名项：使用已执行抑制逻辑的稳定排名
+        entropy_rank = context_signals.get("entropy_rank", pd.Series(0.5, index=df_index))
+        chaos_term = (entropy_rank - 0.5).clip(lower=0) * 0.25
+        compression_rank = context_signals.get("compression_rank", pd.Series(0.5, index=df_index))
+        opportunity_term = (compression_rank - 0.7).clip(lower=0) * 0.3
         sent_slope_abs = context_signals.get("sentiment_slope", pd.Series(0.0, index=df_index)).abs()
-        instability_factor = sent_slope_abs * 0.1
-        # 3. 综合偏移量计算 (非线性多维门控)
-        # Shift = (静态状态 + 熵增动能 + 不稳定惩罚) - 压缩机会释放
-        baseline_shift = (entropy_norm * 0.1 + chaos_momentum + instability_factor) - (opportunity_momentum + sentiment_norm * 0.05)
-        # 4. 激活函数映射
-        # 利用 tanh 确保偏移量平滑，并将基准线控制在物理合理区间
-        dynamic_baseline = base_baseline * (1 + np.tanh(baseline_shift))
-        dynamic_baseline = dynamic_baseline.clip(0.05, 0.35)
-        if baseline_debug_values is not None:
-            baseline_debug_values.update({
-                "entropy_momentum_term": chaos_momentum,
-                "compression_opportunity_term": opportunity_momentum,
-                "instability_penalty_term": instability_factor,
-                "final_baseline_shift": baseline_shift,
-                "dynamic_baseline_value": dynamic_baseline
-            })
+        instability_factor = sent_slope_abs * 0.15
+        # 综合偏移量：基于物理底噪锚点修正后的投影项
+        baseline_shift = (entropy_norm * 0.1 + chaos_term + instability_factor) - (opportunity_term + sentiment_norm * 0.05)
+        dynamic_baseline = (base_baseline * (1 + np.tanh(baseline_shift))).clip(0.05, 0.35)
+        baseline_debug_values.update({"chaos_rank_term": chaos_term, "opportunity_rank_term": opportunity_term, "instability_penalty_term": instability_factor, "final_baseline_shift": baseline_shift, "dynamic_baseline_value": dynamic_baseline})
         return dynamic_baseline, baseline_debug_values
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
