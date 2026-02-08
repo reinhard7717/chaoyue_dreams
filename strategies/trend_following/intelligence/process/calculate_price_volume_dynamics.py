@@ -13,77 +13,59 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 @jit(nopython=True)
 def _numba_fractal_dimension(flows, window=21):
-    """V68.0 · 分形维数算子：增强对低波动序列的鲁棒性"""
+    """V69.0 · 分形维数算子修复：移除不兼容的 np.clip 标量操作并增强鲁棒性"""
     n = len(flows[0])
     out = np.ones(n) * 1.5
-    scales_log = np.log(np.array([1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0])) # 增加刻度点
-    
+    # 定义采样尺度
+    all_scales = np.array([1, 2, 3, 5, 8, 13, 21])
     for i in range(window, n):
-        # 1. 检测窗口内是否有有效变动
+        # 1. 检测窗口内是否有有效波动
         has_variance = False
         for j in range(len(flows)):
             if np.std(flows[j][i-window:i]) > 1e-6:
                 has_variance = True
                 break
         if not has_variance:
-            out[i] = 1.5 # 随机游走默认值
+            out[i] = 1.5
             continue
-
         flucts = []
-        # 使用 R/S 分析或简单的波动率缩放法
-        # 这里沿用波动率法，但增加非零保护
         current_scales = []
-        for scale in [1, 2, 3, 5, 8, 13, 21]:
+        for scale in all_scales:
             if scale >= window: break
-            
-            # 计算该尺度下的平均波动
             total_fluct = 0.0
             count = 0
             for j in range(len(flows)):
-                # 降采样
                 data_slice = flows[j][i-window:i]
-                # 简单波动：abs(diff) 的均值，按 scale 聚合
-                # 此处简化：计算 std 作为波动代理
-                # 更好的分形维数估算：Box Counting 或 Madogram
-                # 保持原逻辑架构，优化实现
-                reshaped_len = len(data_slice) // scale * scale
+                reshaped_len = (len(data_slice) // scale) * scale
                 if reshaped_len < scale: continue
-                
-                trimmed = data_slice[-reshaped_len:]
-                # Reshape (n/scale, scale) -> mean(std(axis=1))
-                # Numba 不支持 reshape 复杂操作，手动循环
                 seg_flucts = 0.0
                 n_segs = 0
                 for k in range(0, reshaped_len, scale):
-                    seg = trimmed[k:k+scale]
+                    seg = data_slice[k:k+scale]
                     seg_std = np.std(seg)
                     seg_flucts += seg_std
                     n_segs += 1
-                
                 if n_segs > 0:
                     total_fluct += seg_flucts / n_segs
                     count += 1
-            
             if count > 0 and total_fluct > 1e-9:
                 flucts.append(total_fluct)
-                current_scales.append(scale)
-
+                current_scales.append(float(scale))
         if len(flucts) >= 3:
             y = np.log(np.array(flucts))
             x = np.log(np.array(current_scales))
-            
             # 线性回归 log(fluct) ~ H * log(scale)
-            # Slope = H (Hurst)
-            # Fractal Dim D = 2 - H
+            # 确保 x, y 形状匹配
             A = np.vstack((x, np.ones(len(x)))).T
             slope, _ = np.linalg.lstsq(A, y, rcond=-1)[0]
-            
-            # 限制在合理区间 [0, 1] -> D [1, 2]
-            h_val = np.clip(slope, 0.0, 1.0)
+            # 修复点：手动执行标量裁剪，避免 Numba 的 np.clip(float64) 错误
+            # Hurst H 限制在 [0, 1]
+            h_val = slope
+            if h_val < 0.0: h_val = 0.0
+            if h_val > 1.0: h_val = 1.0
+            # 分形维数 D = 2 - H
             out[i] = 2.0 - h_val
-            
     return out
-
 @jit(nopython=True)
 def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.05):
     """V51.0 · 自适应去噪算子：增加 NaN 容错与断路保护"""
@@ -308,111 +290,47 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V68.1 · 原料加载层：集成 VWAP 与主力资金的【单位无关自适应对齐器】"""
+        """V69.0 · 原料加载层：增强量纲自适应对齐与鲁棒性过滤"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
-        tech_cols = [
-            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 
-            'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 
-            'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 
-            'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'IS_ROUNDING_BOTTOM_D', 
-            'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D',
-            'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D',
-            'market_sentiment_score_D'
-        ]
-        
+        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D']
         # 1. 基础数据加载
         for col in base_cols + struct_cols + tech_cols:
-            if col not in df.columns:
-                raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
-            if col in struct_cols or 'rank' in col:
-                raw_signals[col] = df[col].ffill().fillna(0.0)
-            else:
-                raw_signals[col] = df[col].fillna(0.0)
-
-        # 2. VWAP 自适应量纲对齐 (VWAP Unit Alignment)
-        # 初始计算：直接相除 (可能存在单位错配)
+            if col not in df.columns: raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
+            if col in struct_cols or 'rank' in col: raw_signals[col] = df[col].ffill().fillna(0.0)
+            else: raw_signals[col] = df[col].fillna(0.0)
+        # 2. VWAP 自适应单位对齐 (针对 Amount=万元, Volume=手 的特殊处理)
         raw_vwap = raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)
-        raw_vwap = raw_vwap.fillna(raw_signals['close_D'])
-        
-        # 对齐逻辑：计算 VWAP/Close 的中位数比例 (使用中位数抗干扰)
-        # 仅取最近 50 天有交易的数据进行校准
-        recent_closes = raw_signals['close_D'].iloc[-50:]
-        recent_vwaps = raw_vwap.iloc[-50:].replace(0, np.nan)
-        
+        # 统计样本对齐
+        recent_closes = raw_signals['close_D'].iloc[-60:]
+        recent_vwaps = raw_vwap.iloc[-60:].replace(0, np.nan).dropna()
         scale_factor = 1.0
-        if len(recent_vwaps.dropna()) > 0:
-            median_ratio = (recent_vwaps / recent_closes).median()
-            # 如果比例偏离 1.0 太多 (0.5 ~ 2.0 之外)，则寻找最近的 10 的幂次
-            if pd.notna(median_ratio) and (median_ratio < 0.5 or median_ratio > 2.0):
-                # 例如 ratio = 0.01 (相差100倍)，log10(0.01) = -2，需要 * 100
-                power_diff = np.round(np.log10(median_ratio))
-                scale_factor = 10.0 ** (-power_diff)
-        
+        if not recent_vwaps.empty:
+            median_ratio = (recent_vwaps / recent_closes.loc[recent_vwaps.index]).median()
+            if median_ratio < 0.5 or median_ratio > 2.0:
+                # 寻找最近的 10 的幂次进行补偿 (例如 0.01 -> 100, 0.1 -> 10)
+                scale_factor = 10.0 ** (-np.round(np.log10(median_ratio)))
         raw_signals['VWAP_D'] = raw_vwap * scale_factor
-
-        # 3. 主力资金量纲对齐 (Smart Money Unit Alignment)
-        # 逻辑：主力净买入通常占总成交额的 1% - 20%。如果占比极小 (<0.0001)，说明单位是“元”vs“万”
-        sm_net = raw_signals['SMART_MONEY_HM_NET_BUY_D']
-        amt = raw_signals['amount_D'].replace(0, 1e9) # 防止除零
-        
-        sm_ratio = (sm_net.abs() / amt).median()
-        sm_scale = 1.0
-        
-        if pd.notna(sm_ratio) and sm_ratio > 0 and sm_ratio < 0.0001:
-            # 常见情况：主力是“元”，成交额是“万” -> ratio ~ 0.0001，无需调整？
-            # 不，如果 ratio < 1e-4，说明主力数值太小，可能是“万元” vs “元”？
-            # 修正：通常是 SMART_MONEY 单位偏小。
-            # 简单策略：如果中位数比率小于 1/10000，则乘以 10000
-            # 动态寻找 10 的幂
-            power_diff = np.round(np.log10(sm_ratio))
-            # 目标量级是 0.01 (-2)
-            if power_diff < -2:
-                sm_scale = 10.0 ** (-2 - power_diff) # 补偿到 1% 量级
-        
-        raw_signals['SMART_MONEY_HM_NET_BUY_D'] = sm_net * sm_scale
-
-        # 4. 获利盘归一化 (防止百分比溢出)
-        if raw_signals['winner_rate_D'].max() > 5.0: # 阈值设为 5.0 防止误伤 1.x 的浮动
-            raw_signals['winner_rate_D'] = raw_signals['winner_rate_D'] / 100.0
-
-        # 5. 鲁棒动力学提取 (使用修正后的数据)
-        threshold_map = {
-            'net_amount_rate_D': (0.01, 0.005),
-            'winner_rate_D': (0.01, 0.005),
-            'SMART_MONEY_HM_NET_BUY_D': (10, 10),
-            'VPA_EFFICIENCY_D': (0.01, 0.01),
-            'BBW_21_2.0_D': (0.001, 0.0001),
-            'THEME_HOTNESS_SCORE_D': (0.1, 0.1),
-            'chip_entropy_D': (0.01, 0.001),
-            'volume_D': (100, 10),
-            'pct_change_D': (0.0001, 0.0001),
-            'close_D': (0.1, 0.01),
-            'market_sentiment_score_D': (0.1, 0.1),
-            'industry_strength_rank_D': (0.001, 0.001),
-            'turnover_rate_f_D': (0.01, 0.01),
-            'trade_count_D': (10, 5)
-        }
-        
-        dynamic_targets = list(threshold_map.keys())
+        # 3. 筹码与排名数据归一化
+        if raw_signals['winner_rate_D'].max() > 1.1: raw_signals['winner_rate_D'] /= 100.0
+        # 4. 主力资金降级补偿
+        if raw_signals['SMART_MONEY_HM_NET_BUY_D'].abs().sum() < 1e-5:
+            raw_signals['SMART_MONEY_HM_NET_BUY_D'] = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D']) + (raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D'])
+        # 5. 执行鲁棒动力学提取
+        threshold_map = {'net_amount_rate_D': (0.01, 0.005), 'winner_rate_D': (0.01, 0.005), 'SMART_MONEY_HM_NET_BUY_D': (10, 10), 'VPA_EFFICIENCY_D': (0.01, 0.01), 'BBW_21_2.0_D': (0.001, 0.0001), 'THEME_HOTNESS_SCORE_D': (0.1, 0.1), 'chip_entropy_D': (0.01, 0.001), 'volume_D': (100, 10), 'pct_change_D': (0.0001, 0.0001), 'close_D': (0.1, 0.01), 'market_sentiment_score_D': (0.1, 0.1), 'industry_strength_rank_D': (0.001, 0.001), 'turnover_rate_f_D': (0.01, 0.01), 'trade_count_D': (10, 5)}
         fib_windows = [3, 5, 8, 13, 21]
-        
-        if is_debug and probe_ts in df.index:
-            print(f"\n[数据自适应对齐探针 V68.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    [VWAP] 原始均值: {raw_vwap.mean():.2f}, 缩放系数: {scale_factor:.1f} -> 最终VWAP: {raw_signals['VWAP_D'].loc[probe_ts]:.2f}")
-            print(f"    [主力] 原始占比: {sm_ratio:.2e}, 缩放系数: {sm_scale:.1f} -> 修正后值: {raw_signals['SMART_MONEY_HM_NET_BUY_D'].loc[probe_ts]:.2f}")
-
-        for col in dynamic_targets:
-            abs_th, chg_th = threshold_map.get(col, (1e-4, 1e-5))
-            base_series = raw_signals.get(col, pd.Series(0.0, index=df.index)).values
+        for col, (abs_th, chg_th) in threshold_map.items():
+            base_vals = raw_signals.get(col, pd.Series(0.0, index=df.index)).values
             for win in fib_windows:
-                s, a, j = _numba_robust_dynamics(base_series, win=win, abs_threshold=abs_th, change_threshold=chg_th)
+                s, a, j = _numba_robust_dynamics(base_vals, win=win, abs_threshold=abs_th, change_threshold=chg_th)
                 raw_signals[f"SLOPE_{win}_{col}"] = pd.Series(s, index=df.index)
                 raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index)
                 raw_signals[f"JERK_{win}_{col}"] = pd.Series(j, index=df.index)
-
+        if is_debug and probe_ts in df.index:
+            print(f"\n[原料自适应探针 V69.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    VWAP对齐系数: {scale_factor}, 最终VWAP: {raw_signals['VWAP_D'].loc[probe_ts]:.2f}")
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
