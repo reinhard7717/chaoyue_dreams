@@ -476,7 +476,9 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V67.0 · 原料加载层：应用鲁棒动力学算子，针对不同指标实施差异化降噪"""
+        """V67.1 · 原料加载层：校准鲁棒动力学阈值并植入过桥探针"""
+        is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
+        
         raw_signals = {}
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
@@ -489,53 +491,64 @@ class CalculatePriceVolumeDynamics:
             'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D',
             'market_sentiment_score_D'
         ]
-        # 1. 基础数据加载 (保持不变)
+        
+        # 1. 基础数据加载
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns:
-                raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}，请检查数据层产出")
+                raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
             if col in struct_cols or 'rank' in col:
                 raw_signals[col] = df[col].ffill().fillna(0.0)
             else:
                 raw_signals[col] = df[col].fillna(0.0)
-        # VWAP 合成 (保持不变)
+        
         if 'VWAP_D' not in df.columns:
             vwap = raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)
             raw_signals['VWAP_D'] = vwap.fillna(raw_signals['close_D'])
         else:
             raw_signals['VWAP_D'] = df['VWAP_D'].fillna(raw_signals['close_D'])
-        # 2. 动力学差异化配置 (Metric-Specific Thresholds)
+
+        # 2. 动力学差异化配置 (大幅下调阈值以适应归一化数据)
         # 格式: {指标名: (绝对阈值, 变化阈值)}
         threshold_map = {
-            'net_amount_rate_D': (0.05, 0.01),      # 资金流：小于 0.05 视为静默
-            'winner_rate_D': (0.01, 0.005),         # 获利盘：小于 1% 忽略
-            'SMART_MONEY_HM_NET_BUY_D': (1000, 100),# 主力金额：小于 1000元 忽略
-            'VPA_EFFICIENCY_D': (0.1, 0.05),
-            'BBW_21_2.0_D': (0.01, 0.002),          # 布林带宽：极小带宽变化忽略
-            'THEME_HOTNESS_SCORE_D': (5.0, 1.0),    # 热度：小于 5 分忽略
-            'chip_entropy_D': (0.1, 0.01),
-            'volume_D': (1000, 100),                # 成交量
-            'pct_change_D': (0.001, 0.0005),        # 涨跌幅：0.1% 以下视为 0
-            'close_D': (1.0, 0.01),                 # 收盘价
-            'market_sentiment_score_D': (5.0, 1.0),
-            'industry_strength_rank_D': (1.0, 0.5), # 排名
-            'turnover_rate_f_D': (0.1, 0.05),       # 换手率：0.1% 以下忽略
-            'trade_count_D': (10, 5)                # 笔数
+            'net_amount_rate_D': (0.01, 0.005),     
+            'winner_rate_D': (0.01, 0.005),         
+            'SMART_MONEY_HM_NET_BUY_D': (10, 10),   # 下调: 有些股票单位可能是万
+            'VPA_EFFICIENCY_D': (0.01, 0.01),
+            'BBW_21_2.0_D': (0.001, 0.0001),        # 下调: 带宽本身很小
+            'THEME_HOTNESS_SCORE_D': (0.1, 0.1),    # 下调: 适应 0-1 或 0-100
+            'chip_entropy_D': (0.01, 0.001),
+            'volume_D': (100, 10),               
+            'pct_change_D': (0.0001, 0.0001),       
+            'close_D': (0.1, 0.01),                 
+            'market_sentiment_score_D': (0.1, 0.1), # 关键修复: 1.37 > 0.1 (原为5.0)
+            'industry_strength_rank_D': (0.01, 0.01), # 关键修复: 0.3 > 0.01 (原为1.0)
+            'turnover_rate_f_D': (0.01, 0.01),      
+            'trade_count_D': (10, 5)                
         }
+
         # 3. 执行鲁棒动力学提取
         dynamic_targets = list(threshold_map.keys())
         fib_windows = [3, 5, 8, 13, 21]
+        
+        if is_debug and probe_ts in df.index:
+            print(f"\n[动力学原料过桥探针 V67.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+
         for col in dynamic_targets:
-            # 获取对应的阈值，若无则使用默认最严格阈值
             abs_th, chg_th = threshold_map.get(col, (1e-4, 1e-5))
-            # 提取原始序列 (Numpy)
             base_series = raw_signals.get(col, pd.Series(0.0, index=df.index)).values
+            
+            # 过桥诊断：检查关键指标为何被置零
+            if is_debug and probe_ts in df.index and col in ['market_sentiment_score_D', 'industry_strength_rank_D']:
+                curr_val = base_series[df.index.get_loc(probe_ts)]
+                is_killed = abs(curr_val) < abs_th
+                print(f"    指标: {col:<25} | 原始值: {curr_val:.4f} | 阈值: {abs_th} | 状态: {'[被置零!]' if is_killed else '有效'}")
+
             for win in fib_windows:
-                # 调用鲁棒算子一次性计算 S/A/J
                 s, a, j = _numba_robust_dynamics(base_series, win=win, abs_threshold=abs_th, change_threshold=chg_th)
-                # 存入字典
                 raw_signals[f"SLOPE_{win}_{col}"] = pd.Series(s, index=df.index)
                 raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index)
                 raw_signals[f"JERK_{win}_{col}"] = pd.Series(j, index=df.index)
+
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -740,14 +753,19 @@ class CalculatePriceVolumeDynamics:
         return res
 
     def _calculate_hmm_regime_confirmation(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V65.0 · HMM 动力学共振：引入概率加速度(Accel)与相变脉冲(Jerk)"""
+        """V65.1 · HMM 动力学共振：诊断概率归一化异常"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        
         # 1. 特征归一化
         large_net = (raw['SMART_MONEY_HM_NET_BUY_D']).fillna(0)
-        flow_n = (large_net - large_net.rolling(21).mean()) / (large_net.rolling(21).std() + 1e-9)
+        # 诊断：查看分母是否过小
+        roll_std = large_net.rolling(21).std()
+        flow_n = (large_net - large_net.rolling(21).mean()) / (roll_std + 1e-9)
+        
         vol_n = (raw['volume_D'] / raw['volume_D'].rolling(21).mean().replace(0, 1)) - 1.0
         price_n = raw['pct_change_D'] * 10.0
         vwap_dist = (raw['close_D'] - raw['VWAP_D']) / (raw['close_D'] * raw['BBW_21_2.0_D'] + 1e-9)
+        
         # 2. 计算拉升概率
         markup_prob_vals = _numba_hmm_regime_probability(
             flow_n.fillna(0).values, 
@@ -756,81 +774,81 @@ class CalculatePriceVolumeDynamics:
             vwap_dist.fillna(0).values
         )
         markup_prob = pd.Series(markup_prob_vals, index=df_index)
-        # 3. HMM 动力学特征 (Kinematics)
-        # 概率的加速度：多头掌控力是否在增强
+        
+        # 3. HMM 动力学
         prob_accel = markup_prob.diff(3).diff(3).fillna(0)
-        # 相变脉冲：概率的剧烈跳变
         prob_jerk = markup_prob.diff(1).diff(1).diff(1).fillna(0)
-        # 4. 动力学共振判定
-        # 稳固拉升：概率高且加速向上
+        
         is_solid_markup = (markup_prob > 0.6) & (prob_accel > 0)
-        # 相变爆发：概率中等但出现正向极大脉冲 (转折点)
         is_phase_transition = (markup_prob > 0.4) & (prob_jerk > 0.1)
-        # 5. 综合系数合成
+        
         base_factor = np.where(markup_prob > 0.5, 
                                1.0 + (markup_prob - 0.5), 
                                0.8 + markup_prob * 0.4)
-        # 叠加动力学红利
         dynamic_bonus = 1.0 + np.where(is_solid_markup, 0.2, 0.0) + np.where(is_phase_transition, 0.3, 0.0)
+        
         res = pd.Series(base_factor * dynamic_bonus, index=df_index)
+        
         if is_debug and probe_ts in df_index:
-            print(f"\n[HMM 动力学探针 V65 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    拉升概率: {markup_prob.loc[probe_ts]:.4f}, 概率加速: {prob_accel.loc[probe_ts]:.4f}")
-            print(f"    相变脉冲(Jerk): {prob_jerk.loc[probe_ts]:.4f}")
-            print(f"    状态: {'稳固拉升' if is_solid_markup.loc[probe_ts] else ('相变爆发' if is_phase_transition.loc[probe_ts] else '常态')}")
+            print(f"\n[HMM 动力学探针 V65.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    主力大单原始: {large_net.loc[probe_ts]:.2f}, 滚动STD: {roll_std.loc[probe_ts]:.4f}")
+            print(f"    归一化特征 -> 流: {flow_n.loc[probe_ts]:.4f}, 量: {vol_n.loc[probe_ts]:.4f}, 价: {price_n.loc[probe_ts]:.4f}")
+            print(f"    距离质心计算后 -> 拉升概率: {markup_prob.loc[probe_ts]:.4f}")
             print(f"    >>> 最终 HMM 确认系数: {res.loc[probe_ts]:.4f}")
+            
         return res.astype(np.float32)
 
     def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V65.1 · 分形动力学模型：修复 Series 类型丢失导致的 AttributeError"""
+        """V65.1 · 分形动力学模型：诊断 Hurst=0.5 的原因"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 计算 Hurst 指数
+        
         close_vals = raw['close_D'].fillna(0).values
         vol_vals = raw['volume_D'].fillna(0).values
         input_arrays = np.vstack((close_vals, vol_vals))
+        
+        # 1. 计算 Hurst 指数
         fractal_dims = _numba_fractal_dimension(input_arrays, window=21)
         hurst_price = pd.Series(2.0 - fractal_dims[0], index=df_index).clip(0, 1)
         hurst_vol = pd.Series(2.0 - fractal_dims[1], index=df_index).clip(0, 1)
-        # 2. 分形动力学 (Fractal Kinematics)
-        # Hurst 斜率：趋势记忆性是否在增强
+        
+        # 2. 分形动力学
         hurst_slope = hurst_price.diff(5).fillna(0)
-        # 趋势硬化 (Trend Hardening): H > 0.55 且 H 还在变大
         is_hardening = (hurst_price > 0.55) & (hurst_slope > 0)
-        # 3. 效率缺口动力学 (Gap Dynamics)
+        
+        # 3. 效率缺口
         eff_gap = (hurst_price - hurst_vol).abs()
-        # 缺口加速度：背离是否在恶化
         gap_accel = eff_gap.diff(3).diff(3).fillna(0)
-        # 结构崩塌预警：缺口很大且加速扩大
         is_collapsing = (eff_gap > 0.3) & (gap_accel > 0)
-        # 4. 综合效率系数
-        # 基础分
+        
+        # 4. 综合效率系数 (使用 numpy 操作避免 Series 错误)
         persistence = np.where(hurst_price > 0.55, 1.2, 
                       np.where(hurst_price < 0.45, 0.6, 0.9))
         resonance_factor = (1.0 - eff_gap * 2.0).clip(0.5, 1.1)
-        base_score = persistence * resonance_factor
-        # 动力学修正 (使用 numpy 操作以避免类型问题，最后统一封装)
-        # 将 Series 转换为 numpy array 参与运算
-        final_vals = np.array(base_score)
-        mask_hardening = is_hardening.values
-        mask_collapsing = is_collapsing.values
-        final_vals = np.where(mask_hardening, final_vals * 1.2, final_vals)
-        final_vals = np.where(mask_collapsing, final_vals * 0.7, final_vals) # 崩塌预警强力扣分
-        # 重新封装为 Series 供后续调用
+        
+        base_vals = persistence * resonance_factor
+        mask_h = is_hardening.values
+        mask_c = is_collapsing.values
+        
+        final_vals = np.where(mask_h, base_vals * 1.2, base_vals)
+        final_vals = np.where(mask_c, final_vals * 0.7, final_vals)
+        
         final_score = pd.Series(final_vals, index=df_index)
+        
         if is_debug and probe_ts in df_index:
             print(f"\n[分形动力学探针 V65.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            idx_loc = df_index.get_loc(probe_ts)
+            print(f"    当前索引位置: {idx_loc}, 需求窗口: 21 (若索引<21则Hurst为默认值0.5)")
             print(f"    价格Hurst: {hurst_price.loc[probe_ts]:.4f}, Hurst斜率: {hurst_slope.loc[probe_ts]:.4f}")
-            print(f"    分形缺口: {eff_gap.loc[probe_ts]:.4f}, 缺口加速: {gap_accel.loc[probe_ts]:.4f}")
-            print(f"    状态: {'趋势硬化(增强)' if is_hardening.loc[probe_ts] else ('结构崩塌警报' if is_collapsing.loc[probe_ts] else '常态')}")
             print(f"    >>> 最终分形效率系数: {final_score.loc[probe_ts]:.4f}")
             
         return final_score.astype(np.float32)
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V64.0 · 筹码动力学锁定模型：引入 Accel/Jerk 识别“真空加速”状态"""
+        """V64.1 · 筹码动力学锁定模型：修复 Series.replace 兼容性错误"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         # 1. 基础磁滞状态
         winner = raw['winner_rate_D'].fillna(0)
+        # 标量替换标量是安全的
         turnover = raw['turnover_rate_f_D'].replace(0, 0.1)
         turnover_norm = (turnover / 5.0).clip(0, 1)
         static_lock = winner * (1.0 - turnover_norm).clip(0, 1)
@@ -848,12 +866,17 @@ class CalculatePriceVolumeDynamics:
         # 4. 动力学增强
         # 基础锁定 * (1.0 + 真空加速奖励 + 突破脉冲奖励)
         kinetic_bonus = 1.0 + np.where(is_vacuum_accel, 0.3, 0.0) + np.where(is_breakthrough, 0.2, 0.0)
-        # 5. 成本支撑逻辑 (保留)
-        cost_50 = raw['cost_50pct_D'].replace(0, raw['close_D'])
-        break_cost = (raw['close_D'] > cost_50).astype(float)
+        # 5. 成本支撑逻辑 (修复点)
+        # 使用 mask 替代 replace 处理 Series 级替换：当 cost_50pct_D 为 0 时，使用 close_D 填充
+        cost_series = raw['cost_50pct_D']
+        close_series = raw['close_D']
+        cost_50 = cost_series.mask(cost_series == 0, close_series)
+        
+        break_cost = (close_series > cost_50).astype(float)
         final_efficiency = pd.Series(static_lock * kinetic_bonus * (0.8 + break_cost * 0.2), index=df_index)
+        
         if is_debug and probe_ts in df_index:
-            print(f"\n[筹码动力学探针 V64 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[筹码动力学探针 V64.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    获利加速: {accel_winner.loc[probe_ts]:.4f}, 换手加速: {accel_turnover.loc[probe_ts]:.4f}")
             print(f"    获利脉冲(Jerk): {jerk_winner.loc[probe_ts]:.4f}")
             print(f"    状态: {'真空加速' if is_vacuum_accel.loc[probe_ts] else '常态'}, 静态锁定: {static_lock.loc[probe_ts]:.4f}")
@@ -1018,35 +1041,36 @@ class CalculatePriceVolumeDynamics:
         return final_inertia.astype(np.float32)
 
     def _calculate_market_permeability_index(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V62.0 · 市场渗透率与环境相变：基于情绪与排名的动力学判定"""
+        """V62.1 · 市场渗透率与环境相变：增加输入值诊断"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 情绪相变 (Sentiment Phase Shift)
+        
+        # 1. 情绪相变
         sentiment = raw['market_sentiment_score_D']
         sent_accel = raw['ACCEL_5_market_sentiment_score_D']
-        # 恐慌买入 (Panic Buying): 情绪高位 (>80) 且 还在加速 (>0) -> 危险，渗透率低
+        
         is_overheat = (sentiment > 80) & (sent_accel > 0)
-        # 冰点复苏 (Recovery): 情绪低位 (<20) 且 开始加速 (>0) -> 绝佳，渗透率高
         is_recovery = (sentiment < 20) & (sent_accel > 0)
-        # 2. 行业排名跃迁 (Rank Surge)
+        
+        # 2. 行业排名跃迁
         rank = raw['industry_strength_rank_D']
-        # 排名越小越好，所以 rank 下降 (变好) 是 slope < 0
-        # 关注排名的 Jerk：负向 Jerk 代表排名急速提升 (例如 50 -> 10)
         rank_jerk = raw['JERK_3_industry_strength_rank_D']
-        # 强力跃迁: 排名在加速变好
         is_rank_surge = rank_jerk < -2.0 
+        
         # 3. 渗透率合成
         permeability = np.where(is_recovery, 1.3, 
                        np.where(is_overheat, 0.7, 1.0))
-        # 叠加排名跃迁红利
         rank_bonus = np.where(is_rank_surge, 1.3, 
-                     np.where(rank < 10, 1.1, 0.9)) # 前10名本身就有红利
+                     np.where(rank < 10, 1.1, 0.9))
+        
         final_ctx = pd.Series(permeability * rank_bonus, index=df_index).clip(0.6, 1.8)
+        
         if is_debug and probe_ts in df_index:
-            print(f"\n[环境相变探针 V62 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    情绪: {sentiment.loc[probe_ts]:.2f}, 情绪加速: {sent_accel.loc[probe_ts]:.4f}")
-            print(f"    排名: {rank.loc[probe_ts]:.1f}, 排名脉冲(Jerk): {rank_jerk.loc[probe_ts]:.4f}")
-            print(f"    状态: {'冰点复苏' if is_recovery.loc[probe_ts] else ('情绪过热' if is_overheat.loc[probe_ts] else '正常')}")
+            print(f"\n[环境相变探针 V62.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    原始情绪: {sentiment.loc[probe_ts]:.4f}, 情绪加速(Accel): {sent_accel.loc[probe_ts]:.4f}")
+            print(f"    原始排名: {rank.loc[probe_ts]:.4f}, 排名脉冲(Jerk): {rank_jerk.loc[probe_ts]:.4f}")
+            print(f"    判定逻辑 -> 复苏条件(Sent<20 & Acc>0): {is_recovery.loc[probe_ts]}")
             print(f"    >>> 最终环境渗透系数: {final_ctx.loc[probe_ts]:.4f}")
+            
         return final_ctx.astype(np.float32)
 
     def _calculate_entry_accessibility_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
