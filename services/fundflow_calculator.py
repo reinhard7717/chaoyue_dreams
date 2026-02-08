@@ -392,12 +392,10 @@ class FundFlowFactorCalculator:
         """
         n = len(arr)
         if n < 10: return 0.0
-        
         # 取最近 10-15 天
         window = 10
         nets = arr[-window:]
         closes = self.close_array[-window:]
-        
         # 1. 基础门槛：整体必须是资金流入的
         cum_net = np.sum(nets)
         if cum_net <= 0: 
@@ -412,39 +410,31 @@ class FundFlowFactorCalculator:
         # 分子：资金力度 (Flow Strength)
         total_amt = np.sum(self.daily_amount_array[-window:]) + 1.0
         flow_ratio = cum_net / total_amt # 0.01 ~ 0.2 (1% - 20%)
-        
         # 分母：价格阻力 (Price Resistance/Volatility)
         # 使用 真实波幅之和 或 路径长度
         # 这里计算: sum(|price_change|) / mean_price
         path_length = np.sum(np.abs(np.diff(closes))) 
         vol_ratio = path_length / (np.mean(closes) + 1e-6)
-        
         # 密度 = 资金力度 / 价格阻力
         # 如果主力吸筹：Flow大，但通过控制手段让 Price波动小 -> Density 极大
         # 如果是散户推升：Flow小，Price乱跳 -> Density 小
         # 加微小底噪防止除零
         density = flow_ratio / (vol_ratio + 0.02) 
-        
         # 3. 映射分数
         # 经验值: density > 2.0 属于极强吸筹
         raw_score = density * 40.0
-        
         # 4. 连续性加成 (Consistency Bonus)
         # 统计资金流入的天数占比
         pos_days = np.sum(nets > 0)
         consistency = (pos_days / window) * 20.0 # Max 20分
-        
         # 5. 位置修正 (Position Correction)
         # 低位吸筹才有效，高位可能是诱多
         long_closes = self.close_array[-60:]
         current_pos = (closes[-1] - np.min(long_closes)) / (np.ptp(long_closes) + 1e-6)
-        
         pos_factor = 1.0
         if current_pos < 0.3: pos_factor = 1.2 # 低位加分
         elif current_pos > 0.8: pos_factor = 0.6 # 高位打折
-        
         final_score = (raw_score + consistency) * pos_factor
-        
         return float(np.clip(final_score, 0.0, 100.0))
 
     def _calculate_pushing_score(self, arr: np.ndarray) -> float:
@@ -459,37 +449,29 @@ class FundFlowFactorCalculator:
         """
         n = len(arr)
         if n < 5: return 0.0
-        
         nets = arr[-5:]
         closes = self.close_array[-5:]
-        
         # 1. 计算每日的"做功" (Work Done)
         # Work = Net_Flow * Price_Change
         price_changes = np.diff(closes)
         # 对齐长度
         work_arr = nets[1:] * price_changes
-        
         # 2. 有效做功求和
         # 只统计正功 (资金买入且价格上涨)
         valid_work = np.sum(work_arr[work_arr > 0])
-        
         # 3. 归一化
         # 基准功 = 平均成交额 * 平均波幅
         avg_amt = np.mean(self.daily_amount_array[-5:])
         avg_range = np.mean(closes) * 0.02 # 假设日均 2% 波动
         base_work = avg_amt * avg_range + 1.0
-        
         efficiency = valid_work / base_work # 通常在 0 ~ 5 之间
-        
         # 4. 映射到 0-100
         # Eff=0.5 -> 25分, Eff=2.0 -> 80分
         raw_score = efficiency * 50.0
-        
         # 5. 连续性奖励
         # 最近3天资金是否为正
         recent_pos = np.sum(nets[-3:] > 0)
         continuity_bonus = recent_pos * 5.0
-        
         return float(np.clip(raw_score + continuity_bonus, 0.0, 100.0))
 
     def _calculate_distribution_score(self, nets: np.ndarray, closes: np.ndarray, vols: np.ndarray) -> float:
@@ -630,7 +612,6 @@ class FundFlowFactorCalculator:
             # 趋势弱则打折，但不要打太狠 (0.7 ~ 1.0)
             trend_factor = 0.7 + 0.3 * r_sq
             final_confidence *= trend_factor
-
         # 阈值过滤
         if best_score < 30.0:
             return 'UNCLEAR', 0.0
@@ -747,22 +728,17 @@ class FundFlowFactorCalculator:
         """
         arr = self.net_amount_array
         if len(arr) < 10: return False, 0.0
-        
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
-        
         recent = arr[-20:]
         median = np.median(recent)
         mad = np.median(np.abs(recent - median)) * 1.4826
         base_noise = max(10.0, np.mean(np.abs(recent)) * 0.1)
         sigma = max(mad, base_noise)
-        
         # Z-Score
         z_score = (current_net - median) / sigma
-        
         # 绝对冲击
         circ_mv = self.market_cap or 1e12
         turnover_impact = abs(current_net) / circ_mv
-        
         # [核心修复] 平滑强度计算 (Softplus-like)
         # 使用 log1p(exp) 的变体来平滑过渡
         # score = 20 * ln(1 + e^(Z - 1.5))
@@ -771,16 +747,12 @@ class FundFlowFactorCalculator:
         # Z=3.0 -> score ~ 35
         # Z=5.0 -> score ~ 70
         abs_z = abs(z_score)
-        
         # 基础分：只要有异动倾向(Z>0.5)就开始计分，不再卡死 Z>2.0
         intensity = 20.0 * np.log1p(np.exp(abs_z - 1.0))
-        
         # 叠加绝对冲击分
         # impact=0.1% -> 10分, impact=0.5% -> 50分
         impact_score = turnover_impact * 10000.0 
-        
         final_intensity = intensity + impact_score
-        
         # 只有当总分极低时才返回 False
         if final_intensity < 10.0:
             return False, 0.0
@@ -923,35 +895,27 @@ class FundFlowFactorCalculator:
             
         arr = self.net_amount_array
         if len(arr) < 60: return sync_metrics
-        
         def calc_wma(data, window):
             weights = np.arange(1, window + 1)
             return np.convolve(data, weights/weights.sum(), mode='valid')
             
         smooth_arr = savgol_filter(arr, window_length=5, polyorder=2) if len(arr) > 5 else arr
-        
         ma5 = calc_wma(smooth_arr, 5)
         ma20 = calc_wma(smooth_arr, 20)
         ma60 = calc_wma(smooth_arr, 60)
-        
         min_len = min(len(ma5), len(ma20), len(ma60))
         if min_len < 5: return sync_metrics
-        
         s_short = ma5[-5:]
         s_mid = ma20[-5:]
         s_long = ma60[-5:]
-        
         # [修改] 传入额外参数 calc_energy=True
         sync_metrics['short_mid_sync'] = self._calculate_vector_resonance(s_short, s_mid, check_energy=False)
-        
         # Mid-Long Sync 核心修复
         sync_metrics['mid_long_sync'] = self._calculate_vector_resonance(s_mid, s_long, check_energy=True)
-        
         # 补充其他
         daily_slice = smooth_arr[-5:]
         sync_metrics['daily_weekly_sync'] = self._calculate_vector_resonance(daily_slice, s_short)
         sync_metrics['daily_monthly_sync'] = self._calculate_vector_resonance(daily_slice, s_mid)
-        
         return sync_metrics
 
     def _calculate_vector_resonance(self, s1: np.ndarray, s2: np.ndarray, check_energy: bool = False) -> float:
@@ -960,17 +924,13 @@ class FundFlowFactorCalculator:
         新增: check_energy (能量协同检查)
         """
         if len(s1) < 2 or len(s2) < 2: return 50.0
-        
         # 标准差作为幅度基准
         std1 = np.std(s1) + 1e-6
         std2 = np.std(s2) + 1e-6
-        
         slope1 = (s1[-1] - s1[0]) / std1
         slope2 = (s2[-1] - s2[0]) / std2
-        
         # 1. 方向一致性
         dir_score = np.tanh(slope1 * slope2)
-        
         # 2. 形态相关性
         try:
             corr = np.corrcoef(s1, s2)[0, 1]
@@ -1047,14 +1007,11 @@ class FundFlowFactorCalculator:
             
         arr = self.net_amount_array
         if len(arr) < 15: return momentum
-        
         # 1. 基础动量 (Momentum)
         mad = stats.median_abs_deviation(arr[-20:]) if len(arr) >= 20 else np.std(arr)
         denom = max(mad, 10.0) # 底噪
-        
         momentum['flow_momentum_5d'] = float((arr[-1] - arr[-5]) / denom) if len(arr) >= 5 else 0.0
         momentum['flow_momentum_10d'] = float((arr[-1] - arr[-10]) / denom) if len(arr) >= 10 else 0.0
-        
         # 2. 资金加速度 (Flow Acceleration) - 修复版
         recent_10 = arr[-10:]
         try:
@@ -1083,7 +1040,6 @@ class FundFlowFactorCalculator:
         up_strength, down_strength = self._calculate_robust_trend_strength()
         momentum['uptrend_strength'] = up_strength
         momentum['downtrend_strength'] = down_strength
-        
         return momentum
 
     def _calculate_robust_trend_strength(self) -> Tuple[float, float]:
@@ -1096,23 +1052,19 @@ class FundFlowFactorCalculator:
         """
         window = 10
         if len(self.net_amount_array) < window: return 0.0, 0.0
-        
         # 使用累积资金流作为趋势对象
         cum_flow = np.cumsum(self.net_amount_array[-window:])
         x = np.arange(len(cum_flow))
-        
         # --- 维度 1: 线性回归 (Linearity) ---
         slope, _, r_value, _, _ = linregress(x, cum_flow)
         r_sq = r_value ** 2
         # 线性分带符号：斜率为正，分为正
         linear_score = r_sq * 100.0 * np.sign(slope)
-        
         # --- 维度 2: 秩相关 (Monotonicity) ---
         # Spearman 自带符号 (-1 ~ 1)
         spearman_corr, _ = stats.spearmanr(x, cum_flow)
         if np.isnan(spearman_corr): spearman_corr = 0.0
         rank_score = spearman_corr * 100.0
-        
         # --- 维度 3: 净增益 (Net Gain) ---
         # 结果导向：首尾涨跌幅
         net_change = cum_flow[-1] - cum_flow[0]
@@ -1121,18 +1073,14 @@ class FundFlowFactorCalculator:
         # 限制 gain_ratio 在 -2 ~ 2 之间 (2倍标准差)
         gain_ratio = np.clip(net_change / (std_val * 2.0), -1.0, 1.0)
         gain_score = gain_ratio * 100.0
-        
         # --- 综合基础分 ---
         # 权重: 线性度 30% + 单调性 30% + 净结果 40%
         # 这是一个 -100 到 100 的连续分数
         base_score = linear_score * 0.3 + rank_score * 0.3 + gain_score * 0.4
-        
         uptrend_val = 0.0
         downtrend_val = 0.0
-        
         # --- 分流计算 ---
         range_val = np.ptp(cum_flow) + 1e-6
-        
         if base_score > 0:
             # === 上升趋势计算 ===
             # 回撤惩罚 (Drawdown)
@@ -1288,10 +1236,8 @@ class FundFlowFactorCalculator:
         }
         window = 15
         if len(self.close_array) < window: return divergence
-        
         prices = self.close_array[-window:]
         cum_flow = np.cumsum(self.net_amount_array[-window:])
-        
         # 1. 归一化 (Min-Max -> 0~1)
         def norm(arr):
             ptp = np.ptp(arr)
@@ -1300,27 +1246,21 @@ class FundFlowFactorCalculator:
             
         p_norm = norm(prices)
         f_norm = norm(cum_flow)
-        
         # 2. 综合相关性 (Min of Pearson & Spearman)
         # 取最小值，意味着只要有一种相关性变差，就认为出现了背离
         p_corr = np.corrcoef(p_norm, f_norm)[0, 1]
         if np.isnan(p_corr): p_corr = 1.0
-        
         s_corr, _ = stats.spearmanr(p_norm, f_norm)
         if np.isnan(s_corr): s_corr = 1.0
-        
         # 综合相关系数
         min_corr = min(p_corr, s_corr)
-        
         # 3. 背离度 (Continuous Score)
         # 只要 corr < 0.9 就开始有分
         # corr=0.9 -> 5分, corr=0.5 -> 25分, corr=0.0 -> 50分, corr=-1.0 -> 100分
         div_score = (1.0 - min_corr) * 50.0
         # 截断负数 (corr > 1.0 case)
         div_score = max(0.0, div_score)
-        
         divergence['price_flow_divergence'] = float(np.clip(div_score, 0.0, 100.0))
-        
         # 4. 类型判定
         # 只要背离度 > 10 (即 corr < 0.8) 就尝试判定类型
         if div_score > 10.0:
@@ -1521,15 +1461,12 @@ class FundFlowFactorCalculator:
         recent_5 = arr[-5:]
         weights = np.arange(1, 6)
         prediction['expected_flow_next_1d'] = float(np.average(recent_5, weights=weights))
-        
         # 2. 置信度计算 (修正)
         recent_10 = arr[-10:]
         displacement = abs(np.sum(recent_10))
         path_length = np.sum(np.abs(recent_10))
-        
         # KER: 0~1
         ker = displacement / (path_length + 1e-6)
-        
         # 自相关性 (Autocorrelation)
         ac1 = 0.0
         if np.std(recent_10) > 1e-6:
@@ -1538,13 +1475,11 @@ class FundFlowFactorCalculator:
             
         # 基础分: KER * 80 (原150，太激进) + AC1 * 20
         raw_confidence = ker * 80.0 + max(0, ac1) * 20.0
-        
         # [新增] 拥挤度/波动率惩罚
         # 如果最近波动极大 (Standard Deviation relative to Mean)，说明分歧大，置信度应降低
         vol = np.std(recent_10)
         mean_abs = np.mean(np.abs(recent_10)) + 1e-6
         cv = vol / mean_abs
-        
         # CV > 1.5 时开始惩罚
         penalty = 1.0
         if cv > 1.5:
@@ -1552,7 +1487,6 @@ class FundFlowFactorCalculator:
             
         final_confidence = raw_confidence * penalty
         prediction['flow_forecast_confidence'] = float(np.clip(final_confidence, 0.0, 100.0))
-        
         # 3. 趋势概率 (联动)
         trend_score = 50.0
         if prediction['expected_flow_next_1d'] > 0:
@@ -1562,7 +1496,6 @@ class FundFlowFactorCalculator:
             
         prediction['uptrend_continuation_prob'] = float(np.clip(trend_score, 0.0, 100.0))
         prediction['reversal_prob'] = float(np.clip(100.0 - trend_score, 0.0, 100.0))
-        
         return prediction
 
     def _calculate_historical_continuation_prob(self) -> float:
@@ -1806,7 +1739,6 @@ class FundFlowFactorCalculator:
             tick_metrics.update(self._calculate_stealth_flow_indicators(df))
             # [新增] 深度资金持续性计算
             tick_metrics['flow_persistence_minutes'] = self._calculate_flow_persistence_minutes(df)
-
         except Exception as e:
             logger.error(f"计算tick增强指标异常: {e}", exc_info=True)
         return tick_metrics

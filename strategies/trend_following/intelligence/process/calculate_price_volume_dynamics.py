@@ -503,10 +503,8 @@ class CalculatePriceVolumeDynamics:
             raw_signals['VWAP_D'] = vwap.fillna(raw_signals['close_D'])
         else:
             raw_signals['VWAP_D'] = df['VWAP_D'].fillna(raw_signals['close_D'])
-
         # 2. 动力学差异化配置 (Metric-Specific Thresholds)
         # 格式: {指标名: (绝对阈值, 变化阈值)}
-        # 0.000001 的变动对于 pct_change 是噪音，但对于 slope 可能是信号，需区别对待
         threshold_map = {
             'net_amount_rate_D': (0.05, 0.01),      # 资金流：小于 0.05 视为静默
             'winner_rate_D': (0.01, 0.005),         # 获利盘：小于 1% 忽略
@@ -523,26 +521,21 @@ class CalculatePriceVolumeDynamics:
             'turnover_rate_f_D': (0.1, 0.05),       # 换手率：0.1% 以下忽略
             'trade_count_D': (10, 5)                # 笔数
         }
-
         # 3. 执行鲁棒动力学提取
         dynamic_targets = list(threshold_map.keys())
         fib_windows = [3, 5, 8, 13, 21]
         for col in dynamic_targets:
             # 获取对应的阈值，若无则使用默认最严格阈值
             abs_th, chg_th = threshold_map.get(col, (1e-4, 1e-5))
-            
             # 提取原始序列 (Numpy)
             base_series = raw_signals.get(col, pd.Series(0.0, index=df.index)).values
-            
             for win in fib_windows:
                 # 调用鲁棒算子一次性计算 S/A/J
                 s, a, j = _numba_robust_dynamics(base_series, win=win, abs_threshold=abs_th, change_threshold=chg_th)
-                
                 # 存入字典
                 raw_signals[f"SLOPE_{win}_{col}"] = pd.Series(s, index=df.index)
                 raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index)
                 raw_signals[f"JERK_{win}_{col}"] = pd.Series(j, index=df.index)
-
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -789,7 +782,7 @@ class CalculatePriceVolumeDynamics:
         return res.astype(np.float32)
 
     def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V65.0 · 分形动力学模型：引入 Hurst 斜率与 Gap 加速度"""
+        """V65.1 · 分形动力学模型：修复 Series 类型丢失导致的 AttributeError"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         # 1. 计算 Hurst 指数
         close_vals = raw['close_D'].fillna(0).values
@@ -815,16 +808,22 @@ class CalculatePriceVolumeDynamics:
                       np.where(hurst_price < 0.45, 0.6, 0.9))
         resonance_factor = (1.0 - eff_gap * 2.0).clip(0.5, 1.1)
         base_score = persistence * resonance_factor
-        # 动力学修正
-        final_score = pd.Series(base_score, index=df_index)
-        final_score = np.where(is_hardening, final_score * 1.2, final_score)
-        final_score = np.where(is_collapsing, final_score * 0.7, final_score) # 崩塌预警强力扣分
+        # 动力学修正 (使用 numpy 操作以避免类型问题，最后统一封装)
+        # 将 Series 转换为 numpy array 参与运算
+        final_vals = np.array(base_score)
+        mask_hardening = is_hardening.values
+        mask_collapsing = is_collapsing.values
+        final_vals = np.where(mask_hardening, final_vals * 1.2, final_vals)
+        final_vals = np.where(mask_collapsing, final_vals * 0.7, final_vals) # 崩塌预警强力扣分
+        # 重新封装为 Series 供后续调用
+        final_score = pd.Series(final_vals, index=df_index)
         if is_debug and probe_ts in df_index:
-            print(f"\n[分形动力学探针 V65 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[分形动力学探针 V65.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    价格Hurst: {hurst_price.loc[probe_ts]:.4f}, Hurst斜率: {hurst_slope.loc[probe_ts]:.4f}")
             print(f"    分形缺口: {eff_gap.loc[probe_ts]:.4f}, 缺口加速: {gap_accel.loc[probe_ts]:.4f}")
             print(f"    状态: {'趋势硬化(增强)' if is_hardening.loc[probe_ts] else ('结构崩塌警报' if is_collapsing.loc[probe_ts] else '常态')}")
             print(f"    >>> 最终分形效率系数: {final_score.loc[probe_ts]:.4f}")
+            
         return final_score.astype(np.float32)
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:

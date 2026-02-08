@@ -1549,11 +1549,9 @@ class CalculateMainForceRallyIntent:
         核心优化：引入信号强度(Strength)变量，剔除低斜率的"伪趋势"，增强反转识别的准确性。
         """
         market_states = pd.Series("consolidating", index=rs_signal.index)
-        
         # 设定动态阈值
         STRONG_TREND_THRESHOLD = 0.15  # 强趋势斜率阈值
         REVERSAL_IMPULSE_THRESHOLD = 0.20  # 反转冲量阈值
-
         for i in range(len(market_states)):
             if i < 30:
                 market_states.iloc[i] = "consolidating"
@@ -1618,7 +1616,6 @@ class CalculateMainForceRallyIntent:
                     continue
             # 默认状态
             market_states.iloc[i] = "consolidating"
-
         return market_states
 
     def _calculate_trend_direction(self, series: pd.Series) -> float:

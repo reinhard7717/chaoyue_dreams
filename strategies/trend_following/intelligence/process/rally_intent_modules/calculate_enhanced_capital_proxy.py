@@ -27,7 +27,6 @@ class EnhancedCapitalProxyCalculator:
         # 如果没有分层数据，使用整体净流入替代
         if elg.sum() == 0 and lg.sum() == 0:
              return normalized_signals.get('net_amount_ratio_norm', pd.Series(0.5, index=df_index)).clip(0, 1)
-
         # 权重配置：特大单最重要，大单次之，小单反向
         # 这里的 norm 数据通常在 [0, 1] 之间，0.5 为中性
         # 将其映射回 [-0.5, 0.5] 进行加权

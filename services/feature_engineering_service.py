@@ -1181,7 +1181,6 @@ class FeatureEngineeringService:
                 # ATR 处理: 确保无0值
                 atr_series = df[f"ATR_14_{timeframe}"].replace(0, np.nan).bfill()
                 atr_arr = atr_series.values.astype(np.float64)
-
                 # 2. 计算 MA_POTENTIAL_COMPRESSION_RATE (极致压缩率)
                 # 逻辑: 所有均线的标准差越小，压缩越紧。除以ATR进行归一化。
                 ma_std = np.std(ma_matrix, axis=1)
@@ -1192,7 +1191,6 @@ class FeatureEngineeringService:
                 spread_series = pd.Series(normalized_spread, index=df.index)
                 compression_rank = spread_series.rolling(window=120).rank(pct=True).fillna(0.5).values
                 df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = 1.0 - compression_rank
-
                 # 3. 计算 MA_RUBBER_BAND_EXTENSION (橡皮筋拉伸度 - 均值回归压力)
                 # 逻辑: 价格相对于最长周期均线(如144日)的偏离程度，经过ATR标准化
                 longest_ma = df[f"{ma_type}_{max(all_periods)}_{timeframe}"].values.astype(np.float64)
@@ -1203,7 +1201,6 @@ class FeatureEngineeringService:
                 extension_std = extension_series.rolling(250).std().replace(0, 1)
                 extension_z = (extension_series - extension_mean) / extension_std
                 df[f'MA_RUBBER_BAND_EXTENSION_{timeframe}'] = extension_z.fillna(0).clip(-3, 3).values
-
                 # 4. 计算 MA_COHERENCE_RESONANCE (多均线共振度)
                 # 逻辑: 检查所有均线的瞬时斜率是否同向且加速
                 # 使用 numpy diff 计算行间差异 (Time t vs Time t-1)
@@ -1220,7 +1217,6 @@ class FeatureEngineeringService:
                 # 共振度 = (上升均线数量占比 + 排列有序度) / 2
                 coherence = (ma_rising / len(all_periods) + orderliness) / 2
                 df[f'MA_COHERENCE_RESONANCE_{timeframe}'] = coherence
-
                 # 5. 计算 MA_FAN_EFFICIENCY (发散效率 - 识别诱多)
                 # 逻辑: 价格涨幅 / 均线组发散增量。
                 # 修复核心: 统一提取为 numpy values，避免 Series 索引不一致导致的广播错误
@@ -1237,14 +1233,12 @@ class FeatureEngineeringService:
                 efficiency[mask] = price_delta[mask] / spread_delta[mask]
                 
                 df[f'MA_FAN_EFFICIENCY_{timeframe}'] = np.clip(efficiency, 0, 10)
-
                 # 6. 计算 MA_POTENTIAL_TENSION_INDEX (原有张力指标)
                 # 使用短期均线(5)与中期均线(21)的距离作为"攻击张力"
                 short_val = df[f"{ma_type}_{short_mas[0]}_{timeframe}"].values
                 long_val = df[f"{ma_type}_{short_mas[-1]}_{timeframe}"].values
                 short_term_tension = np.divide(short_val - long_val, atr_arr, out=np.zeros_like(short_val), where=atr_arr!=0)
                 df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = np.nan_to_num(short_term_tension)
-
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
         return all_dfs
