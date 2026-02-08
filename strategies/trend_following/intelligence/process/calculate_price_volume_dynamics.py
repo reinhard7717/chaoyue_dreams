@@ -307,7 +307,34 @@ def _numba_fast_rolling_dynamics(data, windows):
             if window_data[0] != 0:
                 slopes[w_idx, i] = (window_data[-1] - window_data[0]) / w
     return means, slopes
-
+@jit(nopython=True)
+def _numba_hmm_regime_probability(flow_n, vol_n, price_n, vwap_dist_n):
+    """V57.0 · HMM 体制概率算子：基于质心距离的软分类"""
+    n = len(flow_n)
+    markup_probs = np.zeros(n)
+    # 定义理想状态质心 [Flow, Vol, Price, VWAP_Dist]
+    # 1. 吸筹: 资金流入, 缩量/平量, 价格微跌/震荡, 均价下方压制
+    centroid_acc = np.array([1.0, -0.5, -0.2, -0.5])
+    # 2. 拉升: 资金流入, 放量, 价格大涨, 站稳均价上方
+    centroid_markup = np.array([1.0, 1.0, 1.0, 0.5])
+    # 3. 派发: 资金流出, 放量, 价格滞涨/震荡, 均价乖离过大或跌破
+    centroid_dist = np.array([-1.0, 1.0, 0.2, 0.0])
+    for i in range(n):
+        # 构建当前特征向量
+        current_vec = np.array([flow_n[i], vol_n[i], price_n[i], vwap_dist_n[i]])
+        # 计算欧氏距离
+        d_acc = np.sum((current_vec - centroid_acc)**2)
+        d_mar = np.sum((current_vec - centroid_markup)**2)
+        d_dis = np.sum((current_vec - centroid_dist)**2)
+        # 转化为概率 (Softmax 变体，距离越小概率越大)
+        # 使用负指数转换
+        exp_acc = np.exp(-d_acc)
+        exp_mar = np.exp(-d_mar)
+        exp_dis = np.exp(-d_dis)
+        total_exp = exp_acc + exp_mar + exp_dis + 1e-9
+        # 输出拉升体制的概率
+        markup_probs[i] = exp_mar / total_exp
+    return markup_probs
 class CalculatePriceVolumeDynamics:
     """
     PROCESS_META_POWER_TRANSFER
@@ -379,47 +406,65 @@ class CalculatePriceVolumeDynamics:
         return get_param_value(config.get('price_volume_dynamics_params'), {})
 
     def _validate_all_required_signals(self, df: pd.DataFrame, pvd_params: Dict, mtf_slope_accel_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> bool:
-        """V50.0 · 核心信号校验：修复题材热度动力学 (THEME_HOTNESS_DYNAMICS) 校验遗漏"""
+        """V61.0 · 核心信号校验：新增市场情绪与行业排名等宏观环境数据的校验"""
         fib_windows = [3, 5, 8, 13, 21]
-        # 核心修复：将 THEME_HOTNESS_SCORE_D 正式列为动力学基础目标
-        dynamic_base_cols = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D']
+        dynamic_base_cols = [
+            'net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 
+            'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D',
+            'volume_D', 'pct_change_D'
+        ]
         base_required = [
-            'close_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D',
+            'close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D',
             'up_limit_D', 'down_limit_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D',
             'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 
             'VPA_EFFICIENCY_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'turnover_rate_f_D',
             'IS_ROUNDING_BOTTOM_D', 'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'price_percentile_position_D',
-            'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'THEME_HOTNESS_SCORE_D'
+            'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 
+            'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'cost_50pct_D',
+            'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'trade_count_D',
+            'market_sentiment_score_D', 'industry_strength_rank_D', 'industry_rank_accel_D' # 新增环境数据
         ]
         dynamic_required = [f"{p}_{w}_{c}" for c in dynamic_base_cols for w in fib_windows for p in ['SLOPE', 'ACCEL', 'JERK']]
         all_required = base_required + dynamic_required
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V50.0 · 原料加载层：修复题材热度及其衍生项加载逻辑并执行 MAD 鲁棒清洗"""
+        """V61.0 · 原料加载层：确保市场情绪与行业排名数据被正确加载"""
         raw_signals = {}
-        base_cols = ['close_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
+        base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
         tech_cols = [
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 
             'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 
             'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'IS_EMOTIONAL_EXTREME_D', 
             'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'IS_ROUNDING_BOTTOM_D', 
-            'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D'
+            'IS_GOLDEN_PIT_D', 'IS_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D',
+            'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D',
+            'market_sentiment_score_D' # 新增
         ]
-        # 核心修复：添加 THEME_HOTNESS_SCORE_D 至动力学清洗目标
-        dynamic_targets = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D']
+        dynamic_targets = [
+            'net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 
+            'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D',
+            'volume_D', 'pct_change_D'
+        ]
         fib_windows = [3, 5, 8, 13, 21]
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns:
                 raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}，请检查数据层产出")
-            raw_signals[col] = df[col].ffill().fillna(0.0)
+            if col in struct_cols or 'rank' in col:
+                raw_signals[col] = df[col].ffill().fillna(0.0)
+            else:
+                raw_signals[col] = df[col].fillna(0.0)
+        if 'VWAP_D' not in df.columns:
+            vwap = raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)
+            raw_signals['VWAP_D'] = vwap.fillna(raw_signals['close_D'])
+        else:
+            raw_signals['VWAP_D'] = df['VWAP_D'].fillna(raw_signals['close_D'])
         for col in dynamic_targets:
             for win in fib_windows:
                 for prefix in ['SLOPE', 'ACCEL', 'JERK']:
                     dyn_col = f"{prefix}_{win}_{col}"
                     if dyn_col not in df.columns:
-                        # 降级处理：若缺失则补0，防止 KeyError 中断引擎
                         raw_signals[dyn_col] = pd.Series(0.0, index=df.index)
                         continue
                     d_series = df[dyn_col].fillna(0.0).copy()
@@ -430,52 +475,51 @@ class CalculatePriceVolumeDynamics:
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V54.0 · 主力夺权全局总线：集成五层安全阀调节矩阵与入场可获得性修正"""
+        """V61.0 · 主力夺权全局总线：集成趋势惯性与市场渗透率"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         if not self._validate_all_required_signals(df, {}, {}, method_name, is_debug, probe_ts):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         raw = self._get_raw_signals(df, method_name)
-        
-        # --- 第一阶段：计算基础强度 (物理引擎 + 几何势能) ---
-        # 1. 物理动力引擎分 (已集成竞价、冲量、MCV)
+        # --- 第一阶段：计算基础强度 ---
         physical_base = self._calculate_power_transfer_raw_score(df_index, raw, method_name)
-        
-        # 2. 几何结构势能分 (基于 R2 滤网与形态共振)
         geo_conf = (1.0 - raw['GEOM_REG_R2_D']).clip(0, 1)
         act_curv = pd.Series(_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0), index=df_index)
         geo_resonance = act_curv * geo_conf * (raw['IS_ROUNDING_BOTTOM_D'].astype(float) * 1.2 + 0.5)
-        
-        # 3. 合成未修正的综合强度 (物理主导，几何辅助)
-        unadjusted_intensity = (physical_base * 0.70 + geo_resonance * 0.30)
-        
-        # --- 第二阶段：五层安全阀调节 (风险控制层) ---
-        # 1. 情绪回吐阀 (防止高潮接盘)
+        vwap_propulsion = self._calculate_vwap_propulsion_score(raw, df_index, method_name)
+        unadjusted_intensity = (physical_base * 0.50 + geo_resonance * 0.25 + vwap_propulsion * 0.25)
+        # --- 第二阶段：调节矩阵 ---
+        # 1. 结构与环境调节 (V61 新增集成)
+        trend_inertia = self._calculate_trend_inertia_momentum(raw, df_index, method_name)
+        market_perm = self._calculate_market_permeability_index(raw, df_index, method_name)
+        entropy_adj = self._calculate_entropic_ordering_bonus(raw, df_index, method_name)
+        fractal_efficiency = self._calculate_fractal_efficiency_resonance(raw, df_index, method_name)
+        hmm_confirm = self._calculate_hmm_regime_confirmation(raw, df_index, method_name)
+        chip_lock = self._calculate_chip_lock_efficiency(raw, df_index, method_name)
+        micro_attack = self._calculate_microstructure_attack_vector(raw, df_index, method_name)
+        vpa_reflexivity = self._calculate_vpa_elasticity_reflexivity(raw, df_index, method_name)
+        wyckoff_quality = self._calculate_wyckoff_breakout_quality(raw, df_index, method_name)
+        # 2. 安全阀
         risk_v = self._calculate_premium_reversal_risk(raw, df_index, method_name)
-        # 2. 结构衰减阀 (烂板/修复逻辑)
         decay_v = self._calculate_intraday_decay_model(raw, df_index, method_name)
-        # 3. 板块共振阀 (环境顺逆)
         sector_v = self._calculate_sector_resonance_modifier(raw, df_index, method_name)
-        # 4. 波动聚集阀 (二次加速/陷阱)
         vol_v = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name)
-        # 5. 板块溢出阀 (分形维数耗竭)
         sector_overflow_v = self._calculate_sector_overflow_decay(raw, df_index, method_name)
-        
-        # --- 第三阶段：实战入场修正 (可执行性层) ---
+        # --- 第三阶段：实战入场修正 ---
         access_f = self._calculate_entry_accessibility_score(raw, df_index, method_name)
-        
-        # --- 第四阶段：链式合成最终 PROCESS_META_POWER_TRANSFER 分值 ---
-        # 逻辑：强度 * 概率(安全阀) * 可执行度
-        final_score = unadjusted_intensity * risk_v * decay_v * sector_v * vol_v * sector_overflow_v * access_f
-        
+        # --- 第四阶段：最终合成 ---
+        # 逻辑：(强度 * 趋势 * 环境 * 结构 * 微观) * 安全阀 * 执行度
+        # 将 trend_inertia 和 market_perm 加入乘法链
+        final_score = (unadjusted_intensity * trend_inertia * market_perm * entropy_adj * fractal_efficiency * \
+                       hmm_confirm * chip_lock * micro_attack * vpa_reflexivity * wyckoff_quality) * \
+                      risk_v * decay_v * sector_v * vol_v * sector_overflow_v * access_f
         if is_debug and probe_ts in df_index:
-            print(f"\n[PROCESS_META_POWER_TRANSFER 全链集成探针 V54 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    [核心] 物理基准: {physical_base.loc[probe_ts]:.4f}, 几何共振: {geo_resonance.loc[probe_ts]:.4f}")
-            print(f"    [阀门] 情绪: {risk_v.loc[probe_ts]:.2f}, 衰减: {decay_v.loc[probe_ts]:.2f}, 板块溢出: {sector_overflow_v.loc[probe_ts]:.2f}")
-            print(f"    [执行] 入场系数: {access_f.loc[probe_ts]:.4f}")
+            print(f"\n[PROCESS_META_POWER_TRANSFER 全链集成探针 V61 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    [基准] 物理: {physical_base.loc[probe_ts]:.4f}, 几何: {geo_resonance.loc[probe_ts]:.4f}")
+            print(f"    [背景] 趋势惯性: {trend_inertia.loc[probe_ts]:.2f}, 市场渗透: {market_perm.loc[probe_ts]:.2f}")
+            print(f"    [微观] 攻击: {micro_attack.loc[probe_ts]:.2f}, 锁定: {chip_lock.loc[probe_ts]:.2f}")
             print(f"    >>> 最终输出分值: {final_score.loc[probe_ts]:.4f}")
-            
         return final_score.clip(-3.5, 6.0).astype(np.float32)
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
@@ -600,260 +644,276 @@ class CalculatePriceVolumeDynamics:
         final_decay = np.where(is_exhaustion, decay_factor * 0.8, decay_factor)
         return pd.Series(final_decay, index=df_index).astype(np.float32)
 
-    def _calculate_fractal_market_analysis(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V24.0 · 分形市场分析（Numba加速）"""
-        large_net_flow = (raw_signals['buy_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - 
-                         raw_signals['sell_elg_amount_D'] - raw_signals['sell_lg_amount_D']).fillna(0)
-        scales = [1, 3, 5, 10, 21]
-        fractal_scores = []
-        flow_arrays = [] # For numba
-        for scale in scales:
-            s_flow = large_net_flow if scale == 1 else large_net_flow.rolling(window=scale, min_periods=1).sum()
-            std = s_flow.std()
-            norm_flow = (s_flow - s_flow.mean()) / (std if std > 0 else 1)
-            fractal_scores.append(norm_flow)
-            flow_arrays.append(s_flow.fillna(0).values)
-        # Numba计算分形维数
-        fractal_dim = pd.Series(_numba_fractal_dimension(np.array(flow_arrays)), index=df_index).clip(1.0, 2.0)
-        # 向量化计算一致性
-        signs_sum = sum([np.sign(f.fillna(0)) for f in fractal_scores])
-        consistency_score = (signs_sum.abs() / len(scales))
-        fractal_score = (1 - (fractal_dim - 1.5).abs() * 2) * consistency_score
-        return fractal_score.fillna(0).clip(-1, 1)
+    def _calculate_hmm_regime_confirmation(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V57.0 · HMM 体制共振模型：基于概率距离的拉升体制 (Markup Regime) 确认"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 特征归一化 (Rolling Z-Score)
+        # 资金流：主力大单净额
+        large_net = (raw['SMART_MONEY_HM_NET_BUY_D']).fillna(0)
+        flow_n = (large_net - large_net.rolling(21).mean()) / (large_net.rolling(21).std() + 1e-9)
+        # 成交量：相对均量
+        vol_n = (raw['volume_D'] / raw['volume_D'].rolling(21).mean().replace(0, 1)) - 1.0
+        # 价格：动量
+        price_n = raw['pct_change_D'] * 10.0 # 放大以匹配量纲
+        # VWAP位置：(收盘 - VWAP) / 波动率
+        vwap_dist = (raw['close_D'] - raw['VWAP_D']) / (raw['close_D'] * raw['BBW_21_2.0_D'] + 1e-9)
+        # 2. 调用 Numba 算子计算拉升概率
+        markup_prob_vals = _numba_hmm_regime_probability(
+            flow_n.fillna(0).values, 
+            vol_n.fillna(0).values, 
+            price_n.fillna(0).values, 
+            vwap_dist.fillna(0).values
+        )
+        markup_prob = pd.Series(markup_prob_vals, index=df_index)
+        # 3. 体制共振信号提取
+        # 逻辑：只有当拉升概率 > 50% 时才产生正向增益，否则视为噪音或压制
+        # 基础系数 1.0，最大增益 1.5，若概率低则衰减至 0.8
+        regime_factor = np.where(markup_prob > 0.5, 
+                                 1.0 + (markup_prob - 0.5), # [0.5, 1.0] -> [1.0, 1.5]
+                                 0.8 + markup_prob * 0.4)   # [0.0, 0.5] -> [0.8, 1.0]
+        res = pd.Series(regime_factor, index=df_index)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[HMM 体制共振探针 V57 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    特征归一化 -> 流: {flow_n.loc[probe_ts]:.2f}, 量: {vol_n.loc[probe_ts]:.2f}, 价: {price_n.loc[probe_ts]:.2f}")
+            print(f"    拉升体制概率: {markup_prob.loc[probe_ts]:.4f}")
+            print(f"    >>> HMM 确认系数: {res.loc[probe_ts]:.4f}")
+        return res.astype(np.float32)
 
-    def _calculate_hidden_markov_states(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V24.0 · HMM状态识别（Numba加速）"""
-        flow_obs = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D']).fillna(0)
-        volume_obs = raw_signals['volume_D'].fillna(0)
-        price_change = raw_signals['pct_change_D'].fillna(0)
-        def norm(s): return (s - s.mean()) / (s.std() + 1e-9)
-        f_n, v_n, p_n = norm(flow_obs).values, norm(volume_obs).values, norm(price_change).values
-        # Numba状态计算
-        hmm_states = pd.Series(_numba_hmm_states(f_n, v_n, p_n), index=df_index)
-        state_scores = hmm_states.map({0: 0.0, 1: 0.7, 2: 1.0, 3: -0.5})
-        # 向量化持续性检测 (shift比较)
-        state_persistence = np.where((hmm_states == hmm_states.shift(1)) & (hmm_states == hmm_states.shift(2)), 0.3, 0.0)
-        return (state_scores + state_persistence).clip(-1, 1).fillna(0)
+    def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V56.0 · 分形相干效率模型：基于 Hurst 指数的价量共振判定"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 准备数据：价格与成交量
+        # 使用 21 日窗口计算分形特征
+        close_vals = raw['close_D'].fillna(0).values
+        vol_vals = raw['volume_D'].fillna(0).values
+        # 将一维转为二维以适配 Numba 算子
+        input_arrays = np.vstack((close_vals, vol_vals))
+        fractal_dims = _numba_fractal_dimension(input_arrays, window=21)
+        # 2. 转换为 Hurst 指数 (H = 2 - D)
+        # D 在 [1, 2] 之间，H 在 [0, 1] 之间
+        hurst_price = pd.Series(2.0 - fractal_dims[0], index=df_index).clip(0, 1)
+        hurst_vol = pd.Series(2.0 - fractal_dims[1], index=df_index).clip(0, 1)
+        # 3. 趋势持续性判定 (Persistence Score)
+        # H > 0.55 为强趋势，H < 0.45 为均值回归
+        persistence = np.where(hurst_price > 0.55, 1.2, 
+                      np.where(hurst_price < 0.45, 0.6, 0.9)) # 随机游走区给予中性偏低分
+        # 4. 价量分形共振 (Efficiency Gap)
+        # 如果价格趋势强 (H高) 但量能杂乱 (H低)，则 gap 大，扣分
+        eff_gap = (hurst_price - hurst_vol).abs()
+        resonance_factor = (1.0 - eff_gap * 2.0).clip(0.5, 1.1)
+        # 5. 综合效率系数
+        # 基础分 1.0，根据持续性和共振度调整
+        efficiency_score = pd.Series(persistence * resonance_factor, index=df_index)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[分形相干效率探针 V56 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    价格Hurst: {hurst_price.loc[probe_ts]:.4f} ({'强趋势' if hurst_price.loc[probe_ts]>0.55 else '随机/回归'})")
+            print(f"    成交量Hurst: {hurst_vol.loc[probe_ts]:.4f}, 分形缺口: {eff_gap.loc[probe_ts]:.4f}")
+            print(f"    >>> 最终分形效率系数: {efficiency_score.loc[probe_ts]:.4f}")
+        return efficiency_score.astype(np.float32)
 
-    def _calculate_chip_control_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V24.0 · 筹码控制分数（深度向量化）"""
-        # 1. GMM/多模态分析 (简化为峰度分析以利用向量化)
-        conc = raw_signals['chip_concentration_ratio_D'].fillna(0.5)
-        # 利用rolling kurtosis代替复杂的KDE峰值计数，峰度低意味着多峰或平坦
-        price_pos = raw_signals.get('price_percentile_position_D', pd.Series(0.5, index=df_index))
-        window_kurt = price_pos.rolling(21).kurt()
-        gmm_score = (1 / (1 + window_kurt.abs())) * conc # 峰度越接近0(正态)或负(多峰)，分数越高
-        gmm_score = gmm_score.fillna(0.3)
-        # 2. 突变检测 (向量化CUSUM代理)
-        stab = raw_signals['chip_stability_D'].fillna(0.5)
-        roll_mean = stab.rolling(13).mean()
-        roll_std = stab.rolling(13).std()
-        change_score = (stab - roll_mean).abs() / (roll_std + 1e-9)
-        change_points = (change_score / 3.0).clip(0, 1).rolling(3).mean().fillna(0)
-        # 3. 网络分析 (向量化)
-        f_dir = raw_signals.get('chip_flow_direction_D', pd.Series(0.0, index=df_index))
-        f_int = raw_signals.get('chip_flow_intensity_D', pd.Series(0.0, index=df_index))
-        div_r = raw_signals.get('chip_divergence_ratio_D', pd.Series(0.5, index=df_index))
-        dir_cons = f_dir.rolling(21).std()
-        int_conc = f_int.rolling(21).std() / (f_int.rolling(21).mean().abs() + 1e-9)
-        div_bal = 1 - div_r.rolling(21).std()
-        net_score = ((0.3/(dir_cons+1e-9)) + int_conc*0.4 + div_bal*0.3).clip(0,1).fillna(0.5)
-        # 4. 成本结构压力 (向量化)
-        close = raw_signals['close_D']
-        costs = {k: raw_signals.get(k, close) for k in ['cost_5pct_D','cost_50pct_D','cost_95pct_D']}
-        p_below = np.maximum(0, 1 - close/costs['cost_50pct_D'])
-        p_above = np.maximum(0, close/costs['cost_95pct_D'] - 1)
-        pressure_bal = (1 - (p_below - p_above).abs()).fillna(0.65)
-        # 5. 加权融合
-        chip_score = (gmm_score * 0.15 + (1-change_points)*0.15 + net_score*0.15 + pressure_bal*0.15 + 
-                      raw_signals.get('chip_entropy_D', 0.5)*0.1 + raw_signals.get('chip_stability_change_5d_D', 0)*0.1)
-        # 博弈调整
-        ent_norm = raw_signals['chip_entropy_D'] / raw_signals['chip_entropy_D'].max()
-        adj = np.tanh(conc * 2) * 0.2 + (1 - ent_norm) * 0.15
-        return (chip_score * (1 + adj)).clip(0, 1).fillna(0.5)
+    def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V58.0 · 筹码磁滞锁定模型：基于获利盘-换手率弹性的控盘度量"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 准备数据
+        winner = raw['winner_rate_D'].fillna(0)
+        turnover = raw['turnover_rate_f_D'].replace(0, 0.1) # 避免除零
+        cost_50 = raw['cost_50pct_D'].replace(0, raw['close_D'])
+        close = raw['close_D']
+        # 2. 计算磁滞锁定因子 (Hysteresis Lock)
+        # 逻辑：获利盘很高 (>80%) 但换手率很低 (<3%)，说明大家都赚钱但都不卖 -> 强控盘
+        # 归一化换手：将 0-5% 映射到 1.0-0.0
+        turnover_norm = (turnover / 5.0).clip(0, 1)
+        # 锁定强度 = 获利盘 * (1 - 归一化换手)
+        # 例：获利90% * (1 - 1%/5%) = 0.9 * 0.8 = 0.72 (强)
+        # 例：获利90% * (1 - 8%/5%) = 0.9 * 0 = 0 (松动)
+        lock_strength = winner * (1.0 - turnover_norm).clip(0, 1)
+        # 3. 计算底仓稳定性 (Base Stability)
+        # 逻辑：价格上涨，但成本重心上移缓慢 -> 底部筹码未动
+        price_rise = close.pct_change(3).fillna(0)
+        cost_rise = cost_50.pct_change(3).fillna(0)
+        # 只有当价格涨幅显著大于成本涨幅时，才视为底仓稳定
+        base_stable = np.where((price_rise > 0.05) & (cost_rise < 0.02), 1.2, 1.0)
+        # 4. 穿透力加成 (Penetration Bonus)
+        # 如果锁定强且价格正在突破成本位
+        break_cost = (close > cost_50).astype(float)
+        # 5. 综合效率合成
+        # 基础系数 1.0，强锁定可达 1.5
+        efficiency_score = pd.Series((1.0 + lock_strength * 0.5) * base_stable, index=df_index) * (0.8 + break_cost * 0.2)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[筹码磁滞锁定探针 V58 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    获利比例: {winner.loc[probe_ts]:.2f}, 自由换手: {turnover.loc[probe_ts]:.2f}%")
+            print(f"    锁定强度: {lock_strength.loc[probe_ts]:.4f} (高获利低换手=强)")
+            print(f"    底仓稳定系数: {base_stable[df_index.get_loc(probe_ts)]:.2f}, 突破成本: {break_cost.loc[probe_ts]}")
+            print(f"    >>> 最终筹码锁定效率: {efficiency_score.loc[probe_ts]:.4f}")
+        return efficiency_score.astype(np.float32)
 
-    def _calculate_order_flow_dominance(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V25.0 · 订单流主导分数计算（Numba极致加速版）"""
-        print(f"    -> [订单流主导探针] {method_name} 开始深度计算订单流主导分数...")
-        n_len = len(df_index)
-        # 0. 准备Numpy数组
-        large_buy = (raw_signals['buy_elg_amount_D'] + raw_signals['buy_lg_amount_D']).fillna(0).values
-        large_sell = (raw_signals['sell_elg_amount_D'] + raw_signals['sell_lg_amount_D']).fillna(0).values
-        large_net = large_buy - large_sell
-        elg_net = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D']).fillna(0).values
-        lg_net = (raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).fillna(0).values
-        md_net = (raw_signals['buy_md_amount_D'] - raw_signals['sell_md_amount_D']).fillna(0).values
-        sm_net = (raw_signals['buy_sm_amount_D'] - raw_signals['sell_sm_amount_D']).fillna(0).values
-        close_vals = raw_signals['close_D'].fillna(0).values
-        pct_change = raw_signals['pct_change_D'].fillna(0).values
-        trade_count = raw_signals['trade_count_D'].fillna(1000).values
-        vol_vals = raw_signals['volume_D'].fillna(1e6).values
-        amt_vals = raw_signals['amount_D'].fillna(1e8).values
-        sentiment = raw_signals['market_sentiment_score_D'].fillna(0).values
-        # 1. 热传导 (Numba)
-        heat_vals = _numba_heat_conduction(large_net, alpha=0.1, steps=3)
-        heat_flow_norm = self.helper._normalize_series(pd.Series(heat_vals, index=df_index), df_index, bipolar=True)
-        # 2. 资金流分布 (Numba)
-        elg_dom, lg_sync, ret_div, spat_bal = _numba_flow_distribution_analysis(elg_net, lg_net, md_net, sm_net, close_vals, n_len)
-        dist_composite = (pd.Series(elg_dom, index=df_index) + pd.Series(lg_sync, index=df_index) + 
-                          pd.Series(spat_bal, index=df_index)) / 3.0
-        # 3. 随机过程 (Numba)
-        stoch_score_vals = _numba_stochastic_process(large_net)
-        stoch_score = pd.Series(stoch_score_vals, index=df_index)
-        # 4. 网络与排队博弈 (Numba)
-        net_eff, queue_eff, game_learn = _numba_network_queuing_game(large_buy, large_sell, pct_change, trade_count, vol_vals, amt_vals, sentiment)
-        # 5. 强度与稳定性 (向量化)
-        flow_intensity = raw_signals.get('flow_intensity_D', pd.Series(0, index=df_index)).fillna(0)
-        flow_stab = raw_signals.get('flow_stability_D', pd.Series(0.5, index=df_index)).fillna(0.5)
-        strength_stability = (self.helper._normalize_series(flow_intensity, df_index) * 0.6 + flow_stab * 0.4)
-        # 6. 综合加权
-        weights = {'heat': 0.15, 'stoch': 0.15, 'net': 0.15, 'queue': 0.10, 'learn': 0.15, 'dist': 0.15, 'stab': 0.15}
-        total_score = (heat_flow_norm * weights['heat'] + 
-                       stoch_score * weights['stoch'] + 
-                       pd.Series(net_eff, index=df_index) * weights['net'] + 
-                       pd.Series(queue_eff, index=df_index) * weights['queue'] + 
-                       pd.Series(game_learn, index=df_index) * weights['learn'] + 
-                       dist_composite * weights['dist'] + 
-                       strength_stability * weights['stab'])
-        # 7. 市场结构适应性 (向量化)
-        volatility = raw_signals['BBW_21_2.0_D'].fillna(0.1)
-        adj = 1.0 / (1.0 + volatility * 2)
-        final_score = total_score * adj
-        print(f"    -> [订单流主导探针] 最终分值均值: {final_score.mean():.4f}")
-        return final_score.clip(0, 1).fillna(0.5)
+    def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V59.0 · 微观结构攻击矢量：基于主力协同与扫货密度的进攻性度量"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 准备微观数据
+        # 特大单(ELG)与大单(LG)
+        elg_net = (raw['buy_elg_amount_D'] - raw['sell_elg_amount_D']).fillna(0)
+        lg_net = (raw['buy_lg_amount_D'] - raw['sell_lg_amount_D']).fillna(0)
+        total_vol = raw['amount_D'].replace(0, 1e-9)
+        # 2. 计算主力协同度 (Institutional Synchronization)
+        # 逻辑：ELG 和 LG 必须同向做多，且占成交额比例要大
+        # 归一化净额
+        elg_ratio = elg_net / total_vol
+        lg_ratio = lg_net / total_vol
+        # 协同加成：两者同正，加分；一正一负，减分
+        sync_score = np.where((elg_ratio > 0) & (lg_ratio > 0), 
+                              1.0 + (elg_ratio + lg_ratio) * 2.0, # 强协同
+                              np.where((elg_ratio * lg_ratio) < 0, 0.6, 0.8)) # 分歧或弱势
+        # 3. 计算扫货密度 (Sweep Density / Stealth)
+        # 逻辑：成交笔数(trade_count)下降，但成交金额(amount)上升 -> 平均单笔金额暴增 -> 主力扫货
+        trade_count = raw['trade_count_D'].replace(0, 1)
+        avg_trade_size = raw['amount_D'] / trade_count
+        # 相对均值 (21日)
+        avg_size_ma = avg_trade_size.rolling(21).mean().replace(0, 1)
+        density_ratio = (avg_trade_size / avg_size_ma).clip(0.5, 3.0)
+        # 密度因子：只有在上涨时，高密度才是进攻；下跌时高密度是恐慌抛售
+        is_up = raw['pct_change_D'] > 0
+        density_factor = np.where(is_up, np.sqrt(density_ratio), 1.0)
+        # 4. 综合攻击矢量合成
+        # 基础分 * 协同修正 * 密度加成
+        # 我们使用 tanh 将巨大的净额比率压缩到合理区间
+        net_strength = np.tanh((elg_ratio + lg_ratio) * 10.0) # 0.1(10%) -> 0.76
+        attack_vector = pd.Series((0.5 + net_strength * 0.5) * sync_score * density_factor, index=df_index)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[微观结构攻击探针 V59 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    ELG净占比: {elg_ratio.loc[probe_ts]:.2%}, LG净占比: {lg_ratio.loc[probe_ts]:.2%}")
+            print(f"    主力协同分: {sync_score[df_index.get_loc(probe_ts)]:.2f} (同向>1.0)")
+            print(f"    单笔均额比: {density_ratio.loc[probe_ts]:.2f}, 扫货密度因子: {density_factor[df_index.get_loc(probe_ts)]:.2f}")
+            print(f"    >>> 最终微观攻击矢量: {attack_vector.loc[probe_ts]:.4f}")
+        return attack_vector.astype(np.float32)
 
-    def _calculate_vpa_confirmation(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V25.0 · 量价分析确认分数计算（Numba深度学习增强版）"""
-        print(f"    -> [VPA确认探针] {method_name} 开始深度计算量价分析确认分数...")
-        # 0. 数据准备
-        close = raw_signals['close_D'].fillna(0).values
-        vol = raw_signals['volume_D'].fillna(0).values
-        eff = raw_signals.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df_index)).fillna(0.5).values
-        pct_change = raw_signals['pct_change_D'].fillna(0).values
-        vol_change = raw_signals['volume_D'].pct_change().fillna(0).values
-        eff_change = pd.Series(eff, index=df_index).diff().fillna(0).values
-        # 1. Numba加速计算模式识别
-        cnn_score_vals = _numba_cnn_pattern_sim(close, vol, eff)
-        cnn_score = pd.Series(cnn_score_vals, index=df_index)
-        # 2. Numba加速注意力与依赖
-        attn_vals, dep_vals = _numba_vpa_mechanisms(pct_change, vol_change, eff_change)
-        attention_score = pd.Series(attn_vals, index=df_index)
-        tcn_score = pd.Series(dep_vals, index=df_index)
-        # 3. 向量化VAE潜在表示 (使用Rolling PCA近似)
-        # 简化为价格和成交量的Rolling Correlation作为一致性代理
-        p_s = pd.Series(close, index=df_index)
-        v_s = pd.Series(vol, index=df_index)
-        vae_score = p_s.rolling(21).corr(v_s).abs().fillna(0.5)
-        # 4. 向量化GAN鲁棒性
-        # 添加噪声并计算相关性，完全向量化
-        eff_s = pd.Series(eff, index=df_index)
-        noise = np.random.normal(0, 0.1 * eff_s.std(), len(eff_s))
-        noisy_eff = eff_s + noise
-        gan_score = eff_s.rolling(13).corr(noisy_eff).fillna(0.5)
-        # 5. 传统指标融合 (向量化)
-        trad_score = (raw_signals.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df_index)) * 0.4 +
-                      raw_signals.get('vpa_bullish_divergence_D', pd.Series(0, index=df_index)) * 0.3 +
-                      raw_signals.get('vpa_buy_accum_eff_D', pd.Series(0.5, index=df_index)) * 0.3)
-        # 6. 加权融合
-        deep_score = (cnn_score * 0.25 + attention_score * 0.20 + vae_score * 0.20 + tcn_score * 0.20 + gan_score * 0.15)
-        final_score = deep_score * 0.6 + trad_score * 0.4
-        # 7. 博弈论优化 (向量化)
-        pos = raw_signals.get('price_percentile_position_D', pd.Series(0.5, index=df_index))
-        conc = raw_signals['chip_concentration_ratio_D'].fillna(0.5)
-        opt_factor = np.where(pos < 0.3, 1.2, np.where(pos > 0.7, 0.8, 1.0)) * (0.7 + conc * 0.6)
-        return (final_score * opt_factor).clip(0, 1).fillna(0.5)
+    def _calculate_vpa_elasticity_reflexivity(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V60.0 · 量价反身性模型：替代原 VPA Confirmation，计算弹性与反身性"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 量价弹性 (Elasticity)
+        # 逻辑：Elasticity = %Price / %Volume
+        # 我们关注的是"单位成交量推动的价格幅度"
+        pct_price = raw['pct_change_D'].abs()
+        pct_vol = raw['volume_D'].pct_change().fillna(0).abs()
+        # 弹性 = 价格变化 / (成交量变化 + 基础量)
+        # 基础量设为 0.1 以防除零，且体现"缩量上涨"的高弹性
+        elasticity = pct_price / (pct_vol + 0.1)
+        # 映射：弹性越高，筹码锁定越好 -> 1.0 ~ 1.5
+        # 弹性极低（放量滞涨），筹码松动 -> 0.5 ~ 0.8
+        elasticity_score = np.tanh(elasticity).clip(0.5, 1.5)
+        # 2. 索罗斯反身性 (Reflexivity)
+        # 逻辑：价格加速 + 成交量加速 = 正反馈爆发
+        accel_p = raw['ACCEL_5_pct_change_D']
+        accel_v = raw['ACCEL_5_volume_D']
+        # 正反馈：两者同时加速
+        positive_feedback = (accel_p > 0) & (accel_v > 0)
+        # 负反馈：量加速但价减速 (顶背离风险)
+        negative_feedback = (accel_p < 0) & (accel_v > 0)
+        reflexivity_score = np.where(positive_feedback, 1.3, 
+                            np.where(negative_feedback, 0.7, 1.0))
+        # 3. 综合 VPA 确认系数
+        final_score = pd.Series(elasticity_score * reflexivity_score, index=df_index).clip(0.5, 1.8)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[量价反身性探针 V60 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    量价弹性: {elasticity.loc[probe_ts]:.4f}, 弹性系数: {elasticity_score.loc[probe_ts]:.4f}")
+            print(f"    P加速: {accel_p.loc[probe_ts]:.4f}, V加速: {accel_v.loc[probe_ts]:.4f}")
+            print(f"    反身性状态: {'正反馈(共振)' if positive_feedback.loc[probe_ts] else ('负反馈(背离)' if negative_feedback.loc[probe_ts] else '中性')}")
+            print(f"    >>> 最终 VPA 确认系数: {final_score.loc[probe_ts]:.4f}")
+        return final_score.astype(np.float32)
 
-    def _calculate_vpa_regime_adaptation(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V25.0 · VPA机制适应分析（Numba加速版）"""
-        print(f"    -> [VPA机制探针] {method_name} 开始VPA机制适应分析...")
-        n = len(df_index)
-        close = raw_signals['close_D'].fillna(0).values
-        volume = raw_signals['volume_D'].fillna(0).values
-        rsi = raw_signals.get('RSI_13_D', pd.Series(50, index=df_index)).fillna(50).values
-        adx = raw_signals.get('ADX_14_D', pd.Series(20, index=df_index)).fillna(20).values
-        # Numba计算机制状态
-        trend, range_mk, break_mk, rev_mk = _numba_market_regime_scan(close, volume, rsi, adx, n)
-        # 向量化加权
-        eff_trend = 0.9
-        eff_range = 0.6
-        eff_break = 0.8
-        eff_rev = 0.7
-        # 加权平均
-        total_w = trend + range_mk + break_mk + rev_mk + 1e-9
-        score = (trend * eff_trend + range_mk * eff_range + break_mk * eff_break + rev_mk * eff_rev) / total_w
-        # 平滑
-        res = pd.Series(score, index=df_index).rolling(5).mean().clip(0.3, 0.9).fillna(0.6)
-        print(f"       机制适应分数均值: {res.mean():.4f}")
-        return res
+    def _calculate_wyckoff_breakout_quality(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V60.0 · 威科夫突破质量：替代原 Regime Adaptation，识别 VCP 与真突破"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 波动率收缩 (VCP - Volatility Contraction)
+        # 计算真实波幅 TR 的 5 日斜率
+        high = raw['high_D']
+        low = raw['low_D']
+        close_prev = raw['close_D'].shift(1).fillna(raw['close_D'])
+        tr = np.maximum(high - low, np.abs(high - close_prev))
+        tr_norm = tr / raw['close_D']
+        # 简单的线性回归斜率模拟 (末端 - 首端)
+        tr_slope = (tr_norm - tr_norm.shift(5)) / 5.0
+        # VCP 特征：波动率在收缩 (斜率 < 0)
+        is_vcp = tr_slope < 0
+        vcp_bonus = np.where(is_vcp, 1.2, 1.0)
+        # 2. 突破强度 (Breakout Intensity)
+        # 当前价格是否创 21 日新高
+        highest_21 = raw['high_D'].rolling(21).max().shift(1).fillna(99999)
+        is_breakout = raw['close_D'] > highest_21
+        # 突破且放量 (Volume > MA21 * 1.5)
+        vol_ma = raw['volume_D'].rolling(21).mean().fillna(1)
+        is_volume_confirmed = raw['volume_D'] > vol_ma * 1.5
+        # 3. 综合突破质量
+        # 如果是 VCP 后的放量突破 -> 极品 (1.5)
+        # 如果是 VCP 但未突破 -> 蓄势 (1.0)
+        # 如果非 VCP 的突兀突破 -> 需谨慎 (1.1)
+        # 如果未突破 -> 平庸 (0.8)
+        quality = np.where(is_breakout & is_volume_confirmed & is_vcp, 1.5,
+                  np.where(is_breakout & is_volume_confirmed, 1.2,
+                  np.where(is_vcp, 1.0, 0.8)))
+        final_score = pd.Series(quality * vcp_bonus, index=df_index).clip(0.6, 1.8)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[威科夫突破探针 V60 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    波动率斜率: {tr_slope.loc[probe_ts]:.4f} ({'收缩VCP' if is_vcp.loc[probe_ts] else '扩散'})")
+            print(f"    突破状态: {is_breakout.loc[probe_ts]}, 放量确认: {is_volume_confirmed.loc[probe_ts]}")
+            print(f"    >>> 最终突破质量系数: {final_score.loc[probe_ts]:.4f}")
+        return final_score.astype(np.float32)
 
-    def _calculate_trend_alignment(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V25.1 · 趋势协同分数计算（Numba动力学模型版）"""
-        print(f"    -> [趋势协同探针] {method_name} 开始深度计算趋势协同分数...")
-        n = len(df_index)
-        close = raw_signals['close_D'].fillna(0).values
-        volume = raw_signals['volume_D'].fillna(0).values
-        # 1. Numba 动态系统与拓扑分析
-        attr_vals, topo_vals = _numba_trend_dynamics(close, volume, n)
-        attractor = pd.Series(attr_vals, index=df_index)
-        topo = pd.Series(topo_vals, index=df_index)
-        # 2. 向量化 多时间框架协同
-        # 替代原有的嵌套循环
-        ma_5 = raw_signals['close_D'].rolling(5).mean()
-        ma_21 = raw_signals['close_D'].rolling(21).mean()
-        ma_55 = raw_signals['close_D'].rolling(55).mean()
-        dir_5 = np.sign(raw_signals['close_D'] - ma_5)
-        dir_21 = np.sign(raw_signals['close_D'] - ma_21)
-        dir_55 = np.sign(raw_signals['close_D'] - ma_55)
-        # 协同度：方向一致给分
-        consistency = ((dir_5 == dir_21).astype(float) + (dir_21 == dir_55).astype(float) + (dir_5 == dir_55).astype(float)) / 3.0
-        multi_tf_score = pd.Series(consistency, index=df_index).fillna(0.5)
-        # 3. 向量化 资金流协同
-        buy_flow = raw_signals['buy_elg_amount_D'] + raw_signals['buy_lg_amount_D']
-        sell_flow = raw_signals['sell_elg_amount_D'] + raw_signals['sell_lg_amount_D']
-        net_flow = (buy_flow - sell_flow).fillna(0)
-        price_trend = raw_signals['pct_change_D'].rolling(5).mean().fillna(0)
-        # 协同：资金净额与价格趋势同向
-        flow_align = np.where(np.sign(net_flow) == np.sign(price_trend), 1.0, 0.3)
-        flow_score = pd.Series(flow_align, index=df_index)
-        # 4. 融合
-        final = (attractor * 0.25 + topo * 0.2 + multi_tf_score * 0.3 + flow_score * 0.25)
-        # 5. 阶段调整
-        phase = raw_signals.get('MARKET_PHASE_D', pd.Series(0, index=df_index))
-        adj = np.where(phase > 0, 1.1, np.where(phase < 0, 0.8, 0.9))
-        return (final * adj).clip(0, 1).fillna(0.5)
+    def _calculate_trend_inertia_momentum(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V61.0 · 趋势惯性动量模型：基于多周期均线排列与 R2 质量的惯性度量"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        close = raw['close_D']
+        # 1. 均线多头排列 (Bullish Alignment)
+        ma5 = close.rolling(5).mean()
+        ma21 = close.rolling(21).mean()
+        ma55 = close.rolling(55).mean()
+        # 判定：5 > 21 > 55 且 5 > 5(t-1)
+        alignment_score = np.where((ma5 > ma21) & (ma21 > ma55) & (ma5 > ma5.shift(1)), 1.2, 
+                          np.where((ma5 > ma21), 1.0, 0.8))
+        # 2. 惯性质量 (Inertia Quality - R2)
+        # R2 越高，趋势越平滑，噪音越小 -> 惯性越强
+        r2_quality = raw['GEOM_REG_R2_D'].clip(0, 1)
+        # 3. 动量堆叠 (Momentum Stacking)
+        # 短期动量 > 长期动量 -> 加速状态
+        mom_5 = raw['pct_change_D'].rolling(5).sum()
+        mom_21 = raw['pct_change_D'].rolling(21).sum()
+        stacking_bonus = np.where(mom_5 > mom_21 * 0.2, 1.1, 1.0)
+        # 4. 综合惯性系数
+        # 基础分 * 排列 * 质量 * 堆叠
+        final_inertia = pd.Series(alignment_score * (0.5 + r2_quality * 0.5) * stacking_bonus, index=df_index).clip(0.6, 1.5)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[趋势惯性动量探针 V61 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    均线状态: {'多头排列' if alignment_score[df_index.get_loc(probe_ts)] > 1.0 else '非多头'}")
+            print(f"    惯性质量(R2): {r2_quality.loc[probe_ts]:.4f}, 动量堆叠: {stacking_bonus[df_index.get_loc(probe_ts)]:.2f}")
+            print(f"    >>> 最终趋势惯性系数: {final_inertia.loc[probe_ts]:.4f}")
+        return final_inertia.astype(np.float32)
 
-    def _calculate_market_context_modulator(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V25.0 · 市场情境调节器计算（Numba感知模型版）"""
-        print(f"    -> [市场情境探针] {method_name} 开始深度计算市场情境调节器...")
-        n = len(df_index)
-        close = raw_signals['close_D'].fillna(0).values
-        volume = raw_signals['volume_D'].fillna(0).values
-        sent = raw_signals.get('market_sentiment_score_D', pd.Series(0.5, index=df_index)).fillna(0.5).values
-        # 1. Numba 复杂系统分析
-        crit_vals, adapt_vals = _numba_complex_systems(close, volume, sent, n)
-        criticality = pd.Series(crit_vals, index=df_index)
-        adaptation = pd.Series(adapt_vals, index=df_index)
-        # 2. 向量化 模糊认知与图分析 (简化为相关性矩阵特征)
-        # 代理指标：量价相关性、波动率与情绪相关性
-        corr_pv = raw_signals['close_D'].rolling(21).corr(raw_signals['volume_D']).fillna(0)
-        fcm_score = (corr_pv.abs() + 0.5).clip(0, 1) # 简化的系统一致性
-        # 3. 向量化 贝叶斯状态 (规则库)
-        p_trend = (raw_signals['close_D'] / raw_signals['close_D'].shift(5) - 1).fillna(0)
-        vol_r = raw_signals.get('volume_ratio_D', pd.Series(1, index=df_index))
-        state_score = np.where((p_trend > 0) & (vol_r > 1), 0.8, 
-                      np.where((p_trend < 0) & (vol_r > 1), 0.2, 0.5))
-        bayes_score = pd.Series(state_score, index=df_index)
-        # 4. 多层级感知
-        micro = raw_signals.get('uptrend_strength_D', pd.Series(0.5, index=df_index))
-        macro = raw_signals.get('market_sentiment_score_D', pd.Series(0.5, index=df_index))
-        multi_level = (micro + macro) / 2.0
-        # 5. 融合
-        raw_ctx = (criticality * 0.2 + adaptation * 0.2 + fcm_score * 0.15 + bayes_score * 0.25 + multi_level * 0.2)
-        # 6. 非线性增强
-        bbw = raw_signals.get('BBW_21_2.0_D', pd.Series(0.5, index=df_index))
-        final_ctx = np.where(bbw > 0.7, raw_ctx * 1.2, raw_ctx) # 高波动需强确认
-        # 7. 记忆平滑
-        return pd.Series(final_ctx, index=df_index).ewm(span=21).mean().clip(0, 1).fillna(0.5)
+    def _calculate_market_permeability_index(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V61.0 · 市场渗透率与 Alpha 模型：基于情绪背离与行业强度的环境判读"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        # 1. 情绪背离 (Sentiment Divergence - Wall of Worry)
+        # 最佳状态：股价处于高位 (Percentile > 0.8)，但情绪尚未过热 (Score < 80)
+        price_pos = raw['price_percentile_position_D']
+        sentiment = raw['market_sentiment_score_D']
+        # 渗透率高：价格强 + 情绪冷
+        permeability = np.where((price_pos > 0.8) & (sentiment < 80), 1.2,
+                       np.where(sentiment > 90, 0.7, 1.0)) # 情绪过热则渗透率下降（拥挤）
+        # 2. Alpha 属性 (Industry Resonance)
+        # 行业排名靠前 (数值小) 且 加速度为正 (排名在提升，注意 rank 越小越好，所以提升是 rank 变小， diff < 0)
+        rank = raw['industry_strength_rank_D']
+        rank_accel = raw['industry_rank_accel_D']
+        # 假设 accel > 0 代表排名变好（在数据层定义，通常需要确认方向，这里假设 >0 为改善）
+        # 如果 rank < 10 (前10名) -> 强 Alpha
+        alpha_bonus = np.where(rank < 10, 1.3, 
+                      np.where(rank < 30, 1.1, 0.9))
+        # 3. 综合环境系数
+        final_ctx = pd.Series(permeability * alpha_bonus, index=df_index).clip(0.6, 1.6)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[市场渗透率探针 V61 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    价格位置: {price_pos.loc[probe_ts]:.2f}, 市场情绪: {sentiment.loc[probe_ts]:.2f}")
+            print(f"    行业排名: {rank.loc[probe_ts]:.1f}, Alpha加成: {alpha_bonus[df_index.get_loc(probe_ts)]:.2f}")
+            print(f"    >>> 最终环境渗透系数: {final_ctx.loc[probe_ts]:.4f}")
+        return final_ctx.astype(np.float32)
 
     def _calculate_entry_accessibility_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V54.0 · T+1 入场可获得性模型：采用非线性根号平滑优化流动性门控"""
@@ -875,10 +935,43 @@ class CalculatePriceVolumeDynamics:
             print(f"    >>> $T+1$ 入场窗口评分: {accessibility_score.loc[probe_ts]:.4f} (优化后)")
         return accessibility_score.astype(np.float32)
 
+    def _calculate_entropic_ordering_bonus(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V55.0 · 熵减有序性因子：识别筹码锁定（熵减）带来的趋势稳定性"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        entropy = raw['chip_entropy_D']
+        slope_5 = raw['SLOPE_5_chip_entropy_D']
+        accel_5 = raw['ACCEL_5_chip_entropy_D']
+        locking_intensity = -(slope_5 * 0.7 + accel_5 * 0.3)
+        ordering_bonus = np.tanh(locking_intensity * 5.0).clip(0, 1) * 1.5
+        price_up = raw['pct_change_D'] > 0
+        entropy_surge = (slope_5 > 0)
+        penalty = np.where(price_up & entropy_surge, 0.7, 1.0)
+        final_factor = pd.Series((1.0 + ordering_bonus) * penalty, index=df_index).clip(0.7, 1.5)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[熵减有序性探针 V55 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    筹码熵: {entropy.loc[probe_ts]:.4f}, 5日斜率: {slope_5.loc[probe_ts]:.4f}")
+            print(f"    锁仓强度: {locking_intensity.loc[probe_ts]:.4f}, 有序奖励: {ordering_bonus.loc[probe_ts]:.4f}")
+            print(f"    >>> 最终有序性调节系数: {final_factor.loc[probe_ts]:.4f}")
+        return final_factor.astype(np.float32)
 
-
-
-
+    def _calculate_vwap_propulsion_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        """V55.0 · VWAP 推进力因子：验证价格上涨的平均成本支撑强度"""
+        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        close = raw['close_D']
+        vwap = raw['VWAP_D']
+        vwap_slope = vwap.diff(3) / 3.0
+        bias = (close - vwap) / (vwap + 1e-9)
+        healthy_bias = (bias > 0) & (bias < 0.05)
+        propulsion = np.where(vwap_slope > 0, 1.0, 0.0)
+        bias_bonus = np.where(healthy_bias, 0.2, 0.0)
+        trend_bonus = np.tanh(vwap_slope * 10.0).clip(0, 0.3)
+        final_score = pd.Series(propulsion + bias_bonus + trend_bonus, index=df_index).clip(0, 1.5)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[VWAP 推进力探针 V55 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    收盘: {close.loc[probe_ts]:.2f}, VWAP: {vwap.loc[probe_ts]:.2f}")
+            print(f"    VWAP斜率(3d): {vwap_slope.loc[probe_ts]:.4f}, 乖离率: {bias.loc[probe_ts]:.2%}")
+            print(f"    >>> 最终推进力得分: {final_score.loc[probe_ts]:.4f}")
+        return final_score.astype(np.float32)
 
 
 
