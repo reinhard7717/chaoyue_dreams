@@ -130,10 +130,10 @@ class CalculateSplitOrderAccumulation:
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V8.9.0 · 物理底噪压制版 · 信号全维重构】
-        引入物理底噪锚点(PNF)，防止在静默期因微小变动导致历史排名虚高。
-        - 核心修正: 在计算环境指标排名时，若绝对变动低于底噪(ANF)，排名强行置为 0.5。
-        - 指标审计: 2026-02-08 更新，解决主力静默期后的“第一笔派发”导致逻辑失灵的问题。
+        【V9.1.0 · 振幅收敛致密化版 · 信号全维重构】
+        引入日内价格振幅比(intraday_price_range_ratio_D)及其排名，识别筹码锁定末期的物理收敛特征。
+        - 核心增强: 将振幅收敛度(range_ratio_rank)整合进结构维度，作为筹码致密化的终极印证。
+        - 逻辑审计: 2026-02-08 更新，完成从“资金-意图-结构-能量-波动”的五维闭环。
         """
         df_index = df.index
         raw_df_columns = [
@@ -146,7 +146,7 @@ class CalculateSplitOrderAccumulation:
             'TURNOVER_STABILITY_INDEX_D', 'tick_data_quality_score_D', 'THEME_HOTNESS_SCORE_D', 'market_sentiment_score_D',
             'PRICE_ENTROPY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'close_D', 'VPA_ACCELERATION_5D', 'flow_consistency_D',
             'flow_efficiency_D', 'net_energy_flow_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 'tick_chip_transfer_efficiency_D',
-            'flow_momentum_5d_D', 'uptrend_strength_D', 'game_intensity_D', 'intraday_main_force_activity_D'
+            'flow_momentum_5d_D', 'uptrend_strength_D', 'game_intensity_D', 'intraday_main_force_activity_D', 'intraday_price_range_ratio_D'
         ]
         raw_signals = {col: self.helper._get_safe_series(df, col, 0.0, method_name=method_name) for col in raw_df_columns}
         normalized_signals = {}
@@ -167,16 +167,25 @@ class CalculateSplitOrderAccumulation:
                     normalized_signals[f'clean_{prefix}{col_name}'] = self.helper._normalize_series(clean_deriv, df_index, bipolar=True)
         intent_comps = {"explicit": self.helper._normalize_series(raw_signals['buy_elg_amount_D'] + raw_signals['net_mf_amount_D'], df_index, bipolar=True), "hidden_slope": normalized_signals.get('clean_proxy_SLOPE_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)), "consistency": self.helper._normalize_series(raw_signals['flow_consistency_D'], df_index, bipolar=False)}
         normalized_signals["data_intent_outcome"] = _robust_geometric_mean(intent_comps, {"explicit": 0.3, "hidden_slope": 0.4, "consistency": 0.3}, df_index).fillna(0.0)
-        # 针对环境熵和压缩率引入百分位排名与底噪抑制
+        # 振幅收敛逻辑：排名越低(越收敛)，分值越高
+        range_ratio = raw_signals['intraday_price_range_ratio_D']
+        range_rank = range_ratio.rolling(55).rank(pct=True).fillna(0.5)
+        convergence_score = (1 - range_rank).clip(0, 1)
+        entropy_slope_5 = normalized_signals.get('clean_SLOPE_5_chip_entropy_D', pd.Series(0.0, index=df_index))
+        struct_comps = {"stability": self.helper._normalize_series(raw_signals['chip_stability_D'], df_index, bipolar=False), "golden_pit": raw_signals['STATE_GOLDEN_PIT_D'].astype(float), "concentration": self.helper._normalize_series(raw_signals['chip_concentration_ratio_D'], df_index, bipolar=False), "entropy_reduction": self.helper._normalize_series(-1 * entropy_slope_5, df_index, bipolar=False), "transfer_eff": self.helper._normalize_series(raw_signals['tick_chip_transfer_efficiency_D'], df_index, bipolar=False), "convergence": convergence_score}
+        normalized_signals["data_structure_outcome"] = _robust_geometric_mean(struct_comps, {"stability": 0.15, "golden_pit": 0.2, "concentration": 0.2, "entropy_reduction": 0.15, "transfer_eff": 0.15, "convergence": 0.15}, df_index).fillna(0.0)
+        vpa_eff_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
+        energy_comps = {"abs_energy": self.helper._normalize_series(raw_signals['absorption_energy_D'], df_index, bipolar=False), "vpa_quality": self.helper._normalize_series(vpa_eff_slope_5, df_index, bipolar=False), "game_int": self.helper._normalize_series(raw_signals['game_intensity_D'], df_index, bipolar=False)}
+        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 0.3, "vpa_quality": 0.4, "game_int": 0.3}, df_index).fillna(0.0)
+        # 慢变量环境熵与压缩率逻辑 (维持 V8.9.0 物理底噪压制)
         entropy = raw_signals['PRICE_ENTROPY_D']
         entropy_diff = entropy.diff(5).abs()
-        entropy_anf = entropy.rolling(60).std() * 0.1 # 物理底噪设为历史波动的10%
-        entropy_rank = entropy.rolling(60).rank(pct=True)
-        # 抑制逻辑: 若变动低于底噪，排位强行中性化(0.5)
+        entropy_anf = entropy.rolling(55).std() * 0.1
+        entropy_rank = entropy.rolling(55).rank(pct=True)
         stable_entropy_rank = entropy_rank.where(entropy_diff > entropy_anf, 0.5)
         compression = raw_signals['MA_POTENTIAL_COMPRESSION_RATE_D']
-        comp_rank = compression.rolling(60).rank(pct=True)
-        stable_comp_rank = comp_rank.where(compression.diff(5).abs() > (compression.rolling(60).std() * 0.1), 0.5)
+        comp_rank = compression.rolling(55).rank(pct=True)
+        stable_comp_rank = comp_rank.where(compression.diff(5).abs() > (compression.rolling(55).std() * 0.1), 0.5)
         context_signals = {
             "is_leader": raw_signals['IS_MARKET_LEADER_D'].astype(float),
             "mf_activity": self.helper._normalize_series(raw_signals['intraday_main_force_activity_D'], df_index, bipolar=False),
@@ -201,9 +210,10 @@ class CalculateSplitOrderAccumulation:
             "hm_attack": self.helper._normalize_series(raw_signals['HM_COORDINATED_ATTACK_D'], df_index, bipolar=False),
             "hm_attack_slope": normalized_signals.get('clean_SLOPE_5_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index)),
             "intraday_acc_conf": self.helper._normalize_series(raw_signals['intraday_accumulation_confidence_D'], df_index, bipolar=False),
-            "chip_transfer_eff": self.helper._normalize_series(raw_signals['tick_chip_transfer_efficiency_D'], df_index, bipolar=False)
+            "chip_transfer_eff": self.helper._normalize_series(raw_signals['tick_chip_transfer_efficiency_D'], df_index, bipolar=False),
+            "range_ratio_rank": range_rank
         }
-        print(f"  -- [V8.9.0 零基抑制探针] Entropy Rank Mean: {stable_entropy_rank.mean():.4f}, Comp Rank Mean: {stable_comp_rank.mean():.4f}")
+        print(f"  -- [V9.1.0 收敛探针] Range Ratio Rank: {range_rank.loc[df_index[-1]]:.4f}, Convergence Score: {convergence_score.loc[df_index[-1]]:.4f}")
         return raw_signals, normalized_signals, {}, context_signals
 
     def _calculate_dynamic_epsilon(self, base_series: pd.Series, window: int = 55, multiplier: float = 0.05) -> pd.Series:
@@ -226,10 +236,10 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V8.7.0 · 主力活跃度集成版 · 全息验证深化】
-        应用日内主力活跃度(mf_activity)进行机构动作穿透校验，过滤散户自然换手噪音。
-        - 验证逻辑: 引入主力活跃度校验项，对缺乏机构主动性动作支持的信号执行最高15%的压制。
-        - 探针审计: 2026-02-08 增加主力活跃度探针，实时量化日内机构参与度对全息得分的有效支撑。
+        【V9.1.0 · 波动率门控集成版 · 全息验证深化】
+        引入日内振幅比排名(range_ratio_rank)作为波动率门控，修正全息得分。
+        - 验证逻辑: 整合活跃度、协同性、置信度与振幅收敛，形成四维真实性校验。
+        - 核心修正: 若振幅排名过高(>0.9)，视为分歧剧烈，施加惩罚；若收敛(<0.3)，给予奖励。
         """
         holographic_debug_values = {}
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
@@ -237,6 +247,7 @@ class CalculateSplitOrderAccumulation:
         chip_transfer_eff = context_signals.get("chip_transfer_eff", pd.Series(0.5, index=df_index))
         mf_activity = context_signals.get("mf_activity", pd.Series(0.5, index=df_index))
         synergy_slope = context_signals.get("synergy_slope", pd.Series(0.0, index=df_index))
+        range_rank = context_signals.get("range_ratio_rank", pd.Series(0.5, index=df_index))
         holographic_state_components = {
             "flow": normalized_signals.get("data_flow_outcome", pd.Series(0.0, index=df_index)),
             "structure": normalized_signals.get("data_structure_outcome", pd.Series(0.0, index=df_index)),
@@ -255,13 +266,14 @@ class CalculateSplitOrderAccumulation:
         rdi_signals = self._calculate_rdi_signals(df, normalized_signals, df_index, config)
         resonance_bonus = rdi_signals.get("phase_resonance_intensity", pd.Series(0.0, index=df_index))
         synergy_bonus = synergy_slope.clip(lower=0) * 0.1
-        # 全息校验核心：整合主力活跃度校验项
-        final_correction = (1 + resonance_bonus * 0.2 + synergy_bonus) * (0.7 + 0.3 * intraday_acc_conf) * (0.8 + 0.2 * chip_transfer_eff) * (0.85 + 0.15 * mf_activity)
+        # 波动率门控: 振幅大(Rank>0.9) -> 惩罚; 振幅小(Rank<0.3) -> 奖励
+        volatility_gate = np.where(range_rank > 0.9, 0.9, np.where(range_rank < 0.3, 1.05, 1.0))
+        final_correction = (1 + resonance_bonus * 0.2 + synergy_bonus) * (0.7 + 0.3 * intraday_acc_conf) * (0.8 + 0.2 * chip_transfer_eff) * (0.85 + 0.15 * mf_activity) * volatility_gate
         holographic_validation_score = (_robust_geometric_mean({"state": holographic_state_score, "trend": holographic_trend_score}, {"state": 0.5, "trend": 0.5}, df_index) * final_correction).clip(0, 1)
-        print(f"  -- [全息活跃度校验探针] MF Activity Mean: {mf_activity.mean():.4f}, Support Multiplier: {(0.85 + 0.15 * mf_activity).mean():.4f}")
+        print(f"  -- [全息波动率门控探针] Range Rank: {range_rank.mean():.4f}, Gate Multiplier: {volatility_gate.mean():.4f}")
         direction = holographic_trend_components["acc_slope"].apply(lambda x: 1 if x >= 0 else -1)
         if probe_ts is not None and probe_ts in df_index:
-            holographic_debug_values.update({"mf_activity_support": mf_activity.loc[probe_ts], "holographic_val_final": holographic_validation_score.loc[probe_ts]})
+            holographic_debug_values.update({"volatility_gate": float(volatility_gate[df_index.get_loc(probe_ts)]) if isinstance(volatility_gate, np.ndarray) else 1.0, "holographic_val_final": holographic_validation_score.loc[probe_ts]})
         return (holographic_validation_score * direction).clip(-1, 1), holographic_debug_values
 
     def _calculate_rdi_signals(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Dict[str, pd.Series]:
