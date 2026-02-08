@@ -184,7 +184,7 @@ class CalculateSplitOrderAccumulation:
         }
         normalized_signals["data_structure_outcome"] = _robust_geometric_mean(struct_comps, {"stability": 0.15, "golden_pit": 0.25, "concentration": 0.2, "entropy_reduction": 0.2, "transfer_eff": 0.2}, df_index).fillna(0.0)
         energy_comps = {"abs_energy": self.helper._normalize_series(raw_signals['absorption_energy_D'], df_index, bipolar=False)}
-        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 1.0}, df_index).fillna(0.0)
+        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 0.6, "vpa_quality": 0.4}, df_index).fillna(0.0)
         mtf_signals = {
             "mtf_intensity": self.helper._get_mtf_slope_accel_score(df, 'accumulation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
             "mtf_cohesion": self.helper._get_mtf_cohesion_score(df, noise_sensitive_list, mtf_slope_accel_weights, df_index, method_name)
@@ -229,41 +229,41 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V8.1.0 · 聪明钱协同增强版 · 全息验证深化】
-        引入聪明钱协同买入(SMART_MONEY_SYNERGY_BUY_D)对结构锁定进行交叉验证。
-        - 验证逻辑: 结合日内置信度、筹码换手效率以及跨主力性质的资金协同性。
-        - 核心优化: 利用协同性指标(Synergy)对全息状态得分执行置信度修正。
+        【V8.2.0 · 趋势二阶补偿版 · 全息验证深化】
+        引入趋势下跌中的加速度补偿逻辑，以及协同性斜率溢价。
+        - 补偿逻辑: 当13日趋势斜率为负但加速度为正时，识别为企稳初段，赋予趋势修正溢价。
+        - 协同逻辑: 整合协同性指标斜率，识别共识正在形成的领先信号。
         """
         holographic_debug_values = {}
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
         intraday_acc_conf = context_signals.get("intraday_acc_conf", pd.Series(1.0, index=df_index))
         chip_transfer_eff = context_signals.get("chip_transfer_eff", pd.Series(0.5, index=df_index))
-        # 提取聪明钱协同性指标
-        synergy_buy = self.helper._get_safe_series(df, 'SMART_MONEY_SYNERGY_BUY_D', 0.0)
-        synergy_norm = self.helper._normalize_series(synergy_buy, df_index, bipolar=False)
+        synergy_slope = context_signals.get("synergy_slope", pd.Series(0.0, index=df_index))
         holographic_state_components = {
             "flow": normalized_signals.get("data_flow_outcome", pd.Series(0.0, index=df_index)),
             "structure": normalized_signals.get("data_structure_outcome", pd.Series(0.0, index=df_index)),
             "geom": normalized_signals.get("data_geom_outcome", pd.Series(0.0, index=df_index))
         }
         holographic_state_score = _robust_geometric_mean({k: (v + 1) / 2 for k, v in holographic_state_components.items()}, {"flow": 0.4, "structure": 0.3, "geom": 0.3}, df_index)
+        # 趋势得分与补偿逻辑
+        acc_slope_13 = self.helper._get_safe_series(df, 'SLOPE_13_accumulation_score_D', 0.0)
+        acc_accel_13 = self.helper._get_safe_series(df, 'ACCEL_13_accumulation_score_D', 0.0)
+        # 二阶企稳补偿: 跌势放缓视为隐含利好
+        stabilization_bonus = ((acc_slope_13 < 0) & (acc_accel_13 > 0)).astype(float) * 0.15
         holographic_trend_components = {
             "flow_slope": normalized_signals.get("clean_SLOPE_5_stealth_flow_ratio_D", pd.Series(0.0, index=df_index)),
             "acc_slope": normalized_signals.get("clean_SLOPE_5_accumulation_score_D", pd.Series(0.0, index=df_index)),
             "vpa_slope": normalized_signals.get("clean_SLOPE_5_VPA_MF_ADJUSTED_EFF_D", pd.Series(0.0, index=df_index))
         }
-        holographic_trend_score = _robust_geometric_mean({k: (v + 1) / 2 for k, v in holographic_trend_components.items()}, {"flow_slope": 0.4, "acc_slope": 0.4, "vpa_slope": 0.2}, df_index)
+        holographic_trend_score = (_robust_geometric_mean({k: (v + 1) / 2 for k, v in holographic_trend_components.items()}, {"flow_slope": 0.4, "acc_slope": 0.4, "vpa_slope": 0.2}, df_index) + stabilization_bonus).clip(0, 1)
         rdi_signals = self._calculate_rdi_signals(df, normalized_signals, df_index, config)
         resonance_bonus = rdi_signals.get("phase_resonance_intensity", pd.Series(0.0, index=df_index))
-        div_penalty = rdi_signals.get("advanced_divergence", pd.Series(0.0, index=df_index))
-        overall_components = {"state": holographic_state_score, "trend": holographic_trend_score}
-        # 动态校正因子: 引入协同性增益(synergy_norm)
-        final_correction = (1 + resonance_bonus * 0.2) * (1 - div_penalty * (0.3 - is_leader * 0.15)) * (0.7 + 0.3 * intraday_acc_conf) * (0.8 + 0.2 * chip_transfer_eff + 0.1 * synergy_norm)
-        holographic_validation_score = (_robust_geometric_mean(overall_components, {"state": 0.5, "trend": 0.5}, df_index) * final_correction).clip(0, 1)
-        print(f"  -- [全息校验协同探针] Synergy: {synergy_norm.mean():.4f}, Final Corr: {final_correction.mean():.4f}")
+        # 综合校正因子: 引入协同性斜率(synergy_slope)领先增益
+        synergy_bonus = synergy_slope.clip(lower=0) * 0.1
+        final_correction = (1 + resonance_bonus * 0.2 + synergy_bonus) * (0.7 + 0.3 * intraday_acc_conf) * (0.8 + 0.2 * chip_transfer_eff)
+        holographic_validation_score = (_robust_geometric_mean({"state": holographic_state_score, "trend": holographic_trend_score}, {"state": 0.5, "trend": 0.5}, df_index) * final_correction).clip(0, 1)
+        print(f"  -- [全息二阶补偿探针] Stab Bonus: {stabilization_bonus.mean():.4f}, Synergy Bonus: {synergy_bonus.mean():.4f}")
         direction = holographic_trend_components["acc_slope"].apply(lambda x: 1 if x >= 0 else -1)
-        if probe_ts is not None and probe_ts in df_index:
-            holographic_debug_values.update({"synergy_gain": synergy_norm.loc[probe_ts], "locking_quality": chip_transfer_eff.loc[probe_ts]})
         return (holographic_validation_score * direction).clip(-1, 1), holographic_debug_values
 
     def _calculate_rdi_signals(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Dict[str, pd.Series]:
