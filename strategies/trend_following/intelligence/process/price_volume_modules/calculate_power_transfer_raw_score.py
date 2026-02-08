@@ -31,35 +31,23 @@ class CalculatePowerTransferRawScore:
         pass
 
     def _calculate_dynamic_impulse_norm(self, activated_impulse: pd.Series, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V33.0 · 冲量单位标准化：基于 T 日成交金额的流动性能效折算"""
+        """V54.0 · 冲量单位标准化：引入增益系数以平衡量纲级差"""
         is_debug, probe_ts, _ = self.is_debug, self.probe_ts, method_name
-        # 1. 获取流动性质量因子 (Inertia Mass)
-        # 使用成交金额及其 21 日均值衡量个股的“体量惯性”
+        # 1. 获取流动性质量因子
         current_amount = raw['amount_D'].replace(0, 1e-9)
         avg_amount = current_amount.rolling(21).mean().fillna(current_amount)
-        # 相对成交强度因子 (Relative Liquidity Intensity)
         rel_intensity = (current_amount / avg_amount).clip(0.5, 5.0)
-        # 2. 计算标准化系数 (Normalization Coefficient)
-        # 逻辑：体量越大，对冲量的吸收越强；我们使用对数基准来平衡大盘股与小盘股的差异
-        # log10(amount_D) 提供了市值量级的基准
-        mass_factor = np.log10(current_amount + 1).clip(5, 12) # A股金额通常在 1e6 到 1e11 之间
-        # 3. 执行标准化转换
-        # 公式：激活冲量 / (质量基准 * 相对强度开方)
-        # 使用 sqrt(rel_intensity) 是为了在放量夺权时适当调低冲量得分，防止成交量伪造动能
+        # 2. 计算标准化系数
+        mass_factor = np.log10(current_amount + 1).clip(5, 12)
         norm_factor = mass_factor * np.sqrt(rel_intensity)
-        normalized_impulse = activated_impulse / norm_factor
-        # 4. 深度探针：暴露流动性折算细节
+        # 3. 执行标准化转换 (引入 * 5.0 增益)
+        normalized_impulse = (activated_impulse * 5.0) / norm_factor
+        # 4. 探针
         if is_debug and probe_ts in df_index:
-            print(f"\n[冲量标准化探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"--- 1. 流动性原料 ---")
-            print(f"    T日成交额: {current_amount.loc[probe_ts]:.2f}, 21日均值: {avg_amount.loc[probe_ts]:.2f}")
-            print(f"    相对强度因子: {rel_intensity.loc[probe_ts]:.4f}")
-            print(f"--- 2. 标准化计算节点 ---")
-            print(f"    质量基准(MassFactor): {mass_factor.loc[probe_ts]:.4f}")
-            print(f"    综合折算系数: {norm_factor.loc[probe_ts]:.4f}")
-            print(f"--- 3. 结果对比 ---")
-            print(f"    ReLU激活后原始冲量: {activated_impulse.loc[probe_ts]:.4f}")
-            print(f"    单位流动性标准化冲量: {normalized_impulse.loc[probe_ts]:.6f}")
+            print(f"\n[冲量标准化探针 V54 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    质量基准: {mass_factor.loc[probe_ts]:.4f}, 相对强度: {rel_intensity.loc[probe_ts]:.4f}")
+            print(f"    原始激活冲量: {activated_impulse.loc[probe_ts]:.4f}")
+            print(f"    >>> 标准化后冲量: {normalized_impulse.loc[probe_ts]:.6f} (含 5.0x 增益)")
         return normalized_impulse.astype(np.float32)
 
     def _calculate_limit_price_compensation(self, norm_impulse: pd.Series, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -91,23 +79,23 @@ class CalculatePowerTransferRawScore:
         return res.astype(np.float32)
 
     def _calculate_auction_prediction(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V53.0 · T+1 竞价预判：引入非线性压缩解决量纲爆炸问题"""
+        """V54.0 · T+1 竞价预判：引入对数压缩防止高强度尾盘导致的分值饱和"""
         is_debug, probe_ts, _ = self.is_debug, self.probe_ts, method_name
-        # 1. 计算原始冲击强度
+        # 1. 冲击项
         impulse_term = (raw['JERK_3_net_amount_rate_D'] * 0.6 + raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'] * 0.4)
         activated_imp = _numba_power_activation(impulse_term.values, gain=1.2)
-        # 2. 计算竞价原始分值
-        auction_strength = raw['closing_flow_intensity_D'] * (1.0 + activated_imp)
+        # 2. 强度项 (引入 log1p 压缩)
+        intensity_log = np.log1p(raw['closing_flow_intensity_D'])
+        auction_strength = intensity_log * (1.0 + activated_imp)
         auction_prediction_raw = auction_strength * (raw['T1_PREMIUM_EXPECTATION_D'] + 0.5)
-        # 3. 核心改进：使用 tanh(x/100) 将数百的分值映射至 [-2, 2] 的标准分空间
-        auc_prediction = np.tanh(auction_prediction_raw / 100.0) * 2.0
+        # 3. 空间映射 (tanh/20.0 * 2.5)
+        auc_prediction = np.tanh(auction_prediction_raw / 20.0) * 2.5
         res = pd.Series(auc_prediction, index=df_index)
         if is_debug and probe_ts in df_index:
-            print(f"\n[竞价量纲修正探针 V53 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    原始分值: {auction_prediction_raw.loc[probe_ts]:.4f}, 压缩后分值: {res.loc[probe_ts]:.4f}")
+            print(f"\n[竞价量纲修正探针 V54 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    尾盘强度(Log): {intensity_log.loc[probe_ts]:.4f}, 冲击增益: {activated_imp[df_index.get_loc(probe_ts)]:.4f}")
+            print(f"    原始竞价分: {auction_prediction_raw.loc[probe_ts]:.4f}, 压缩后分值: {res.loc[probe_ts]:.4f}")
         return res.astype(np.float32)
-
-
 
 
 

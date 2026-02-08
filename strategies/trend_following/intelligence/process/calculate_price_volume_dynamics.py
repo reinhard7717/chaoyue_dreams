@@ -430,40 +430,59 @@ class CalculatePriceVolumeDynamics:
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V53.0 · 主力夺权全局总线：集成五层安全阀调节矩阵与入场可获得性修正"""
+        """V54.0 · 主力夺权全局总线：集成五层安全阀调节矩阵与入场可获得性修正"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         if not self._validate_all_required_signals(df, {}, {}, method_name, is_debug, probe_ts):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
         raw = self._get_raw_signals(df, method_name)
-        # 1. 计算物理引擎分与几何势能分（基础强度层）
+        
+        # --- 第一阶段：计算基础强度 (物理引擎 + 几何势能) ---
+        # 1. 物理动力引擎分 (已集成竞价、冲量、MCV)
         physical_base = self._calculate_power_transfer_raw_score(df_index, raw, method_name)
+        
+        # 2. 几何结构势能分 (基于 R2 滤网与形态共振)
         geo_conf = (1.0 - raw['GEOM_REG_R2_D']).clip(0, 1)
         act_curv = pd.Series(_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0), index=df_index)
         geo_resonance = act_curv * geo_conf * (raw['IS_ROUNDING_BOTTOM_D'].astype(float) * 1.2 + 0.5)
-        # 2. 合成未修正的综合强度
+        
+        # 3. 合成未修正的综合强度 (物理主导，几何辅助)
         unadjusted_intensity = (physical_base * 0.70 + geo_resonance * 0.30)
-        # 3. 五层安全阀调节矩阵（风险控制层）
+        
+        # --- 第二阶段：五层安全阀调节 (风险控制层) ---
+        # 1. 情绪回吐阀 (防止高潮接盘)
         risk_v = self._calculate_premium_reversal_risk(raw, df_index, method_name)
+        # 2. 结构衰减阀 (烂板/修复逻辑)
         decay_v = self._calculate_intraday_decay_model(raw, df_index, method_name)
+        # 3. 板块共振阀 (环境顺逆)
         sector_v = self._calculate_sector_resonance_modifier(raw, df_index, method_name)
+        # 4. 波动聚集阀 (二次加速/陷阱)
         vol_v = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name)
+        # 5. 板块溢出阀 (分形维数耗竭)
         sector_overflow_v = self._calculate_sector_overflow_decay(raw, df_index, method_name)
-        # 4. 实战修正与链式乘法合成
+        
+        # --- 第三阶段：实战入场修正 (可执行性层) ---
         access_f = self._calculate_entry_accessibility_score(raw, df_index, method_name)
+        
+        # --- 第四阶段：链式合成最终 PROCESS_META_POWER_TRANSFER 分值 ---
+        # 逻辑：强度 * 概率(安全阀) * 可执行度
         final_score = unadjusted_intensity * risk_v * decay_v * sector_v * vol_v * sector_overflow_v * access_f
+        
         if is_debug and probe_ts in df_index:
-            print(f"\n[PROCESS_META_POWER_TRANSFER 全链集成探针 V53 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[PROCESS_META_POWER_TRANSFER 全链集成探针 V54 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    [核心] 物理基准: {physical_base.loc[probe_ts]:.4f}, 几何共振: {geo_resonance.loc[probe_ts]:.4f}")
             print(f"    [阀门] 情绪: {risk_v.loc[probe_ts]:.2f}, 衰减: {decay_v.loc[probe_ts]:.2f}, 板块溢出: {sector_overflow_v.loc[probe_ts]:.2f}")
+            print(f"    [执行] 入场系数: {access_f.loc[probe_ts]:.4f}")
             print(f"    >>> 最终输出分值: {final_score.loc[probe_ts]:.4f}")
+            
         return final_score.clip(-3.5, 6.0).astype(np.float32)
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V53.0 · 物理动力引擎：集成共识速度与量纲压缩后的竞价预判"""
+        """V54.0 · 物理动力引擎：适配新的量纲体系，平衡冲量与共识速度"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         score_calculate = CalculatePowerTransferRawScore(is_debug, probe_ts)
+        
         # 1. 动力学去噪与冲量激活
         vol_adj = raw['BBW_21_2.0_D'].fillna(0.1).values
         rolling_tc = raw['trade_count_D'].rolling(21).mean().replace(0, 1)
@@ -471,21 +490,30 @@ class CalculatePriceVolumeDynamics:
         j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_amount_rate_D'].fillna(0).values, vol_adj, conf)
         a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].fillna(0).values, vol_adj, conf)
         act_impulse = pd.Series(_numba_power_activation((j_c * 0.45 + a_c * 0.55), gain=1.8), index=df_index)
-        # 2. 标准化与补偿（物理修正）
+        
+        # 2. 标准化与补偿（含 5.0x 增益）
         norm_impulse = score_calculate._calculate_dynamic_impulse_norm(act_impulse, raw, df_index, method_name)
         comp_impulse = score_calculate._calculate_limit_price_compensation(norm_impulse, raw, df_index, method_name)
-        # 3. T+1 竞价预判（已在内部执行量纲压缩）
+        
+        # 3. 竞价预判 (含 log/tanh 压缩)
         auc_pred = score_calculate._calculate_auction_prediction(raw, df_index, method_name)
+        
         # 4. MCV 多尺度共识速度
         fib_wins = np.array([3, 5, 8, 13, 21], dtype=np.int64)
         _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values, fib_wins)
         mcv_consensus = pd.Series(np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10]), f_slopes), index=df_index)
-        # 5. 物理引擎合成（权重微调：提升持续性占比）
-        physical_engine_score = (comp_impulse * 8.0 * 0.30 + auc_pred * 0.30 + mcv_consensus * 0.40)
+        
+        # 5. 物理引擎合成
+        # 权重平衡：CompImpulse(2.0x) + AucPred(2.5x) + MCV(2.0x)
+        # 降低 CompImpulse 的系数(8.0->2.0)以匹配标准化后的增益
+        physical_engine_score = (comp_impulse * 2.0 * 0.30 + auc_pred * 0.35 + mcv_consensus * 0.35)
+        
         if is_debug and probe_ts in df_index:
-            print(f"\n[物理引擎量纲审计 V53 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    补偿后冲量: {comp_impulse.loc[probe_ts]:.6f}, 竞价压缩分: {auc_pred.loc[probe_ts]:.4f}")
-            print(f"    MCV共识速度: {mcv_consensus.loc[probe_ts]:.4f}, 物理合成总分: {physical_engine_score.loc[probe_ts]:.4f}")
+            print(f"\n[物理引擎量纲审计 V54 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    补偿后冲量(Norm*2.0): {(comp_impulse.loc[probe_ts] * 2.0):.4f}")
+            print(f"    竞价压缩分: {auc_pred.loc[probe_ts]:.4f}, MCV共识: {mcv_consensus.loc[probe_ts]:.4f}")
+            print(f"    >>> 物理合成总分: {physical_engine_score.loc[probe_ts]:.4f}")
+            
         return physical_engine_score.astype(np.float32)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -832,28 +860,20 @@ class CalculatePriceVolumeDynamics:
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         # 1. 换手率门控 (Liquidity Gate)
         turnover_f = raw['turnover_rate_f_D']
-        # 优化策略：
-        # 原逻辑：线性 (x/3.0)，对 0.7% 换手极其严苛 (0.23)
-        # 新逻辑：根号 (sqrt(x)/sqrt(1.5))，提升对中低流动性的包容度
-        # 效果映射：0.5% -> 0.57, 0.7% -> 0.68, 1.0% -> 0.81, 1.5% -> 1.0
+        # 优化策略：根号平滑 (sqrt(x)/sqrt(1.5))
         liquidity_factor = (np.sqrt(turnover_f) / np.sqrt(1.5)).clip(0.1, 1.1)
         # 2. 封板强度与溢价惩罚 (Sealing Penalty)
         is_limit_up = (raw['close_D'] >= raw['up_limit_D'] * 0.999)
-        # 封板强度 * 溢价预期 = 封死概率
         sealing_intensity = (raw['closing_flow_intensity_D'] * raw['T1_PREMIUM_EXPECTATION_D']).clip(0, 1)
         limit_accessibility = np.where(is_limit_up, 0.4 * (1.0 - sealing_intensity), 1.0)
         limit_accessibility = pd.Series(limit_accessibility, index=df_index)
         # 3. 综合可获得性评分
-        # 入场分 = 封板可买度 * 流动性充沛度
         accessibility_score = (limit_accessibility * liquidity_factor).clip(0, 1.0)
         if is_debug and probe_ts in df_index:
             print(f"\n[入场可获得性探针 V54 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    自由换手: {turnover_f.loc[probe_ts]:.2f}%, 流动性因子: {liquidity_factor.loc[probe_ts]:.4f}")
-            print(f"    封板状态: {is_limit_up.loc[probe_ts]}, 封板强度: {raw['closing_flow_intensity_D'].loc[probe_ts]:.4f}")
             print(f"    >>> $T+1$ 入场窗口评分: {accessibility_score.loc[probe_ts]:.4f} (优化后)")
         return accessibility_score.astype(np.float32)
-
-
 
 
 
