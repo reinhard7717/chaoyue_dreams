@@ -689,12 +689,12 @@
                 "task_type": "base",
                 "relationship_type": "consensus",
                 "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-                "signal_B": "main_force_conviction_index_D",
+                "signal_B": "net_mf_amount_D",
                 "source_B": "df",
                 "change_type_B": "diff",
                 "signal_b_factor_k": 1.5,
                 "enable_probe": false,
-                "description": "【V3.0 · 信念驱动版】价资关系。诊断价格与'主力信念指数'的共识，穿透资金流表象，直击主力真实意图。"
+                "description": "【V3.2 · 军械库最终版】价资关系。使用'主力净额'([Source 3])诊断价格与主力真实资金流向的共识。"
             },
             {
                 "name": "PROCESS_META_PC_REL_BULLISH_TURN",
@@ -702,12 +702,12 @@
                 "task_type": "base",
                 "relationship_type": "consensus",
                 "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-                "signal_B": "dominant_peak_solidity_D",
+                "signal_B": "peak_concentration_D",
                 "source_B": "df",
                 "change_type_B": "diff",
                 "signal_b_factor_k": 2.0,
                 "enable_probe": false,
-                "description": "【V3.0 · 结构验证版】价筹关系。诊断价格与'筹码主峰密集度'的共识，验证价格行为是否带来了筹码结构的优化。"
+                "description": "【V3.2 · 军械库最终版】价筹关系。使用'峰值集中度'([Source 3])诊断价格与筹码结构的共识。"
             },
             {
                 "name": "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION",
@@ -720,10 +720,10 @@
                     "ma_period": 5
                 },
                 "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-                "signal_B": "retail_panic_surrender_index_D", "source_B": "df", "change_type_B": "diff",
+                "signal_B": "pressure_trapped_D", "source_B": "df", "change_type_B": "diff",
                 "signal_b_factor_k": 1.5,
                 "enable_probe": false,
-                "comment": "【V2.0 换装】价格与散户投降。使用'散户恐慌投降指数'替代旧的'散户投降分布'。"
+                "comment": "【V2.2 · 军械库最终版】价格与散户投降。使用'套牢压力'([Source 3])作为痛苦/恐慌的代理指标。"
             },
             {
                 "name": "PROCESS_DYNAMICS_PRICE_EFFICIENCY",
@@ -748,10 +748,10 @@
                 "diagnosis_mode": "direct_confirmation",
                 "relationship_type": "divergence",
                 "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-                "signal_B": "mf_retail_battle_intensity_D", "source_B": "df", "change_type_B": "diff",
+                "signal_B": "game_intensity_D", "source_B": "df", "change_type_B": "diff",
                 "signal_b_factor_k": 2.5,
                 "enable_probe": false,
-                "comment": "【V2.0 换装】博弈背离。使用'主力散户博弈烈度'替代旧的'资金流背离'。"
+                "comment": "【V2.2 · 军械库最终版】博弈背离。使用'博弈烈度'([Source 2])。"
             },
             {
                 "name": "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC",
