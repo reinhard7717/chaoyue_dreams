@@ -229,18 +229,18 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_holographic_validation(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V8.0.0 · 筹码换手效率增强版 · 全息验证深化】
-        整合逐笔筹码换手效率(chip_transfer_eff)识别机构锁定行为，强化对结构维度的穿透校验。
-        - 验证逻辑: 在全息状态评分中，利用筹码换手效率作为结构维度的核心印证因子。
-        - 探针审计: 2026-02-08 增加探针输出，实时跟踪机构锁定质量对最终得分的支撑强度。
+        【V8.1.0 · 聪明钱协同增强版 · 全息验证深化】
+        引入聪明钱协同买入(SMART_MONEY_SYNERGY_BUY_D)对结构锁定进行交叉验证。
+        - 验证逻辑: 结合日内置信度、筹码换手效率以及跨主力性质的资金协同性。
+        - 核心优化: 利用协同性指标(Synergy)对全息状态得分执行置信度修正。
         """
         holographic_debug_values = {}
-        adx_norm = context_signals.get("adx_norm", pd.Series(0.5, index=df_index))
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
         intraday_acc_conf = context_signals.get("intraday_acc_conf", pd.Series(1.0, index=df_index))
         chip_transfer_eff = context_signals.get("chip_transfer_eff", pd.Series(0.5, index=df_index))
-        trend_weight_base = (0.4 + adx_norm * 0.2).clip(0.3, 0.6)
-        state_weight_base = 1 - trend_weight_base
+        # 提取聪明钱协同性指标
+        synergy_buy = self.helper._get_safe_series(df, 'SMART_MONEY_SYNERGY_BUY_D', 0.0)
+        synergy_norm = self.helper._normalize_series(synergy_buy, df_index, bipolar=False)
         holographic_state_components = {
             "flow": normalized_signals.get("data_flow_outcome", pd.Series(0.0, index=df_index)),
             "structure": normalized_signals.get("data_structure_outcome", pd.Series(0.0, index=df_index)),
@@ -257,20 +257,13 @@ class CalculateSplitOrderAccumulation:
         resonance_bonus = rdi_signals.get("phase_resonance_intensity", pd.Series(0.0, index=df_index))
         div_penalty = rdi_signals.get("advanced_divergence", pd.Series(0.0, index=df_index))
         overall_components = {"state": holographic_state_score, "trend": holographic_trend_score}
-        overall_weights = {"state": state_weight_base, "trend": trend_weight_base}
-        holographic_val_raw = _robust_geometric_mean(overall_components, overall_weights, df_index)
-        # 综合校正因子：共振溢价、背离惩罚、日内置信度、以及机构锁定(换手效率)增益
-        final_correction = (1 + resonance_bonus * 0.2) * (1 - div_penalty * (0.3 - is_leader * 0.15)) * (0.7 + 0.3 * intraday_acc_conf) * (0.9 + 0.2 * chip_transfer_eff)
-        holographic_validation_score = (holographic_val_raw * final_correction).clip(0, 1)
-        print(f"  -- [全息验证锁定探针] Transfer Eff Mean: {chip_transfer_eff.mean():.4f}, Correction Result: {final_correction.mean():.4f}")
+        # 动态校正因子: 引入协同性增益(synergy_norm)
+        final_correction = (1 + resonance_bonus * 0.2) * (1 - div_penalty * (0.3 - is_leader * 0.15)) * (0.7 + 0.3 * intraday_acc_conf) * (0.8 + 0.2 * chip_transfer_eff + 0.1 * synergy_norm)
+        holographic_validation_score = (_robust_geometric_mean(overall_components, {"state": 0.5, "trend": 0.5}, df_index) * final_correction).clip(0, 1)
+        print(f"  -- [全息校验协同探针] Synergy: {synergy_norm.mean():.4f}, Final Corr: {final_correction.mean():.4f}")
         direction = holographic_trend_components["acc_slope"].apply(lambda x: 1 if x >= 0 else -1)
         if probe_ts is not None and probe_ts in df_index:
-            holographic_debug_values.update({
-                "holographic_state_score": holographic_state_score.loc[probe_ts],
-                "holographic_trend_score": holographic_trend_score.loc[probe_ts],
-                "chip_transfer_eff": chip_transfer_eff.loc[probe_ts],
-                "phase_resonance": resonance_bonus.loc[probe_ts]
-            })
+            holographic_debug_values.update({"synergy_gain": synergy_norm.loc[probe_ts], "locking_quality": chip_transfer_eff.loc[probe_ts]})
         return (holographic_validation_score * direction).clip(-1, 1), holographic_debug_values
 
     def _calculate_rdi_signals(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Dict[str, pd.Series]:
@@ -364,11 +357,10 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V7.8.0 · 意图奇点动能增强版 · 逻辑深化】
-        修正了代理信号(proxy_)键值识别逻辑，并整合流向加速度(flow_accel)深化奇点判定。
-        - 核心修正: 实现对 clean_proxy_ 前缀的自适应识别，确保代理 JERK 信号能触发增益。
-        - 奇点重构: 结合流向加速度、机构 JERK 与隐秘 JERK 构建三维意图奇点模型。
-        - 逻辑审计: 2026-02-08 优化，彻底解决 2025-12-30 诊断中奇点增益为 0 的历史遗留问题。
+        【V8.1.0 · 结构豁免与行业共振版 · 逻辑深化】
+        引入行业预热(industry_preheat_score_D)增强奇点判定，并根据结构锁定力对真实性执行非线性豁免。
+        - 核心增强: 结构锁定力(locking_force) > 0.8 时，自动豁免部分爆发真实性(burst_authenticity)惩罚。
+        - 奇点重构: 整合行业预热评分，识别具备行业共振背景的静默吸筹行为。
         """
         preliminary_debug_values = {}
         params = config.get('preliminary_score_params', {})
@@ -376,21 +368,26 @@ class CalculateSplitOrderAccumulation:
         vpa_accel = context_signals.get("vpa_accel_5d", pd.Series(0.0, index=df_index))
         anomaly_intensity = context_signals.get("anomaly_intensity", pd.Series(0.0, index=df_index))
         flow_accel = context_signals.get("flow_accel", pd.Series(0.0, index=df_index))
+        # 提取行业预热评分
+        ind_preheat = self.helper._get_safe_series(df, 'industry_preheat_score_D', 0.0)
+        ind_preheat_norm = self.helper._normalize_series(ind_preheat, df_index, bipolar=False)
         # 1. 结构锁定力双模驱动 (维持 V7.6.0)
         chip_accel_13 = normalized_signals.get('clean_ACCEL_13_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
         entropy_slope_13 = normalized_signals.get('clean_SLOPE_13_chip_entropy_D', pd.Series(0.0, index=df_index))
         locking_force = pd.concat([chip_accel_13, (-1 * entropy_slope_13).clip(0, 1)], axis=1).max(axis=1)
-        # 2. 意图奇点三维增强 (Intent Singularity 3D Model)
-        # 修正: 实现前缀兼容性检索，优先原子信号，后代理信号
+        # 2. 意图奇点四维增强 (Intent Singularity 4D)
         inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', normalized_signals.get('clean_proxy_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
-        # 逻辑: 将流向加速度(Flow Accel)引入核心爆发意图判定
-        intent_singularity = (inst_jerk.clip(lower=0) * 0.4 + stealth_jerk.clip(lower=0) * 0.3 + flow_accel.clip(lower=0) * 0.3)
-        # 3. 爆发真实性校验与奇点增益
-        burst_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4 + is_leader * 0.3).clip(0, 1)
+        # 结合行业预热，在资金流尚未爆发时提供意图支撑
+        intent_singularity = (inst_jerk.clip(lower=0) * 0.3 + stealth_jerk.clip(lower=0) * 0.2 + flow_accel.clip(lower=0) * 0.2 + ind_preheat_norm * 0.3)
+        # 3. 爆发真实性校验与结构豁免
+        # 逻辑: 若物理层面的筹码锁定(locking_force)极强，则豁免量价配合度低带来的真实性扣分
+        base_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4 + is_leader * 0.3).clip(0, 1)
+        locking_exemption = (locking_force > 0.8).astype(float) * 0.4
+        burst_authenticity = (base_authenticity + locking_exemption).clip(0, 1)
         singularity_multiplier = 1 + (intent_singularity * burst_authenticity) * 0.25
-        print(f"  -- [V7.8.0 奇点共振探针] Inst Jerk: {inst_jerk.mean():.4f}, Flow Accel: {flow_accel.mean():.4f}, Boost: {intent_singularity.mean():.4f}")
-        # 4. 综合维度融合 (EPE 模型)
+        print(f"  -- [V8.1.0 奇点校验] Ind Preheat: {ind_preheat_norm.mean():.4f}, Exempt Auth: {burst_authenticity.loc[df_index[-1]]:.4f}")
+        # 4. 综合维度融合
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
             "intent_outcome": normalized_signals.get("data_intent_outcome", pd.Series(0.0, index=df_index)),

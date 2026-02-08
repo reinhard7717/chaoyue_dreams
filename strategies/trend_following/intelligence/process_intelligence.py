@@ -2184,26 +2184,6 @@ class ProcessIntelligence:
             "relationship_score": relationship_score,
             "final_score": final_score
         }
-        # --- 统一输出调试信息 ---
-        # if is_debug_enabled_for_method and probe_ts:
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-        #     for key, series in _temp_debug_values["原始信号值"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        '{key}': {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-        #     for key, series in _temp_debug_values["归一化处理"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
-        #     for key, series in _temp_debug_values["最终分数"].items():
-        #         val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-        #         debug_output[f"        {key}: {val:.4f}"] = ""
-        #     debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 热门板块冷却诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-        #     for key, value in debug_output.items():
-        #         if value:
-        #             print(f"{key}: {value}")
-        #         else:
-        #             print(key)
         return final_score
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
