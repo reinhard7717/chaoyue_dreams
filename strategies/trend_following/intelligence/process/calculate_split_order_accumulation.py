@@ -99,7 +99,7 @@ class CalculateSplitOrderAccumulation:
         """
         df_index = df.index
         raw_df_columns = [
-            'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D',
+            'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'chip_stability_D',
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'GEOM_ARC_CURVATURE_D', 'GEOM_REG_SLOPE_D', 'IS_GOLDEN_PIT_D', 'IS_ROUNDING_BOTTOM_D',
             'IS_PARABOLIC_WARNING_D', 'IS_MARKET_LEADER_D', 'VPA_MF_ADJUSTED_EFF_D', 
