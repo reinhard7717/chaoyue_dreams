@@ -13,245 +13,77 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 @jit(nopython=True)
 def _numba_fractal_dimension(flows, window=21):
+    """V68.0 · 分形维数算子：增强对低波动序列的鲁棒性"""
     n = len(flows[0])
     out = np.ones(n) * 1.5
-    scales_log = np.log(np.array([1.0, 3.0, 5.0, 10.0, 21.0]))
+    scales_log = np.log(np.array([1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0])) # 增加刻度点
+    
     for i in range(window, n):
-        flucts = []
+        # 1. 检测窗口内是否有有效变动
+        has_variance = False
         for j in range(len(flows)):
-            slice_data = flows[j][i-window:i]
-            std_val = np.std(slice_data)
-            if std_val > 0: flucts.append(std_val)
+            if np.std(flows[j][i-window:i]) > 1e-6:
+                has_variance = True
+                break
+        if not has_variance:
+            out[i] = 1.5 # 随机游走默认值
+            continue
+
+        flucts = []
+        # 使用 R/S 分析或简单的波动率缩放法
+        # 这里沿用波动率法，但增加非零保护
+        current_scales = []
+        for scale in [1, 2, 3, 5, 8, 13, 21]:
+            if scale >= window: break
+            
+            # 计算该尺度下的平均波动
+            total_fluct = 0.0
+            count = 0
+            for j in range(len(flows)):
+                # 降采样
+                data_slice = flows[j][i-window:i]
+                # 简单波动：abs(diff) 的均值，按 scale 聚合
+                # 此处简化：计算 std 作为波动代理
+                # 更好的分形维数估算：Box Counting 或 Madogram
+                # 保持原逻辑架构，优化实现
+                reshaped_len = len(data_slice) // scale * scale
+                if reshaped_len < scale: continue
+                
+                trimmed = data_slice[-reshaped_len:]
+                # Reshape (n/scale, scale) -> mean(std(axis=1))
+                # Numba 不支持 reshape 复杂操作，手动循环
+                seg_flucts = 0.0
+                n_segs = 0
+                for k in range(0, reshaped_len, scale):
+                    seg = trimmed[k:k+scale]
+                    seg_std = np.std(seg)
+                    seg_flucts += seg_std
+                    n_segs += 1
+                
+                if n_segs > 0:
+                    total_fluct += seg_flucts / n_segs
+                    count += 1
+            
+            if count > 0 and total_fluct > 1e-9:
+                flucts.append(total_fluct)
+                current_scales.append(scale)
+
         if len(flucts) >= 3:
-            flucts_log = np.log(np.array(flucts[:len(scales_log)]))
-            # Linear regression for slope
-            A = np.vstack((scales_log[:len(flucts)], np.ones(len(flucts)))).T
-            slope, _ = np.linalg.lstsq(A, flucts_log, rcond=-1)[0]
-            out[i] = 2.0 - slope
+            y = np.log(np.array(flucts))
+            x = np.log(np.array(current_scales))
+            
+            # 线性回归 log(fluct) ~ H * log(scale)
+            # Slope = H (Hurst)
+            # Fractal Dim D = 2 - H
+            A = np.vstack((x, np.ones(len(x)))).T
+            slope, _ = np.linalg.lstsq(A, y, rcond=-1)[0]
+            
+            # 限制在合理区间 [0, 1] -> D [1, 2]
+            h_val = np.clip(slope, 0.0, 1.0)
+            out[i] = 2.0 - h_val
+            
     return out
-@jit(nopython=True)
-def _numba_hmm_states(flow, volume, price):
-    n = len(flow)
-    states = np.zeros(n)
-    for i in range(1, n):
-        f, v, p = flow[i], volume[i], price[i]
-        if f > 0.5 and p < 0 and v > 0: states[i] = 1 # Accumulation
-        elif f > 0.8 and p > 0.5 and v > 0.5: states[i] = 2 # Markup
-        elif f < -0.5 and p > 0.3 and v > 0.8: states[i] = 3 # Distribution
-        else: states[i] = states[i-1]
-    return states
-@jit(nopython=True)
-def _numba_heat_conduction(u, alpha=0.1, steps=3):
-    n = len(u)
-    res = np.copy(u)
-    for _ in range(steps):
-        u_old = np.copy(res)
-        for i in range(1, n-1):
-            res[i] = u_old[i] + alpha * (u_old[i+1] - 2*u_old[i] + u_old[i-1])
-    return res
-@jit(nopython=True)
-def _numba_flow_distribution_analysis(elg, lg, md, sm, close, n):
-    # V25.0 Numba加速: 资金流层级与空间分布分析
-    elg_dom = np.zeros(n)
-    large_sync = np.zeros(n)
-    ret_lg_div = np.zeros(n)
-    spatial_bal = np.zeros(n)
-    total_flow = elg + lg + md + sm
-    for i in range(n):
-        abs_total = np.abs(total_flow[i]) + 1e-9
-        elg_dom[i] = np.abs(elg[i]) / abs_total
-        # 大单协同
-        if elg[i] * lg[i] > 0: large_sync[i] = 1.0
-        elif np.abs(elg[i]) < 1e-6 or np.abs(lg[i]) < 1e-6: large_sync[i] = 0.5
-        else: large_sync[i] = 0.0
-        # 散户vs主力背离
-        large_sum = elg[i] + lg[i]
-        retail_sum = md[i] + sm[i]
-        if large_sum * retail_sum < 0: ret_lg_div[i] = 1.0
-        elif np.abs(large_sum) < 1e-6 or np.abs(retail_sum) < 1e-6: ret_lg_div[i] = 0.5
-        else: ret_lg_div[i] = 0.0
-    # 空间平衡度 (简化版: 价格分位分析在Numba中较繁琐，此处用价格与流的相关性近似)
-    for i in range(30, n):
-        f_win = total_flow[i-20:i]
-        p_win = close[i-20:i]
-        std_f = np.std(f_win)
-        std_p = np.std(p_win)
-        if std_f > 0 and std_p > 0:
-            spatial_bal[i] = 1.0 - np.std(f_win) / (np.mean(np.abs(f_win)) + 1e-9) # 简化的流平衡指标
-        else:
-            spatial_bal[i] = 0.5
-    return elg_dom, large_sync, ret_lg_div, spatial_bal
-@jit(nopython=True)
-def _numba_stochastic_process(flow, window=21):
-    # V25.0 Numba加速: 随机过程特性分析
-    n = len(flow)
-    martingale = np.zeros(n)
-    predictability = np.zeros(n)
-    for i in range(window, n):
-        w_data = flow[i-window:i]
-        if len(w_data) < window/2: continue
-        diffs = np.diff(w_data)
-        if len(diffs) > 0:
-            mean_inc = np.mean(diffs)
-            std_inc = np.std(diffs)
-            if std_inc == 0: std_inc = 1.0
-            martingale[i] = 1.0 - min(np.abs(mean_inc / std_inc), 2.0) / 2.0
-        # 自相关性近似预测性
-        if len(w_data) >= 5:
-            ac_sum = 0.0
-            for lag in range(1, 4):
-                c = np.corrcoef(w_data[:-lag], w_data[lag:])[0, 1]
-                if not np.isnan(c): ac_sum += np.abs(c)
-            predictability[i] = min(ac_sum / 3.0, 1.0)
-    return martingale * 0.6 + np.clip(predictability, 0.3, 0.6) * 0.4
-@jit(nopython=True)
-def _numba_network_queuing_game(buy, sell, price_chg, trade_cnt, vol, amt, sentiment, window=13):
-    # V25.0 Numba加速: 网络流、排队论与博弈学习综合计算
-    n = len(buy)
-    net_eff = np.zeros(n)
-    queue_eff = np.zeros(n)
-    game_learn = np.zeros(n)
-    net_flow = buy - sell
-    for i in range(window, n):
-        # 网络流效率
-        b_w = buy[i-window:i]
-        s_w = sell[i-window:i]
-        p_w = price_chg[i-window:i]
-        if np.std(b_w) > 0 and np.std(s_w) > 0:
-            corr = np.corrcoef(b_w, s_w)[0, 1]
-            corr_score = 1.0 - np.abs(corr) if not np.isnan(corr) else 0.0
-        else: corr_score = 0.0
-        net_eff[i] = corr_score # 简化计算
-        # 排队效率
-        tc_w = trade_cnt[i-window:i]
-        amt_w = amt[i-window:i]
-        if np.sum(tc_w) > 0:
-            arr_rate = np.mean(tc_w)
-            avg_size = np.mean(amt_w / (tc_w + 1e-9))
-            srv_rate = np.mean(amt_w) / (avg_size * window + 1e-9)
-            intensity = arr_rate / srv_rate if srv_rate > 0 else 0.0
-            if intensity < 0.7: queue_eff[i] = intensity / 0.7
-            elif intensity < 1.0: queue_eff[i] = 1.0
-            else: queue_eff[i] = max(0.0, 1.3 - intensity)
-        # 博弈学习 (基于滞后相关性)
-        if i > window * 2:
-            tr_flow = net_flow[i-window*2:i-window]
-            fut_p = price_chg[i-window*2+3:i-window+3] # 简化的未来收益
-            if len(tr_flow) == len(fut_p): # 确保长度一致
-                 corr_learn = np.corrcoef(tr_flow, fut_p)[0, 1]
-                 game_learn[i] = (corr_learn + 1) / 2 if not np.isnan(corr_learn) else 0.5
-    return net_eff, queue_eff, game_learn
-@jit(nopython=True)
-def _numba_cnn_pattern_sim(price, vol, eff, window=13):
-    # V25.0 Numba加速: 模拟CNN卷积模式识别
-    n = len(price)
-    out = np.zeros(n)
-    # 简单的卷积核
-    k_trend = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
-    k_rev = np.array([1.0, 0.0, -1.0, 0.0, 1.0])
-    for i in range(window, n):
-        p_w = price[i-5:i]
-        v_w = vol[i-5:i]
-        # 归一化
-        p_std = np.std(p_w)
-        v_std = np.std(v_w)
-        if p_std == 0 or v_std == 0: continue
-        p_n = (p_w - np.mean(p_w)) / p_std
-        v_n = (v_w - np.mean(v_w)) / v_std
-        # 卷积
-        conv_p = np.sum(p_n * k_trend)
-        conv_rev = np.sum(p_n * k_rev)
-        out[i] = np.tanh(conv_p) * 0.6 + np.tanh(np.abs(conv_rev)) * 0.4
-    return out
-@jit(nopython=True)
-def _numba_vpa_mechanisms(price_chg, vol_chg, eff_chg, window=8):
-    # V25.0 Numba加速: VPA注意力与长期依赖
-    n = len(price_chg)
-    attn_scores = np.zeros(n)
-    dep_scores = np.zeros(n)
-    for i in range(window, n):
-        # Attention
-        pc = np.abs(price_chg[i-window:i])
-        vc = np.abs(vol_chg[i-window:i])
-        attn = (pc + vc) / (np.mean(pc) + np.mean(vc) + 1e-9)
-        weights = np.exp(attn) / np.sum(np.exp(attn))
-        attn_scores[i] = np.sum(eff_chg[i-window:i] * weights)
-        # Dependency (Autocorr decay)
-        w_eff = eff_chg[i-window:i]
-        if len(w_eff) > 2:
-            ac1 = np.corrcoef(w_eff[:-1], w_eff[1:])[0, 1]
-            dep_scores[i] = 0.5 + 0.5 * (ac1 if not np.isnan(ac1) else 0)
-    return np.tanh(attn_scores), dep_scores
-@jit(nopython=True)
-def _numba_market_regime_scan(close, volume, rsi, adx, n):
-    # V25.0 Numba加速: 市场机制识别
-    trend_mk = np.zeros(n)
-    range_mk = np.zeros(n)
-    break_mk = np.zeros(n)
-    rev_mk = np.zeros(n)
-    for i in range(21, n):
-        # 趋势
-        ret_20 = close[i]/close[i-20] - 1
-        if adx[i] > 25 and np.abs(ret_20) > 0.1: trend_mk[i] = 1.0
-        # 震荡
-        mx = np.max(close[i-20:i])
-        mn = np.min(close[i-20:i])
-        if adx[i] < 20 and (mx-mn)/mn < 0.15: range_mk[i] = 1.0
-        # 突破
-        vol_r = volume[i] / np.mean(volume[i-20:i])
-        if (close[i] > mx*1.02 or close[i] < mn*0.98) and vol_r > 1.5: break_mk[i] = 1.0
-        # 反转
-        if (rsi[i]>70 or rsi[i]<30) and i>5:
-             # 简单判断变盘
-             if (close[i]/close[i-5]-1) * (close[i-5]/close[i-10]-1) < 0: rev_mk[i] = 1.0
-    return trend_mk, range_mk, break_mk, rev_mk
-@jit(nopython=True)
-def _numba_trend_dynamics(close, volume, n):
-    # V25.0 Numba加速: 动态系统与拓扑分析
-    attractor = np.zeros(n)
-    topo = np.zeros(n)
-    for i in range(34, n):
-        # 简易Lyapunov (Attractor)
-        p_win = close[i-10:i]
-        if np.std(p_win) > 0:
-            # 轨道分离率近似
-            div = np.abs(np.diff(p_win))
-            lya = np.mean(np.log(div + 1e-9))
-            attractor[i] = 1.0 / (1.0 + np.abs(lya))
-        else: attractor[i] = 0.5
-        # 拓扑持续性 (局部极值规律)
-        # 简化：统计极值点间隔的标准差
-        p_w21 = close[i-21:i]
-        diffs = np.diff(np.sign(np.diff(p_w21)))
-        extrema_indices = np.where(diffs != 0)[0]
-        if len(extrema_indices) > 2:
-            intervals = np.diff(extrema_indices)
-            reg = 1.0 - np.std(intervals)/(np.mean(intervals)+1e-9)
-            topo[i] = max(0.0, reg)
-        else: topo[i] = 0.5
-    return attractor, topo
-@jit(nopython=True)
-def _numba_complex_systems(close, volume, sentiment, n):
-    # V25.0 Numba加速: 复杂系统临界性与适应性
-    criticality = np.zeros(n)
-    adaptation = np.zeros(n)
-    for i in range(34, n):
-        p_w = close[i-34:i]
-        # 幂律检测 (简化: 价格变化的分布尾部)
-        changes = np.abs(np.diff(p_w))
-        if np.max(changes) > 0:
-            # 简单估算：大波动占比
-            extreme_ratio = np.sum(changes > 2*np.std(changes)) / len(changes)
-            if 0.05 < extreme_ratio < 0.15: criticality[i] = 1.0 # 临界状态特征
-            else: criticality[i] = 0.5
-        # 适应性 (环境复杂度 vs 可预测性)
-        vol_w = np.std(p_w) / (np.mean(p_w)+1e-9)
-        # 简单自相关作为可预测性
-        ac = 0.0
-        if len(p_w) > 5:
-            ac = np.abs(np.corrcoef(p_w[:-1], p_w[1:])[0, 1])
-        adaptation[i] = np.tanh(ac / (vol_w + 1e-9))
-    return criticality, adaptation
+
 @jit(nopython=True)
 def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.05):
     """V51.0 · 自适应去噪算子：增加 NaN 容错与断路保护"""
@@ -476,10 +308,10 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V67.1 · 原料加载层：校准鲁棒动力学阈值并植入过桥探针"""
+        """V68.0 · 原料加载层：集成 VWAP/Winner/Rank 的自适应量纲矫正与大单数据降级"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
-        
         raw_signals = {}
+        # ... (列定义保持不变) ...
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
         tech_cols = [
@@ -491,8 +323,8 @@ class CalculatePriceVolumeDynamics:
             'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D',
             'market_sentiment_score_D'
         ]
-        
-        # 1. 基础数据加载
+
+        # 1. 基础加载
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns:
                 raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
@@ -500,49 +332,79 @@ class CalculatePriceVolumeDynamics:
                 raw_signals[col] = df[col].ffill().fillna(0.0)
             else:
                 raw_signals[col] = df[col].fillna(0.0)
-        
+
+        # 2. VWAP 自适应矫正 (Adaptive Correction)
+        # 逻辑：合成 -> 检查乖离 -> 缩放对齐
         if 'VWAP_D' not in df.columns:
             vwap = raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)
-            raw_signals['VWAP_D'] = vwap.fillna(raw_signals['close_D'])
         else:
-            raw_signals['VWAP_D'] = df['VWAP_D'].fillna(raw_signals['close_D'])
+            vwap = df['VWAP_D'].copy()
+        # 填充 NaN
+        vwap = vwap.fillna(raw_signals['close_D'])
+        # 诊断并修复量纲 (只检查非零点)
+        mean_close = raw_signals['close_D'].mean()
+        mean_vwap = vwap.replace(0, np.nan).mean()
+        if pd.notna(mean_vwap) and mean_vwap > 0:
+            ratio = mean_vwap / mean_close
+            if ratio < 0.2: # VWAP 偏小 (如 1.15 vs 11.5)
+                scale_factor = 10.0 ** np.round(np.log10(1/ratio))
+                vwap *= scale_factor
+            elif ratio > 5.0: # VWAP 偏大
+                scale_factor = 10.0 ** np.round(np.log10(1/ratio))
+                vwap *= scale_factor
+        raw_signals['VWAP_D'] = vwap
 
-        # 2. 动力学差异化配置 (大幅下调阈值以适应归一化数据)
-        # 格式: {指标名: (绝对阈值, 变化阈值)}
+        # 3. 获利盘归一化 (Winner Rate Normalization)
+        # 如果最大值 > 1.0 (例如 80.5)，则除以 100
+        if raw_signals['winner_rate_D'].max() > 1.1:
+            raw_signals['winner_rate_D'] = raw_signals['winner_rate_D'] / 100.0
+
+        # 4. 行业排名归一化 (Rank Normalization)
+        # 目标：将 1-100 的排名映射到适合动力学的数值，或者保持原样但调整逻辑
+        # 如果输入是 0.3222 (归一化值)，无需处理
+        # 如果输入是 32 (名次)，也无需处理，但在使用时需注意
+        # 既然 V62.1 探针显示 0.3222，说明已经是归一化数据(可能是百分比位)，无需除以100
+
+        # 5. 主力大单数据降级 (Smart Money Fallback)
+        sm_net = raw_signals['SMART_MONEY_HM_NET_BUY_D']
+        if sm_net.abs().sum() < 1e-5: # 全是 0
+            # 尝试用 ELG+LG 合成
+            synth_sm = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D']) + \
+                       (raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D'])
+            if synth_sm.abs().sum() > 1e-5:
+                raw_signals['SMART_MONEY_HM_NET_BUY_D'] = synth_sm
+            else:
+                # 再次降级：用净流入率 * 成交额
+                raw_signals['SMART_MONEY_HM_NET_BUY_D'] = raw_signals['net_amount_rate_D'] * raw_signals['amount_D']
+
+        # 6. 鲁棒动力学提取
         threshold_map = {
-            'net_amount_rate_D': (0.01, 0.005),     
-            'winner_rate_D': (0.01, 0.005),         
-            'SMART_MONEY_HM_NET_BUY_D': (10, 10),   # 下调: 有些股票单位可能是万
+            'net_amount_rate_D': (0.01, 0.005),
+            'winner_rate_D': (0.01, 0.005),
+            'SMART_MONEY_HM_NET_BUY_D': (10, 10),
             'VPA_EFFICIENCY_D': (0.01, 0.01),
-            'BBW_21_2.0_D': (0.001, 0.0001),        # 下调: 带宽本身很小
-            'THEME_HOTNESS_SCORE_D': (0.1, 0.1),    # 下调: 适应 0-1 或 0-100
+            'BBW_21_2.0_D': (0.001, 0.0001),
+            'THEME_HOTNESS_SCORE_D': (0.1, 0.1),
             'chip_entropy_D': (0.01, 0.001),
-            'volume_D': (100, 10),               
-            'pct_change_D': (0.0001, 0.0001),       
-            'close_D': (0.1, 0.01),                 
-            'market_sentiment_score_D': (0.1, 0.1), # 关键修复: 1.37 > 0.1 (原为5.0)
-            'industry_strength_rank_D': (0.01, 0.01), # 关键修复: 0.3 > 0.01 (原为1.0)
-            'turnover_rate_f_D': (0.01, 0.01),      
-            'trade_count_D': (10, 5)                
+            'volume_D': (100, 10),
+            'pct_change_D': (0.0001, 0.0001),
+            'close_D': (0.1, 0.01),
+            'market_sentiment_score_D': (0.1, 0.1),
+            'industry_strength_rank_D': (0.001, 0.001), # 针对 0.3222 这种小数，大幅降低阈值
+            'turnover_rate_f_D': (0.01, 0.01),
+            'trade_count_D': (10, 5)
         }
-
-        # 3. 执行鲁棒动力学提取
         dynamic_targets = list(threshold_map.keys())
         fib_windows = [3, 5, 8, 13, 21]
-        
         if is_debug and probe_ts in df.index:
-            print(f"\n[动力学原料过桥探针 V67.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[动力学原料自适应矫正 V68.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    VWAP矫正后: {raw_signals['VWAP_D'].loc[probe_ts]:.2f} (Close: {raw_signals['close_D'].loc[probe_ts]:.2f})")
+            print(f"    WinnerRate: {raw_signals['winner_rate_D'].loc[probe_ts]:.4f}")
+            print(f"    SmartMoney: {raw_signals['SMART_MONEY_HM_NET_BUY_D'].loc[probe_ts]:.2f}")
 
         for col in dynamic_targets:
             abs_th, chg_th = threshold_map.get(col, (1e-4, 1e-5))
             base_series = raw_signals.get(col, pd.Series(0.0, index=df.index)).values
-            
-            # 过桥诊断：检查关键指标为何被置零
-            if is_debug and probe_ts in df.index and col in ['market_sentiment_score_D', 'industry_strength_rank_D']:
-                curr_val = base_series[df.index.get_loc(probe_ts)]
-                is_killed = abs(curr_val) < abs_th
-                print(f"    指标: {col:<25} | 原始值: {curr_val:.4f} | 阈值: {abs_th} | 状态: {'[被置零!]' if is_killed else '有效'}")
-
             for win in fib_windows:
                 s, a, j = _numba_robust_dynamics(base_series, win=win, abs_threshold=abs_th, change_threshold=chg_th)
                 raw_signals[f"SLOPE_{win}_{col}"] = pd.Series(s, index=df.index)
@@ -753,19 +615,22 @@ class CalculatePriceVolumeDynamics:
         return res
 
     def _calculate_hmm_regime_confirmation(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V65.1 · HMM 动力学共振：诊断概率归一化异常"""
+        """V68.0 · HMM 动力学共振：适配降级后的特征归一化"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        
-        # 1. 特征归一化
+        # 1. 特征归一化 (Rolling Z-Score) with Safety
         large_net = (raw['SMART_MONEY_HM_NET_BUY_D']).fillna(0)
-        # 诊断：查看分母是否过小
-        roll_std = large_net.rolling(21).std()
-        flow_n = (large_net - large_net.rolling(21).mean()) / (roll_std + 1e-9)
-        
-        vol_n = (raw['volume_D'] / raw['volume_D'].rolling(21).mean().replace(0, 1)) - 1.0
+        roll_mean = large_net.rolling(21).mean().fillna(0)
+        roll_std = large_net.rolling(21).std().fillna(0)
+        # 如果标准差太小，说明数据基本没动，归一化结果置 0
+        flow_n = np.where(roll_std > 1e-5, (large_net - roll_mean) / roll_std, 0.0)
+        flow_n = pd.Series(flow_n, index=df_index)
+        vol_mean = raw['volume_D'].rolling(21).mean().replace(0, 1)
+        vol_n = (raw['volume_D'] / vol_mean) - 1.0
         price_n = raw['pct_change_D'] * 10.0
-        vwap_dist = (raw['close_D'] - raw['VWAP_D']) / (raw['close_D'] * raw['BBW_21_2.0_D'] + 1e-9)
-        
+        # VWAP 距离：(Close - VWAP) / BBW
+        # 使用 max(BBW, 0.01) 防止除零放大
+        safe_bbw = raw['BBW_21_2.0_D'].clip(lower=0.01)
+        vwap_dist = (raw['close_D'] - raw['VWAP_D']) / (raw['close_D'] * safe_bbw)
         # 2. 计算拉升概率
         markup_prob_vals = _numba_hmm_regime_probability(
             flow_n.fillna(0).values, 
@@ -774,26 +639,21 @@ class CalculatePriceVolumeDynamics:
             vwap_dist.fillna(0).values
         )
         markup_prob = pd.Series(markup_prob_vals, index=df_index)
-        
         # 3. HMM 动力学
         prob_accel = markup_prob.diff(3).diff(3).fillna(0)
         prob_jerk = markup_prob.diff(1).diff(1).diff(1).fillna(0)
-        
         is_solid_markup = (markup_prob > 0.6) & (prob_accel > 0)
         is_phase_transition = (markup_prob > 0.4) & (prob_jerk > 0.1)
-        
         base_factor = np.where(markup_prob > 0.5, 
                                1.0 + (markup_prob - 0.5), 
                                0.8 + markup_prob * 0.4)
         dynamic_bonus = 1.0 + np.where(is_solid_markup, 0.2, 0.0) + np.where(is_phase_transition, 0.3, 0.0)
-        
         res = pd.Series(base_factor * dynamic_bonus, index=df_index)
-        
         if is_debug and probe_ts in df_index:
-            print(f"\n[HMM 动力学探针 V65.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    主力大单原始: {large_net.loc[probe_ts]:.2f}, 滚动STD: {roll_std.loc[probe_ts]:.4f}")
-            print(f"    归一化特征 -> 流: {flow_n.loc[probe_ts]:.4f}, 量: {vol_n.loc[probe_ts]:.4f}, 价: {price_n.loc[probe_ts]:.4f}")
-            print(f"    距离质心计算后 -> 拉升概率: {markup_prob.loc[probe_ts]:.4f}")
+            print(f"\n[HMM 动力学探针 V68.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    主力归一化流: {flow_n.loc[probe_ts]:.4f} (原始: {large_net.loc[probe_ts]:.2f})")
+            print(f"    VWAP距离因子: {vwap_dist.loc[probe_ts]:.4f}")
+            print(f"    拉升概率: {markup_prob.loc[probe_ts]:.4f}")
             print(f"    >>> 最终 HMM 确认系数: {res.loc[probe_ts]:.4f}")
             
         return res.astype(np.float32)
@@ -801,39 +661,30 @@ class CalculatePriceVolumeDynamics:
     def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V65.1 · 分形动力学模型：诊断 Hurst=0.5 的原因"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        
         close_vals = raw['close_D'].fillna(0).values
         vol_vals = raw['volume_D'].fillna(0).values
         input_arrays = np.vstack((close_vals, vol_vals))
-        
         # 1. 计算 Hurst 指数
         fractal_dims = _numba_fractal_dimension(input_arrays, window=21)
         hurst_price = pd.Series(2.0 - fractal_dims[0], index=df_index).clip(0, 1)
         hurst_vol = pd.Series(2.0 - fractal_dims[1], index=df_index).clip(0, 1)
-        
         # 2. 分形动力学
         hurst_slope = hurst_price.diff(5).fillna(0)
         is_hardening = (hurst_price > 0.55) & (hurst_slope > 0)
-        
         # 3. 效率缺口
         eff_gap = (hurst_price - hurst_vol).abs()
         gap_accel = eff_gap.diff(3).diff(3).fillna(0)
         is_collapsing = (eff_gap > 0.3) & (gap_accel > 0)
-        
         # 4. 综合效率系数 (使用 numpy 操作避免 Series 错误)
         persistence = np.where(hurst_price > 0.55, 1.2, 
                       np.where(hurst_price < 0.45, 0.6, 0.9))
         resonance_factor = (1.0 - eff_gap * 2.0).clip(0.5, 1.1)
-        
         base_vals = persistence * resonance_factor
         mask_h = is_hardening.values
         mask_c = is_collapsing.values
-        
         final_vals = np.where(mask_h, base_vals * 1.2, base_vals)
         final_vals = np.where(mask_c, final_vals * 0.7, final_vals)
-        
         final_score = pd.Series(final_vals, index=df_index)
-        
         if is_debug and probe_ts in df_index:
             print(f"\n[分形动力学探针 V65.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             idx_loc = df_index.get_loc(probe_ts)
@@ -844,43 +695,34 @@ class CalculatePriceVolumeDynamics:
         return final_score.astype(np.float32)
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V64.1 · 筹码动力学锁定模型：修复 Series.replace 兼容性错误"""
+        """V68.0 · 筹码动力学锁定模型：适配归一化后的获利盘数据"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         # 1. 基础磁滞状态
+        # V68: winner_rate_D 已经在 _get_raw_signals 中保证是 0-1
         winner = raw['winner_rate_D'].fillna(0)
-        # 标量替换标量是安全的
         turnover = raw['turnover_rate_f_D'].replace(0, 0.1)
         turnover_norm = (turnover / 5.0).clip(0, 1)
         static_lock = winner * (1.0 - turnover_norm).clip(0, 1)
-        # 2. 动力学剪刀差 (Kinetic Scissors)
-        # 获利盘加速增加 (Accel > 0)
+        # 2. 动力学剪刀差
         accel_winner = raw['ACCEL_5_winner_rate_D']
-        # 换手率加速萎缩 (Accel < 0)
         accel_turnover = raw['ACCEL_5_turnover_rate_f_D']
-        # 剪刀差判定：获利在加速跑，抛压在加速减
         is_vacuum_accel = (accel_winner > 0) & (accel_turnover < 0)
-        # 3. 筹码脉冲 (Chip Jerk)
-        # 获利比例的瞬间跳升，通常意味着突破了关键密集成交区
+        # 3. 筹码脉冲
         jerk_winner = raw['JERK_3_winner_rate_D']
         is_breakthrough = jerk_winner > 0.1
         # 4. 动力学增强
-        # 基础锁定 * (1.0 + 真空加速奖励 + 突破脉冲奖励)
         kinetic_bonus = 1.0 + np.where(is_vacuum_accel, 0.3, 0.0) + np.where(is_breakthrough, 0.2, 0.0)
-        # 5. 成本支撑逻辑 (修复点)
-        # 使用 mask 替代 replace 处理 Series 级替换：当 cost_50pct_D 为 0 时，使用 close_D 填充
+        # 5. 成本支撑
         cost_series = raw['cost_50pct_D']
         close_series = raw['close_D']
         cost_50 = cost_series.mask(cost_series == 0, close_series)
-        
         break_cost = (close_series > cost_50).astype(float)
         final_efficiency = pd.Series(static_lock * kinetic_bonus * (0.8 + break_cost * 0.2), index=df_index)
-        
         if is_debug and probe_ts in df_index:
-            print(f"\n[筹码动力学探针 V64.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    获利加速: {accel_winner.loc[probe_ts]:.4f}, 换手加速: {accel_turnover.loc[probe_ts]:.4f}")
-            print(f"    获利脉冲(Jerk): {jerk_winner.loc[probe_ts]:.4f}")
-            print(f"    状态: {'真空加速' if is_vacuum_accel.loc[probe_ts] else '常态'}, 静态锁定: {static_lock.loc[probe_ts]:.4f}")
+            print(f"\n[筹码动力学探针 V68.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    获利比例: {winner.loc[probe_ts]:.2f}, 静态锁定: {static_lock.loc[probe_ts]:.4f}")
             print(f"    >>> 最终筹码效率系数: {final_efficiency.loc[probe_ts]:.4f}")
+            
         return final_efficiency.astype(np.float32)
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -1043,27 +885,21 @@ class CalculatePriceVolumeDynamics:
     def _calculate_market_permeability_index(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V62.1 · 市场渗透率与环境相变：增加输入值诊断"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        
         # 1. 情绪相变
         sentiment = raw['market_sentiment_score_D']
         sent_accel = raw['ACCEL_5_market_sentiment_score_D']
-        
         is_overheat = (sentiment > 80) & (sent_accel > 0)
         is_recovery = (sentiment < 20) & (sent_accel > 0)
-        
         # 2. 行业排名跃迁
         rank = raw['industry_strength_rank_D']
         rank_jerk = raw['JERK_3_industry_strength_rank_D']
         is_rank_surge = rank_jerk < -2.0 
-        
         # 3. 渗透率合成
         permeability = np.where(is_recovery, 1.3, 
                        np.where(is_overheat, 0.7, 1.0))
         rank_bonus = np.where(is_rank_surge, 1.3, 
                      np.where(rank < 10, 1.1, 0.9))
-        
         final_ctx = pd.Series(permeability * rank_bonus, index=df_index).clip(0.6, 1.8)
-        
         if is_debug and probe_ts in df_index:
             print(f"\n[环境相变探针 V62.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    原始情绪: {sentiment.loc[probe_ts]:.4f}, 情绪加速(Accel): {sent_accel.loc[probe_ts]:.4f}")
