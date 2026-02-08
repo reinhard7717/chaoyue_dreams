@@ -114,7 +114,7 @@ class IndicatorService:
             # 获取所有列名并排序
             all_columns = sorted(df.columns.tolist())
             # 过滤掉以 'ACCEL_' 或 'SLOPE_' 开头的列
-            filtered_columns = [col for col in all_columns if not col.startswith(('ACCEL_', 'SLOPE_'))]
+            filtered_columns = [col for col in all_columns if not col.startswith(('ACCEL_', 'SLOPE_', 'JERK_'))]
             print(f"\n--- 周期: {timeframe} (共 {len(filtered_columns)} 列) ---")
             # 每5个列名换一行打印，使用逗号分隔
             for i in range(0, len(filtered_columns), 5):
