@@ -372,11 +372,10 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V8.3.0 · 游资合力爆发版 · 逻辑深化】
-        引入游资协同攻击(hm_attack)识别吸筹相位切换，锁定主升浪二阶加速奇点。
-        - 核心修正: 当机构锁仓(Stage 1)叠加游资攻击斜率(Stage 2)时，提供显著的相位溢价。
-        - 奇点增益: 结合行业预热、量价加速度与游资合力，多维校验爆发的持续性与真实性。
-        - 逻辑审计: 2026-02-08 优化，识别从静默锁仓向合力拉升转化的临界状态。
+        【V8.4.0 · 逻辑穿透回归版】
+        在全量信号池基础上，执行机构锁定与游资爆发的相位识别。
+        - 核心逻辑: 维持 V8.3.0 的相位切换溢价，利用已恢复的上下文指标确保计算稳健。
+        - 探针审计: 2026-02-08 更新，验证在全量 context_signals 环境下的奇点判定。
         """
         preliminary_debug_values = {}
         params = config.get('preliminary_score_params', {})
@@ -391,7 +390,6 @@ class CalculateSplitOrderAccumulation:
         locking_force = pd.concat([chip_accel_13, (-1 * entropy_slope_13).clip(0, 1)], axis=1).max(axis=1)
         hm_attack = context_signals.get("hm_attack", pd.Series(0.0, index=df_index))
         hm_attack_slope = context_signals.get("hm_attack_slope", pd.Series(0.0, index=df_index))
-        hm_force = _robust_geometric_mean({"strength": hm_attack, "slope": self.helper._normalize_series(hm_attack_slope, df_index, bipolar=False)}, {"strength": 0.6, "slope": 0.4}, df_index)
         phase_transition_boost = (locking_force > 0.6).astype(float) * hm_attack_slope.clip(lower=0) * 0.5
         inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', normalized_signals.get('clean_proxy_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
@@ -400,7 +398,7 @@ class CalculateSplitOrderAccumulation:
         locking_exemption = (locking_force > 0.8).astype(float) * 0.4
         burst_authenticity = (base_authenticity + locking_exemption).clip(0, 1)
         singularity_multiplier = 1 + (intent_singularity * burst_authenticity + phase_transition_boost) * 0.3
-        print(f"  -- [V8.3.0 游资相位探针] HM Force: {hm_force.mean():.4f}, Transition Boost: {phase_transition_boost.loc[df_index[-1]]:.4f}")
+        print(f"  -- [V8.4.0 奇点共振探针] Singularity: {intent_singularity.mean():.4f}, Transition: {phase_transition_boost.loc[df_index[-1]]:.4f}")
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
             "intent_outcome": normalized_signals.get("data_intent_outcome", pd.Series(0.0, index=df_index)),
@@ -410,12 +408,7 @@ class CalculateSplitOrderAccumulation:
         fusion_weights = get_param_value(params.get('fusion_weights'), {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "energy_boost": 0.2})
         preliminary_score_base = _robust_geometric_mean(preliminary_components, fusion_weights, df_index).fillna(0.0)
         final_score = (preliminary_score_base * singularity_multiplier * (1 + is_leader * 0.2)).clip(0, 1)
-        preliminary_debug_values.update({
-            "intent_singularity_boost": intent_singularity,
-            "burst_authenticity": burst_authenticity,
-            "locking_force_component": locking_force,
-            "hm_transition_boost": phase_transition_boost
-        })
+        preliminary_debug_values.update({"intent_singularity_boost": intent_singularity, "burst_authenticity": burst_authenticity, "locking_force_component": locking_force, "hm_transition_boost": phase_transition_boost})
         return final_score, preliminary_debug_values
 
     def _apply_quality_efficiency_calibration(self, dynamic_preliminary_score: pd.Series, holographic_validation_score: pd.Series, dynamic_efficiency_baseline: pd.Series, probe_ts: Optional[pd.Timestamp], context_signals: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
