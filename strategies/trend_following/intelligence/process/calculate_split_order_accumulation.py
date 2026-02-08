@@ -140,7 +140,7 @@ class CalculateSplitOrderAccumulation:
             'accumulation_score_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'IS_PARABOLIC_WARNING_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_SYNERGY_BUY_D', 'buy_elg_amount_D', 'anomaly_intensity_D', 'IS_TRENDING_STAGE_D', 'VPA_ACCELERATION_5D',
             'buy_lg_amount_D', 'buy_md_amount_D', 'net_mf_amount_D', 'tick_large_order_net_D', 'is_consolidating_D', 'flow_efficiency_D', 'net_energy_flow_D',
-            'VPA_MF_ADJUSTED_EFF_D', 'absorption_energy_D', 'chip_concentration_ratio_D', 
+            'VPA_MF_ADJUSTED_EFF_D', 'absorption_energy_D', 'chip_concentration_ratio_D', 'flow_acceleration_D',
             'chip_entropy_D', 'chip_stability_D', 'flow_intensity_D', 'GEOM_ARC_CURVATURE_D', 
             'IS_GOLDEN_PIT_D', 'IS_ROUNDING_BOTTOM_D', 'IS_MARKET_LEADER_D', 
             'TURNOVER_STABILITY_INDEX_D', 'tick_data_quality_score_D', 'THEME_HOTNESS_SCORE_D', 
@@ -210,6 +210,7 @@ class CalculateSplitOrderAccumulation:
             "compression_accel": normalized_signals.get('clean_ACCEL_5_MA_POTENTIAL_COMPRESSION_RATE_D', pd.Series(0.0, index=df_index)),
             "sentiment_slope": normalized_signals.get('clean_SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df_index)),
             "vpa_accel_5d": self.helper._normalize_series(raw_signals['VPA_ACCELERATION_5D'], df_index, bipolar=False),
+            "flow_accel": self.helper._normalize_series(raw_signals['flow_acceleration_D'], df_index, bipolar=True),
             "is_trending": raw_signals['IS_TRENDING_STAGE_D'].astype(float),
             "is_consolidating_norm": raw_signals['is_consolidating_D']
         }
@@ -365,33 +366,33 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V7.6.0 · 筹码双模锁定与真实性容错版】
-        重构锁定力计算逻辑，整合集中度加速度与熵减强度，并对领涨股提供真实性容错。
-        - 核心增强: locking_force 现在由集中度(Concentration)与熵减(Entropy Reduction)双模驱动。
-        - 逻辑审计: 针对 2025-12-30 诊断中 locking_force 为 0 的问题进行了针对性修复。
+        【V7.8.0 · 意图奇点动能增强版 · 逻辑深化】
+        修正了代理信号(proxy_)键值识别逻辑，并整合流向加速度(flow_accel)深化奇点判定。
+        - 核心修正: 实现对 clean_proxy_ 前缀的自适应识别，确保代理 JERK 信号能触发增益。
+        - 奇点重构: 结合流向加速度、机构 JERK 与隐秘 JERK 构建三维意图奇点模型。
+        - 逻辑审计: 2026-02-08 优化，彻底解决 2025-12-30 诊断中奇点增益为 0 的历史遗留问题。
         """
         preliminary_debug_values = {}
         params = config.get('preliminary_score_params', {})
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
         vpa_accel = context_signals.get("vpa_accel_5d", pd.Series(0.0, index=df_index))
         anomaly_intensity = context_signals.get("anomaly_intensity", pd.Series(0.0, index=df_index))
-        # 1. 结构锁定力双模驱动 (Locking Force Dual-Mode)
+        flow_accel = context_signals.get("flow_accel", pd.Series(0.0, index=df_index))
+        # 1. 结构锁定力双模驱动 (维持 V7.6.0)
         chip_accel_13 = normalized_signals.get('clean_ACCEL_13_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
-        # 引入熵减作为锁定力的第二驱动源
         entropy_slope_13 = normalized_signals.get('clean_SLOPE_13_chip_entropy_D', pd.Series(0.0, index=df_index))
-        entropy_reduction_force = (-1 * entropy_slope_13).clip(0, 1)
-        # 极大值耦合：确保任一维度锁定即可触发信号
-        locking_force = pd.concat([chip_accel_13, entropy_reduction_force], axis=1).max(axis=1)
-        # 2. 爆发真实性校验与领涨容错 (Authenticity with Leader Resilience)
-        base_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4).clip(0, 1)
-        # 领涨股获得 30% 的真实性宽容度
-        burst_authenticity = (base_authenticity + is_leader * 0.3).clip(0, 1)
-        print(f"  -- [V7.6.0 真实性校验] Leader: {is_leader.mean():.2f}, Final Auth: {burst_authenticity.loc[df_index[-1]]:.4f}")
-        # 3. 意图奇点增强
-        inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index))
+        locking_force = pd.concat([chip_accel_13, (-1 * entropy_slope_13).clip(0, 1)], axis=1).max(axis=1)
+        # 2. 意图奇点三维增强 (Intent Singularity 3D Model)
+        # 修正: 实现前缀兼容性检索，优先原子信号，后代理信号
+        inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', normalized_signals.get('clean_proxy_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
-        intent_singularity = (inst_jerk.clip(lower=0) * 0.6 + stealth_jerk.clip(lower=0) * 0.4)
-        # 4. 综合维度融合
+        # 逻辑: 将流向加速度(Flow Accel)引入核心爆发意图判定
+        intent_singularity = (inst_jerk.clip(lower=0) * 0.4 + stealth_jerk.clip(lower=0) * 0.3 + flow_accel.clip(lower=0) * 0.3)
+        # 3. 爆发真实性校验与奇点增益
+        burst_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4 + is_leader * 0.3).clip(0, 1)
+        singularity_multiplier = 1 + (intent_singularity * burst_authenticity) * 0.25
+        print(f"  -- [V7.8.0 奇点共振探针] Inst Jerk: {inst_jerk.mean():.4f}, Flow Accel: {flow_accel.mean():.4f}, Boost: {intent_singularity.mean():.4f}")
+        # 4. 综合维度融合 (EPE 模型)
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
             "intent_outcome": normalized_signals.get("data_intent_outcome", pd.Series(0.0, index=df_index)),
@@ -400,10 +401,7 @@ class CalculateSplitOrderAccumulation:
         }
         fusion_weights = get_param_value(params.get('fusion_weights'), {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "energy_boost": 0.2})
         preliminary_score_base = _robust_geometric_mean(preliminary_components, fusion_weights, df_index).fillna(0.0)
-        # 5. 奇点倍增集成
-        singularity_multiplier = 1 + (intent_singularity * burst_authenticity) * 0.25
-        final_score = (preliminary_score_base * singularity_multiplier)
-        final_score = (final_score * (1 + is_leader * 0.2)).clip(0, 1)
+        final_score = (preliminary_score_base * singularity_multiplier * (1 + is_leader * 0.2)).clip(0, 1)
         preliminary_debug_values.update({
             "intent_singularity_boost": intent_singularity,
             "burst_authenticity": burst_authenticity,
