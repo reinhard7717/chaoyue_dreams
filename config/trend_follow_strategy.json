@@ -173,6 +173,7 @@
         "winner_rate_D": [3, 5, 8, 13, 21, 34, 55],
         "chip_entropy_D": [3, 5, 8, 13, 21],
         "trade_count_D": [3, 5, 8, 13, 21],
+        "absorption_energy_D": [5, 13, 21],
         "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [3, 5, 8, 13, 21],
         "VOL_MA_5_D": [5, 13],
@@ -234,6 +235,7 @@
         "winner_rate_D": [3, 5, 8, 13, 21, 34, 55],
         "chip_entropy_D": [3, 5, 8, 13, 21],
         "trade_count_D": [3, 5, 8, 13, 21],
+        "absorption_energy_D": [5, 13, 21],
         "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [3, 5, 8, 13, 21],
         "VOL_MA_5_D": [5, 13],
@@ -261,6 +263,7 @@
             "industry_strength_rank_D": [3, 5, 8, 13, 21],
             "turnover_rate_f_D": [3, 5, 8, 13, 21],
             "trade_count_D": [3, 5, 8, 13, 21],
+            "absorption_energy_D": [5, 13, 21],
             "chip_entropy_D": [3, 5, 8, 13, 21]
         }
     }
