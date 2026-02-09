@@ -287,7 +287,7 @@
             "net_amount_rate_D": [3, 5, 8, 13, 21],
             "winner_rate_D": [3, 5, 8, 13, 21],
             "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21],
-            "VPA_EFFICIENCY_D": [3, 5, 8, 13, 21],
+            "VPA_EFFICIENCY_D": [3, 5, 8, 13, 21, 34, 55],
             "THEME_HOTNESS_SCORE_D": [3, 5, 8, 13, 21],
             "BBW_21_2.0_D": [3, 5, 8, 13, 21],
             "pct_change_D": [3, 5, 8, 13, 21],
