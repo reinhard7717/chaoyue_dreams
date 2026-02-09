@@ -1431,7 +1431,6 @@ class ProcessIntelligence:
         # 军械库信号
         structure_signal = 'uptrend_strength_D'
         flow_signal = 'flow_consistency_D'
-        
         required_signals = [structure_signal, flow_signal]
         # 使用通用校验
         if not self._validate_required_signals(df, required_signals, "_calculate_ff_vs_structure_relationship"):
@@ -1439,18 +1438,14 @@ class ProcessIntelligence:
             
         # 计算基础背离分数 (依赖 Config 中的 signal_A/B 配置)
         base_divergence_score = self._calculate_instantaneous_relationship(df, config)
-        
         # 引入战略态势放大器
         # 使用 trend strength 的绝对值作为放大器，趋势越强，背离越重要
         trend_strength = self._get_safe_series(df, structure_signal, 0.0, method_name="_calculate_ff_vs_structure_relationship")
-        
         # uptrend_strength_D 通常是 0-100 或 0-1，这里假设已归一化或直接使用
         # 为了安全，先归一化
         trend_strength_norm = self._normalize_series(trend_strength, df.index, bipolar=False)
-        
         strategic_context_amplifier = 1 + trend_strength_norm
         final_score = (base_divergence_score * strategic_context_amplifier).clip(-1, 1)
-        
         return final_score
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1465,27 +1460,22 @@ class ProcessIntelligence:
         momentum_signal = 'ROC_13_D'
         sentiment_signal = 'winner_rate_D'
         profit_signal = 'profit_ratio_D'
-        
         required_signals = [momentum_signal, sentiment_signal, profit_signal]
         if not self._validate_required_signals(df, required_signals, "_calculate_dyn_vs_chip_relationship"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
             
         # 计算基础共识分数 (依赖 Config)
         base_consensus_score = self._calculate_instantaneous_relationship(df, config)
-        
         # 引入派发压力因子进行动机审判
         profit_ratio = self._get_safe_series(df, profit_signal, 0.0, method_name="_calculate_dyn_vs_chip_relationship")
         profit_ratio_norm = self._normalize_series(profit_ratio, df.index, bipolar=False)
-        
         distribution_pressure_factor = 1 + profit_ratio_norm
-        
         # 仅当基础分为负（内部分裂/同步下跌）时，才进行动机审判
         # 如果动能和心态都在变差（负分），且获利比例很高，说明是派发导致的下跌，信号加重
         final_score = base_consensus_score.where(
             base_consensus_score >= 0,
             base_consensus_score * distribution_pressure_factor
         ).clip(-1, 1)
-        
         return final_score
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series, config: Dict) -> pd.Series:

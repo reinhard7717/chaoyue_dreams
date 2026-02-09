@@ -84,15 +84,23 @@ class CalculatePriceMomentumDivergence:
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V3.14.0 · RDI 参数闭环修复：补齐 resonance_reward_factor 等核心系数"""
+        """V3.17.0 · 参数体系升级：新增情绪熔断阈值与非线性增强系数"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         rdi_config = get_param_value(params.get('rdi_params'), {})
         return {
             "fib_periods": [5, 13, 21, 34, 55],
             "hab_periods": [13, 21, 34],
             "intent_dampening_factor": 0.25,
+            # 情绪熔断机制参数 (新增)
+            "circuit_breaker_params": {
+                "emotion_threshold": 0.75,   # 情绪进入极端的阈值
+                "tension_confirmation": 0.8, # 物理张力确认阈值
+                "dampening_factor": 0.4,     # 趋势强劲时的抑制系数 (防踏空)
+                "amplification_factor": 1.4  # 双重极致时的放大系数 (抓拐点)
+            },
             "kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
             "asymmetric_factor": 1.4,
+            "asymmetric_outflow_factor": 1.6,
             "kinematic_deadzone": 1e-6,
             "price_components_weights": {"close_D": 0.4, "CLOSING_STRENGTH_D": 0.3, "VPA_EFFICIENCY_D": 0.3},
             "momentum_components_weights": {"MACDh_13_34_8_D": 0.4, "RSI_13_D": 0.3, "chip_rsi_divergence_D": 0.3},
@@ -108,20 +116,18 @@ class CalculatePriceMomentumDivergence:
             "chip_order_sub_weights": {"convergence": 0.6, "entropy_inverted": 0.4},
             "consistency_weights": {"polarity_resonance": 0.4, "pv_coherence": 0.4, "entropy_order": 0.2},
             "context_weights": {"psychological": 0.3, "physical_tension": 0.4, "game_intensity": 0.3},
-            "asymmetric_outflow_factor": 1.6,
             "conflict_penalty_exponent": 2.5,
             "parabolic_penalty_factor": 0.4,
             "tension_kinematic_weights": {"value": 0.6, "velocity": 0.3, "accel": 0.1},
             "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.8),
-            # RDI 模块完整参数闭环 (核心修复)
             "rdi_params": {
                 "enabled": get_param_value(rdi_config.get('enabled'), True),
                 "rdi_periods": [5, 13, 21],
                 "rdi_modulator_weight": 0.2,
                 "rdi_period_weights": {"5": 0.4, "13": 0.3, "21": 0.3},
-                "resonance_reward_factor": 0.15, # 修复 KeyError
-                "divergence_penalty_factor": 0.25, # 修复潜在 KeyError
-                "inflection_reward_factor": 0.10 # 修复潜在 KeyError
+                "resonance_reward_factor": 0.15,
+                "divergence_penalty_factor": 0.25,
+                "inflection_reward_factor": 0.10
             }
         }
 
@@ -395,8 +401,9 @@ class CalculatePriceMomentumDivergence:
         return quality_score.astype(np.float32), debug_v
 
     def _calculate_context_modulator(self, df_index: pd.Index, raw_data: Dict, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
-        """V3.0.0 · A股四维时空场能调制模型：集成心理边界、物理张力、环境热度与博弈强度 (全探针暴露)"""
+        """V3.17.0 · 环境场能调制模型：新增情绪极端熔断机制 (Emotional Circuit Breaker)"""
         weights = pmd_params['context_weights']
+        cb_params = pmd_params['circuit_breaker_params']
         # 1. 心理边界节点 (Psychological Boundary)
         emo_ext = self.helper._normalize_series(raw_data['STATE_EMOTIONAL_EXTREME_D'], df_index, bipolar=True).abs()
         mkt_sent = self.helper._normalize_series(raw_data['market_sentiment_score_D'], df_index, bipolar=True).abs()
@@ -409,36 +416,42 @@ class CalculatePriceMomentumDivergence:
         t_k = pmd_params['tension_kinematic_weights']
         phy_node = ((tension_val * 0.5 + rubber_val * 0.5) * t_k['value'] + t_vel * t_k['velocity'] + t_acc * t_k['accel'])
         # 3. 环境与博弈节点 (Environmental & Game Intensity)
-        theme_hot = self.helper._normalize_series(raw_data['THEME_HOTNESS_SCORE_D'], df_index, ascending=False) # 热度越高，回归越难，权重降序
+        theme_hot = self.helper._normalize_series(raw_data['THEME_HOTNESS_SCORE_D'], df_index, ascending=False)
         game_int = self.helper._normalize_series(raw_data['game_intensity_D'], df_index, ascending=True)
-        env_node = theme_hot
-        game_node = game_int
-        # 4. 非线性融合
+        # 4. 基础几何平均融合
         components = {
             "psychological": psy_node,
             "physical_tension": phy_node,
-            "environmental_hotness": env_node,
-            "game_intensity": game_node
+            "environmental_hotness": theme_hot,
+            "game_intensity": game_int
         }
         raw_modulator = _robust_geometric_mean(components, weights, df_index)
-        # 5. 抛物线熔断惩罚 (Parabolic Warning Penalty)
+        # 5. 情绪极端熔断机制 (Emotional Circuit Breaker)
+        # 逻辑：当情绪过热(>0.75)时，检查物理张力。
+        # 若张力未确认(Low)，视为强趋势中的良性亢奋，抑制背离信号 (Dampen)
+        # 若张力已确认(High)，视为双重极致，放大背离信号 (Amplify)
+        emotional_intensity = emo_ext
+        tension_confirmation = rubber_val
+        # 默认系数为 1.0
+        circuit_breaker = pd.Series(1.0, index=df_index)
+        # 场景 A: 情绪过热但物理张力未到极限 -> 强趋势，抑制假背离
+        mask_dampen = (emotional_intensity > cb_params['emotion_threshold']) & (tension_confirmation < cb_params['tension_confirmation'])
+        circuit_breaker[mask_dampen] = cb_params['dampening_factor']
+        # 场景 B: 情绪过热且物理张力爆表 -> 顶/底部结构共振，放大信号
+        mask_amplify = (emotional_intensity > cb_params['emotion_threshold']) & (tension_confirmation >= cb_params['tension_confirmation'])
+        circuit_breaker[mask_amplify] = cb_params['amplification_factor']
+        # 6. 抛物线熔断叠加
         is_parabolic = (raw_data['STATE_PARABOLIC_WARNING_D'] > 0.5).astype(np.float32)
         penalty = pd.Series(1.0, index=df_index)
         penalty.loc[is_parabolic == 1] = pmd_params['parabolic_penalty_factor']
-        final_context_modulator = (raw_modulator * penalty).clip(0.1, 2.0)
-        # 详细探针输出
-        print(f"[探针-ContextModulator] 心理节点(PSY)均值: {psy_node.mean():.4f}")
-        print(f"[探针-ContextModulator] 物理动力学(PHY)均值: {phy_node.mean():.4f} | 速度贡献: {t_vel.mean():.4f}")
-        print(f"[探针-ContextModulator] 环境热度(THEME)均值: {theme_hot.mean():.4f} | 博弈强度(GAME)均值: {game_int.mean():.4f}")
-        print(f"[探针-ContextModulator] 抛物线惩罚触发比例: {is_parabolic.mean()*100:.2f}%")
-        print(f"[探针-ContextModulator] 最终环境调制器均值: {final_context_modulator.mean():.4f}")
+        # 7. 最终融合
+        final_context_modulator = (raw_modulator * penalty * circuit_breaker).clip(0.1, 2.5)
+        # 探针输出
+        print(f"  [探针-ContextModulator] 心理节点: {psy_node.mean():.4f} | 物理动力学: {phy_node.mean():.4f}")
+        print(f"  [探针-ContextModulator] 情绪熔断均值: {circuit_breaker.mean():.4f} | 抑制触发: {mask_dampen.mean()*100:.1f}% | 共振放大: {mask_amplify.mean()*100:.1f}%")
         debug_info = {
-            "node_psychological": psy_node,
-            "node_physical": phy_node,
-            "node_environmental": env_node,
-            "node_game": game_node,
-            "node_parabolic_penalty": penalty,
-            "final_context_modulator": final_context_modulator
+            "node_psychological": psy_node, "node_physical": phy_node,
+            "node_circuit_breaker": circuit_breaker, "final_context_modulator": final_context_modulator
         }
         return final_context_modulator, debug_info
 
@@ -698,7 +711,6 @@ class CalculatePriceMomentumDivergence:
         dq_chip_potential = self._calculate_chip_historical_potential_score(df, df_index, {}, pmd_params, method_name)
         dq_tide = self._calculate_liquidity_tide_score(df, df_index, {}, pmd_params, method_name)
         dq_const = self._calculate_market_constitution_score(df, df_index, {}, pmd_params, method_name)
-        
         # 2. 构建组件字典
         dqwm_components = {
             "momentum_quality": dq_mom_quality, 
@@ -708,15 +720,12 @@ class CalculatePriceMomentumDivergence:
             "liquidity_tide": dq_tide, 
             "market_constitution": dq_const
         }
-        
         # 3. 执行加权融合 (使用 V3.15.0 的鲁棒融合逻辑)
         dqwm_score = _weighted_sum_fusion(dqwm_components, pmd_params['dqwm_weights'], df_index)
-        
         # 4. 探针输出
         print(f"  [探针-DQWM_Matrix] 动量品质: {dq_mom_quality.mean():.4f} | 物理张力: {dq_tension.mean():.4f} | 稳定性: {dq_stability.mean():.4f}")
         print(f"  [探针-DQWM_Matrix] 筹码势能: {dq_chip_potential.mean():.4f} | 流动性潮汐: {dq_tide.mean():.4f} | 市场体质: {dq_const.mean():.4f}")
         print(f"  [探针-DQWM_Matrix] 矩阵最终加权得分: {dqwm_score.mean():.4f}")
-        
         return dqwm_score.astype(np.float32)
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -724,7 +733,6 @@ class CalculatePriceMomentumDivergence:
         method_name = "PriceMomentumAdaptiveSensitivity_System"
         pmd_params = self._get_pmd_params(config)
         df_index = df.index
-        
         # 0. 信号完整性校验
         if not self._validate_pmd_signals(df, pmd_params, method_name):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
@@ -733,37 +741,29 @@ class CalculatePriceMomentumDivergence:
         f_p, p_diag = self._calculate_fused_price_direction(df, df_index, {}, pmd_params, method_name)
         f_m, m_diag = self._calculate_fused_momentum_direction(df, df_index, {}, pmd_params, method_name)
         base_div = (f_p - f_m).clip(-1, 1)
-        
         # 2. 质量矩阵融合 (调用修复后的聚合引擎)
         dqwm_matrix = self._calculate_dqwm_matrix(df, df_index, pmd_params, method_name)
-        
         # 3. 环境场能调制
         ctx_mod, _ = self._calculate_context_modulator(df_index, {c: df[c] for c in df.columns}, pmd_params)
-        
         # 4. 双轨并行与意图 HAB 修正 (多空独立计算)
         # 多头轨道：关注正向背离与隐蔽吸筹
         bull_intent = self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name)
         bull_score = (base_div.where(base_div > 0, 0.0) * 0.6 + bull_intent * 0.4)
-        
         # 空头轨道：关注负向背离与派发意图
         bear_intent = self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name)
         bear_score = (base_div.where(base_div < 0, 0.0).abs() * 0.6 + bear_intent * 0.4)
-        
         # 5. 灵敏度增强融合
         # 原始差值 = (多头分 - 空头分) * 质量矩阵 * 环境调制
         raw_diff = (bull_score - bear_score) * dqwm_matrix * ctx_mod
-        
         # 自适应增强：如果原始分值绝对值小于 0.1，应用根号放大提升探测率，防止被 pow(1.8) 吞噬
         boosted_diff = np.where(raw_diff.abs() < 0.1, np.sign(raw_diff) * np.sqrt(raw_diff.abs() * 0.1), raw_diff)
         final_modulated = pd.Series(boosted_diff, index=df_index)
-        
         # 6. RDI 相位锁定与最终指数化
         if pmd_params['rdi_params']['enabled']:
             rdi_val, _ = self._calculate_rdi_for_pair(f_p, f_m, df_index, pmd_params['rdi_params'], method_name, "P_M")
             final_modulated *= (1 + rdi_val * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
             
         final_score = np.sign(final_modulated) * (final_modulated.abs().pow(pmd_params['final_fusion_exponent']))
-        
         # 7. 异常诊断探针
         if final_score.loc[df_index[-1]] == 0 and final_modulated.loc[df_index[-1]] != 0:
             print(f"  [告警] {method_name}: 最终分值发生指数级坍塌，RawDiff: {raw_diff.loc[df_index[-1]]:.6f}")
