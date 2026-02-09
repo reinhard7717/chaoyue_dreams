@@ -100,22 +100,37 @@ class CalculatePriceMomentumDivergence:
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V3.4.0 · 参数体系重构：引入背离质量权重矩阵 (DQWM) 与动力学深度权重"""
+        """V3.6.0 · 全维度参数锚点重构：补齐组件权重，彻底解决KeyError"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         rdi_config = get_param_value(params.get('rdi_params'), {})
         return {
             "fib_periods": [5, 13, 21, 34, 55],
+            # 基础动力学方向权重
+            "price_components_weights": {"close_D": 0.4, "CLOSING_STRENGTH_D": 0.3, "VPA_EFFICIENCY_D": 0.3}, # 修复KeyError的核心点
+            "momentum_components_weights": {"MACDh_13_34_8_D": 0.4, "RSI_13_D": 0.3, "chip_rsi_divergence_D": 0.3},
+            # 确认项权重
+            "vol_kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
+            "vol_conf_weights": {"energy_balance": 0.4, "kinematic_impact": 0.3, "micro_anomaly": 0.2, "stability": 0.1},
+            "mf_kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
+            "mf_cohesion_weights": {"HM_COORDINATED_ATTACK_D": 0.4, "SMART_MONEY_SYNERGY_BUY_D": 0.3, "main_force_activity_index_D": 0.3},
+            "mf_intent_weights": {"shakeout": 0.35, "accumulation": 0.35, "large_order": 0.3},
+            # DQWM 质量矩阵权重
             "dqwm_weights": {
-                "momentum_quality": 0.25, # 动量相干性权重
-                "market_tension": 0.20, # 物理张力权重
-                "stability": 0.15, # 市场稳定性权重
-                "chip_potential": 0.15, # 筹码历史势能权重
-                "liquidity_tide": 0.15, # 流动性潮汐权重
-                "market_constitution": 0.10 # 市场体质权重
+                "momentum_quality": 0.25, "market_tension": 0.20, "stability": 0.15,
+                "chip_potential": 0.15, "liquidity_tide": 0.15, "market_constitution": 0.10
             },
+            # 物理张力与场能调制
+            "quality_weights": {"structural_tension": 0.35, "kinematic_exhaustion": 0.35, "chip_order": 0.3},
+            "tension_sub_weights": {"tension_index": 0.6, "rubber_band": 0.4},
+            "chip_order_sub_weights": {"convergence": 0.6, "entropy_inverted": 0.4},
+            "context_weights": {"psychological": 0.3, "physical_tension": 0.4, "game_intensity": 0.3},
+            # 调节系数
             "kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
             "asymmetric_factor": 1.4,
+            "asymmetric_outflow_factor": 1.6,
             "kinematic_deadzone": 1e-6,
+            "parabolic_penalty_factor": 0.4,
+            "tension_kinematic_weights": {"value": 0.6, "velocity": 0.3, "accel": 0.1},
             "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.8),
             "rdi_params": {
                 "enabled": get_param_value(rdi_config.get('enabled'), True),
@@ -125,18 +140,26 @@ class CalculatePriceMomentumDivergence:
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
-        """V2.9.0 · 军械库信号完整性校验：对齐结构张力、物理极限与筹码有序度"""
+        """V3.6.0 · 军械库全信号链校验：杜绝计算中途因信号缺失导致的崩溃"""
         required = [
+            'close_D', 'MACDh_13_34_8_D', 'RSI_13_D', 'volume_D', 'VPA_EFFICIENCY_D',
+            'CLOSING_STRENGTH_D', 'chip_rsi_divergence_D', 'HM_COORDINATED_ATTACK_D',
+            'SMART_MONEY_SYNERGY_BUY_D', 'main_force_activity_index_D', 'net_mf_amount_D',
+            'absorption_energy_D', 'distribution_energy_D', 'tick_abnormal_volume_ratio_D',
             'MA_POTENTIAL_TENSION_INDEX_D', 'MA_RUBBER_BAND_EXTENSION_D', 'chip_convergence_ratio_D',
-            'chip_entropy_D', 'days_since_last_peak_D', 'close_D', 'MACDh_13_34_8_D'
+            'chip_entropy_D', 'STATE_EMOTIONAL_EXTREME_D', 'market_sentiment_score_D',
+            'days_since_last_peak_D', 'STATE_PARABOLIC_WARNING_D', 'THEME_HOTNESS_SCORE_D',
+            'game_intensity_D', 'chip_stability_D', 'price_percentile_position_D'
         ]
+        # 批量添加斐波那契全周期的三阶导数信号校验
         fib = pmd_params['fib_periods']
-        for p in fib:
-            required.extend([f'SLOPE_{p}_close_D', f'ACCEL_{p}_close_D', f'JERK_{p}_close_D'])
-            required.extend([f'SLOPE_{p}_MACDh_13_34_8_D', f'ACCEL_{p}_MACDh_13_34_8_D', f'JERK_{p}_MACDh_13_34_8_D'])
+        dynamic_cols = ['close_D', 'MACDh_13_34_8_D', 'volume_D', 'net_mf_amount_D', 'distribution_energy_D', 'absorption_energy_D']
+        for col in dynamic_cols:
+            for p in fib:
+                required.extend([f'SLOPE_{p}_{col}', f'ACCEL_{p}_{col}', f'JERK_{p}_{col}'])
         missing = [s for s in required if s not in df.columns]
         if missing:
-            print(f"[ERROR] {method_name} 关键信号缺失: {missing}")
+            print(f"  [严重警告] {method_name} 军械库信号断裂: {missing[:10]}... (共缺失{len(missing)}项)")
             return False
         return True
 
@@ -154,16 +177,16 @@ class CalculatePriceMomentumDivergence:
         return final_price_direction, debug_matrix
 
     def _calculate_volume_kinematics(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
-        """V2.3.0 · 成交量动力学建模：去噪处理与三阶导数矩阵 [cite: 1, 3, 4]"""
+        """V3.6.0 · 成交量动力学建模修正：对齐 vol_kinematic_weights 配置"""
         fib_periods = pmd_params['fib_periods']
         deadzone = pmd_params['kinematic_deadzone']
-        k_weights = pmd_params['base_kinematic_weights']
+        k_weights = pmd_params['vol_kinematic_weights'] # 修复配置引用错误
         period_scores = []
         debug_v = {}
         for p in fib_periods:
-            v_s = df[f'SLOPE_{p}_volume_D'].where(df[f'SLOPE_{p}_volume_D'].abs() > deadzone, 0.0) [cite: 4]
-            v_a = df[f'ACCEL_{p}_volume_D'].where(df[f'ACCEL_{p}_volume_D'].abs() > deadzone, 0.0) [cite: 4]
-            v_j = df[f'JERK_{p}_volume_D'].where(df[f'JERK_{p}_volume_D'].abs() > deadzone, 0.0) [cite: 4]
+            v_s = df[f'SLOPE_{p}_volume_D'].where(df[f'SLOPE_{p}_volume_D'].abs() > deadzone, 0.0)
+            v_a = df[f'ACCEL_{p}_volume_D'].where(df[f'ACCEL_{p}_volume_D'].abs() > deadzone, 0.0)
+            v_j = df[f'JERK_{p}_volume_D'].where(df[f'JERK_{p}_volume_D'].abs() > deadzone, 0.0)
             s_n = self.helper._normalize_series(v_s, df_index, bipolar=True)
             a_n = self.helper._normalize_series(v_a, df_index, bipolar=True)
             j_n = self.helper._normalize_series(v_j, df_index, bipolar=True)
