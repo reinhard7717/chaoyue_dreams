@@ -808,15 +808,15 @@
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
                 "historical_potential_gate": 0.3,
-                "historical_potential_amplifier": 0.6,
-                "description": "【V2.0 · 势能增强版】诊断主力通过制造恐慌性下跌进行洗盘吸筹。引入'筹码势能'作为真实性检验的强门控条件。"
+                "description": "【V5.1 · 军械库全适配版】诊断主力制造恐慌进行洗盘吸筹。核心依赖: pressure_trapped_D[Source 3], absorption_energy_D[Source 1], uptrend_strength_D[Source 3], tick_abnormal_volume_ratio_D[Source 3]。"
             },
             {
                 "name": "PROCESS_META_DECEPTIVE_ACCUMULATION",
-                "type": "meta_analysis", "task_type": "base",
+                "type": "meta_analysis",
+                "task_type": "base",
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
-                "description": "【V1.0 · 诡道博弈】诊断主力通过制造虚假抛压（如大单压单）来掩盖真实吸筹意图（如拆单买入）的高级欺骗行为。"
+                "description": "【V3.12 · 军械库全适配版】诊断“诡道吸筹”信号。核心依赖: stealth_flow_ratio_D[Source 3], chip_flow_intensity_D[Source 2], net_mf_amount_D[Source 3]。"
             },
             {
                 "name": "PROCESS_META_UPTHRUST_WASHOUT",

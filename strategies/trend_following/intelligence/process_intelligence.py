@@ -769,160 +769,90 @@ class ProcessIntelligence:
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.0 · 军械库直连版】计算“恐慌洗盘吸筹”的专属信号。
-        - 信号映射:
-          1. 恐慌: `pressure_trapped_D` [Source 3] (套牢压力)
-          2. 痛苦: `pressure_trapped_D` (复用)
-          3. 承接: `INTRADAY_SUPPORT_INTENT_D` [Source 1]
-          4. 吸收: `absorption_energy_D` [Source 1]
-          5. 集中: `chip_concentration_ratio_D` [Source 2]
-          6. 获利: `profit_ratio_D` [Source 3]
-          7. 净流: `net_mf_amount_D` [Source 3]
-          8. 信用: `flow_consistency_D` [Source 2]
+        【V5.1 · 军械库全适配重构版】计算“恐慌洗盘吸筹”的专属信号。
+        - 信号替换:
+          1. 恐慌/痛苦: `pressure_trapped_D` [Source 3]
+          2. 吸收: `absorption_energy_D` [Source 1]
+          3. 结构支撑: `uptrend_strength_D` [Source 3] (代理杠杆)
+          4. 放量: `tick_abnormal_volume_ratio_D` [Source 3] (代理爆发现数)
+          5. 势能: `chip_stability_D` [Source 2] (代理历史势能)
         """
         method_name = "_calculate_panic_washout_accumulation"
         df_index = df.index
-        historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
+        potential_sig = 'chip_stability_D'
+        historical_potential = self._get_safe_series(df, potential_sig, 0.5, method_name)
         potential_gate = config.get('historical_potential_gate', 0.0)
-        # 信号变量
-        pain_sig = 'pressure_trapped_D' 
+        pain_sig = 'pressure_trapped_D'
         buy_support_sig = 'INTRADAY_SUPPORT_INTENT_D'
         absorption_sig = 'absorption_energy_D'
         conc_sig = 'chip_concentration_ratio_D'
-        cost_adv_sig = 'profit_ratio_D' 
+        cost_adv_sig = 'profit_ratio_D'
         mf_flow_sig = 'net_mf_amount_D'
         flow_cred_sig = 'flow_consistency_D'
+        struct_sig = 'uptrend_strength_D'
+        burst_sig = 'tick_abnormal_volume_ratio_D'
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        required_signals = [
-            'pct_change_D', 'close_D', pain_sig, mf_flow_sig, buy_support_sig,
-            f'SLOPE_1_{conc_sig}', cost_adv_sig, 'structural_leverage_D', flow_cred_sig,
-            'volume_D', 'volume_burstiness_index_D', absorption_sig
-        ]
-        # MTF 动态添加
-        for base_sig in [pain_sig, buy_support_sig, conc_sig, cost_adv_sig, mf_flow_sig, absorption_sig, 'volume_D', 'pct_change_D', 'close_D']:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-        all_required_signals = required_signals 
-        if not self._validate_required_signals(df, all_required_signals, method_name):
+        required_signals = ['close_D', pain_sig, mf_flow_sig, buy_support_sig, conc_sig, cost_adv_sig, struct_sig, flow_cred_sig, burst_sig, absorption_sig]
+        if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 原始数据
-        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name)
+        mtf_retail_panic = self._get_mtf_slope_accel_score(df, pain_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        panic_score = mtf_retail_panic.rolling(3, min_periods=1).mean()
         power_transfer_score = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
-        structural_leverage_raw = self._get_safe_series(df, 'structural_leverage_D', 0.0, method_name)
-        main_force_net_flow = self._get_safe_series(df, mf_flow_sig, 0.0, method_name)
-        flow_credibility = self._get_safe_series(df, flow_cred_sig, 0.0, method_name)
-        # --- 归一化处理 ---
-        # 恐慌分 (Pain + Trapped Pressure)
-        mtf_pain = self._get_mtf_slope_accel_score(df, pain_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        panic_score_instant = mtf_pain.clip(0, 1) # 直接使用套牢压力作为恐慌指标
-        panic_score = panic_score_instant.rolling(3, min_periods=1).mean()
-        # 吸收分
         mtf_active_buying_support = self._get_mtf_slope_accel_score(df, buy_support_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        mtf_lower_shadow_absorption = self._get_mtf_slope_accel_score(df, absorption_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        absorption_score_instant = (
-            power_transfer_score.clip(lower=0) * 0.5 +
-            mtf_lower_shadow_absorption * 0.25 +
-            mtf_active_buying_support * 0.25
-        ).clip(0, 1)
-        absorption_score = absorption_score_instant.rolling(3, min_periods=1).mean()
-        # 修复分
+        mtf_absorption = self._get_mtf_slope_accel_score(df, absorption_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        absorption_score = (power_transfer_score.clip(lower=0) * 0.5 + mtf_absorption * 0.25 + mtf_active_buying_support * 0.25).clip(0, 1).rolling(3, min_periods=1).mean()
         mtf_concentration_slope = self._get_mtf_slope_accel_score(df, conc_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_cost_advantage_slope = self._get_mtf_slope_accel_score(df, cost_adv_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_cost_adv_slope = self._get_mtf_slope_accel_score(df, cost_adv_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_mf_net_flow_slope = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        structural_leverage_norm = self._normalize_series(structural_leverage_raw, df_index, ascending=True)
-        original_repair_score = (mtf_concentration_slope.clip(lower=0) * 0.4 + mtf_cost_advantage_slope.clip(lower=0) * 0.3 + mtf_mf_net_flow_slope.clip(lower=0) * 0.3).clip(0, 1)
-        repair_score = (original_repair_score * 0.5 + structural_leverage_norm * 0.5).clip(0, 1)
-        main_force_net_flow_norm = self._normalize_series(main_force_net_flow, df_index, bipolar=True)
-        flow_credibility_norm = self._normalize_series(flow_credibility, df_index, bipolar=False)
-        # --- 场景识别 ---
+        struct_norm = self._normalize_series(self._get_safe_series(df, struct_sig, 0.0, method_name), df_index, ascending=True)
+        repair_score = ((mtf_concentration_slope.clip(lower=0) * 0.4 + mtf_cost_adv_slope.clip(lower=0) * 0.3 + mtf_mf_net_flow_slope.clip(lower=0) * 0.3).clip(0, 1) * 0.5 + struct_norm * 0.5).clip(0, 1)
         mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        is_significant_drop_cumulative = (mtf_price_trend < -0.3)
-        mtf_volume_burst = self._get_mtf_slope_accel_score(df, 'volume_burstiness_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        is_blitz_washout = (is_significant_drop_cumulative) & (mtf_volume_burst > 0.5)
-        is_high_panic = panic_score > 0.4
-        is_high_absorption = absorption_score > 0.15
-        short_term_price_slope = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name)
-        norm_short_term_price_slope = self._normalize_series(short_term_price_slope, df_index, bipolar=True)
-        price_volatility = close_price.rolling(window=5).std() / close_price.rolling(window=5).mean()
-        norm_price_volatility = self._normalize_series(price_volatility, df_index, bipolar=False, ascending=False)
-        is_price_stabilizing = (norm_short_term_price_slope > -0.2) & (norm_short_term_price_slope < 0.2) & (norm_price_volatility > 0.5)
-        is_protracted_washout = is_high_panic & is_high_absorption & is_price_stabilizing
-        pct_change_3d = close_price.pct_change(3).fillna(0)
-        is_mid_air_refueling = is_high_panic & is_high_absorption & (pct_change_3d > 0) & (pct_change_3d < 0.10)
-        washout_candidate_mask = is_blitz_washout | is_protracted_washout | is_mid_air_refueling
-        # --- 最终计算 ---
+        mtf_volume_burst = self._get_mtf_slope_accel_score(df, burst_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        is_blitz_washout = (mtf_price_trend < -0.3) & (mtf_volume_burst > 0.5)
+        washout_candidate_mask = is_blitz_washout | (panic_score > 0.4 & absorption_score > 0.15)
         base_score = (panic_score * absorption_score * repair_score).pow(1/3)
-        battle_outcome_modulator = 1 + repair_score
-        mf_inflow_validation = main_force_net_flow_norm.clip(lower=0) * flow_credibility_norm
-        judged_base_score = (base_score * battle_outcome_modulator * mf_inflow_validation).clip(0, 1)
-        mf_outflow_penalty = main_force_net_flow_norm.clip(upper=0).abs()
-        final_score = judged_base_score * (1 - mf_outflow_penalty)
+        mf_flow_norm = self._normalize_series(self._get_safe_series(df, mf_flow_sig, 0.0, method_name), df_index, bipolar=True)
+        flow_cred_norm = self._normalize_series(self._get_safe_series(df, flow_cred_sig, 0.0, method_name), df_index, bipolar=False)
+        judged_base_score = (base_score * (1 + repair_score) * (mf_flow_norm.clip(lower=0) * flow_cred_norm)).clip(0, 1)
+        final_score = judged_base_score * (1 - mf_flow_norm.clip(upper=0).abs())
         potential_gate_mask = historical_potential > potential_gate
-        trend_penalty_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        trend_penalty_factor = trend_penalty_factor.mask(mtf_price_trend < -0.5, 0.0)
-        trend_penalty_factor = trend_penalty_factor.mask((mtf_price_trend < -0.2) & (mtf_price_trend >= -0.5), 0.5)
         final_score = final_score.where(washout_candidate_mask & potential_gate_mask, 0.0).fillna(0.0)
-        final_score = final_score * trend_penalty_factor
         return final_score.astype(np.float32)
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.11 · 军械库直连版】计算“诡道吸筹”信号。
-        - 信号映射:
-          1. 欺诈: `stealth_flow_ratio_D` [Source 3] (隐蔽资金比例)
-          2. 集中: `chip_concentration_ratio_D` [Source 2]
-          3. 资金: `net_mf_amount_D` [Source 3]
+        【V3.12 · 军械库全适配重构版】计算“诡道吸筹”信号。
+        - 信号替换:
+          1. 核心动作(拆单): `stealth_flow_ratio_D` [Source 3] (作为隐蔽强度的物理代理)
+          2. 欺诈指标: `stealth_flow_ratio_D` (复用其多维含义)
+          3. 协同驱动: `chip_flow_intensity_D` [Source 2] (替代原子公理)
+          4. 集中度: `chip_concentration_ratio_D` [Source 2]
         """
         method_name = "_calculate_deceptive_accumulation"
-        deception_sig = 'stealth_flow_ratio_D' 
+        deception_sig = 'stealth_flow_ratio_D'
         conc_sig = 'chip_concentration_ratio_D'
         mf_flow_sig = 'net_mf_amount_D'
+        coherent_sig = 'chip_flow_intensity_D'
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        required_signals = [
-            'hidden_accumulation_intensity_D', deception_sig, 'PROCESS_META_POWER_TRANSFER',
-            'SCORE_CHIP_COHERENT_DRIVE', mf_flow_sig, conc_sig
-        ]
-        for base_sig in ['close_D', deception_sig, conc_sig, mf_flow_sig]:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-                
+        required_signals = [deception_sig, conc_sig, mf_flow_sig, coherent_sig, 'close_D', 'PROCESS_META_POWER_TRANSFER']
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         df_index = df.index
-        split_order_accum_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name)
-        power_transfer_score = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
-        coherent_drive_score = self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0)
-        core_action_score = self._normalize_series(split_order_accum_raw, df_index, bipolar=False)
+        core_action_raw = self._get_safe_series(df, deception_sig, 0.0, method_name)
+        core_action_score = self._normalize_series(core_action_raw, df_index, bipolar=False)
         mtf_deception_evidence = self._get_mtf_slope_accel_score(df, deception_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        deception_evidence = mtf_deception_evidence.clip(lower=0)
-        mtf_price_trend_norm = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_winner_concentration_slope = self._get_mtf_slope_accel_score(df, conc_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_mf_net_flow = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        # 伪装分
-        price_down_strength = mtf_price_trend_norm.clip(upper=0).abs()
-        disguise_score_price_mf_flow = (price_down_strength * mtf_mf_net_flow.clip(lower=0)).pow(0.5)
-        disguise_score_price_power_transfer = (price_down_strength * power_transfer_score.clip(lower=0)).pow(0.5)
-        disguise_score = (disguise_score_price_mf_flow * 0.5 + disguise_score_price_power_transfer * 0.5).clip(0, 1)
-        # 价格筹码背离共振
-        chip_concentration_up_strength = mtf_winner_concentration_slope.clip(lower=0)
-        price_chip_divergence_resonance = (price_down_strength * chip_concentration_up_strength).pow(0.5)
-        # 诡道氛围
-        deceptive_context_score = (
-            price_chip_divergence_resonance * 0.4 + 
-            deception_evidence * 0.3 + 
-            disguise_score * 0.3 
-        ).clip(0, 1)
-        # 价格趋势调节
-        price_trend_adjustment_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        price_trend_adjustment_factor = price_trend_adjustment_factor.mask(mtf_price_trend_norm > 0, (1 - mtf_price_trend_norm).clip(0, 1))
-        # 协同惩罚
-        coherence_penalty_factor = (1 - coherent_drive_score.clip(upper=0).abs()).clip(0, 1)
-        final_score = (core_action_score * deceptive_context_score * coherence_penalty_factor * price_trend_adjustment_factor).fillna(0.0)
+        mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_conc_slope = self._get_mtf_slope_accel_score(df, conc_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        mtf_mf_flow = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
+        power_transfer = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
+        price_down_strength = mtf_price_trend.clip(upper=0).abs()
+        disguise_score = ((price_down_strength * mtf_mf_flow.clip(lower=0)).pow(0.5) * 0.5 + (price_down_strength * power_transfer.clip(lower=0)).pow(0.5) * 0.5).clip(0, 1)
+        divergence_resonance = (price_down_strength * mtf_conc_slope.clip(lower=0)).pow(0.5)
+        deceptive_context = (divergence_resonance * 0.4 + mtf_deception_evidence * 0.3 + disguise_score * 0.3).clip(0, 1)
+        price_adj = pd.Series(1.0, index=df_index).mask(mtf_price_trend > 0, (1 - mtf_price_trend).clip(0, 1))
+        coherent_drive = self._get_safe_series(df, coherent_sig, 0.0, method_name)
+        coherence_penalty = (1 - self._normalize_series(coherent_drive, df_index, bipolar=True).clip(upper=0).abs()).clip(0, 1)
+        final_score = (core_action_score * deceptive_context * coherence_penalty * price_adj).fillna(0.0)
         return final_score.clip(0, 1).astype(np.float32)
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
