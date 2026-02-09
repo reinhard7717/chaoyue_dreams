@@ -827,11 +827,12 @@
             },
             {
                 "name": "PROCESS_META_ACCUMULATION_INFLECTION",
-                "type": "meta_analysis", "task_type": "base",
+                "type": "meta_analysis",
+                "task_type": "base",
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
                 "accumulation_window": 21,
-                "description": "【V1.0 · 势能转换】识别多日累积吸筹后，即将由量变到质变的拉升拐点。"
+                "description": "【V2.5 · 军械库适配版】识别多日累积吸筹后，即将由量变到质变的拉升拐点。核心依赖: PROCESS_META_COVERT_ACCUMULATION[基石], chip_flow_intensity_D[Source 2], flow_consistency_D[Source 2], VPA_EFFICIENCY_D[Source 1]。"
             },
             {
                 "name": "PROCESS_META_WINNER_CONVICTION",

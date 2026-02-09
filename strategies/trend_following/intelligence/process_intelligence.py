@@ -920,41 +920,43 @@ class ProcessIntelligence:
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4 · 势能衰减与多维融合版】识别多日累积吸筹后，即将由“量变”引发“质变”的拉升拐点。
-        - 核心升级: 引入“势能衰减”机制。将累积势能的计算方法从简单的滚动求和(rolling.sum)
-                      升级为指数加权移动平均(ewm.mean)，赋予近期吸筹行为更高的权重，
-                      更精准地度量具备时效性的“爆发势能”。
-        - 【强化】重构 `daily_accumulation_strength`，采用加权几何平均融合多种吸筹信号，
-                      更精细地评估综合吸筹强度。
-        - 【增强】增强 `ignition_intent_score`，引入更多维度信号来判断“质变”的意图。
+        【V2.5 · 军械库适配与信号对齐版】识别多日累积吸筹后，即将由“量变”引发“质变”的拉升拐点。
+        - 核心重构: 
+            1. 信号替换: 废除所有 `SCORE_*` 旧公理信号，直连军械库底层指标 `chip_flow_intensity_D` [Source 2], `flow_consistency_D` [Source 2], `VPA_EFFICIENCY_D` [Source 1]。
+            2. 依赖升级: 将 `PROCESS_META_STEALTH_ACCUMULATION` 升级为基石信号 `PROCESS_META_COVERT_ACCUMULATION`，确保数据链条的完整性与可靠性。
         """
         method_name = "_calculate_accumulation_inflection"
+        # 信号映射
+        covert_accum_sig = 'PROCESS_META_COVERT_ACCUMULATION'
+        coherent_sig = 'chip_flow_intensity_D'
+        signature_sig = 'flow_consistency_D'
+        efficiency_sig = 'VPA_EFFICIENCY_D'
+        # 核心信号列表，用于方法启动前的原子级校验
         required_signals = [
-            'PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION',
+            covert_accum_sig, 'PROCESS_META_DECEPTIVE_ACCUMULATION',
             'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
             'PROCESS_META_POWER_TRANSFER', 'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
             'PROCESS_META_PD_DIVERGENCE_CONFIRM',
-            'SCORE_CHIP_COHERENT_DRIVE', 'SCORE_FF_AXIOM_CAPITAL_SIGNATURE', 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY'
+            coherent_sig, signature_sig, efficiency_sig
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。")
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
         accumulation_window = config.get('accumulation_window', 21)
-        # 获取吸筹信号
-        stealth_accum = self._get_atomic_score(df, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0)
+        # 获取吸筹元信号 (这些信号已在 atomic_states 中就绪)
+        stealth_accum = self._get_atomic_score(df, covert_accum_sig, 0.0)
         deceptive_accum = self._get_atomic_score(df, 'PROCESS_META_DECEPTIVE_ACCUMULATION', 0.0)
         panic_washout_accum = self._get_atomic_score(df, 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 0.0)
         split_order_accum = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
-        power_transfer_accum = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0) # 权力转移只取正向
-        # 获取点火意图信号
+        power_transfer_accum = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0)
+        # 获取点火意图信号 (含内部元信号与军械库原始信号)
         rally_intent = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0)
         divergence_confirm = self._get_atomic_score(df, 'PROCESS_META_PD_DIVERGENCE_CONFIRM', 0.0)
-        coherent_drive = self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0)
-        capital_signature = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CAPITAL_SIGNATURE', 0.0)
-        upward_efficiency = self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0)
-        # --- 1. 重构 `daily_accumulation_strength` (日度吸筹强度) ---
-        # 采用加权几何平均融合多种吸筹信号
+        # 军械库原始信号归一化，将其从物理量转为 [0, 1] 的概率空间
+        coherent_drive = self._normalize_series(self._get_safe_series(df, coherent_sig, 0.0, method_name), df_index, bipolar=True).clip(lower=0)
+        capital_signature = self._normalize_series(self._get_safe_series(df, signature_sig, 0.0, method_name), df_index, bipolar=False)
+        upward_efficiency = self._normalize_series(self._get_safe_series(df, efficiency_sig, 0.0, method_name), df_index, bipolar=False)
+        # 1. 计算日度吸筹强度 (采用加权几何平均，体现多维共振效应)
         accumulation_components = {
             "stealth_accum": stealth_accum,
             "deceptive_accum": deceptive_accum,
@@ -962,41 +964,23 @@ class ProcessIntelligence:
             "split_order_accum": split_order_accum,
             "power_transfer_accum": power_transfer_accum
         }
-        # 定义吸筹信号的权重 (可配置)
-        accumulation_weights = config.get('accumulation_weights', {
-            "stealth_accum": 0.25,
-            "deceptive_accum": 0.25,
-            "panic_washout_accum": 0.2,
-            "split_order_accum": 0.15,
-            "power_transfer_accum": 0.15
-        })
+        accumulation_weights = config.get('accumulation_weights', {"stealth_accum": 0.25, "deceptive_accum": 0.25, "panic_washout_accum": 0.2, "split_order_accum": 0.15, "power_transfer_accum": 0.15})
         daily_accumulation_strength = _robust_geometric_mean(accumulation_components, accumulation_weights, df_index)
-        # 采用指数加权移动平均(ewm)计算势能，引入时间衰减
+        # 采用指数加权移动平均(ewm)计算势能，引入时间衰减机制
         potential_energy_raw = daily_accumulation_strength.ewm(span=accumulation_window, adjust=False, min_periods=5).mean()
-        potential_energy_score = self._normalize_series(potential_energy_raw, df_index, bipolar=False) # 确保归一化到 [0, 1]
-        # --- 2. 增强 `ignition_intent_score` (点火意图分数) ---
-        # 融合主力拉升意图、背离确认、筹码协同驱动、资金属性和上涨效率
+        potential_energy_score = self._normalize_series(potential_energy_raw, df_index, bipolar=False)
+        # 2. 计算点火意图分数
         ignition_components = {
-            "rally_intent": rally_intent.clip(lower=0), # 只取正向拉升意图
-            "divergence_confirm": divergence_confirm.clip(lower=0), # 只取正向背离确认
-            "coherent_drive": coherent_drive.clip(lower=0), # 只取正向筹码协同
-            "capital_signature": capital_signature.clip(lower=0), # 只取正向资金属性
-            "upward_efficiency": upward_efficiency.clip(lower=0) # 只取正向上涨效率
+            "rally_intent": rally_intent.clip(lower=0),
+            "divergence_confirm": divergence_confirm.clip(lower=0),
+            "coherent_drive": coherent_drive,
+            "capital_signature": capital_signature,
+            "upward_efficiency": upward_efficiency
         }
-        # 定义点火意图信号的权重 (可配置)
-        ignition_weights = config.get('ignition_weights', {
-            "rally_intent": 0.3,
-            "divergence_confirm": 0.25,
-            "coherent_drive": 0.2,
-            "capital_signature": 0.15,
-            "upward_efficiency": 0.1
-        })
+        ignition_weights = config.get('ignition_weights', {"rally_intent": 0.3, "divergence_confirm": 0.25, "coherent_drive": 0.2, "capital_signature": 0.15, "upward_efficiency": 0.1})
         ignition_intent_score = _robust_geometric_mean(ignition_components, ignition_weights, df_index)
-        # --- 3. 最终分数 ---
-        # 势能与意图的乘积，体现“量变到质变”
+        # 3. 最终分数: 势能与意图的非线性结合，捕捉“爆发临界点”
         final_score = (potential_energy_score * ignition_intent_score).fillna(0.0)
-        # --- 调试信息 ---
-        probe_dates = self.probe_dates
         return final_score.clip(0, 1).astype(np.float32)
 
     def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:

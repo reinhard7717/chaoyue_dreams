@@ -15,37 +15,21 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 
 def _weighted_sum_fusion(components: Dict[str, pd.Series], weights: Dict[str, Union[float, pd.Series]], index: pd.Index) -> pd.Series:
-    """
-    计算加权和，对0值进行鲁棒处理。
-    如果某个组件的权重为0，则不计入总和。
-    """
+    """V3.15.0 · 鲁棒加权融合：引入基准存活逻辑，防止局部零值导致整体信号坍塌"""
     if not components:
         return pd.Series(0.0, index=index, dtype=np.float32)
-    weight_series_map = {}
-    for k, w in weights.items():
-        if isinstance(w, (int, float)):
-            weight_series_map[k] = pd.Series(w, index=index, dtype=np.float32)
-        elif isinstance(w, pd.Series): # 明确检查是否为 Series
-            weight_series_map[k] = w.astype(np.float32)
-        else:
-            # 如果遇到非预期的类型（例如字符串），则跳过此权重，并打印警告
-            print(f"  [警告] _weighted_sum_fusion: 权重 '{k}' 的类型为 {type(w)}，不是 float 或 pd.Series，将忽略此权重。")
-            continue # 跳过此权重
     fused_score = pd.Series(0.0, index=index, dtype=np.float32)
-    total_effective_weight = pd.Series(0.0, index=index, dtype=np.float32)
-    # 只遍历那些成功添加到 weight_series_map 的组件
+    total_weight = pd.Series(0.0, index=index, dtype=np.float32)
     for k, series in components.items():
-        if k not in weight_series_map: # 如果权重被忽略，则跳过此组件
-            continue
-        series = series.astype(np.float32)
-        current_weight = weight_series_map[k]
-        non_zero_weight_mask = (current_weight.abs() > 1e-9)
-        fused_score.loc[non_zero_weight_mask] += series.loc[non_zero_weight_mask] * current_weight.loc[non_zero_weight_mask]
-        total_effective_weight.loc[non_zero_weight_mask] += current_weight.loc[non_zero_weight_mask]
-    result = pd.Series(0.0, index=index, dtype=np.float32)
-    non_zero_total_weight_mask = (total_effective_weight.abs() > 1e-9)
-    result.loc[non_zero_total_weight_mask] = fused_score.loc[non_zero_total_weight_mask] / total_effective_weight.loc[non_zero_total_weight_mask]
-    return result
+        if k not in weights: continue
+        w = weights[k]
+        w_series = w if isinstance(w, pd.Series) else pd.Series(w, index=index)
+        # 核心逻辑：只有非零组件才贡献权重分母，实现自适应平滑
+        active_mask = (series.abs() > 1e-9)
+        fused_score[active_mask] += series[active_mask] * w_series[active_mask]
+        total_weight[active_mask] += w_series[active_mask]
+    # 对于全零行，total_weight 为 0，结果自然为 0
+    return (fused_score / total_weight.clip(lower=1e-9)).fillna(0.0)
 
 class CalculatePriceMomentumDivergence:
     """
@@ -706,51 +690,36 @@ class CalculatePriceMomentumDivergence:
         return st_consistency_score.astype(np.float32), debug_v
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V3.7.0 · 双向并行计算引擎：多空轨道独立驱动与场能对冲融合 (全探针暴露)"""
-        method_name = "PriceMomentumBidirectionalParallel_System"
+        """V3.15.0 · 灵敏度自适应并行引擎：解决微弱信号坍塌问题 (全探针暴露)"""
+        method_name = "PriceMomentumAdaptiveSensitivity_System"
         pmd_params = self._get_pmd_params(config)
         df_index = df.index
         if not self._validate_pmd_signals(df, pmd_params, method_name):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 1. 基础方向计算 (公共核心)
+        # 1. 动力学路径计算
         f_p, p_diag = self._calculate_fused_price_direction(df, df_index, {}, pmd_params, method_name)
         f_m, m_diag = self._calculate_fused_momentum_direction(df, df_index, {}, pmd_params, method_name)
         base_div = (f_p - f_m).clip(-1, 1)
-        # 2. 质量矩阵与场能调制 (公共分量)
-        dqwm_score = _weighted_sum_fusion({
-            "mom_q": self._calculate_momentum_quality_score(df, df_index, {}, pmd_params, method_name),
-            "tension": self._calculate_market_tension_score(df, df_index, {}, pmd_params, method_name),
-            "stb": self._calculate_stability_score(df, df_index, {}, pmd_params, method_name),
-            "chip": self._calculate_chip_historical_potential_score(df, df_index, {}, pmd_params, method_name),
-            "tide": self._calculate_liquidity_tide_score(df, df_index, {}, pmd_params, method_name),
-            "const": self._calculate_market_constitution_score(df, df_index, {}, pmd_params, method_name)
-        }, pmd_params['dqwm_weights'], df_index)
+        # 2. 质量矩阵融合 (使用升级后的存活逻辑)
+        dqwm_matrix = self._calculate_dqwm_matrix(df, df_index, pmd_params, method_name) # 假设内部调用 _weighted_sum_fusion
         ctx_mod, _ = self._calculate_context_modulator(df_index, {c: df[c] for c in df.columns}, pmd_params)
-        # 3. 多头轨道并行计算 (Bullish Path)
-        acc_intent = self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name)
-        bullish_potential = base_div.where(base_div > 0, 0.0) # 仅关注正向背离
-        bullish_score = (bullish_potential * 0.6 + acc_intent * 0.4) * dqwm_score * ctx_mod
-        # 4. 空头轨道并行计算 (Bearish Path)
-        dist_intent = self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name)
-        bearish_potential = base_div.where(base_div < 0, 0.0).abs() # 仅关注负向背离
-        bearish_score = (bearish_potential * 0.6 + dist_intent * 0.4) * dqwm_score * ctx_mod * pmd_params['path_sensitivity']['bearish']
-        # 5. 双向对冲与最终分数融合 (Competitive Fusion)
-        # 逻辑：如果多空分值同时存在，则输出优势方向，并由 RDI 锁定相位
-        final_modulated = (bullish_score - bearish_score).clip(-1, 1)
+        # 3. 双轨并行与意图 HAB 修正
+        bull_score = (base_div.where(base_div > 0, 0.0) * 0.6 + self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name) * 0.4)
+        bear_score = (base_div.where(base_div < 0, 0.0).abs() * 0.6 + self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name) * 0.4)
+        # 4. 灵敏度增强：对微弱初值进行根号放大，防止被后续 pow(1.8) 杀掉
+        raw_diff = (bull_score - bear_score) * dqwm_matrix * ctx_mod
+        # 逻辑：如果原始分值绝对值小于 0.1，应用根号放大提升探测率
+        boosted_diff = np.where(raw_diff.abs() < 0.1, np.sign(raw_diff) * np.sqrt(raw_diff.abs() * 0.1), raw_diff)
+        final_modulated = pd.Series(boosted_diff, index=df_index)
+        # 5. RDI 与最终指数化
         if pmd_params['rdi_params']['enabled']:
             rdi_val, _ = self._calculate_rdi_for_pair(f_p, f_m, df_index, pmd_params['rdi_params'], method_name, "P_M")
-            final_modulated = final_modulated * (1 + rdi_val * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
+            final_modulated *= (1 + rdi_val * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
+        # 最终非线性增强
         final_score = np.sign(final_modulated) * (final_modulated.abs().pow(pmd_params['final_fusion_exponent']))
-        # 6. 全链条诊断探针暴露
-        if get_param_value(self.helper.debug_params.get('enabled'), False):
-            probe_ts = df_index[-1]
-            diag = {
-                "核心分量": {"f_p": f_p, "f_m": f_m, "dqwm_score": dqwm_score},
-                "并行多头轨道": {"base_div_up": bullish_potential, "acc_intent": acc_intent, "bullish_final": bullish_score},
-                "并行空头轨道": {"base_div_down": bearish_potential, "dist_intent": dist_intent, "bearish_final": bearish_score},
-                "最终诊断": {"ctx_mod": ctx_mod, "final_modulated": final_modulated, "final_score": final_score}
-            }
-            self._print_debug_output_pmd(diag, probe_ts, method_name, final_score)
+        # 6. 异常诊断探针
+        if final_score.loc[df_index[-1]] == 0 and final_modulated.loc[df_index[-1]] != 0:
+            print(f"  [告警] {method_name}: 最终分值发生指数级坍塌，RawDiff: {raw_diff.loc[df_index[-1]]:.6f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 
