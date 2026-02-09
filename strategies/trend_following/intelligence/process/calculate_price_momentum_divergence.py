@@ -84,13 +84,19 @@ class CalculatePriceMomentumDivergence:
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V3.18.0 · RDI 自适应参数重构：引入 adaptive_sensitivity 实现动态相位锁定"""
+        """V3.19.0 · 黄金坑参数重构：新增 structural_compensation 补偿系数"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         rdi_config = get_param_value(params.get('rdi_params'), {})
         return {
             "fib_periods": [5, 13, 21, 34, 55],
             "hab_periods": [13, 21, 34],
             "intent_dampening_factor": 0.25,
+            # 黄金坑结构解锁参数 (新增)
+            "golden_pit_params": {
+                "enable_compensation": True,  # 开启补偿
+                "compensation_factor": 1.35,  # 多头得分放大系数
+                "min_quality_threshold": 0.25 # 允许的最低 DQWM 门槛 (降低门槛以适应左侧)
+            },
             "kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
             "asymmetric_factor": 1.4,
             "kinematic_deadzone": 1e-6,
@@ -122,7 +128,7 @@ class CalculatePriceMomentumDivergence:
                 "resonance_reward_factor": 0.15,
                 "divergence_penalty_factor": 0.25,
                 "inflection_reward_factor": 0.10,
-                "adaptive_sensitivity": 0.8 # 新增：质量自适应灵敏度
+                "adaptive_sensitivity": 0.8
             }
         }
 
@@ -740,8 +746,8 @@ class CalculatePriceMomentumDivergence:
         return dqwm_score.astype(np.float32)
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V3.18.0 · 自适应 RDI 并行引擎：集成 DQWM 质量驱动的动态相位锁定 (全探针暴露)"""
-        method_name = "PriceMomentumAdaptiveSensitivity_System"
+        """V3.19.0 · 黄金坑解锁引擎：集成结构性补偿逻辑，修复左侧低动量漏单问题 (全探针暴露)"""
+        method_name = "PriceMomentumStructuralUnlock_System"
         pmd_params = self._get_pmd_params(config)
         df_index = df.index
         if not self._validate_pmd_signals(df, pmd_params, method_name):
@@ -754,21 +760,38 @@ class CalculatePriceMomentumDivergence:
         dqwm_matrix = self._calculate_dqwm_matrix(df, df_index, pmd_params, method_name)
         # 3. 环境场能调制 (含情绪熔断)
         ctx_mod, _ = self._calculate_context_modulator(df_index, {c: df[c] for c in df.columns}, pmd_params)
-        # 4. 双轨并行 HAB 修正
+        # 4. 黄金坑结构补偿 (Golden Pit Compensation) - 核心新增逻辑
+        gp_params = pmd_params['golden_pit_params']
+        # 归一化黄金坑状态 (0或1)
+        is_golden_pit = self.helper._normalize_series(df['STATE_GOLDEN_PIT_D'], df_index, bipolar=False).round()
+        # 补偿系数计算：仅在 DQWM > 阈值 且 黄金坑激活时生效
+        # 逻辑：左侧交易允许低动量，但必须有基础质量支撑 (min_quality_threshold)
+        gp_booster = pd.Series(1.0, index=df_index)
+        if gp_params['enable_compensation']:
+            qualifying_pit = (is_golden_pit > 0.5) & (dqwm_matrix > gp_params['min_quality_threshold'])
+            gp_booster[qualifying_pit] = gp_params['compensation_factor']
+        # 5. 双轨并行 HAB 修正 (多空独立计算)
+        # 多头轨道：应用黄金坑补偿 (boost)
         bull_intent = self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name)
-        bull_score = (base_div.where(base_div > 0, 0.0) * 0.6 + bull_intent * 0.4)
+        bull_score = ((base_div.where(base_div > 0, 0.0) * 0.6 + bull_intent * 0.4) * gp_booster)
+        # 空头轨道：维持原状
         bear_intent = self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name)
         bear_score = (base_div.where(base_div < 0, 0.0).abs() * 0.6 + bear_intent * 0.4)
-        # 5. 灵敏度增强融合
+        # 6. 灵敏度增强融合
         raw_diff = (bull_score - bear_score) * dqwm_matrix * ctx_mod
         boosted_diff = np.where(raw_diff.abs() < 0.1, np.sign(raw_diff) * np.sqrt(raw_diff.abs() * 0.1), raw_diff)
         final_modulated = pd.Series(boosted_diff, index=df_index)
-        # 6. 自适应 RDI 相位锁定 (核心变更：传入 dqwm_matrix)
+        # 7. 自适应 RDI 相位锁定
         if pmd_params['rdi_params']['enabled']:
-            # 将质量矩阵传入，实现“高质量-低锁相 / 低质量-高锁相”的动态调节
-            rdi_val, _ = self._calculate_rdi_for_pair(f_p, f_m, df_index, pmd_params['rdi_params'], method_name, "P_M", field_quality=dqwm_matrix)
+            # 黄金坑状态下，进一步放宽 RDI (通过人为提升传入的 Quality，骗过 RDI 让其降低惩罚)
+            # 逻辑：如果是黄金坑，我们将 RDI 看到的质量视为 (原始质量 + 0.2)，从而获得更宽松的相位锁定
+            effective_quality = dqwm_matrix + (is_golden_pit * 0.2)
+            rdi_val, _ = self._calculate_rdi_for_pair(f_p, f_m, df_index, pmd_params['rdi_params'], method_name, "P_M", field_quality=effective_quality)
             final_modulated *= (1 + rdi_val * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
         final_score = np.sign(final_modulated) * (final_modulated.abs().pow(pmd_params['final_fusion_exponent']))
+        # 探针输出
+        if is_golden_pit.iloc[-1] > 0.5:
+            print(f"  [探针-GoldenPit] 黄金坑结构激活! 补偿系数: {gp_booster.iloc[-1]:.2f} | 原始DQWM: {dqwm_matrix.iloc[-1]:.4f}")
         if final_score.loc[df_index[-1]] == 0 and final_modulated.loc[df_index[-1]] != 0:
             print(f"  [告警] {method_name}: 最终分值发生指数级坍塌，RawDiff: {raw_diff.loc[df_index[-1]]:.6f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
