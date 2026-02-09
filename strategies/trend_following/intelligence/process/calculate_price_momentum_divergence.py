@@ -100,24 +100,19 @@ class CalculatePriceMomentumDivergence:
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V3.13.0 · 全量动力学参数修复：补齐 kinematic_weights 并整合 HAB 记忆常数"""
+        """V3.14.0 · RDI 参数闭环修复：补齐 resonance_reward_factor 等核心系数"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         rdi_config = get_param_value(params.get('rdi_params'), {})
         return {
             "fib_periods": [5, 13, 21, 34, 55],
-            "hab_periods": [13, 21, 34], # HAB 历史累积记忆周期
-            "intent_dampening_factor": 0.25, # 历史累积支撑下的当日意图衰减因子
-            # 动力学核心权重 (修复 KeyError 的关键)
+            "hab_periods": [13, 21, 34],
+            "intent_dampening_factor": 0.25,
             "kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
-            "asymmetric_factor": 1.4, # 非对称灵敏度系数
-            "asymmetric_outflow_factor": 1.6, # 资金流出灵敏度
-            "kinematic_deadzone": 1e-6, # 物理死区
-            # 方向融合权重
+            "asymmetric_factor": 1.4,
+            "kinematic_deadzone": 1e-6,
             "price_components_weights": {"close_D": 0.4, "CLOSING_STRENGTH_D": 0.3, "VPA_EFFICIENCY_D": 0.3},
             "momentum_components_weights": {"MACDh_13_34_8_D": 0.4, "RSI_13_D": 0.3, "chip_rsi_divergence_D": 0.3},
-            # 轨道灵敏度
             "path_sensitivity": {"bullish": 1.0, "bearish": 1.5},
-            # 质量矩阵与确认权重
             "dqwm_weights": {"momentum_quality": 0.25, "market_tension": 0.20, "stability": 0.15, "chip_potential": 0.15, "liquidity_tide": 0.15, "market_constitution": 0.10},
             "vol_kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
             "vol_conf_weights": {"energy_balance": 0.4, "kinematic_impact": 0.3, "micro_anomaly": 0.2, "stability": 0.1},
@@ -129,12 +124,21 @@ class CalculatePriceMomentumDivergence:
             "chip_order_sub_weights": {"convergence": 0.6, "entropy_inverted": 0.4},
             "consistency_weights": {"polarity_resonance": 0.4, "pv_coherence": 0.4, "entropy_order": 0.2},
             "context_weights": {"psychological": 0.3, "physical_tension": 0.4, "game_intensity": 0.3},
+            "asymmetric_outflow_factor": 1.6,
             "conflict_penalty_exponent": 2.5,
-            # 其他系数
             "parabolic_penalty_factor": 0.4,
             "tension_kinematic_weights": {"value": 0.6, "velocity": 0.3, "accel": 0.1},
             "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.8),
-            "rdi_params": {"enabled": get_param_value(rdi_config.get('enabled'), True), "rdi_periods": [5, 13, 21], "rdi_modulator_weight": 0.2}
+            # RDI 模块完整参数闭环 (核心修复)
+            "rdi_params": {
+                "enabled": get_param_value(rdi_config.get('enabled'), True),
+                "rdi_periods": [5, 13, 21],
+                "rdi_modulator_weight": 0.2,
+                "rdi_period_weights": {"5": 0.4, "13": 0.3, "21": 0.3},
+                "resonance_reward_factor": 0.15, # 修复 KeyError
+                "divergence_penalty_factor": 0.25, # 修复潜在 KeyError
+                "inflection_reward_factor": 0.10 # 修复潜在 KeyError
+            }
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
@@ -455,41 +459,34 @@ class CalculatePriceMomentumDivergence:
         return final_context_modulator, debug_info
 
     def _calculate_rdi_for_pair(self, series_A: pd.Series, series_B: pd.Series, df_index: pd.Index, rdi_params: Dict, method_name: str, pair_name: str) -> Tuple[pd.Series, Dict]:
-        """V1.1 · 修复RDI周期键匹配问题"""
-        rdi_periods = rdi_params['rdi_periods']
-        resonance_reward_factor = rdi_params['resonance_reward_factor']
-        divergence_penalty_factor = rdi_params['divergence_penalty_factor']
-        inflection_reward_factor = rdi_params['inflection_reward_factor']
-        rdi_period_weights = rdi_params['rdi_period_weights']
+        """V1.2 · RDI 计算防御性升级：引入参数 get 逻辑与系数探针"""
+        # 提取参数并提供硬默认值，防止由于配置不完整导致的 KeyError
+        rdi_periods = rdi_params.get('rdi_periods', [5, 13, 21])
+        r_reward = rdi_params.get('resonance_reward_factor', 0.15)
+        d_penalty = rdi_params.get('divergence_penalty_factor', 0.25)
+        i_reward = rdi_params.get('inflection_reward_factor', 0.10)
+        rdi_period_weights = rdi_params.get('rdi_period_weights', {"5": 0.4, "13": 0.3, "21": 0.3})
         all_rdi_scores_by_period = {}
         period_debug_values = {}
+        # 探针：输出当前使用的 RDI 计算因子
+        print(f"  [探针-RDI] 对称对: {pair_name} | 共振奖励: {r_reward} | 背离惩罚: {d_penalty} | 拐点奖励: {i_reward}")
         for p in rdi_periods:
-            # 计算信号在当前周期内的趋势倾向
-            # 使用 rolling mean 来平滑方向，避免短期噪音
+            # 1. 计算跨周期趋势倾向 (Tendency)
             tendency_A = series_A.rolling(window=p, min_periods=1).mean().fillna(0)
             tendency_B = series_B.rolling(window=p, min_periods=1).mean().fillna(0)
-            # 共振：两个信号趋势方向一致且均有方向性
-            resonance_term = ((np.sign(tendency_A) == np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * resonance_reward_factor
-            # 背离：两个信号趋势方向相反且均有方向性
-            divergence_term = ((np.sign(tendency_A) != np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * divergence_penalty_factor
-            # 拐点：信号趋势方向发生改变 (即从正到负或从负到正)
-            # 这里判断的是信号的趋势倾向本身是否发生零轴穿越
-            inflection_A_term = (tendency_A.shift(1) * tendency_A < 0).astype(np.float32) * inflection_reward_factor
-            inflection_B_term = (tendency_B.shift(1) * tendency_B < 0).astype(np.float32) * inflection_reward_factor
-            inflection_term = ((inflection_A_term + inflection_B_term) / 2).fillna(0)
-            # 结合RDI项，背离作为惩罚项
+            # 2. 核心 RDI 三项式计算
+            resonance_term = ((np.sign(tendency_A) == np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * r_reward
+            divergence_term = ((np.sign(tendency_A) != np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * d_penalty
+            inflection_A = (tendency_A.shift(1) * tendency_A < 0).astype(np.float32) * i_reward
+            inflection_B = (tendency_B.shift(1) * tendency_B < 0).astype(np.float32) * i_reward
+            inflection_term = (inflection_A + inflection_B) / 2
+            # 3. 周期分数合成
             period_rdi_score = resonance_term - divergence_term + inflection_term
-            # 修复：将键改为 str(p) 以匹配 rdi_period_weights 的键
             all_rdi_scores_by_period[str(p)] = period_rdi_score
-            period_debug_values[f"{pair_name}_tendency_A_p{p}"] = tendency_A
-            period_debug_values[f"{pair_name}_tendency_B_p{p}"] = tendency_B
-            period_debug_values[f"{pair_name}_resonance_term_p{p}"] = resonance_term
-            period_debug_values[f"{pair_name}_divergence_term_p{p}"] = divergence_term
-            period_debug_values[f"{pair_name}_inflection_term_p{p}"] = inflection_term
-            period_debug_values[f"{pair_name}_period_rdi_score_p{p}"] = period_rdi_score
-        # 融合不同周期的RDI分数
+            period_debug_values[f"p{p}_rdi"] = period_rdi_score
+        # 4. 多周期加权融合
         fused_rdi_score = _weighted_sum_fusion(all_rdi_scores_by_period, rdi_period_weights, df_index)
-        return fused_rdi_score, period_debug_values
+        return fused_rdi_score.astype(np.float32), period_debug_values
 
     def _calculate_composite_volume_atrophy_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
         """V3.2.0 · 复合量能萎缩模型：基于成交量三阶动力学死区判定 (全探针暴露)"""
