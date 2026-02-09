@@ -1,5 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_main_force_control.py
-# 【V1.0.0 · 主力控盘关系计算器】
+# 【V1.0.0 · 主力控盘关系计算器】 计算“主力控盘”的专属关系分数。  已完成
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
@@ -100,13 +100,13 @@ class CalculateMainForceControlRelationship:
         # 将最终结果放入 debug 容器，供统一输出
         _temp_debug_values["最终结果"] = {"Final_Score": final_control_score}
         # 8. 调试输出 (调用合并后的标准输出方法)
-        if probe_ts:
-            self._calculate_main_force_control_relationship_debug_output(
-                debug_output, 
-                _temp_debug_values, 
-                method_name, 
-                probe_ts
-            )
+        # if probe_ts:
+        #     self._calculate_main_force_control_relationship_debug_output(
+        #         debug_output, 
+        #         _temp_debug_values, 
+        #         method_name, 
+        #         probe_ts
+        #     )
         return final_control_score
 
     def _get_control_parameters(self, config: Dict) -> Tuple[Dict, Dict]:

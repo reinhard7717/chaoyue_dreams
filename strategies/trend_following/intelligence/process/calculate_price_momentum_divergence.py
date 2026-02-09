@@ -1,3 +1,5 @@
+# strategies\trend_following\intelligence\process\calculate_price_momentum_divergence.py
+# 【V1.0.0 · 价格动量背离计算器】 计算“价格动量背离”的专属关系分数。
 import json
 import os
 import pandas as pd
@@ -98,87 +100,36 @@ class CalculatePriceMomentumDivergence:
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V1.7 · 参数精简与替换版 (移除未提供信号，替换语义相近信号，新增RDI参数，修复RDI权重提取)"""
+        """V2.5.0 · 协同动力学参数体系：引入协同进攻指数与共振权重偏移"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
-        # 提取 rdi_params 配置块
-        rdi_config = get_param_value(params.get('rdi_params'), {})
-        # 默认的 rdi_period_weights
-        default_rdi_period_weights = {"1": 0.4, "5": 0.3, "13": 0.2, "21": 0.1}
-        # 从配置中获取 rdi_period_weights，并确保只包含数字键的权重
-        configured_rdi_period_weights = get_param_value(rdi_config.get('rdi_period_weights'), default_rdi_period_weights)
-        # 过滤掉非数字键（例如 "description"）
-        filtered_rdi_period_weights = {k: v for k, v in configured_rdi_period_weights.items() if str(k).isdigit()}
         return {
-            "price_components_weights": get_param_value(params.get('price_components_weights'), {"close_D": 0.6, "upward_efficiency": 0.2, "price_momentum_quality": 0.2}),
-            "momentum_components_weights": get_param_value(params.get('momentum_components_weights'), {"MACDh_13_34_8_D": 0.5, "RSI_13_D": 0.3, "ROC_13_D": 0.2, "momentum_quality": 0.2}),
-            "mtf_slope_weights": get_param_value(params.get('mtf_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1}),
-            "mtf_accel_weights": get_param_value(params.get('mtf_accel_weights'), {"5": 0.6, "13": 0.4}),
-            "volume_confirmation_weights": get_param_value(params.get('volume_confirmation_weights'), {"volume_slope": 0.5, "volume_burst": 0.2, "volume_atrophy": 0.3, "constructive_turnover": 0.1, "volume_structure_skew_inverted": 0.1, "volume_profile_entropy_inverted": 0.05}),
-            "dynamic_volume_confirmation_modulators": get_param_value(params.get('dynamic_volume_confirmation_modulators'), {"enabled": False}),
-            "main_force_confirmation_weights": get_param_value(params.get('main_force_confirmation_weights'), {"mf_net_flow_slope": 0.4, "deception_index": 0.2, "distribution_intent": 0.2, "covert_accumulation": 0.1, "chip_divergence": 0.1, "main_force_conviction": 0.1, "chip_health": 0.1, "mf_buy_ofi_positive": 0.05, "order_book_imbalance_positive": 0.05, "micro_price_impact_asymmetry_positive": 0.05, "main_force_slippage_inverted": 0.05, "winner_concentration_positive": 0.05, "loser_pain_positive": 0.05, "smart_money_inst_net_buy": 0.05, "intraday_vwap_div_index_inverted": 0.05}),
-            "dynamic_main_force_confirmation_modulators": get_param_value(params.get('dynamic_main_force_confirmation_modulators'), {"enabled": False}),
-            "context_modulator_weights": get_param_value(params.get('context_modulator_weights'), {"volatility_inverse": 0.3, "trend_strength_inverse": 0.2, "sentiment_neutrality": 0.2, "liquidity_tide_calm": 0.15, "market_constitution_neutrality": 0.15, "mean_reversion_inverse": 0.05, "trend_alignment": 0.05, "theme_hotness": 0.05, "retail_panic_surrender_inverted": 0.05}),
-            "divergence_quality_weights": get_param_value(params.get('divergence_quality_weights'), {"duration": 0.4, "depth": 0.3, "stability": 0.15, "chip_potential": 0.15, "divergence_purity": 0.1}),
-            "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.5),
-            "synergy_threshold": get_param_value(params.get('synergy_threshold'), 0.6),
-            "synergy_bonus_factor": get_param_value(params.get('synergy_bonus_factor'), 0.1),
-            "conflict_penalty_factor": get_param_value(params.get('conflict_penalty_factor'), 0.15),
-            "dynamic_fusion_weights_params": get_param_value(params.get('dynamic_fusion_weights_params'), {"enabled": False}),
-            "dynamic_exponent_params": get_param_value(params.get('dynamic_exponent_params'), {"enabled": False, "modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D", "sensitivity": 0.5, "base_exponent": 1.5, "min_exponent": 1.0, "max_exponent": 2.0}),
-            "interaction_terms_weights": get_param_value(params.get('interaction_terms_weights'), {"price_momentum_main_force_synergy": 0.1}),
-            "rdi_params": { # 新增RDI参数
-                "enabled": get_param_value(rdi_config.get('enabled'), False),
-                "rdi_periods": get_param_value(rdi_config.get('rdi_periods'), [1, 5, 13, 21]),
-                "resonance_reward_factor": get_param_value(rdi_config.get('resonance_reward_factor'), 0.1),
-                "divergence_penalty_factor": get_param_value(rdi_config.get('divergence_penalty_factor'), 0.15),
-                "inflection_reward_factor": get_param_value(rdi_config.get('inflection_reward_factor'), 0.05),
-                "rdi_period_weights": filtered_rdi_period_weights, # 使用过滤后的权重
-                "rdi_modulator_weight": get_param_value(rdi_config.get('rdi_modulator_weight'), 0.1)
+            "fib_periods": [5, 13, 21, 34, 55],
+            "momentum_kinematic_weights": {"slope": 0.2, "accel": 0.4, "jerk": 0.4},
+            "momentum_components_weights": {"MACDh_13_34_8_D": 0.3, "RSI_13_D": 0.25, "CHIP_RSI_DIVERGENCE_D": 0.2, "HM_COORDINATED_ATTACK_D": 0.25},
+            "synergy_boost_factor": 1.5, # 协同共振时的动量增强系数
+            "momentum_asymmetry": 1.4, # A股杀跌动量敏感度因子
+            "kinematic_deadzone": 1e-5,
+            "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.8),
+            "rdi_params": {
+                "enabled": True,
+                "rdi_periods": [5, 13, 21],
+                "rdi_modulator_weight": 0.2,
+                "rdi_period_weights": {"5": 0.4, "13": 0.3, "21": 0.3}
             }
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
-        """V1.6 · 信号精简与替换版 (移除未提供信号，替换语义相近信号，新增加速度信号和结构张力指数校验)"""
-        mtf_slope_weights = pmd_params['mtf_slope_weights']
-        mtf_accel_weights = pmd_params['mtf_accel_weights']
-        valid_mtf_periods = [p_str for p_str in mtf_slope_weights.keys() if p_str.isdigit()]
-        required_signals = [
-            *[f'SLOPE_{p}_close_D' for p in valid_mtf_periods],
-            *[f'SLOPE_{p}_MACDh_13_34_8_D' for p in valid_mtf_periods],
-            *[f'SLOPE_{p}_RSI_13_D' for p in valid_mtf_periods],
-            *[f'SLOPE_{p}_ROC_13_D' for p in valid_mtf_periods],
-            *[f'SLOPE_{p}_volume_D' for p in valid_mtf_periods],
-            'volume_burstiness_index_D',
-            *[f'SLOPE_{p}_main_force_net_flow_calibrated_D' for p in valid_mtf_periods],
-            'deception_index_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'ADX_14_D', 'market_sentiment_score_D',
-            'constructive_turnover_ratio_D',
-            'volume_structure_skew_D',
-            'main_force_conviction_index_D',
-            'chip_health_score_D',
-            'volume_profile_entropy_D',
-            'upward_impulse_strength_D', 'downward_impulse_strength_D',
-            'main_force_buy_ofi_D', 'main_force_sell_ofi_D',
-            'order_book_imbalance_D', 'micro_price_impact_asymmetry_D',
-            'main_force_slippage_index_D',
-            'winner_concentration_90pct_D', 'loser_concentration_90pct_D',
-            'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
-            'mean_reversion_frequency_D', 'trend_alignment_index_D',
-            'SMART_MONEY_INST_NET_BUY_D',
-            'THEME_HOTNESS_SCORE_D',
-            'intraday_vwap_div_index_D',
-            'retail_panic_surrender_index_D',
-            'structural_tension_index_D' # 新增结构张力指数校验
-        ]
-        for p_str in mtf_accel_weights.keys():
-            p = int(p_str)
-            required_signals.append(f'ACCEL_{p}_close_D') # 新增加速度信号校验
-            required_signals.append(f'ACCEL_{p}_MACDh_13_34_8_D')
-            required_signals.append(f'ACCEL_{p}_RSI_13_D')
-            required_signals.append(f'ACCEL_{p}_ROC_13_D')
-            required_signals.append(f'ACCEL_{p}_volume_D')
-            required_signals.append(f'ACCEL_{p}_main_force_net_flow_calibrated_D')
-        return self.helper._validate_required_signals(df, required_signals, method_name)
+        """V2.5.0 · 协同动量数据链校验：确保博弈共振信号完整性"""
+        fib_periods = pmd_params['fib_periods']
+        base_momentum_cols = ["MACDh_13_34_8_D", "RSI_13_D"]
+        required_signals = base_momentum_cols + ["CHIP_RSI_DIVERGENCE_D", "HM_COORDINATED_ATTACK_D", "SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D", "BIAS_55_D"]
+        for col in base_momentum_cols:
+            for p in fib_periods:
+                required_signals.extend([f'SLOPE_{p}_{col}', f'ACCEL_{p}_{col}', f'JERK_{p}_{col}'])
+        missing = [s for s in required_signals if s not in df.columns]
+        if missing:
+            raise ValueError(f"[{method_name}] 关键协同动量信号缺失: {missing}")
+        return True
 
     def _get_pmd_raw_data(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> Dict[str, pd.Series]:
         """V1.7 · 原始数据精简与替换版 (修复原始信号依赖顺序，移除原子信号，替换为复合计算或安全获取原始数据)"""
@@ -237,61 +188,126 @@ class CalculatePriceMomentumDivergence:
         return raw_data
 
     def _calculate_fused_price_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
-        """V1.3 · 价格动量品质增强版 (价格动量品质分数归一化，使用复合分数)"""
-        mtf_slope_weights = pmd_params['mtf_slope_weights']
-        price_components_weights = pmd_params['price_components_weights']
-        fused_price_direction_base = self.helper._get_mtf_slope_score(df, 'close_D', mtf_slope_weights, df_index, method_name, bipolar=True)
-        # 优化价格动量品质：结合上涨纯度和上涨冲动强度
-        # upward_efficiency_score, price_upward_momentum_score, price_downward_momentum_score 现在是复合分数
-        bullish_price_momentum_quality_raw = (raw_data['upward_efficiency_score'] * raw_data['price_upward_momentum_score']).pow(0.5)
-        bearish_price_momentum_quality_raw = raw_data['price_downward_momentum_score']
-        # 对原始品质分数进行归一化
-        bullish_price_momentum_quality_norm = self.helper._normalize_series(bullish_price_momentum_quality_raw, df_index, ascending=True)
-        bearish_price_momentum_quality_norm = self.helper._normalize_series(bearish_price_momentum_quality_raw, df_index, ascending=True)
-        # 根据价格方向决定使用哪个品质分数，并确保其在 [-1, 1] 范围内
-        price_momentum_quality_score = bullish_price_momentum_quality_norm.where(fused_price_direction_base > 0, -bearish_price_momentum_quality_norm)
-        # 最终确保在 [-1, 1] 范围内
-        price_momentum_quality_score = price_momentum_quality_score.clip(-1, 1)
-        fused_price_direction_components = {
-            "close_D": fused_price_direction_base,
-            "upward_efficiency": self.helper._normalize_series(raw_data['upward_efficiency_score'], df_index, ascending=True),
-            "price_momentum_quality": price_momentum_quality_score
-        }
-        fused_price_direction = _robust_geometric_mean(fused_price_direction_components, price_components_weights, df_index)
-        debug_values = {
-            "fused_price_direction_base": fused_price_direction_base,
-            "bullish_price_momentum_quality_raw": bullish_price_momentum_quality_raw,
-            "bearish_price_momentum_quality_raw": bearish_price_momentum_quality_raw,
-            "bullish_price_momentum_quality_norm": bullish_price_momentum_quality_norm,
-            "bearish_price_momentum_quality_norm": bearish_price_momentum_quality_norm,
-            "price_momentum_quality_score": price_momentum_quality_score,
-            "fused_price_direction": fused_price_direction
-        }
-        return fused_price_direction, debug_values
+        """V2.2.0 · 非对称动力学路径版 (集成死区过滤与抛物线权重偏移)"""
+        fib_periods = pmd_params['fib_periods']
+        deadzone = pmd_params['kinematic_deadzone']
+        asym_factor = pmd_params['asymmetric_accel_factor']
+        is_parabolic = df['STATE_PARABOLIC_WARNING_D'] > 0.5
+        kinematic_scores = {}
+        debug_matrix = {}
+        for base_col in pmd_params['price_components_weights'].keys():
+            period_scores = []
+            for p in fib_periods:
+                # 1. 原始信号获取与死区过滤 (去噪)
+                s_raw = df[f'SLOPE_{p}_{base_col}'].where(df[f'SLOPE_{p}_{base_col}'].abs() > deadzone, 0.0)
+                a_raw = df[f'ACCEL_{p}_{base_col}'].where(df[f'ACCEL_{p}_{base_col}'].abs() > deadzone, 0.0)
+                j_raw = df[f'JERK_{p}_{base_col}'].where(df[f'JERK_{p}_{base_col}'].abs() > deadzone, 0.0)
+                # 2. 非对称灵敏度处理 (强化负向加速度)
+                a_processed = np.where(a_raw < 0, a_raw * asym_factor, a_raw)
+                j_processed = np.where(j_raw < 0, j_raw * asym_factor, j_raw)
+                # 3. 鲁棒归一化 (tanh映射回避零基陷阱)
+                s_norm = self.helper._normalize_series(s_raw, df_index, bipolar=True)
+                a_norm = self.helper._normalize_series(pd.Series(a_processed, index=df_index), df_index, bipolar=True)
+                j_norm = self.helper._normalize_series(pd.Series(j_processed, index=df_index), df_index, bipolar=True)
+                # 4. 动态权重决策
+                current_weights = np.where(is_parabolic, pmd_params['parabolic_kinematic_weights']['slope'], pmd_params['base_kinematic_weights']['slope'])
+                w_s = pd.Series(current_weights, index=df_index)
+                w_a = pd.Series(np.where(is_parabolic, pmd_params['parabolic_kinematic_weights']['accel'], pmd_params['base_kinematic_weights']['accel']), index=df_index)
+                w_j = pd.Series(np.where(is_parabolic, pmd_params['parabolic_kinematic_weights']['jerk'], pmd_params['base_kinematic_weights']['jerk']), index=df_index)
+                combined = (s_norm * w_s + a_norm * w_a + j_norm * w_j)
+                period_scores.append(combined)
+            kinematic_scores[base_col] = pd.concat(period_scores, axis=1).mean(axis=1)
+            debug_matrix[f"{base_col}_kinematic"] = kinematic_scores[base_col]
+        # 价格组件最终融合
+        fused_price_direction = pd.Series(0.0, index=df_index)
+        for col, weight in pmd_params['price_components_weights'].items():
+            fused_price_direction += kinematic_scores[col] * weight
+        debug_matrix["final_price_direction"] = fused_price_direction
+        return fused_price_direction, debug_matrix
+
+    def _calculate_volume_kinematics(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
+        """V2.3.0 · 成交量动力学建模：去噪处理与三阶导数矩阵 [cite: 1, 3, 4]"""
+        fib_periods = pmd_params['fib_periods']
+        deadzone = pmd_params['kinematic_deadzone']
+        k_weights = pmd_params['base_kinematic_weights']
+        period_scores = []
+        debug_v = {}
+        for p in fib_periods:
+            v_s = df[f'SLOPE_{p}_volume_D'].where(df[f'SLOPE_{p}_volume_D'].abs() > deadzone, 0.0) [cite: 4]
+            v_a = df[f'ACCEL_{p}_volume_D'].where(df[f'ACCEL_{p}_volume_D'].abs() > deadzone, 0.0) [cite: 4]
+            v_j = df[f'JERK_{p}_volume_D'].where(df[f'JERK_{p}_volume_D'].abs() > deadzone, 0.0) [cite: 4]
+            s_n = self.helper._normalize_series(v_s, df_index, bipolar=True)
+            a_n = self.helper._normalize_series(v_a, df_index, bipolar=True)
+            j_n = self.helper._normalize_series(v_j, df_index, bipolar=True)
+            combined = (s_n * k_weights['slope'] + a_n * k_weights['accel'] + j_n * k_weights['jerk'])
+            period_scores.append(combined)
+            debug_v[f"vol_kinematic_p{p}"] = combined
+        fused_volume_kinematics = pd.concat(period_scores, axis=1).mean(axis=1)
+        return fused_volume_kinematics, debug_v
+
+    def _calculate_pv_sync_anomaly(self, price_k: pd.Series, vol_k: pd.Series, df: pd.DataFrame, df_index: pd.Index) -> Tuple[pd.Series, Dict]:
+        """V2.3.0 · 量价同步异动监测：捕获“有量无果”与“虚空驱动” """
+        # 计算价量动力学差值：正值代表价格驱动强于量能支撑（虚空），负值代表量能驱动强于价格表现（滞涨）
+        pv_divergence = (price_k - vol_k)
+        # 引入价量效率修正 
+        vpa_eff = self.helper._normalize_series(df['VPA_EFFICIENCY_D'], df_index, bipolar=True) [cite: 1]
+        vpa_mf = self.helper._normalize_series(df['VPA_MF_ADJUSTED_EFF_D'], df_index, bipolar=True) [cite: 1]
+        # 异动得分：当价量背离且效率低下时，异动分值升高
+        anomaly_score = (pv_divergence.abs() * (1 - vpa_eff.abs())).clip(0, 1)
+        debug_sync = {"pv_divergence": pv_divergence, "vpa_eff": vpa_eff, "vpa_mf": vpa_mf, "pv_anomaly": anomaly_score}
+        return anomaly_score, debug_sync
 
     def _calculate_fused_momentum_direction(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
-        """V1.1 · 动量方向融合 (使用复合动量品质分数)"""
-        mtf_slope_weights = pmd_params['mtf_slope_weights']
-        momentum_components_weights = pmd_params['momentum_components_weights']
-        fused_macdh_direction = self.helper._get_mtf_slope_score(df, 'MACDh_13_34_8_D', mtf_slope_weights, df_index, method_name, bipolar=True)
-        fused_rsi_direction = self.helper._get_mtf_slope_score(df, 'RSI_13_D', mtf_slope_weights, df_index, method_name, bipolar=True)
-        fused_roc_direction = self.helper._get_mtf_slope_score(df, 'ROC_13_D', mtf_slope_weights, df_index, method_name, bipolar=True)
-        fused_momentum_direction_components = {
-            "MACDh_13_34_8_D": fused_macdh_direction,
-            "RSI_13_D": fused_rsi_direction,
-            "ROC_13_D": fused_roc_direction,
-            "momentum_quality": raw_data['momentum_quality_score'] # 使用复合分数
+        """V2.5.0 · 协同动力学融合版 (集成协同进攻共振与三阶导数动态调制)"""
+        fib_periods = pmd_params['fib_periods']
+        k_w = pmd_params['momentum_kinematic_weights']
+        deadzone = pmd_params['kinematic_deadzone']
+        asym = pmd_params['momentum_asymmetry']
+        m_comp_w = pmd_params['momentum_components_weights']
+        # 1. 协同进攻指数归一化 (核心权重调节器)
+        synergy_idx = self.helper._normalize_series(df['HM_COORDINATED_ATTACK_D'], df_index, bipolar=False)
+        kinematic_scores = {}
+        for m_col in ["MACDh_13_34_8_D", "RSI_13_D"]:
+            period_scores = []
+            for p in fib_periods:
+                s_r = df[f'SLOPE_{p}_{m_col}'].where(df[f'SLOPE_{p}_{m_col}'].abs() > deadzone, 0.0)
+                a_r = df[f'ACCEL_{p}_{m_col}'].where(df[f'ACCEL_{p}_{m_col}'].abs() > deadzone, 0.0)
+                j_r = df[f'JERK_{p}_{m_col}'].where(df[f'JERK_{p}_{m_col}'].abs() > deadzone, 0.0)
+                # 非对称性处理：强化空头加速度敏感度
+                a_p = np.where(a_r < 0, a_r * asym, a_r)
+                j_p = np.where(j_r < 0, j_r * asym, j_r)
+                s_n = self.helper._normalize_series(s_r, df_index, bipolar=True)
+                a_n = self.helper._normalize_series(pd.Series(a_p, index=df_index), df_index, bipolar=True)
+                j_n = self.helper._normalize_series(pd.Series(j_p, index=df_index), df_index, bipolar=True)
+                # 动态调制：协同共振越高，Jerk权重越高，捕捉爆发力
+                w_j = k_w['jerk'] * (1 + synergy_idx * 0.5)
+                w_s = k_w['slope'] * (1 - synergy_idx * 0.2)
+                combined = (s_n * w_s + a_n * k_w['accel'] + j_n * w_j)
+                period_scores.append(combined)
+            kinematic_scores[m_col] = pd.concat(period_scores, axis=1).mean(axis=1)
+        # 2. 筹码与协同组件
+        chip_momentum = self.helper._normalize_series(df['CHIP_RSI_DIVERGENCE_D'], df_index, bipolar=True)
+        synergy_momentum = self.helper._normalize_series(df['HM_COORDINATED_ATTACK_D'], df_index, bipolar=True)
+        # 3. 基础动量方向融合
+        fused_momentum_base = (kinematic_scores["MACDh_13_34_8_D"] * m_comp_w["MACDh_13_34_8_D"] +
+                               kinematic_scores["RSI_13_D"] * m_comp_w["RSI_13_D"] +
+                               chip_momentum * m_comp_w["CHIP_RSI_DIVERGENCE_D"] +
+                               synergy_momentum * m_comp_w["HM_COORDINATED_ATTACK_D"])
+        # 4. 聪明钱与回归拉力修正
+        sm_div = self.helper._normalize_series(df['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'], df_index, bipolar=True)
+        bias_drag = self.helper._normalize_series(df['BIAS_55_D'], df_index, bipolar=True, ascending=False)
+        correction = (sm_div * 0.4 + bias_drag * 0.6)
+        # 最终动量：当协同度极低时，对正向动量进行抑制（防止散户追高陷阱）
+        fused_momentum_direction = (fused_momentum_base * 0.8 + correction * 0.2)
+        fused_momentum_direction = np.where((fused_momentum_direction > 0) & (synergy_idx < 0.2), fused_momentum_direction * 0.5, fused_momentum_direction)
+        debug_v = {
+            "node_macd_kinematic": kinematic_scores["MACDh_13_34_8_D"],
+            "node_rsi_kinematic": kinematic_scores["RSI_13_D"],
+            "node_synergy_raw": synergy_idx,
+            "node_chip_momentum": chip_momentum,
+            "final_momentum_direction": pd.Series(fused_momentum_direction, index=df_index)
         }
-        momentum_components_weights_extended = momentum_components_weights.copy()
-        momentum_components_weights_extended["momentum_quality"] = get_param_value(pmd_params.get('momentum_components_weights', {}).get("momentum_quality"), 0.2)
-        fused_momentum_direction = _robust_geometric_mean(fused_momentum_direction_components, momentum_components_weights_extended, df_index)
-        debug_values = {
-            "fused_macdh_direction": fused_macdh_direction,
-            "fused_rsi_direction": fused_rsi_direction,
-            "fused_roc_direction": fused_roc_direction,
-            "fused_momentum_direction": fused_momentum_direction
-        }
-        return fused_momentum_direction, debug_values
+        return pd.Series(fused_momentum_direction, index=df_index), debug_v
 
     def _calculate_volume_confirmation_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, method_name: str) -> Tuple[pd.Series, Dict]:
         """V1.1 · 量能结构增强版"""
@@ -487,213 +503,45 @@ class CalculatePriceMomentumDivergence:
         return divergence_quality_score, debug_values
 
     def _calculate_context_modulator(self, df_index: pd.Index, raw_data: Dict, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
-        """V1.4 · 市场机制感知版 (替换散户恐慌信号，动态权重调整)"""
-        context_modulator_weights = pmd_params['context_modulator_weights']
-        volatility_instability_norm_inverted = self.helper._normalize_series(raw_data['volatility_instability_raw'], df_index, ascending=False)
-        adx_norm_inverted = self.helper._normalize_series(raw_data['adx_raw'], df_index, ascending=False)
-        market_sentiment_norm_bipolar = self.helper._normalize_series(raw_data['market_sentiment_raw'], df_index, bipolar=True)
-        liquidity_tide_calm_norm = self.helper._normalize_series(raw_data['liquidity_tide_score'].abs(), df_index, ascending=False)
-        market_constitution_neutrality_norm = 1 - self.helper._normalize_series(raw_data['market_constitution_score'].abs(), df_index, ascending=True)
-        mean_reversion_inverse_norm = self.helper._normalize_series(raw_data['mean_reversion_frequency_raw'], df_index, ascending=False)
-        trend_alignment_norm = self.helper._normalize_series(raw_data['trend_alignment_index_raw'], df_index, ascending=True)
-        theme_hotness_norm = self.helper._normalize_series(raw_data.get('theme_hotness_raw', pd.Series(0.0, index=df_index)), df_index, ascending=True)
-        retail_panic_surrender_inverted_norm = self.helper._normalize_series(raw_data.get('retail_panic_surrender_index_raw', pd.Series(0.0, index=df_index)), df_index, ascending=False) # 替换 retail_panic_inverted_norm
-        context_modulator_components = {
-            "volatility_inverse": volatility_instability_norm_inverted,
-            "trend_strength_inverse": adx_norm_inverted,
-            "sentiment_neutrality": 1 - market_sentiment_norm_bipolar.abs(),
-            "liquidity_tide_calm": liquidity_tide_calm_norm,
-            "market_constitution_neutrality": market_constitution_neutrality_norm,
-            "mean_reversion_inverse": mean_reversion_inverse_norm,
-            "trend_alignment": trend_alignment_norm,
-            "theme_hotness": theme_hotness_norm,
-            "retail_panic_surrender_inverted": retail_panic_surrender_inverted_norm # 替换 retail_panic_inverted
+        """V2.0.0 · A股博弈环境调制：引入情绪极端与物理回归压力"""
+        weights = pmd_params['context_weights']
+        emotional_extreme = self.helper._normalize_series(raw_data['STATE_EMOTIONAL_EXTREME_D'], df_index, bipolar=True)
+        rubber_band = self.helper._normalize_series(raw_data['MA_RUBBER_BAND_EXTENSION_D'].abs(), df_index, ascending=True)
+        tension = self.helper._normalize_series(raw_data['MA_POTENTIAL_TENSION_INDEX_D'], df_index, ascending=True)
+        components = {
+            "emotional_extreme": emotional_extreme.abs(),
+            "rubber_band_extension": rubber_band,
+            "tension_index": tension
         }
-        dynamic_context_modulator_weights = context_modulator_weights.copy()
-        sentiment_neutrality_base_weight = dynamic_context_modulator_weights.get("sentiment_neutrality", 0.0)
-        dynamic_sentiment_neutrality_weight = pd.Series(sentiment_neutrality_base_weight, index=df_index, dtype=np.float32)
-        is_market_sentiment_raw_zero = (raw_data.get('market_sentiment_raw', pd.Series(0.0, index=df_index)).abs() < 1e-9)
-        dynamic_sentiment_neutrality_weight.loc[is_market_sentiment_raw_zero] = 0.0
-        dynamic_context_modulator_weights["sentiment_neutrality"] = dynamic_sentiment_neutrality_weight
-        theme_hotness_base_weight = dynamic_context_modulator_weights.get("theme_hotness", 0.0)
-        dynamic_theme_hotness_weight = pd.Series(theme_hotness_base_weight, index=df_index, dtype=np.float32)
-        is_theme_hotness_raw_zero = (raw_data.get('theme_hotness_raw', pd.Series(0.0, index=df_index)).abs() < 1e-9)
-        dynamic_theme_hotness_weight.loc[is_theme_hotness_raw_zero] = 0.0
-        dynamic_context_modulator_weights["theme_hotness"] = dynamic_theme_hotness_weight
-        retail_panic_surrender_base_weight = dynamic_context_modulator_weights.get("retail_panic_surrender_inverted", 0.0) # 替换 retail_panic_base_weight
-        dynamic_retail_panic_surrender_weight = pd.Series(retail_panic_surrender_base_weight, index=df_index, dtype=np.float32)
-        is_retail_panic_surrender_raw_zero = (raw_data.get('retail_panic_surrender_index_raw', pd.Series(0.0, index=df_index)).abs() < 1e-9) # 替换 is_retail_panic_raw_zero
-        dynamic_retail_panic_surrender_weight.loc[is_retail_panic_surrender_raw_zero] = 0.0
-        dynamic_context_modulator_weights["retail_panic_surrender_inverted"] = dynamic_retail_panic_surrender_weight # 替换 retail_panic_inverted
-        context_modulator = _robust_geometric_mean(context_modulator_components, dynamic_context_modulator_weights, df_index)
-        debug_values = {
-            "volatility_instability_norm_inverted": volatility_instability_norm_inverted,
-            "adx_norm_inverted": adx_norm_inverted,
-            "market_sentiment_norm_bipolar": market_sentiment_norm_bipolar,
-            "liquidity_tide_calm_norm": liquidity_tide_calm_norm,
-            "market_constitution_neutrality_norm": market_constitution_neutrality_norm,
-            "mean_reversion_inverse_norm": mean_reversion_inverse_norm,
-            "trend_alignment_norm": trend_alignment_norm,
-            "theme_hotness_norm": theme_hotness_norm,
-            "retail_panic_surrender_inverted_norm": retail_panic_surrender_inverted_norm, # 替换 retail_panic_inverted_norm
-            "dynamic_sentiment_neutrality_weight": dynamic_sentiment_neutrality_weight,
-            "dynamic_theme_hotness_weight": dynamic_theme_hotness_weight,
-            "dynamic_retail_panic_surrender_weight": dynamic_retail_panic_surrender_weight, # 替换 dynamic_retail_panic_weight
-            "context_modulator": context_modulator
-        }
-        return context_modulator, debug_values
+        context_modulator = _robust_geometric_mean(components, weights, df_index)
+        debug_info = {f"context_{k}": v for k, v in components.items()}
+        debug_info["final_context_modulator"] = context_modulator
+        return context_modulator, debug_info
 
-    def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, fused_price_direction: pd.Series, fused_momentum_direction: pd.Series, fused_mf_net_flow_slope: pd.Series, base_divergence_score: pd.Series, volume_confirmation_score: pd.Series, main_force_confirmation_score: pd.Series, divergence_quality_score: pd.Series, context_modulator: pd.Series, price_momentum_quality_score: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
-        """V1.6 · 动态融合权重、动态指数、显式交互项及RDI增强版 (RDI功能已验证)"""
-        final_fusion_exponent_base = pmd_params['final_fusion_exponent']
-        synergy_threshold = pmd_params['synergy_threshold']
-        synergy_bonus_factor = pmd_params['synergy_bonus_factor']
-        conflict_penalty_factor = pmd_params['conflict_penalty_factor']
-        dynamic_fusion_weights_params = pmd_params['dynamic_fusion_weights_params']
-        dynamic_exponent_params = pmd_params['dynamic_exponent_params']
-        interaction_terms_weights = pmd_params['interaction_terms_weights']
+    def _perform_pmd_final_fusion(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, fused_price_direction: pd.Series, fused_momentum_direction: pd.Series, base_divergence_score: pd.Series, confirmation_score: pd.Series, context_modulator: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict]:
+        """V2.0.0 · 弹性张力融合逻辑：全探针暴露"""
+        exponent = pmd_params['final_fusion_exponent']
         rdi_params = pmd_params['rdi_params']
-        final_components = {
-            "base_divergence": base_divergence_score.abs(),
-            "volume_confirmation": volume_confirmation_score.abs(),
-            "main_force_confirmation": main_force_confirmation_score.abs(),
-            "divergence_quality": divergence_quality_score,
-            "context_modulator": context_modulator
-        }
-        final_fusion_weights_dict = get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
-            "base_divergence": 0.3,
-            "volume_confirmation": 0.2,
-            "main_force_confirmation": 0.25,
-            "divergence_quality": 0.15,
-            "context_modulator": 0.1
-        })
-        _temp_debug_values["最终融合组件"] = {
-            "base_divergence_abs": base_divergence_score.abs(),
-            "volume_confirmation_abs": volume_confirmation_score.abs(),
-            "main_force_confirmation_abs": main_force_confirmation_score.abs(),
-            "divergence_quality": divergence_quality_score,
-            "context_modulator": context_modulator
-        }
-        # --- 动态融合权重调整 ---
-        if get_param_value(dynamic_fusion_weights_params.get('enabled'), False):
-            modulator_signal_1_raw = self.helper._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_1'], 0.0)
-            modulator_signal_2_raw = self.helper._get_atomic_score(df, dynamic_fusion_weights_params['modulator_signal_2'], 0.0)
-            modulator_signal_3_raw = raw_data.get('mean_reversion_frequency_raw', pd.Series(0.0, index=df_index))
-            modulator_signal_4_raw = raw_data.get('trend_alignment_index_raw', pd.Series(0.0, index=df_index))
-            modulator_signal_5_raw = raw_data.get('retail_panic_surrender_index_raw', pd.Series(0.0, index=df_index))
-            modulator_signal_1 = self.helper._normalize_series(modulator_signal_1_raw, df_index, bipolar=True)
-            modulator_signal_2 = self.helper._normalize_series(modulator_signal_2_raw, df_index, bipolar=True)
-            modulator_signal_3 = self.helper._normalize_series(modulator_signal_3_raw, df_index, bipolar=True, ascending=False)
-            modulator_signal_4 = self.helper._normalize_series(modulator_signal_4_raw, df_index, bipolar=True)
-            modulator_signal_5 = self.helper._normalize_series(modulator_signal_5_raw, df_index, bipolar=True, ascending=True)
-            sensitivity_tension = dynamic_fusion_weights_params['sensitivity_tension']
-            sensitivity_liquidity = dynamic_fusion_weights_params['sensitivity_liquidity']
-            sensitivity_mean_reversion = dynamic_fusion_weights_params.get('sensitivity_mean_reversion', 0.1)
-            sensitivity_trend_alignment = dynamic_fusion_weights_params.get('sensitivity_trend_alignment', 0.1)
-            sensitivity_retail_panic_surrender = dynamic_fusion_weights_params.get('sensitivity_retail_panic_surrender', 0.2)
-            tension_impact_weights = dynamic_fusion_weights_params['tension_impact_weights']
-            liquidity_impact_weights = dynamic_fusion_weights_params['liquidity_impact_weights']
-            mean_reversion_impact_weights = dynamic_fusion_weights_params.get('mean_reversion_impact_weights', {})
-            trend_alignment_impact_weights = dynamic_fusion_weights_params.get('trend_alignment_impact_weights', {})
-            retail_panic_surrender_impact_weights = dynamic_fusion_weights_params.get('retail_panic_surrender_impact_weights', {})
-            adjusted_weights_series = pd.DataFrame(final_fusion_weights_dict, index=df_index)
-            for k in final_fusion_weights_dict:
-                adjusted_weights_series[k] = adjusted_weights_series[k] + (modulator_signal_1 * tension_impact_weights.get(k, 0.0) * sensitivity_tension)
-                adjusted_weights_series[k] = adjusted_weights_series[k] + (modulator_signal_2 * liquidity_impact_weights.get(k, 0.0) * sensitivity_liquidity)
-                adjusted_weights_series[k] = adjusted_weights_series[k] + (modulator_signal_3 * mean_reversion_impact_weights.get(k, 0.0) * sensitivity_mean_reversion)
-                adjusted_weights_series[k] = adjusted_weights_series[k] + (modulator_signal_4 * trend_alignment_impact_weights.get(k, 0.0) * sensitivity_trend_alignment)
-                adjusted_weights_series[k] = adjusted_weights_series[k] + (modulator_signal_5 * retail_panic_surrender_impact_weights.get(k, 0.0) * sensitivity_retail_panic_surrender)
-            total_dynamic_weight = adjusted_weights_series.sum(axis=1)
-            if (total_dynamic_weight > 0).all():
-                final_fusion_weights_dict = (adjusted_weights_series.div(total_dynamic_weight, axis=0)).to_dict('series')
-            else:
-                final_fusion_weights_dict = get_param_value(dynamic_fusion_weights_params.get('base_weights'), {
-                    "base_divergence": 0.3, "volume_confirmation": 0.2, "main_force_confirmation": 0.25, "divergence_quality": 0.15, "context_modulator": 0.1
-                })
-            _temp_debug_values["动态融合权重调整"] = {
-                "modulator_signal_1": modulator_signal_1,
-                "modulator_signal_2": modulator_signal_2,
-                "modulator_signal_3": modulator_signal_3,
-                "modulator_signal_4": modulator_signal_4,
-                "modulator_signal_5": modulator_signal_5,
-                "adjusted_weights_series": adjusted_weights_series,
-                "final_fusion_weights_dict_dynamic": final_fusion_weights_dict
-            }
-        # --- 显式交互项 ---
-        price_momentum_main_force_synergy = (fused_price_direction.abs() * fused_mf_net_flow_slope.abs()).pow(0.5)
-        price_momentum_main_force_synergy = price_momentum_main_force_synergy.where(np.sign(fused_price_direction) == np.sign(fused_mf_net_flow_slope), 0.0)
-        if get_param_value(interaction_terms_weights.get('price_momentum_main_force_synergy'), 0.0) > 0:
-            final_components["price_momentum_main_force_synergy"] = price_momentum_main_force_synergy
-            final_fusion_weights_dict["price_momentum_main_force_synergy"] = get_param_value(interaction_terms_weights.get('price_momentum_main_force_synergy'), 0.0)
-        raw_fused_score = _robust_geometric_mean(final_components, final_fusion_weights_dict, df_index)
-        _temp_debug_values["原始融合分数"] = {
-            "raw_fused_score": raw_fused_score,
-            "price_momentum_main_force_synergy": price_momentum_main_force_synergy
-        }
-        synergy_conflict_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        sign_base = np.sign(base_divergence_score.replace(0, 1e-9))
-        sign_vol = np.sign(volume_confirmation_score.replace(0, 1e-9))
-        sign_mf = np.sign(main_force_confirmation_score.replace(0, 1e-9))
-        sign_price_momentum_quality = np.sign(price_momentum_quality_score.replace(0, 1e-9))
-        aligned_count = (sign_base == sign_vol).astype(int) + \
-                        (sign_base == sign_mf).astype(int) + \
-                        (sign_base == sign_price_momentum_quality).astype(int)
-        is_synergistic = (aligned_count >= 3) & (base_divergence_score.abs() > synergy_threshold)
-        is_conflicting = (aligned_count < 1) & (base_divergence_score.abs() > synergy_threshold)
-        synergy_conflict_factor.loc[is_synergistic] = 1 + synergy_bonus_factor
-        synergy_conflict_factor.loc[is_conflicting] = 1 - conflict_penalty_factor
-        raw_fused_score_modulated = raw_fused_score * synergy_conflict_factor
-        # --- RDI (共振、背离、拐点) 分析与调制 ---
+        # 基础背离强度：由价格动量差值与大单异常程度共同决定
+        large_order_confirm = self.helper._normalize_series(raw_data['LARGE_ORDER_ANOMALY_D'], df_index, ascending=True)
+        raw_fusion = (base_divergence_score.abs() * 0.5 + confirmation_score.abs() * 0.3 + large_order_confirm * 0.2)
+        # RDI 调制
         rdi_modulator = pd.Series(1.0, index=df_index, dtype=np.float32)
-        if get_param_value(rdi_params.get('enabled'), False):
-            # 1. 价格方向 vs 动量方向 RDI
-            price_momentum_rdi_score, debug_pm_rdi = self._calculate_rdi_for_pair(
-                fused_price_direction, fused_momentum_direction, df_index, rdi_params, "PMD_RDI", "Price_Momentum"
-            )
-            _temp_debug_values["价格-动量RDI"] = debug_pm_rdi
-            # 2. 价格方向 vs 主力资金流斜率 RDI
-            price_mf_rdi_score, debug_pmf_rdi = self._calculate_rdi_for_pair(
-                fused_price_direction, fused_mf_net_flow_slope, df_index, rdi_params, "PMD_RDI", "Price_MainForce"
-            )
-            _temp_debug_values["价格-主力RDI"] = debug_pmf_rdi
-            # 融合两种RDI分数
-            combined_rdi_score = (price_momentum_rdi_score + price_mf_rdi_score) / 2
-            # 将RDI分数转换为调制因子，使其在 [1-weight, 1+weight] 之间
-            rdi_modulator_weight = rdi_params.get('rdi_modulator_weight', 0.1)
-            rdi_modulator = (1 + combined_rdi_score * rdi_modulator_weight).clip(1 - rdi_modulator_weight, 1 + rdi_modulator_weight)
-            _temp_debug_values["RDI调制器"] = {
-                "price_momentum_rdi_score": price_momentum_rdi_score,
-                "price_mf_rdi_score": price_mf_rdi_score,
-                "combined_rdi_score": combined_rdi_score,
-                "rdi_modulator": rdi_modulator
-            }
-        raw_fused_score_modulated_by_rdi = raw_fused_score_modulated * rdi_modulator
-        _temp_debug_values["RDI调制后的分数"] = {"raw_fused_score_modulated_by_rdi": raw_fused_score_modulated_by_rdi}
-        # --- 动态融合指数 ---
-        final_fusion_exponent = pd.Series(final_fusion_exponent_base, index=df_index, dtype=np.float32)
-        if get_param_value(dynamic_exponent_params.get('enabled'), False):
-            exponent_modulator_signal_raw = self.helper._get_safe_series(df, dynamic_exponent_params['modulator_signal'], 0.0)
-            exponent_modulator_signal = self.helper._normalize_series(exponent_modulator_signal_raw, df_index, bipolar=False, ascending=False)
-            sensitivity = dynamic_exponent_params['sensitivity']
-            base_exponent = dynamic_exponent_params['base_exponent']
-            min_exponent = dynamic_exponent_params['min_exponent']
-            max_exponent = dynamic_exponent_params['max_exponent']
-            dynamic_exponent_values = base_exponent + (exponent_modulator_signal * sensitivity)
-            final_fusion_exponent = dynamic_exponent_values.clip(min_exponent, max_exponent)
-        final_score = np.sign(raw_fused_score_modulated_by_rdi) * (raw_fused_score_modulated_by_rdi.abs().pow(final_fusion_exponent))
+        if rdi_params['enabled']:
+            price_momentum_rdi, rdi_debug = self._calculate_rdi_for_pair(fused_price_direction, fused_momentum_direction, df_index, rdi_params, "PMD_RDI", "P_M")
+            _temp_debug_values["RDI_Node"] = rdi_debug
+            rdi_modulator = (1 + price_momentum_rdi * rdi_params['rdi_modulator_weight']).clip(0.5, 1.5)
+        # 最终得分计算：符号(背离方向) * (原始分 * 环境调制 * RDI调制)^指数
+        modulated_score = raw_fusion * context_modulator * rdi_modulator
+        final_score = np.sign(base_divergence_score) * (modulated_score.pow(exponent))
         final_score = final_score.clip(-1, 1).fillna(0.0)
-        _temp_debug_values["协同/冲突与最终分数"] = {
-            "sign_base": sign_base,
-            "sign_vol": sign_vol,
-            "sign_mf": sign_mf,
-            "sign_price_momentum_quality": sign_price_momentum_quality,
-            "aligned_count": aligned_count,
-            "is_synergistic": is_synergistic,
-            "is_conflicting": is_conflicting,
-            "synergy_conflict_factor": synergy_conflict_factor,
-            "raw_fused_score_modulated": raw_fused_score_modulated,
-            "raw_fused_score_modulated_by_rdi": raw_fused_score_modulated_by_rdi,
-            "dynamic_fusion_exponent": final_fusion_exponent,
+        _temp_debug_values["Fusion_Matrix"] = {
+            "base_divergence": base_divergence_score,
+            "confirmation_score": confirmation_score,
+            "context_modulator": context_modulator,
+            "rdi_modulator": rdi_modulator,
+            "large_order_confirm": large_order_confirm,
+            "modulated_score": modulated_score,
             "final_score": final_score
         }
         return final_score, _temp_debug_values
@@ -1000,57 +848,33 @@ class CalculatePriceMomentumDivergence:
         return _robust_geometric_mean(components, weights, df_index)
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V1.3 · 模块化与增强版 (传递 fused_momentum_direction 给最终融合方法)"""
-        method_name = "_calculate_price_momentum_divergence"
-        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.helper.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
-        debug_output = {}
-        _temp_debug_values = {}
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算价势背离..."] = ""
-        df_index = df.index
+        """V2.5.0 · 顶层调度：协同动力学全周期背离分析引擎"""
+        method_name = "PriceMomentumSynergyDivergence"
         pmd_params = self._get_pmd_params(config)
+        df_index = df.index
         if not self._validate_pmd_signals(df, pmd_params, method_name):
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
-                self._print_debug_output_pmd(debug_output, probe_ts, method_name, pd.Series(0.0, index=df.index, dtype=np.float32))
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        raw_data = self._get_pmd_raw_data(df, pmd_params, method_name)
-        _temp_debug_values["原始信号值"] = raw_data
-        fused_price_direction, debug_price_direction = self._calculate_fused_price_direction(df, df_index, raw_data, pmd_params, method_name)
-        _temp_debug_values["融合价格方向"] = debug_price_direction
-        fused_momentum_direction, debug_momentum_direction = self._calculate_fused_momentum_direction(df, df_index, raw_data, pmd_params, method_name)
-        _temp_debug_values["融合动量方向"] = debug_momentum_direction
-        base_divergence_score = (fused_price_direction - fused_momentum_direction).clip(-1, 1)
-        _temp_debug_values["基础背离分数"] = {"base_divergence_score": base_divergence_score}
-        volume_confirmation_score, debug_volume_confirmation = self._calculate_volume_confirmation_score(df, df_index, raw_data, pmd_params, base_divergence_score, method_name)
-        _temp_debug_values["量能确认分数"] = debug_volume_confirmation
-        main_force_confirmation_score, fused_mf_net_flow_slope, debug_mf_confirmation = self._calculate_main_force_confirmation_score(df, df_index, raw_data, pmd_params, base_divergence_score, method_name)
-        _temp_debug_values["主力/筹码确认分数"] = debug_mf_confirmation
-        divergence_quality_score, debug_divergence_quality = self._calculate_divergence_quality_score(df_index, raw_data, pmd_params, base_divergence_score, fused_price_direction, fused_momentum_direction)
-        _temp_debug_values["背离质量分数"] = debug_divergence_quality
-        context_modulator, debug_context_modulator = self._calculate_context_modulator(df_index, raw_data, pmd_params)
-        _temp_debug_values["情境调制器"] = debug_context_modulator
-        final_score, debug_final_fusion = self._perform_pmd_final_fusion(
-            df, df_index, raw_data, pmd_params,
-            fused_price_direction, fused_momentum_direction, fused_mf_net_flow_slope, # 新增传递 fused_momentum_direction
-            base_divergence_score, volume_confirmation_score, main_force_confirmation_score,
-            divergence_quality_score, context_modulator, debug_price_direction['price_momentum_quality_score'],
-            _temp_debug_values
-        )
-        # if is_debug_enabled_for_method and probe_ts:
-        #     self._print_debug_output_pmd(_temp_debug_values, probe_ts, method_name, final_score)
-        return final_score.astype(np.float32)
-
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 1. 计算融合价格动力学 (已集成抛物线权重偏移)
+        fused_p, p_debug = self._calculate_fused_price_direction(df, df_index, {}, pmd_params, method_name)
+        # 2. 计算融合量能动力学 (已集成三阶导数矩阵)
+        fused_v, v_debug = self._calculate_volume_kinematics(df, df_index, pmd_params)
+        # 3. 计算融合协同动量方向 (集成三阶导数与协同进攻指数)
+        fused_m, m_debug = self._calculate_fused_momentum_direction(df, df_index, {}, pmd_params, method_name)
+        # 4. 量价同步异动监测 (捕获动力错位)
+        pv_anomaly, sync_debug = self._calculate_pv_sync_anomaly(fused_p, fused_v, df, df_index)
+        # 5. 最终复合背离分值：(价格 - 动量) * 异动因子 * 路径品质
+        base_div = (fused_p - fused_m) * (1 + pv_anomaly)
+        # 6. RDI 调制逻辑集成
+        if pmd_params['rdi_params']['enabled']:
+            rdi_score, _ = self._calculate_rdi_for_pair(fused_p, fused_m, df_index, pmd_params['rdi_params'], "PMD_RDI", "P_M")
+            base_div = base_div * (1 + rdi_score * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
+        # 指数化增强与死区裁剪
+        final_score = np.sign(base_div) * (base_div.abs().pow(pmd_params['final_fusion_exponent']))
+        if get_param_value(self.helper.debug_params.get('enabled'), False):
+            probe_ts = df.index[-1]
+            diag = {**p_debug, **v_debug, **m_debug, **sync_debug, "final_score": final_score}
+            self._print_debug_output_pmd(diag, probe_ts, method_name, final_score)
+        return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 
 

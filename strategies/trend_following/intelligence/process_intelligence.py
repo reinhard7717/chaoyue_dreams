@@ -1181,44 +1181,40 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.6 · 军械库直连版】诊断“突破加速抢筹”战术。
-        - 信号映射:
-          1. 资金: `net_mf_amount_D` [Source 3]
-          2. 信用: `flow_consistency_D` [Source 2]
+        【V3.7 · 军械库全适配版】诊断“突破加速抢筹”战术。
+        - 核心修复: 
+            1. 突破证据: `breakout_confidence_D` [Source 1] 替代旧公理。
+            2. 结构证据: `uptrend_strength_D` [Source 3] 替代趋势形态公理。
+            3. 相对强度: `industry_strength_rank_D` [Source 2] 替代相对强度公理。
         """
         method_name = "_calculate_breakout_acceleration"
         mf_flow_sig = 'net_mf_amount_D'
         cred_sig = 'flow_consistency_D'
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
+        breakout_sig = 'breakout_confidence_D'
+        trend_sig = 'uptrend_strength_D'
+        rs_sig = 'industry_strength_rank_D'
         required_signals = [
-            'SCORE_PATTERN_AXIOM_BREAKOUT', 'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
-            'PROCESS_META_POWER_TRANSFER', 'SCORE_STRUCT_AXIOM_TREND_FORM',
-            'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH',
+            breakout_sig, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
+            'PROCESS_META_POWER_TRANSFER', trend_sig, rs_sig,
             mf_flow_sig, cred_sig
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         df_index = df.index
-        relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
+        relative_strength_raw = self._get_safe_series(df, rs_sig, 0.0, method_name)
+        relative_strength = self._normalize_series(relative_strength_raw, df_index, bipolar=False)
         rs_amplifier = config.get('relative_strength_amplifier', 0.0)
         main_force_net_flow = self._get_safe_series(df, mf_flow_sig, 0.0, method_name)
         flow_credibility = self._get_safe_series(df, cred_sig, 0.0, method_name)
         main_force_net_flow_norm = self._normalize_series(main_force_net_flow, df_index, bipolar=True)
         flow_credibility_norm = self._normalize_series(flow_credibility, df_index, bipolar=False)
-        breakout_evidence = self._get_atomic_score(df, 'SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
+        breakout_evidence = self._normalize_series(self._get_safe_series(df, breakout_sig, 0.0, method_name), df_index, bipolar=False)
         intent_evidence = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0).clip(lower=0)
         flow_evidence = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0)
-        structure_evidence = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0).clip(lower=0)
+        structure_evidence = self._normalize_series(self._get_safe_series(df, trend_sig, 0.0, method_name), df_index, bipolar=False)
         mf_flow_validation = main_force_net_flow_norm.clip(lower=0) * flow_credibility_norm
         weights = {'breakout': 0.3, 'intent': 0.25, 'structure': 0.2, 'flow': 0.15, 'mf_flow_validation': 0.1}
-        resonance_score = (
-            breakout_evidence * weights['breakout'] +
-            intent_evidence * weights['intent'] +
-            structure_evidence * weights['structure'] +
-            flow_evidence * weights['flow'] +
-            mf_flow_validation * weights['mf_flow_validation']
-        ).clip(0, 1)
+        resonance_score = (breakout_evidence * weights['breakout'] + intent_evidence * weights['intent'] + structure_evidence * weights['structure'] + flow_evidence * weights['flow'] + mf_flow_validation * weights['mf_flow_validation']).clip(0, 1)
         breakout_gate_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
         breakout_gate_factor = breakout_gate_factor.mask(breakout_evidence < 0.2, breakout_evidence * 0.5)
         breakout_gate_factor = breakout_gate_factor.mask(breakout_evidence < 0.05, 0.0)
@@ -1231,104 +1227,101 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0 · 军械库直连版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
-        - 信号映射:
-          1. 资金: `net_mf_amount_D` [Source 3]
-          2. 效率: `flow_efficiency_D` [Source 2]
-          3. 压力: `tick_large_order_net_D` [Source 3] (取反)
-          4. 信用: `flow_consistency_D` [Source 2]
-          5. 承接: `INTRADAY_SUPPORT_INTENT_D` [Source 1]
+        【V3.1 · 军械库全适配版】识别主力从吸筹转向公开强攻的转折信号。
+        - 核心修复: 
+            1. 基石指标: `accumulation_signal_score_D` [Source 1] 替代旧隐蔽吸筹强度。
+            2. 其他信号保持军械库映射: `net_mf_amount_D` [Source 3], `flow_efficiency_D` [Source 2], `tick_large_order_net_D` [Source 3]。
         """
         method_name = "_calculate_fund_flow_accumulation_inflection"
+        acc_sig = 'accumulation_signal_score_D'
         mf_flow_sig = 'net_mf_amount_D'
-        buy_exhaust_sig = 'flow_efficiency_D' # flow_efficiency: 阻力越小效率越高
-        large_pressure_sig = 'tick_large_order_net_D' # 净额，需取反
+        buy_exhaust_sig = 'flow_efficiency_D'
+        large_pressure_sig = 'tick_large_order_net_D'
         cred_sig = 'flow_consistency_D'
         support_sig = 'INTRADAY_SUPPORT_INTENT_D'
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        required_signals = [
-            'hidden_accumulation_intensity_D', mf_flow_sig,
-            buy_exhaust_sig, large_pressure_sig,
-            cred_sig, support_sig
-        ]
-        for base_sig in ['hidden_accumulation_intensity_D', buy_exhaust_sig, large_pressure_sig, mf_flow_sig, support_sig]:
+        required_signals = [acc_sig, mf_flow_sig, buy_exhaust_sig, large_pressure_sig, cred_sig, support_sig]
+        for base_sig in [acc_sig, buy_exhaust_sig, large_pressure_sig, mf_flow_sig, support_sig]:
             for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
                 required_signals.append(f'SLOPE_{period_str}_{base_sig}')
             for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
                 required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-                
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
-            
         df_index = df.index
         flow_credibility_raw = self._get_safe_series(df, cred_sig, 0.0, method_name)
         flow_credibility_norm = self._normalize_series(flow_credibility_raw, df_index, bipolar=False)
-        mtf_hidden_accumulation = self._get_mtf_slope_accel_score(df, 'hidden_accumulation_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
+        mtf_hidden_accumulation = self._get_mtf_slope_accel_score(df, acc_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         mtf_mf_net_flow_slope = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         prelude_score_base = self._normalize_series(mtf_hidden_accumulation.rolling(5).mean(), df_index, bipolar=False)
         prelude_score = (prelude_score_base * mtf_mf_net_flow_slope.clip(lower=0)).pow(0.5)
-        # 效率越高，阻力越小
         mtf_buy_efficiency = self._get_mtf_slope_accel_score(df, buy_exhaust_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         buy_resilience = mtf_buy_efficiency 
-        # 大单净额：正为支撑，负为压力。取反得到压力值。
         large_order_net = self._get_safe_series(df, large_pressure_sig, 0.0, method_name)
         large_pressure_raw = -large_order_net 
         mtf_large_pressure = self._normalize_series(large_pressure_raw, df_index, bipolar=False)
-        mtf_main_force_flow = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_active_buying_support = self._get_mtf_slope_accel_score(df, support_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         pressure_exhaustion_synergy = (mtf_large_pressure * (1 - buy_resilience)).pow(0.5)
         mtf_main_force_flow_momentum = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        attack_score = (
-            buy_resilience * 0.2 + 
-            mtf_main_force_flow_momentum.clip(lower=0) * 0.25 + 
-            (1 - mtf_large_pressure) * 0.2 + 
-            flow_credibility_norm * 0.15 + 
-            mtf_active_buying_support * 0.2 - 
-            pressure_exhaustion_synergy * 0.2 
-        ).clip(0, 1)
+        attack_score = (buy_resilience * 0.2 + mtf_main_force_flow_momentum.clip(lower=0) * 0.25 + (1 - mtf_large_pressure) * 0.2 + flow_credibility_norm * 0.15 + mtf_active_buying_support * 0.2 - pressure_exhaustion_synergy * 0.2).clip(0, 1)
         final_score = (prelude_score * attack_score).fillna(0.0)
         return final_score.astype(np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.6 · 军械库直连版】“利润与流向”专属关系计算引擎
+        【V4.7 · 军械库全适配版】“利润与流向”专属关系计算引擎。
+        - 核心重构: 废除所有旧 SCORE_* 依赖，直连军械库底层信号。
         - 信号映射:
-          1. 派发: `profit_pressure_D` [Source 3]
-          2. 净流: `net_mf_amount_D` [Source 3]
-          3. 获利: `profit_ratio_D` [Source 3]
-          4. 信用: `flow_consistency_D` [Source 2]
+          1. 派发压力: `profit_pressure_D` [Source 3]
+          2. 净流动力: `net_mf_amount_D` [Source 3]
+          3. 获利广度: `profit_ratio_D` [Source 3]
+          4. 派发信心: `intraday_distribution_confidence_D` [Source 2] (替代缺失的原子意图信号)
+          5. 资金一致: `flow_consistency_D` [Source 2]
         """
         method_name = "_calculate_profit_vs_flow_relationship"
-        pressure_signal_name = 'profit_pressure_D'
-        drive_signal_name = 'net_mf_amount_D'
-        winner_profit_margin_name = 'profit_ratio_D' 
-        flow_credibility_name = 'flow_consistency_D'
-        distribution_intent_name = 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT'
-        required_signals = [pressure_signal_name, drive_signal_name, winner_profit_margin_name, flow_credibility_name]
-        required_atomic_signals = [distribution_intent_name]
-        all_required_signals = required_signals 
-        if not self._validate_required_signals(df, all_required_signals, method_name):
-            return pd.Series(dtype=np.float32)
-            
+        # 定义军械库信号名称
+        pressure_sig = 'profit_pressure_D'
+        drive_sig = 'net_mf_amount_D'
+        profit_ratio_sig = 'profit_ratio_D'
+        dist_confidence_sig = 'intraday_distribution_confidence_D'
+        consistency_sig = 'flow_consistency_D'
+        # 执行严格信号校验
+        required_signals = [pressure_sig, drive_sig, profit_ratio_sig, dist_confidence_sig, consistency_sig]
+        if not self._validate_required_signals(df, required_signals, method_name):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
-        profit_taking_flow_raw = self._get_safe_series(df, pressure_signal_name, 0.0, method_name)
-        main_force_net_flow_raw = self._get_safe_series(df, drive_signal_name, 0.0, method_name)
-        winner_profit_margin_raw = self._get_safe_series(df, winner_profit_margin_name, 0.0, method_name)
-        distribution_intent_score = self._get_atomic_score(df, distribution_intent_name, 0.0)
-        flow_credibility_raw = self._get_safe_series(df, flow_credibility_name, 0.0, method_name)
-        profit_taking_flow_norm = self._normalize_series(profit_taking_flow_raw, df_index, bipolar=False)
-        winner_profit_margin_norm = self._normalize_series(winner_profit_margin_raw, df_index, bipolar=False)
-        distribution_intent_norm = self._normalize_series(distribution_intent_score, df_index, bipolar=False)
-        main_force_net_flow_norm = self._normalize_series(main_force_net_flow_raw, df_index, bipolar=True)
-        flow_credibility_norm = self._normalize_series(flow_credibility_raw, df_index, bipolar=False)
+        # 1. 原始数据安全获取与预处理
+        profit_pressure_raw = self._get_safe_series(df, pressure_sig, 0.0, method_name)
+        net_mf_amount_raw = self._get_safe_series(df, drive_sig, 0.0, method_name)
+        profit_ratio_raw = self._get_safe_series(df, profit_ratio_sig, 0.0, method_name)
+        dist_confidence_raw = self._get_safe_series(df, dist_confidence_sig, 0.0, method_name)
+        consistency_raw = self._get_safe_series(df, consistency_sig, 0.0, method_name)
+        # 2. 维度归一化处理
+        # 派发压力、获利比例及派发信心均为单极信号
+        profit_pressure_norm = self._normalize_series(profit_pressure_raw, df_index, bipolar=False)
+        profit_ratio_norm = self._normalize_series(profit_ratio_raw, df_index, bipolar=False)
+        dist_conf_norm = self._normalize_series(dist_confidence_raw, df_index, bipolar=False)
+        # 主力净额为双极信号，资金一致性为单极信号
+        net_mf_norm = self._normalize_series(net_mf_amount_raw, df_index, bipolar=True)
+        consistency_norm = self._normalize_series(consistency_raw, df_index, bipolar=False)
+        # 3. 计算派发压力综合分 (Pressure Score)
+        # 权重分配：获利压力(40%) + 获利广度(30%) + 派发意图/信心(30%)
         pressure_score = (
-            profit_taking_flow_norm * 0.4 +
-            winner_profit_margin_norm * 0.3 +
-            distribution_intent_norm * 0.3
+            profit_pressure_norm * 0.4 +
+            profit_ratio_norm * 0.3 +
+            dist_conf_norm * 0.3
         ).clip(0, 1)
-        drive_score = (main_force_net_flow_norm.clip(lower=0) * flow_credibility_norm).clip(0, 1)
+        # 4. 计算建仓动力综合分 (Drive Score)
+        # 只有当净流为正时，一致性才作为增强因子；若为负，则视为离场驱动
+        drive_score = (net_mf_norm.clip(lower=0) * consistency_norm).clip(0, 1)
+        # 5. 态势对冲计算
+        # 最终分数 = 进场动力 - 离场压力；正值代表建仓占优，负值代表派发占优
         relationship_score = drive_score - pressure_score
         final_score = relationship_score.clip(-1, 1)
+        # 调试信息记录
+        if hasattr(self.strategy, 'atomic_states'):
+            self.strategy.atomic_states["_DEBUG_profit_vs_flow_drive"] = drive_score
+            self.strategy.atomic_states["_DEBUG_profit_vs_flow_pressure"] = pressure_score
         return final_score.astype(np.float32)
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:

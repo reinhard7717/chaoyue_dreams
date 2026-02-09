@@ -1066,7 +1066,9 @@
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
                 "relative_strength_amplifier": 1.2,
-                "description": "【V2.0 · 相对强度增强版】诊断突破后的加速行为。引入'相对强度'放大'领军者'的突破信号。"
+                "signal_A": "breakout_confidence_D",
+                "signal_B": "uptrend_strength_D",
+                "description": "【V2.1 · 军械库适配版】诊断突破后的加速行为。使用突破置信度[Source 1]和上升趋势强度[Source 3]替代旧公理信号。"
             },
             {
                 "name": "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT",
@@ -1074,18 +1076,15 @@
                 "task_type": "base",
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
-                "psai_high_threshold": 0.5,
-                "mf_flow_positive_threshold": 0.0,
-                "buy_exhaustion_threshold": 0.7,
-                "large_pressure_low_threshold": 0.3,
-                "description": "【V1.0 · 过程层迁移版】识别主力从隐蔽吸筹转向公开强攻的资金流拐点意图。"
+                "source_signal": "accumulation_signal_score_D",
+                "description": "【V1.1 · 军械库适配版】识别吸筹转向强攻的拐点。使用吸筹信号评分[Source 1]替代旧隐蔽吸筹指标。"
             },
             {
                 "name": "PROCESS_META_PROFIT_VS_FLOW",
                 "type": "meta_analysis",
                 "task_type": "base",
                 "relationship_type": "custom",
-                "description": "【V4.2 · 军令直达版】诊断“利润与流向”。采用“战场态势”对抗模型，其瞬时关系分（建仓动力分 - 派发压力分）即为最终分，不再经过元分析，确保军令直达。"
+                "description": "【V4.7 · 军械库直连版】诊断“利润与流向”。采用对冲模型审判主力建仓动力与获利派发压力的对抗态势。核心依赖: profit_pressure_D[Source 3], net_mf_amount_D[Source 3], intraday_distribution_confidence_D[Source 2]。"
             },
             {
                 "name": "PROCESS_META_STOCK_SECTOR_SYNC",
