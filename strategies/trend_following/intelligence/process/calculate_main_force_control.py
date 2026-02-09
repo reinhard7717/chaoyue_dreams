@@ -231,69 +231,44 @@ class CalculateMainForceControlRelationship:
                                          sell_lg_vol: pd.Series, sell_elg_vol: pd.Series, 
                                          _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.4.0 · 主力成本动力学模型 - 零基陷阱防御版】
-        核心防御机制：
-        1. 预平滑 (Pre-Smoothing): 对原始均价进行 EMA 处理，防止噪音在二阶导数中爆炸。
-        2. 算术差分 (Arithmetic Difference): 
-           - Slope 计算使用百分比 (相对变化)。
-           - Accel/Jerk 计算使用差值 (绝对变化)，严禁使用 (Slope_t - Slope_t-1)/Slope_t-1，
-             彻底规避 Slope=0 导致的除零陷阱和符号翻转陷阱。
-        3. 软压缩 (Soft Clipping): 使用 tanh 对高阶导数进行去极值处理。
+        【V2.4.1 · 主力成本动力学模型 - 量级修正版】
+        修改说明：引入 unit_correction_factor 修正 A 股成交额与成交量的单位差异（通常为 100 或 10000）。
         """
-        # 定义权重：给予 Smart Money (超大单) 更高权重
         w_elg, w_lg = 1.5, 1.0
-        # --- 1. 计算买入成本 (Buy Cost) ---
+        # 1. 计算加权总量
         buy_amt_w = (buy_elg_amt * w_elg) + (buy_lg_amt * w_lg)
         buy_vol_w = (buy_elg_vol * w_elg) + (buy_lg_vol * w_lg)
-        # 基础计算：加权均价
-        # 防御1: 使用 fillna(close_price) 处理无成交的情况，避免 NaN
-        daily_buy = (buy_amt_w / buy_vol_w.replace(0, np.nan)).fillna(close_price)
-        # 防御2: 预平滑 (Pre-Smoothing)
-        # 成本线本身的波动需要被平滑，否则 Jerk 指标会全是噪音
+        # 2. 价格计算与单位修正
+        # 基于探针诊断：当前 0.1153 vs 11.48，需放大 100 倍。
+        # 动态逻辑：如果计算出的单日均价与现价偏离超过 5 倍，自动尝试数量级对齐。
+        raw_daily_buy = (buy_amt_w / buy_vol_w.replace(0, np.nan))
+        unit_correction = 1.0
+        # 探针逻辑：自动识别万元/股或百元/股的差异
+        avg_raw = raw_daily_buy.mean()
+        avg_close = close_price.mean()
+        if avg_raw > 0 and avg_close / avg_raw > 50:
+            unit_correction = 100.0 if avg_close / avg_raw < 500 else 10000.0
+            print(f"[探针] 检测到成本量级偏离，应用修正因子: {unit_correction}")
+        daily_buy = (raw_daily_buy * unit_correction).fillna(close_price)
+        # 3. 预平滑与动力学 (保持原有逻辑)
         avg_buy = daily_buy.ewm(span=5, adjust=False).mean()
-        # --- 动力学计算 (Kinematics) ---
-        # Level 1: Slope (速度)
-        # 逻辑：成本的 3日变动率。价格永远 > 0，使用百分比是安全的。
-        # replace(0, np.nan) 是最后的保险，防止极端数据错误
         buy_slope_raw = (avg_buy - avg_buy.shift(3)) / avg_buy.shift(3).replace(0, np.nan) * 100
-        # Level 2: Accel (加速度)
-        # 【关键防御】使用算术差分 (Difference)，而非增长率。
-        # 含义：斜率增加了多少个百分点。避免了 Slope=0 时的除零错误。
         buy_accel_raw = buy_slope_raw - buy_slope_raw.shift(1)
-        # Level 3: Jerk (加加速度/变盘)
-        # 【关键防御】同样使用算术差分。
         buy_jerk_raw = buy_accel_raw - buy_accel_raw.shift(1)
-        # --- 数据清洗与压缩 ---
-        # 使用 tanh 将动力学指标限制在合理区间，防止个别妖股的极端数据破坏整体模型
-        # 系数说明：
-        # Slope * 1.0: 1% 的日均变动对应 tanh(1) ~= 0.76 (合理)
-        # Accel * 2.0: 加速度通常很小，放大处理
-        # Jerk * 5.0: 突变信号通常极小，大幅放大以捕捉信号
-        result = {
-            "avg_buy": avg_buy,
-            "buy_slope": buy_slope_raw.fillna(0), # 输出原始值供逻辑判断(如 >0.2%)
-            "buy_accel": buy_accel_raw.fillna(0),
-            "buy_jerk": buy_jerk_raw.fillna(0),
-            # 归一化版本 (用于机器学习或打分融合)
-            "buy_slope_norm": np.tanh(buy_slope_raw),
-            "buy_accel_norm": np.tanh(buy_accel_raw * 2.0),
-            "buy_jerk_norm": np.tanh(buy_jerk_raw * 5.0),
-        }
-        # --- 2. 计算卖出成本 (Sell Cost) ---
-        # 逻辑同上
+        # 卖出侧同步修正
         sell_amt_w = (sell_elg_amt * w_elg) + (sell_lg_amt * w_lg)
         sell_vol_w = (sell_elg_vol * w_elg) + (sell_lg_vol * w_lg)
-        daily_sell = (sell_amt_w / sell_vol_w.replace(0, np.nan)).fillna(close_price)
+        daily_sell = (sell_amt_w / sell_vol_w.replace(0, np.nan) * unit_correction).fillna(close_price)
         avg_sell = daily_sell.ewm(span=5, adjust=False).mean()
-        sell_slope_raw = (avg_sell - avg_sell.shift(3)) / avg_sell.shift(3).replace(0, np.nan) * 100
-        result["avg_sell"] = avg_sell
-        result["sell_slope"] = sell_slope_raw.fillna(0)
-        _temp_debug_values["主力平均价格计算"] = {
+        result = {
             "avg_buy": avg_buy,
-            "buy_slope": buy_slope_raw,
-            "buy_accel": buy_accel_raw,
-            "buy_jerk": buy_jerk_raw
+            "buy_slope": buy_slope_raw.fillna(0),
+            "buy_accel": buy_accel_raw.fillna(0),
+            "buy_jerk": buy_jerk_raw.fillna(0),
+            "avg_sell": avg_sell,
+            "sell_slope": (avg_sell - avg_sell.shift(3)) / avg_sell.shift(3).replace(0, np.nan) * 100
         }
+        _temp_debug_values["主力平均价格计算"] = result
         return result
 
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
