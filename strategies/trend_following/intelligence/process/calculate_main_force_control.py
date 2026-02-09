@@ -125,50 +125,43 @@ class CalculateMainForceControlRelationship:
 
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
         """
-        【V4.3.2 · 军械库全量指标补完版】
-        职责：对照《最终军械库清单》提取全量物理信号，消除 KeyError。
-        更新版本：补齐了计算主力成本所需的 buy_lg_vol_D 等量能字段，并映射至内部逻辑键名。
+        【V4.3.4 · 结构化上下文全量映射版】
+        职责：对照《最终军械库清单》提取全量物理信号，并将其精准投喂到下游各组件所需的字典键位。
+        修改：1. 将 turnover 移入 sentiment 以适配杠杆模型。2. 将 stability_accel 移入 structure 以适配融合模型。3. 补全了 funds 桶中的全量导数指标。
         """
-        # 1. 基础量价映射 (Market)
         market_raw = {
             "close": self._get_safe_series(df, 'close_D', method_name=method_name),
             "amount": self._get_safe_series(df, 'amount_D', method_name=method_name).replace(0, np.nan),
-            "pct_change": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name),
-            "turnover": self._get_safe_series(df, 'turnover_rate_D', 1.0, method_name=method_name)
+            "pct_change": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
         }
-        # 2. 斐波那契均线映射 (EMA)
         ema_signals = {
             "ema_13": self._get_safe_series(df, 'EMA_13_D', method_name=method_name),
             "ema_21": self._get_safe_series(df, 'EMA_21_D', method_name=method_name),
             "ema_55": self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
         }
-        # 3. 资金分层映射 (Funds) - 补齐 Volume 字段
         funds_raw = {
             "buy_elg_amt": self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name),
             "buy_lg_amt": self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name),
             "sell_elg_amt": self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name=method_name),
             "sell_lg_amt": self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name=method_name),
-            "buy_elg_vol": self._get_safe_series(df, 'buy_elg_vol_D', 0.0, method_name=method_name), # 补齐
-            "buy_lg_vol": self._get_safe_series(df, 'buy_lg_vol_D', 0.0, method_name=method_name),   # 补齐
-            "sell_elg_vol": self._get_safe_series(df, 'sell_elg_vol_D', 0.0, method_name=method_name), # 补齐
-            "sell_lg_vol": self._get_safe_series(df, 'sell_lg_vol_D', 0.0, method_name=method_name),   # 补齐
-            "net_mf_amount": self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name)
+            "buy_elg_vol": self._get_safe_series(df, 'buy_elg_vol_D', 0.0, method_name=method_name),
+            "buy_lg_vol": self._get_safe_series(df, 'buy_lg_vol_D', 0.0, method_name=method_name),
+            "sell_elg_vol": self._get_safe_series(df, 'sell_elg_vol_D', 0.0, method_name=method_name),
+            "sell_lg_vol": self._get_safe_series(df, 'sell_lg_vol_D', 0.0, method_name=method_name),
+            "net_mf_calibrated": self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name),
+            "net_mf_jerk": self._get_safe_series(df, 'JERK_5_net_mf_amount_D', 0.0, method_name=method_name),
+            "net_mf_accel": self._get_safe_series(df, 'ACCEL_5_net_mf_amount_D', 0.0, method_name=method_name),
+            "net_mf_slope": self._get_safe_series(df, 'SLOPE_5_net_mf_amount_D', 0.0, method_name=method_name)
         }
-        # 4. 筹码结构映射 (Structure)
+        funds_raw["total_buy_amt"] = funds_raw["buy_elg_amt"] + funds_raw["buy_lg_amt"]
+        funds_raw["total_sell_amt"] = funds_raw["sell_elg_amt"] + funds_raw["sell_lg_amt"]
         structure_raw = {
             "cost_50pct": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),
             "chip_stability": self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name),
             "chip_entropy": self._get_safe_series(df, 'chip_entropy_D', 1.0, method_name=method_name),
-            "winner_rate": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name)
-        }
-        # 5. 动力学衍生指标映射 (Kinematics) - 匹配清单 5日窗口
-        derivatives = {
-            "net_mf_jerk": self._get_safe_series(df, 'JERK_5_net_mf_amount_D', 0.0, method_name=method_name),
-            "net_mf_accel": self._get_safe_series(df, 'ACCEL_5_net_mf_amount_D', 0.0, method_name=method_name),
-            "net_mf_slope": self._get_safe_series(df, 'SLOPE_5_net_mf_amount_D', 0.0, method_name=method_name),
+            "winner_rate": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name),
             "stability_accel": self._get_safe_series(df, 'ACCEL_5_chip_stability_D', 0.0, method_name=method_name)
         }
-        # 6. 情绪与行为 (Sentiment)
         sentiment_behavior = {
             "vpa_efficiency": self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name=method_name),
             "bbw": self._get_safe_series(df, 'BBW_21_2.0_D', 0.1, method_name=method_name),
@@ -177,21 +170,15 @@ class CalculateMainForceControlRelationship:
             "t0_sell_conf": self._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0, method_name=method_name),
             "pushing_score": self._get_safe_series(df, 'pushing_score_D', 0.0, method_name=method_name),
             "shakeout_score": self._get_safe_series(df, 'shakeout_score_D', 0.0, method_name=method_name),
-            "pushing_jerk": self._get_safe_series(df, 'JERK_5_pushing_score_D', 0.0, method_name=method_name)
+            "pushing_jerk": self._get_safe_series(df, 'JERK_5_pushing_score_D', 0.0, method_name=method_name),
+            "turnover": self._get_safe_series(df, 'turnover_rate_D', 1.0, method_name=method_name)
         }
-        # 7. 封装并计算聚合值
-        funds_raw["total_buy_amt"] = funds_raw["buy_elg_amt"] + funds_raw["buy_lg_amt"]
-        funds_raw["total_sell_amt"] = funds_raw["sell_elg_amt"] + funds_raw["sell_lg_amt"]
-        context = {
-            "market": market_raw,
-            "ema": ema_signals,
-            "funds": funds_raw,
-            "structure": structure_raw,
-            "sentiment": sentiment_behavior
-        }
-        # 8. 链路探针输出
+        context = {"market": market_raw, "ema": ema_signals, "funds": funds_raw, "structure": structure_raw, "sentiment": sentiment_behavior}
         if probe_ts:
-            print(f"[探针] 正在校验主力成本原料补全状态: buy_lg_vol exists in context: {'buy_lg_vol' in context['funds']}")
+            print(f"[探针] _get_raw_control_signals 数据链路注入校验:")
+            print(f"      - funds.net_mf_jerk exists: {'net_mf_jerk' in context['funds']}")
+            print(f"      - structure.stability_accel exists: {'stability_accel' in context['structure']}")
+            print(f"      - sentiment.turnover exists: {'turnover' in context['sentiment']}")
             raw_snapshot = {}
             for cat_name, cat_data in context.items():
                 for k, v in cat_data.items():
@@ -567,35 +554,35 @@ class CalculateMainForceControlRelationship:
 
     def _validate_arsenal_signals(self, df: pd.DataFrame, config: Dict, method_name: str, debug_output: Dict, probe_ts: pd.Timestamp) -> bool:
         """
-        【辅助方法】验证军械库清单中所需的物理信号是否存在。
+        【V1.2.0 · 军械库全链路信号验证版】
+        职责：在所有计算开始前，强制验证军械库清单中所需的物理信号是否存在。
+        修改：扩充了验证清单，包含高阶动力学衍生指标及主力意图指标，确保逻辑链路不因缺数中断。
         """
         _, mtf_slope_accel_weights = self._get_control_parameters(config)
-        # 核心物理信号列表 (基于 V4.1.0 需求)
         required_signals = [
-            'close_D', 'amount_D', 'pct_change_D',
+            'close_D', 'amount_D', 'pct_change_D', 'turnover_rate_D',
             'net_mf_amount_D', 'chip_stability_D', 'flow_consistency_D',
             'buy_lg_amount_D', 'buy_elg_amount_D', 'sell_lg_amount_D', 'sell_elg_amount_D',
+            'buy_lg_vol_D', 'buy_elg_vol_D', 'sell_lg_vol_D', 'sell_elg_vol_D',
             'EMA_13_D', 'EMA_21_D', 'EMA_55_D',
-            'BBW_21_2.0_D', 'turnover_rate_D',
-            'chip_entropy_D', 'VPA_EFFICIENCY_D',
-            'cost_50pct_D', 'winner_rate_D'
+            'BBW_21_2.0_D', 'chip_entropy_D', 'VPA_EFFICIENCY_D',
+            'cost_50pct_D', 'winner_rate_D',
+            'intraday_accumulation_confidence_D', 'intraday_distribution_confidence_D',
+            'pushing_score_D', 'shakeout_score_D',
+            'JERK_5_net_mf_amount_D', 'ACCEL_5_net_mf_amount_D', 'SLOPE_5_net_mf_amount_D',
+            'ACCEL_5_chip_stability_D', 'JERK_5_pushing_score_D'
         ]
-        # 动态添加动力学衍生信号 (Slope/Accel)
-        # 注意：数据层可能根据配置生成这些列，如果缺失通常由 _get_safe_series 处理默认值，
-        # 但这里的校验是为了确保核心逻辑不跑偏。
         base_sig_proxy = 'chip_stability_D'
         for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
             required_signals.append(f'SLOPE_{period_str}_{base_sig_proxy}')
         for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
             required_signals.append(f'ACCEL_{period_str}_{base_sig_proxy}')
-        # 执行校验
         if not self.helper._validate_required_signals(df, required_signals, method_name):
             if probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，计算中断。"] = ""
+                debug_output[f"    -> [过程情报警告] {method_name} 关键军械库信号缺失，计算终止。"] = ""
                 self._print_debug_info(debug_output)
             return False
         return True
-
 
 
 
