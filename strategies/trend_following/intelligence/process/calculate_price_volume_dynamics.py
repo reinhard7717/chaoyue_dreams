@@ -475,29 +475,27 @@ class CalculatePriceVolumeDynamics:
         return final_eff
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V71.0 · 微观矢量脉冲模型：集成历史累积底仓修正，识别良性洗盘与主力护盘，移除所有空行"""
+        """V72.0 · 微观矢量脉冲模型：深度向量化优化与 float32 类型降级，集成历史底仓修正逻辑，清除所有空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        elg_net = (raw['buy_elg_amount_D'] - raw['sell_elg_amount_D']).values
-        lg_net = (raw['buy_lg_amount_D'] - raw['sell_lg_amount_D']).values
-        total_amt = raw['amount_D'].values + 1e-9
-        daily_sm_net = (raw['buy_elg_amount_D'] + raw['buy_lg_amount_D'] - raw['sell_elg_amount_D'] - raw['sell_lg_amount_D']).values
-        accum_13 = raw['ACCUM_13_SMART_MONEY'].values
-        accum_21 = raw['ACCUM_21_SMART_MONEY'].values
-        elg_ratio = elg_net / total_amt
-        lg_ratio = lg_net / total_amt
-        sync_score = np.where((elg_ratio > 0) & (lg_ratio > 0), 1.0 + (elg_ratio + lg_ratio) * 2.0, np.where((elg_ratio * lg_ratio) < 0, 0.6, 0.8)).astype(np.float32)
-        sm_jerk = raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values
-        size_accel = (raw['ACCEL_5_volume_D'] - raw['ACCEL_5_trade_count_D']).values
-        base_vector = (0.5 + np.tanh((elg_ratio + lg_ratio) * 10.0) * 0.5) * (1.0 + np.where(sm_jerk > 0.5, 0.4, 0.0) + np.where(size_accel > 0.05, 0.3, 0.0))
-        historical_shield = np.where((daily_sm_net < 0) & (accum_13 > np.abs(daily_sm_net) * 10.0), 1.2, 1.0)
-        historical_shield = np.where((daily_sm_net < 0) & (accum_21 > np.abs(daily_sm_net) * 20.0), historical_shield * 1.15, historical_shield).astype(np.float32)
-        final_vector = pd.Series(base_vector * sync_score * historical_shield, index=df_index, dtype=np.float32).clip(0, 2.0)
+        e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values).astype(np.float32)
+        l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values).astype(np.float32)
+        t_a = (raw['amount_D'].values + 1e-9).astype(np.float32)
+        d_sm = (e_n + l_n).astype(np.float32)
+        a13, a21 = raw['ACCUM_13_SMART_MONEY'].values.astype(np.float32), raw['ACCUM_21_SMART_MONEY'].values.astype(np.float32)
+        e_r, l_r = e_n / t_a, l_n / t_a
+        s_s = np.where((e_r > 0) & (l_r > 0), 1.0 + (e_r + l_r) * 2.0, np.where((e_r * l_r) < 0, 0.6, 0.8)).astype(np.float32)
+        s_j = raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32)
+        s_a = (raw['ACCEL_5_volume_D'].values - raw['ACCEL_5_trade_count_D'].values).astype(np.float32)
+        b_v = (0.5 + np.tanh((e_r + l_r) * 10.0) * 0.5) * (1.0 + np.where(s_j > 0.5, 0.4, 0.0) + np.where(s_a > 0.05, 0.3, 0.0))
+        h_s = np.where((d_sm < 0) & (a13 > np.abs(d_sm) * 10.0), 1.2, 1.0)
+        h_s = np.where((d_sm < 0) & (a21 > np.abs(d_sm) * 20.0), h_s * 1.15, h_s).astype(np.float32)
+        f_v = pd.Series(b_v * s_s * h_s, index=df_index, dtype=np.float32).clip(0, 2.0)
         if is_debug and probe_ts in df_index:
-            print(f"\n[微观底仓修正探针 V71.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    当日净流入: {daily_sm_net[df_index.get_loc(probe_ts)]:.2f}, 13日累积: {accum_13[df_index.get_loc(probe_ts)]:.2f}")
-            print(f"    底仓护盾系数: {historical_shield[df_index.get_loc(probe_ts)]:.4f}")
-            print(f"    >>> 修正后攻击矢量: {final_vector.loc[probe_ts]:.4f}")
-        return final_vector
+            p_i = df_index.get_loc(probe_ts)
+            print(f"\n[微观极速修正探针 V72.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    当日净流入: {d_sm[p_i]:.2f}, 13日累积: {a13[p_i]:.2f}, 护盾: {h_s[p_i]:.4f}")
+            print(f"    >>> 最终攻击矢量: {f_v.loc[probe_ts]:.4f}")
+        return f_v
 
     def _calculate_vpa_elasticity_reflexivity(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V72.0 · 流体反身性模型：引入周期累积能量密度（Money/Volume），识别高效筹码交换，全向量化，清除空行"""

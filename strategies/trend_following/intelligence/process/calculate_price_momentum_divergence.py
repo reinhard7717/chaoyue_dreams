@@ -100,43 +100,25 @@ class CalculatePriceMomentumDivergence:
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V3.6.0 · 全维度参数锚点重构：补齐组件权重，彻底解决KeyError"""
+        """V3.11.0 · 时空一致性参数重构：引入全频段相干权重与共振冲突惩罚"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         rdi_config = get_param_value(params.get('rdi_params'), {})
         return {
             "fib_periods": [5, 13, 21, 34, 55],
-            # 基础动力学方向权重
-            "price_components_weights": {"close_D": 0.4, "CLOSING_STRENGTH_D": 0.3, "VPA_EFFICIENCY_D": 0.3}, # 修复KeyError的核心点
-            "momentum_components_weights": {"MACDh_13_34_8_D": 0.4, "RSI_13_D": 0.3, "chip_rsi_divergence_D": 0.3},
-            # 确认项权重
-            "vol_kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
-            "vol_conf_weights": {"energy_balance": 0.4, "kinematic_impact": 0.3, "micro_anomaly": 0.2, "stability": 0.1},
-            "mf_kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
-            "mf_cohesion_weights": {"HM_COORDINATED_ATTACK_D": 0.4, "SMART_MONEY_SYNERGY_BUY_D": 0.3, "main_force_activity_index_D": 0.3},
-            "mf_intent_weights": {"shakeout": 0.35, "accumulation": 0.35, "large_order": 0.3},
-            # DQWM 质量矩阵权重
-            "dqwm_weights": {
-                "momentum_quality": 0.25, "market_tension": 0.20, "stability": 0.15,
-                "chip_potential": 0.15, "liquidity_tide": 0.15, "market_constitution": 0.10
+            "consistency_weights": {
+                "polarity_resonance": 0.4, # 跨周期极性一致性
+                "pv_coherence": 0.4, # 价量动力学相干性
+                "entropy_order": 0.2 # 时空熵有序度
             },
-            # 物理张力与场能调制
-            "quality_weights": {"structural_tension": 0.35, "kinematic_exhaustion": 0.35, "chip_order": 0.3},
-            "tension_sub_weights": {"tension_index": 0.6, "rubber_band": 0.4},
-            "chip_order_sub_weights": {"convergence": 0.6, "entropy_inverted": 0.4},
-            "context_weights": {"psychological": 0.3, "physical_tension": 0.4, "game_intensity": 0.3},
-            # 调节系数
-            "kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
+            "conflict_penalty_exponent": 2.5, # 极性冲突时的非线性惩罚指数
+            "quality_weights": {"structural_tension": 0.2, "kinematic_exhaustion": 0.25, "chip_order": 0.15, "volume_ripeness": 0.2, "st_consistency": 0.2}, # 整合一致性
+            "price_components_weights": {"close_D": 0.4, "CLOSING_STRENGTH_D": 0.3, "VPA_EFFICIENCY_D": 0.3},
+            "momentum_components_weights": {"MACDh_13_34_8_D": 0.4, "RSI_13_D": 0.3, "chip_rsi_divergence_D": 0.3},
+            "dqwm_weights": {"momentum_quality": 0.25, "market_tension": 0.20, "stability": 0.15, "chip_potential": 0.15, "liquidity_tide": 0.15, "market_constitution": 0.10},
             "asymmetric_factor": 1.4,
-            "asymmetric_outflow_factor": 1.6,
             "kinematic_deadzone": 1e-6,
-            "parabolic_penalty_factor": 0.4,
-            "tension_kinematic_weights": {"value": 0.6, "velocity": 0.3, "accel": 0.1},
             "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.8),
-            "rdi_params": {
-                "enabled": get_param_value(rdi_config.get('enabled'), True),
-                "rdi_periods": [5, 13, 21],
-                "rdi_modulator_weight": 0.2
-            }
+            "rdi_params": {"enabled": get_param_value(rdi_config.get('enabled'), True), "rdi_periods": [5, 13, 21], "rdi_modulator_weight": 0.2}
         }
 
     def _validate_pmd_signals(self, df: pd.DataFrame, pmd_params: Dict, method_name: str) -> bool:
@@ -222,50 +204,35 @@ class CalculatePriceMomentumDivergence:
         return final_momentum_direction, debug_matrix
 
     def _calculate_volume_confirmation_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, method_name: str) -> Tuple[pd.Series, Dict]:
-        """V2.7.0 · 量能确认动力学重构版 (集成能量平衡、三阶导数与微观异动)"""
+        """V3.12.0 · 量能确认 HAB 增强模型：集成 21D 能量平衡累积与周期稳定性对冲 (全探针暴露)"""
         weights = pmd_params['vol_conf_weights']
-        k_w = pmd_params['vol_kinematic_weights']
-        deadzone = pmd_params['kinematic_deadzone']
-        fib_periods = pmd_params['fib_periods']
-        # 1. 能量平衡判定 (Energy Balance)
-        abs_energy = self.helper._normalize_series(df['absorption_energy_D'], df_index, ascending=True)
-        dist_energy = self.helper._normalize_series(df['distribution_energy_D'], df_index, ascending=True)
-        # 根据背离方向选择能量分值：顶背离看派发，底背离看吸收
+        # 1. 能量平衡判定 (Energy Balance) - 引入 HAB 累积记忆
+        abs_energy_hab = df['absorption_energy_D'].rolling(window=21).sum().fillna(0)
+        dist_energy_hab = df['distribution_energy_D'].rolling(window=21).sum().fillna(0)
+        # 计算当日能量相对于 HAB 周期均值的偏离度，作为强度放大器
+        abs_intensity = (df['absorption_energy_D'] / (abs_energy_hab / 21).clip(lower=1e-9))
+        dist_intensity = (df['distribution_energy_D'] / (dist_energy_hab / 21).clip(lower=1e-9))
+        # 根据背离方向选择能量分值：顶背离校验 HAB 派发稳定性，底背离校验 HAB 吸收韧性
         energy_balance = pd.Series([
-            dist_energy.loc[idx] if x > 0 else (abs_energy.loc[idx] if x < 0 else 0)
+            (dist_intensity.loc[idx] * 0.7 + (dist_energy_hab.loc[idx] / (abs_energy_hab.loc[idx] + 1e-9)) * 0.3) if x > 0 else
+            (abs_intensity.loc[idx] * 0.7 + (abs_energy_hab.loc[idx] / (dist_energy_hab.loc[idx] + 1e-9)) * 0.3) if x < 0 else 0
             for idx, x in base_divergence_score.items()
         ], index=df_index)
         # 2. 量能动力学矩阵 (Kinematic Impact)
-        period_scores = []
-        for p in fib_periods:
-            v_s = self.helper._normalize_series(df[f'SLOPE_{p}_volume_D'].where(df[f'SLOPE_{p}_volume_D'].abs() > deadzone, 0.0), df_index, bipolar=True)
-            v_a = self.helper._normalize_series(df[f'ACCEL_{p}_volume_D'].where(df[f'ACCEL_{p}_volume_D'].abs() > deadzone, 0.0), df_index, bipolar=True)
-            v_j = self.helper._normalize_series(df[f'JERK_{p}_volume_D'].where(df[f'JERK_{p}_volume_D'].abs() > deadzone, 0.0), df_index, bipolar=True)
-            period_scores.append(v_s * k_w['slope'] + v_a * k_w['accel'] + v_j * k_w['jerk'])
-        vol_kinematic_impact = pd.concat(period_scores, axis=1).mean(axis=1).abs()
-        # 3. 微观异动与稳定性
+        v_kin, _ = self._calculate_kinematic_core_node(df, df_index, 'volume_D', pmd_params)
+        vol_impact = v_kin.abs()
+        # 3. 稳定性与异动
         micro_anomaly = self.helper._normalize_series(df['tick_abnormal_volume_ratio_D'], df_index, ascending=True)
-        vpa_accel = self.helper._normalize_series(df['VPA_ACCELERATION_5D'].abs(), df_index, ascending=True)
         stability = self.helper._normalize_series(df['TURNOVER_STABILITY_INDEX_D'], df_index, ascending=True)
-        # 4. 最终确认得分融合
-        components = {
-            "energy_balance": energy_balance,
-            "kinematic_impact": (vol_kinematic_impact * 0.7 + vpa_accel * 0.3),
-            "micro_anomaly": micro_anomaly,
-            "stability": stability
-        }
-        volume_conf_score = (components["energy_balance"] * weights["energy_balance"] + 
-                            components["kinematic_impact"] * weights["kinematic_impact"] + 
-                            components["micro_anomaly"] * weights["micro_anomaly"] + 
-                            components["stability"] * weights["stability"])
-        # 同步背离符号
+        # 4. 最终融合：HAB 能量平衡(40%) + 动力学冲击(30%) + 异动(20%) + 稳定性(10%)
+        volume_conf_score = (energy_balance.clip(0, 1.5) * weights["energy_balance"] + vol_impact * weights["kinematic_impact"] + micro_anomaly * weights["micro_anomaly"] + stability * weights["stability"])
         final_vol_conf = volume_conf_score * np.sign(base_divergence_score)
-        debug_v = {f"vol_node_{k}": v for k, v in components.items()}
-        debug_v["final_volume_confirmation"] = final_vol_conf
-        return final_vol_conf, debug_v
+        print(f"  [探针-VolConfHAB] HAB吸收累积: {abs_energy_hab.mean():.2f} | HAB派发累积: {dist_energy_hab.mean():.2f} | 能量平衡均值: {energy_balance.mean():.4f}")
+        debug_v = {"node_energy_hab": energy_balance, "node_vol_impact": vol_impact, "final_volume_confirmation": final_vol_conf}
+        return final_vol_conf.astype(np.float32), debug_v
 
     def _calculate_main_force_confirmation_score(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict, base_div: pd.Series, method_name: str) -> Tuple[pd.Series, Dict]:
-        """V2.8.0 · 主力确认模型：三阶动力学、协同共振与意图陷阱识别 (全探针暴露)"""
+        """V3.9.0 · 主力确认记忆模型：集成 HAB 历史持仓韧性与三阶动力学修正 (全探针暴露)"""
         k_w = pmd_params['mf_kinematic_weights']
         c_w = pmd_params['mf_cohesion_weights']
         i_w = pmd_params['mf_intent_weights']
@@ -277,42 +244,46 @@ class CalculatePriceMomentumDivergence:
         sm_synergy = self.helper._normalize_series(df['SMART_MONEY_SYNERGY_BUY_D'], df_index, bipolar=True)
         mf_activity = self.helper._normalize_series(df['main_force_activity_index_D'], df_index, bipolar=True)
         mfc_node = (hm_attack * c_w['HM_COORDINATED_ATTACK_D'] + sm_synergy * c_w['SMART_MONEY_SYNERGY_BUY_D'] + mf_activity * c_w['main_force_activity_index_D'])
-        # 2. 资金动力学节点 (FK) - 基于三阶导数
+        # 2. 资金三阶动力学节点 (FK)
         fk_period_scores = []
         for p in fib:
             s_r = df[f'SLOPE_{p}_net_mf_amount_D'].where(df[f'SLOPE_{p}_net_mf_amount_D'].abs() > deadzone, 0.0)
             a_r = df[f'ACCEL_{p}_net_mf_amount_D'].where(df[f'ACCEL_{p}_net_mf_amount_D'].abs() > deadzone, 0.0)
             j_r = df[f'JERK_{p}_net_mf_amount_D'].where(df[f'JERK_{p}_net_mf_amount_D'].abs() > deadzone, 0.0)
-            a_p = np.where(a_r < 0, a_r * asym, a_r) # 强化资金流出加速度敏感度
+            a_p = np.where(a_r < 0, a_r * asym, a_r)
             s_n = self.helper._normalize_series(s_r, df_index, bipolar=True)
             a_n = self.helper._normalize_series(pd.Series(a_p, index=df_index), df_index, bipolar=True)
             j_n = self.helper._normalize_series(pd.Series(j_r, index=df_index), df_index, bipolar=True)
             fk_period_scores.append(s_n * k_w['slope'] + a_n * k_w['accel'] + j_n * k_w['jerk'])
         fk_node = pd.concat(fk_period_scores, axis=1).mean(axis=1)
-        # 3. 意图与陷阱节点 (ITV)
-        # 动态判定：顶背离看派发与异动，底背离看吸筹与洗盘
+        # 3. HAB 历史累积记忆修正 (核心升级点)
+        acc_mf_21d = df['net_mf_amount_D'].rolling(window=21).sum().fillna(0)
+        today_mf_abs = df['net_mf_amount_D'].abs()
+        # 计算流出占比：今日流出相对于21日累积买入的比例
+        mf_resilience_ratio = (today_mf_abs / acc_mf_21d.clip(lower=1e-9)).replace([np.inf, -np.inf], 0).fillna(0)
+        # 护盘因子：若21日累积买入且今日流出占比小于10%，则大幅衰减空头意图
+        mf_dampener = np.where((acc_mf_21d > 0) & (df['net_mf_amount_D'] < 0) & (mf_resilience_ratio < 0.1), pmd_params['intent_dampening_factor'], 1.0)
+        mf_dampener_series = pd.Series(mf_dampener, index=df_index)
+        # 4. 意图与陷阱节点 (ITV) - 注入 HAB 修正
         acc_score = self.helper._normalize_series(df['accumulation_signal_score_D'], df_index, ascending=True)
         dist_score = self.helper._normalize_series(df['distribution_signal_score_D'], df_index, ascending=True)
         shake_score = self.helper._normalize_series(df['shakeout_score_D'], df_index, ascending=True)
         large_anomaly = self.helper._normalize_series(df['large_order_anomaly_D'], df_index, ascending=True)
         sm_diverge = self.helper._normalize_series(df['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'], df_index, bipolar=True)
-        itv_node = pd.Series([
+        itv_raw = pd.Series([
             (dist_score.loc[idx] * i_w['accumulation'] + large_anomaly.loc[idx] * i_w['large_order'] + sm_diverge.loc[idx].clip(0)) if x > 0 else
             (acc_score.loc[idx] * i_w['accumulation'] + shake_score.loc[idx] * i_w['shakeout'] - sm_diverge.loc[idx].clip(upper=0)) if x < 0 else 0
             for idx, x in base_div.items()
         ], index=df_index)
-        # 4. 最终确认得分融合：协同 * 动力 * 意图，并由筹码稳定性调制
+        itv_node = itv_raw * mf_dampener_series # 历史累积记忆对陷阱判定的修正
+        # 5. 最终融合：协同 * 动力 * 修正后的意图
         chip_stb = self.helper._normalize_series(df['chip_stability_D'], df_index, ascending=True)
         mf_conf_score = (mfc_node * 0.35 + fk_node * 0.4 + itv_node * 0.25) * chip_stb
         final_mf_conf = mf_conf_score * np.sign(base_div)
+        print(f"[探针-MFConfirmation] 21D累积均值: {acc_mf_21d.mean():.2f} | 意图衰减器均值: {mf_dampener_series.mean():.4f} | 持仓韧性占比均值: {mf_resilience_ratio.mean():.4f}")
         debug_v = {
-            "probe_raw_net_mf": df['net_mf_amount_D'],
-            "probe_hm_attack": df['HM_COORDINATED_ATTACK_D'],
-            "node_mf_cohesion": mfc_node,
-            "node_mf_kinematics": fk_node,
-            "node_mf_intent_trap": itv_node,
-            "node_chip_foundation": chip_stb,
-            "final_mf_confirmation": final_mf_conf
+            "probe_acc_mf_21d": acc_mf_21d, "node_mf_cohesion": mfc_node, "node_mf_kinematics": fk_node,
+            "node_mf_intent_hab_fixed": itv_node, "final_mf_confirmation": final_mf_conf
         }
         return final_mf_conf, debug_v
 
@@ -348,47 +319,74 @@ class CalculatePriceMomentumDivergence:
         print(f"[探针-KinematicEngine] 信号源: {base_col} | 死区阈值: {deadzone} | 存活率: {(fused_kinematic != 0).mean()*100:.2f}% | 动力均值: {fused_kinematic.mean():.4f}")
         return fused_kinematic, probe_data
 
+    def _calculate_spatio_temporal_consistency_score(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
+        """V3.11.0 · 时空一致性验证模型：执行全频段背离相干性与冲突惩罚 (全探针暴露)"""
+        fib = pmd_params['fib_periods']
+        weights = pmd_params['consistency_weights']
+        penalty_exp = pmd_params['conflict_penalty_exponent']
+        # 1. 跨周期极性一致性：计算价格与动量在所有斐波那契周期下的方向背离一致性
+        period_polarities = []
+        for p in fib:
+            p_slope = self.helper._normalize_series(df[f'SLOPE_{p}_close_D'], df_index, bipolar=True)
+            m_slope = self.helper._normalize_series(df[f'SLOPE_{p}_MACDh_13_34_8_D'], df_index, bipolar=True)
+            period_polarities.append(np.sign(p_slope - m_slope))
+        polarity_matrix = pd.concat(period_polarities, axis=1)
+        resonance_score = polarity_matrix.mean(axis=1).abs()
+        # 2. 冲突惩罚：若多周期方向发生严重冲突 (均值趋近于0)，则产生指数级分值坍缩
+        conflict_penalty = resonance_score.pow(penalty_exp)
+        # 3. 价量动力学相干性：判定价格减速是否伴随量能加速度的正向确认
+        pv_coherence_scores = []
+        for p in fib:
+            p_accel = self.helper._normalize_series(df[f'ACCEL_{p}_close_D'], df_index, bipolar=True)
+            v_accel = self.helper._normalize_series(df[f'ACCEL_{p}_volume_D'], df_index, bipolar=True)
+            coherence = (v_accel - p_accel).clip(0, 1)
+            pv_coherence_scores.append(coherence)
+        pv_coherence_node = pd.concat(pv_coherence_scores, axis=1).mean(axis=1)
+        # 4. 时空熵有序度：熵值越低一致性越强
+        price_entropy = self.helper._normalize_series(df['PRICE_ENTROPY_D'], df_index, ascending=True)
+        order_node = 1 - price_entropy
+        # 5. 融合与探针
+        st_consistency_score = (resonance_score * weights['polarity_resonance'] + pv_coherence_node * weights['pv_coherence'] + order_node * weights['entropy_order']) * conflict_penalty
+        print(f"  [探针-STConsistency] 周期一致性均值: {resonance_score.mean():.4f} | 冲突惩罚比例均值: {conflict_penalty.mean():.4f} | 价量相干均值: {pv_coherence_node.mean():.4f}")
+        debug_v = {"node_resonance": resonance_score, "node_conflict_penalty": conflict_penalty, "node_pv_coherence": pv_coherence_node, "node_order": order_node, "final_st_consistency": st_consistency_score}
+        return st_consistency_score.astype(np.float32), debug_v
     def _calculate_divergence_quality_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_div: pd.Series) -> Tuple[pd.Series, Dict]:
-        """V2.9.0 · 背离质量动力学模型：集成结构张力、物理极限、动力学衰竭与筹码有序度 (全探针暴露)"""
+        """V3.11.0 · 背离质量增强模型：集成 HAB 缩量成熟度与时空一致性验证 (全探针暴露)"""
         q_w = pmd_params['quality_weights']
         t_w = pmd_params['tension_sub_weights']
         c_w = pmd_params['chip_order_sub_weights']
         fib = pmd_params['fib_periods']
-        # 1. 结构张力节点 (Structural Tension Node) - 判定物理极限
+        # 1. 结构张力节点：判定空间极性极限
         tension_idx = self.helper._normalize_series(df['MA_POTENTIAL_TENSION_INDEX_D'], df_index, ascending=True)
         rubber_band = self.helper._normalize_series(df['MA_RUBBER_BAND_EXTENSION_D'].abs(), df_index, ascending=True)
         tension_node = (tension_idx * t_w['tension_index'] + rubber_band * t_w['rubber_band'])
-        # 2. 动力学衰竭节点 (Kinematic Exhaustion Node) - 判定力矩消失
+        # 2. 动力学衰竭节点：捕捉价格惯性与驱动力的背离
         k_exhaustion_scores = []
         for p in fib:
             p_accel = self.helper._normalize_series(df[f'ACCEL_{p}_close_D'], df_index, bipolar=True)
             m_accel = self.helper._normalize_series(df[f'ACCEL_{p}_MACDh_13_34_8_D'], df_index, bipolar=True)
             p_jerk = self.helper._normalize_series(df[f'JERK_{p}_close_D'], df_index, bipolar=True)
-            # 高质量背离：价格加速度正在反转(与价格方向相反)，而动量加加速度正在增强(回归)
             exhaustion = (m_accel - p_accel).abs() * (1 + p_jerk.abs())
             k_exhaustion_scores.append(exhaustion)
         kinematic_node = pd.concat(k_exhaustion_scores, axis=1).mean(axis=1)
-        # 3. 筹码有序度节点 (Chip Order Node) - 判定博弈一致性
+        # 3. 筹码有序度节点：判定博弈共识状态
         chip_conv = self.helper._normalize_series(df['chip_convergence_ratio_D'], df_index, ascending=True)
-        chip_ent_inv = self.helper._normalize_series(df['chip_entropy_D'], df_index, ascending=False)
+        chip_ent_inv = 1 - self.helper._normalize_series(df['chip_entropy_D'], df_index, ascending=True)
         chip_node = (chip_conv * c_w['convergence'] + chip_ent_inv * c_w['entropy_inverted'])
-        # 4. 时间成熟度修正
-        ripeness = self.helper._normalize_series(df['days_since_last_peak_D'], df_index, ascending=True)
-        # 5. 最终融合与探针暴露
-        quality_score = (tension_node * q_w['structural_tension'] + kinematic_node * q_w['kinematic_exhaustion'] + chip_node * q_w['chip_order']) * ripeness
-        quality_score = quality_score.clip(0, 1)
-        print(f"[探针-DivergenceQuality] 基础背离均值: {base_div.mean():.4f}")
-        print(f"[探针-DivergenceQuality] 张力节点均值: {tension_node.mean():.4f} | 物理乖离均值: {rubber_band.mean():.4f}")
-        print(f"[探针-DivergenceQuality] 动力衰竭均值: {kinematic_node.mean():.4f} | 筹码有序度均值: {chip_node.mean():.4f}")
-        print(f"[探针-DivergenceQuality] 最终质量评分均值: {quality_score.mean():.4f}")
-        debug_v = {
-            "node_tension": tension_node,
-            "node_kinematic_exhaustion": kinematic_node,
-            "node_chip_order": chip_node,
-            "node_ripeness": ripeness,
-            "final_quality_score": quality_score
-        }
-        return quality_score, debug_v
+        # 4. HAB 成交量成熟度节点：极致缩量累积识别
+        vol_rolling_mean = df['volume_D'].rolling(window=21).mean()
+        vol_atrophy_hab = 1 - self.helper._normalize_series(vol_rolling_mean, df_index, ascending=True)
+        turnover_stb = self.helper._normalize_series(df['TURNOVER_STABILITY_INDEX_D'], df_index, ascending=True)
+        ripeness_node = (vol_atrophy_hab * 0.7 + turnover_stb * 0.3)
+        # 5. 时空一致性校验：引入跨周期相干系数
+        st_consistency, st_diag = self._calculate_spatio_temporal_consistency_score(df, df_index, pmd_params, "QualityConsistency")
+        # 6. 最终融合与探针暴露
+        quality_score = (tension_node * q_w['structural_tension'] + kinematic_node * q_w['kinematic_exhaustion'] + chip_node * q_w['chip_order'] + ripeness_node * q_w['volume_ripeness'] + st_consistency * q_w['st_consistency']).clip(0, 1)
+        print(f"  [探针-QualityHAB] 物理张力节点: {tension_node.mean():.4f} | 动力衰竭节点: {kinematic_node.mean():.4f}")
+        print(f"  [探针-QualityHAB] 筹码有序节点: {chip_node.mean():.4f} | 缩量成熟度节点: {ripeness_node.mean():.4f} | 时空一致性节点: {st_consistency.mean():.4f}")
+        print(f"  [探针-QualityHAB] 最终质量评分均值: {quality_score.mean():.4f}")
+        debug_v = {"node_tension": tension_node, "node_kinematic_exhaustion": kinematic_node, "node_chip_order": chip_node, "node_volume_ripeness_hab": ripeness_node, "node_st_consistency": st_consistency, "final_quality_score": quality_score}
+        return quality_score.astype(np.float32), debug_v
 
     def _calculate_context_modulator(self, df_index: pd.Index, raw_data: Dict, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
         """V3.0.0 · A股四维时空场能调制模型：集成心理边界、物理张力、环境热度与博弈强度 (全探针暴露)"""
@@ -489,33 +487,46 @@ class CalculatePriceMomentumDivergence:
         return volume_atrophy_score.astype(np.float32)
 
     def _calculate_distribution_intent_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
-        """V3.2.0 · 复合派发意图模型：集成派发能量动力学与价格Jerk坍塌 (全探针暴露)"""
-        # 1. 派发能量场动力学
+        """V3.8.0 · 派发意图记忆模型：引入历史累积买入对当日流出的对冲逻辑 (全探针暴露)"""
+        # 1. 基础派发能量动力学
         dist_energy_kin, _ = self._calculate_kinematic_core_node(df, df_index, 'distribution_energy_D', pmd_params)
-        # 2. 价格冲击力监控 (Jerk坍塌是派发确认)
+        # 2. HAB 历史记忆系统处理
+        # 计算 21 日主力累积净买入总额
+        acc_mf_21d = df['net_mf_amount_D'].rolling(window=21).sum().fillna(0)
+        today_mf_out = df['net_mf_amount_D'].clip(upper=0).abs()
+        # 3. 意图衰减因子计算：若累积买入远超今日流出，则衰减派发意图
+        # 逻辑：当日流出占累积量的比例，比例越小，衰减越狠
+        flow_ratio = (today_mf_out / acc_mf_21d.clip(lower=1e-9)).replace([np.inf, -np.inf], 0).fillna(0)
+        dampener = np.where((acc_mf_21d > 0) & (flow_ratio < 0.1), pmd_params['intent_dampening_factor'], 1.0)
+        dampener_series = pd.Series(dampener, index=df_index)
+        # 4. 融合派发意图
         _, price_probe = self._calculate_kinematic_core_node(df, df_index, 'close_D', pmd_params)
-        price_jerk_collapsed = (1 - price_probe['fused_kinematic'].abs()).clip(0, 1) # 冲击消失
-        # 3. 卖单异动确认
+        price_jerk_collapsed = (1 - price_probe['fused_kinematic'].abs()).clip(0, 1)
         sell_ofi = self.helper._normalize_series(df['SMART_MONEY_INST_NET_BUY_D'].clip(upper=0).abs(), df_index, ascending=True)
-        # 4. 最终融合
-        dist_intent = (dist_energy_kin.clip(0, 1) * 0.5 + price_jerk_collapsed * 0.3 + sell_ofi * 0.2)
-        print(f"[探针-DistIntent] 派发能量动力: {dist_energy_kin.mean():.4f} | 价格冲击坍塌: {price_jerk_collapsed.mean():.4f}")
+        # 最终意图受到 HAB 衰减器的修正
+        dist_intent = (dist_energy_kin.clip(0, 1) * 0.5 + price_jerk_collapsed * 0.3 + sell_ofi * 0.2) * dampener_series
+        print(f"[探针-DistIntent] 21D累积主力值: {acc_mf_21d.mean():.2f} | 今日流出: {today_mf_out.mean():.2f} | 意图衰减器均值: {dampener_series.mean():.4f}")
         return dist_intent.astype(np.float32)
 
     def _calculate_covert_accumulation_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
-        """V3.2.0 · 隐蔽吸筹模型：集成吸收能量、异动占比与价格死区锁定 (全探针暴露)"""
-        # 1. 吸收能量场动力学
+        """V3.8.0 · 隐蔽吸筹记忆模型：集成历史派发压力对当日吸收能量的对冲校验 (全探针暴露)"""
+        # 1. 吸收能量核心
         abs_energy_kin, _ = self._calculate_kinematic_core_node(df, df_index, 'absorption_energy_D', pmd_params)
-        # 2. 价格死区锁定 (横盘吸筹判定)
+        # 2. HAB 历史记忆对冲
+        # 若 21 日内累积净派发严重，则抑制吸筹分值
+        dist_mf_21d = df['net_mf_amount_D'].rolling(window=21).sum().clip(upper=0).abs()
+        today_abs_val = df['absorption_energy_D']
+        # 逻辑：如果今日吸收能量不足以对冲 21D 累积派发量的 20%，则视为无效吸筹
+        acc_dampener = np.where((dist_mf_21d > 1e6) & (today_abs_val < (dist_mf_21d * 0.2)), pmd_params['intent_dampening_factor'], 1.0)
+        acc_dampener_series = pd.Series(acc_dampener, index=df_index)
+        # 3. 基础组件
         price_kin, _ = self._calculate_kinematic_core_node(df, df_index, 'close_D', pmd_params)
         price_deadzone_lock = (1 - price_kin.abs()).clip(0, 1)
-        # 3. 异动量能占比 (聪明钱痕迹)
         abnormal_ratio = self.helper._normalize_series(df['tick_abnormal_volume_ratio_D'], df_index, ascending=True)
-        # 4. 吸筹信号共振
         acc_signal = self.helper._normalize_series(df['accumulation_signal_score_D'], df_index, ascending=True)
-        # 5. 最终融合
-        covert_acc_score = (abs_energy_kin.clip(0, 1) * 0.4 + price_deadzone_lock * 0.2 + abnormal_ratio * 0.2 + acc_signal * 0.2)
-        print(f"[探针-CovertAcc] 吸收能量动力: {abs_energy_kin.mean():.4f} | 价格死区锁定: {price_deadzone_lock.mean():.4f}")
+        # 最终融合
+        covert_acc_score = (abs_energy_kin.clip(0, 1) * 0.4 + price_deadzone_lock * 0.2 + abnormal_ratio * 0.2 + acc_signal * 0.2) * acc_dampener_series
+        print(f"[探针-CovertAcc] 21D累积派发值: {dist_mf_21d.mean():.2f} | 吸筹衰减器均值: {acc_dampener_series.mean():.4f}")
         return covert_acc_score.astype(np.float32)
 
     def _calculate_chip_divergence_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
@@ -601,14 +612,16 @@ class CalculatePriceMomentumDivergence:
         return potential_score.astype(np.float32)
 
     def _calculate_liquidity_tide_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
-        """V3.3.0 · 流动性潮汐模型：集成逐笔筹码流变率与波动率稳定性 (取代旧版Composite方法)"""
-        # 1. 逐笔筹码流动力学引擎
-        chip_flow_kin, _ = self._calculate_kinematic_core_node(df, df_index, 'tick_level_chip_flow_D', pmd_params) #
-        # 2. 资金流波动率稳定性 (波动率低代表潮汐平稳，利于背离转化)
-        flow_vol_stb = 1 - self.helper._normalize_series(df['flow_volatility_10d_D'], df_index, ascending=True) #
-        # 3. 潮汐得分
-        tide_score = (chip_flow_kin.abs() * 0.7 + flow_vol_stb * 0.3)
-        print(f"[探针-LiquidityTide] 筹码流动力均值: {chip_flow_kin.mean():.4f} | 资金流稳定均值: {flow_vol_stb.mean():.4f}")
+        """V3.12.0 · 流动性潮汐 HAB 累积模型：集成 21D 筹码流水位与波动率稳定性 (取代旧版Composite方法)"""
+        # 1. 逐笔筹码流动力学与 HAB 水位
+        chip_flow_kin, _ = self._calculate_kinematic_core_node(df, df_index, 'tick_level_chip_flow_D', pmd_params)
+        flow_hab_sum = df['tick_level_chip_flow_D'].rolling(window=21).sum().fillna(0)
+        flow_hab_zscore = (df['tick_level_chip_flow_D'] - (flow_hab_sum / 21)) / (df['tick_level_chip_flow_D'].rolling(window=21).std().clip(lower=1e-9))
+        # 2. 资金流波动率 HAB 稳定性
+        flow_vol_stb = 1 - self.helper._normalize_series(df['flow_volatility_10d_D'], df_index, ascending=True)
+        # 3. 潮汐得分融合：动力学变率(40%) + HAB水位Z值(40%) + 波动率稳定(20%)
+        tide_score = (chip_flow_kin.abs() * 0.4 + flow_hab_zscore.abs().clip(0, 1) * 0.4 + flow_vol_stb * 0.2)
+        print(f"  [探针-LiquidityTideHAB] 21D筹码流累积: {flow_hab_sum.mean():.2f} | 潮汐Z值均值: {flow_hab_zscore.mean():.4f}")
         return tide_score.astype(np.float32)
 
     def _calculate_market_constitution_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, method_name: str) -> pd.Series:
@@ -636,60 +649,93 @@ class CalculatePriceMomentumDivergence:
         print(f"[探针-MarketTension] 张力动力均值: {tension_kin.mean():.4f} | 乖离动力均值: {rubber_kin.mean():.4f}")
         return tension_score.astype(np.float32)
 
+    def _calculate_spatio_temporal_consistency_score(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
+        """V3.11.0 · 时空一致性验证模型：执行全频段背离相干性与冲突惩罚 (全探针暴露)"""
+        fib = pmd_params['fib_periods']
+        weights = pmd_params['consistency_weights']
+        penalty_exp = pmd_params['conflict_penalty_exponent']
+        # 1. 跨周期极性一致性 (Polarity Resonance)
+        period_polarities = []
+        for p in fib:
+            p_slope = self.helper._normalize_series(df[f'SLOPE_{p}_close_D'], df_index, bipolar=True)
+            m_slope = self.helper._normalize_series(df[f'SLOPE_{p}_MACDh_13_34_8_D'], df_index, bipolar=True)
+            period_polarities.append(np.sign(p_slope - m_slope))
+        polarity_matrix = pd.concat(period_polarities, axis=1)
+        # 一致性均值：绝对值越接近1代表所有周期方向越统一
+        resonance_score = polarity_matrix.mean(axis=1).abs()
+        # 冲突惩罚：如果均值接近0 (方向混乱)，则产生非线性坍缩
+        conflict_penalty = resonance_score.pow(penalty_exp)
+        # 2. 价量动力学相干性 (PV Coherence)
+        pv_coherence_scores = []
+        for p in fib:
+            p_accel = self.helper._normalize_series(df[f'ACCEL_{p}_close_D'], df_index, bipolar=True)
+            v_accel = self.helper._normalize_series(df[f'ACCEL_{p}_volume_D'], df_index, bipolar=True)
+            # 在高质量反转中，价格减速(Accel<0)通常伴随成交量加速(Accel>0)的承接
+            coherence = (v_accel - p_accel).clip(0, 1)
+            pv_coherence_scores.append(coherence)
+        pv_coherence_node = pd.concat(pv_coherence_scores, axis=1).mean(axis=1)
+        # 3. 时空熵有序度 (Entropy Order)
+        price_entropy = self.helper._normalize_series(df['PRICE_ENTROPY_D'], df_index, ascending=True)
+        order_node = 1 - price_entropy # 熵越低，一致性越强
+        # 4. 融合一致性得分
+        st_consistency_score = (resonance_score * weights['polarity_resonance'] + 
+                                pv_coherence_node * weights['pv_coherence'] + 
+                                order_node * weights['entropy_order']) * conflict_penalty
+        print(f"[探针-STConsistency] 极性一致性均值: {resonance_score.mean():.4f} | 冲突惩罚后均值: {st_consistency_score.mean():.4f}")
+        print(f"[探针-STConsistency] 价量相干均值: {pv_coherence_node.mean():.4f} | 有序度均值: {order_node.mean():.4f}")
+        debug_v = {
+            "node_polarity_resonance": resonance_score, "node_conflict_penalty": conflict_penalty,
+            "node_pv_coherence": pv_coherence_node, "node_order": order_node,
+            "final_st_consistency": st_consistency_score
+        }
+        return st_consistency_score.astype(np.float32), debug_v
+
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V3.4.0 · 顶层调度：注入背离质量权重矩阵 (DQWM) 的动力学分析引擎 (全探针暴露)"""
-        method_name = "PriceMomentumDQWM_System"
+        """V3.7.0 · 双向并行计算引擎：多空轨道独立驱动与场能对冲融合 (全探针暴露)"""
+        method_name = "PriceMomentumBidirectionalParallel_System"
         pmd_params = self._get_pmd_params(config)
         df_index = df.index
         if not self._validate_pmd_signals(df, pmd_params, method_name):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        raw_data = {col: df[col] for col in df.columns if col.endswith('_D')} # [cite: 1, 2, 3]
-        # 1. 核心动力学方向计算
-        fused_p, p_diag = self._calculate_fused_price_direction(df, df_index, raw_data, pmd_params, method_name)
-        fused_m, m_diag = self._calculate_fused_momentum_direction(df, df_index, raw_data, pmd_params, method_name)
-        # 2. 基础背离与意图校准
-        base_div = (fused_p - fused_m).clip(-1, 1)
-        dist_intent = self._calculate_distribution_intent_score(df, df_index, raw_data, pmd_params, method_name)
-        acc_intent = self._calculate_covert_accumulation_score(df, df_index, raw_data, pmd_params, method_name)
-        # 3. 计算“背离质量权重矩阵” (DQWM Matrix)
-        dq_mom_quality = self._calculate_momentum_quality_score(df, df_index, raw_data, pmd_params, method_name)
-        dq_stability = self._calculate_stability_score(df, df_index, raw_data, pmd_params, method_name)
-        dq_chip_potential = self._calculate_chip_historical_potential_score(df, df_index, raw_data, pmd_params, method_name)
-        dq_tide = self._calculate_liquidity_tide_score(df, df_index, raw_data, pmd_params, method_name)
-        dq_const = self._calculate_market_constitution_score(df, df_index, raw_data, pmd_params, method_name)
-        dq_tension = self._calculate_market_tension_score(df, df_index, raw_data, pmd_params, method_name)
-        # 执行矩阵加权融合
-        dqwm_components = {
-            "momentum_quality": dq_mom_quality, "stability": dq_stability, "chip_potential": dq_chip_potential,
-            "liquidity_tide": dq_tide, "market_constitution": dq_const, "market_tension": dq_tension
-        }
-        dqwm_matrix_score = _weighted_sum_fusion(dqwm_components, pmd_params['dqwm_weights'], df_index)
-        # 4. 融合与场能调制
-        # 融合公式：(基础背离*0.5 + 意图*0.5) * DQWM矩阵得分 * 环境调制
-        intent_gain = pd.Series(0.0, index=df_index)
-        intent_gain.loc[base_div > 0] = acc_intent.loc[base_div > 0]
-        intent_gain.loc[base_div < 0] = dist_intent.loc[base_div < 0]
-        ctx_modulator, ctx_diag = self._calculate_context_modulator(df_index, raw_data, pmd_params)
-        raw_fusion = (base_div * 0.5 + (intent_gain * np.sign(base_div)) * 0.5)
-        modulated_score = raw_fusion * dqwm_matrix_score * ctx_modulator
-        # 5. RDI 相位锁定
-        final_rdi_modulator = pd.Series(1.0, index=df_index)
+        # 1. 基础方向计算 (公共核心)
+        f_p, p_diag = self._calculate_fused_price_direction(df, df_index, {}, pmd_params, method_name)
+        f_m, m_diag = self._calculate_fused_momentum_direction(df, df_index, {}, pmd_params, method_name)
+        base_div = (f_p - f_m).clip(-1, 1)
+        # 2. 质量矩阵与场能调制 (公共分量)
+        dqwm_score = _weighted_sum_fusion({
+            "mom_q": self._calculate_momentum_quality_score(df, df_index, {}, pmd_params, method_name),
+            "tension": self._calculate_market_tension_score(df, df_index, {}, pmd_params, method_name),
+            "stb": self._calculate_stability_score(df, df_index, {}, pmd_params, method_name),
+            "chip": self._calculate_chip_historical_potential_score(df, df_index, {}, pmd_params, method_name),
+            "tide": self._calculate_liquidity_tide_score(df, df_index, {}, pmd_params, method_name),
+            "const": self._calculate_market_constitution_score(df, df_index, {}, pmd_params, method_name)
+        }, pmd_params['dqwm_weights'], df_index)
+        ctx_mod, _ = self._calculate_context_modulator(df_index, {c: df[c] for c in df.columns}, pmd_params)
+        # 3. 多头轨道并行计算 (Bullish Path)
+        acc_intent = self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name)
+        bullish_potential = base_div.where(base_div > 0, 0.0) # 仅关注正向背离
+        bullish_score = (bullish_potential * 0.6 + acc_intent * 0.4) * dqwm_score * ctx_mod
+        # 4. 空头轨道并行计算 (Bearish Path)
+        dist_intent = self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name)
+        bearish_potential = base_div.where(base_div < 0, 0.0).abs() # 仅关注负向背离
+        bearish_score = (bearish_potential * 0.6 + dist_intent * 0.4) * dqwm_score * ctx_mod * pmd_params['path_sensitivity']['bearish']
+        # 5. 双向对冲与最终分数融合 (Competitive Fusion)
+        # 逻辑：如果多空分值同时存在，则输出优势方向，并由 RDI 锁定相位
+        final_modulated = (bullish_score - bearish_score).clip(-1, 1)
         if pmd_params['rdi_params']['enabled']:
-            rdi_val, _ = self._calculate_rdi_for_pair(fused_p, fused_m, df_index, pmd_params['rdi_params'], method_name, "P_M")
-            final_rdi_modulator = (1 + rdi_val * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
-        # 6. 最终非线性分值计算
-        final_score = np.sign(modulated_score) * (modulated_score.abs() * final_rdi_modulator).pow(pmd_params['final_fusion_exponent'])
-        # 7. 诊断与探针
+            rdi_val, _ = self._calculate_rdi_for_pair(f_p, f_m, df_index, pmd_params['rdi_params'], method_name, "P_M")
+            final_modulated = final_modulated * (1 + rdi_val * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
+        final_score = np.sign(final_modulated) * (final_modulated.abs().pow(pmd_params['final_fusion_exponent']))
+        # 6. 全链条诊断探针暴露
         if get_param_value(self.helper.debug_params.get('enabled'), False):
-            probe_ts = df.index[-1]
-            all_diagnostics = {
-                "融合方向": {"fused_p": fused_p, "fused_m": fused_m},
-                "DQWM质量矩阵": {k: v for k, v in dqwm_components.items()},
-                "DQWM最终权重": {"dqwm_matrix_score": dqwm_matrix_score},
-                "意图与环境": {"intent_gain": intent_gain, "ctx_modulator": ctx_modulator},
-                "最终诊断": {"final_score": final_score}
+            probe_ts = df_index[-1]
+            diag = {
+                "核心分量": {"f_p": f_p, "f_m": f_m, "dqwm_score": dqwm_score},
+                "并行多头轨道": {"base_div_up": bullish_potential, "acc_intent": acc_intent, "bullish_final": bullish_score},
+                "并行空头轨道": {"base_div_down": bearish_potential, "dist_intent": dist_intent, "bearish_final": bearish_score},
+                "最终诊断": {"ctx_mod": ctx_mod, "final_modulated": final_modulated, "final_score": final_score}
             }
-            self._print_debug_output_pmd(all_diagnostics, probe_ts, method_name, final_score)
+            self._print_debug_output_pmd(diag, probe_ts, method_name, final_score)
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 
