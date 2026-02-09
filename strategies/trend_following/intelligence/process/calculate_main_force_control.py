@@ -124,112 +124,102 @@ class CalculateMainForceControlRelationship:
 
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
         """
-        【V2.1.0 · 全维动力学信号提取】
-        新增提取 Slope(斜率), Accel(加速度), Jerk(加加速度) 指标。
-        锁定 Lookback = 5 (斐波那契周线窗口)，捕捉主力短线意图的突变。
-        动力学核心对象：
-        1. net_mf_amount_D (资金流): 捕捉点火与衰竭。
-        2. chip_stability_D (筹码结构): 捕捉锁仓加速。
-        3. pushing_score_D (推升意图): 捕捉攻击信号突变。
+        【V2.2.0 · 全链路探针强化版】
+        职责：提取并分类存储全量原始物理信号。
+        更新：增加对所有物理原料的快照捕获，确保从数据层到逻辑层的完全透明。
         """
-        # 1. 基础数据提取 (保持原有逻辑)
-        market = {
-            "close": self._get_safe_series(df, 'close_D', method_name=method_name),
-            "amount": self._get_safe_series(df, 'amount_D', method_name=method_name).replace(0, np.nan),
-            "pct_change": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name),
+        # --- 1. 基础物理原料 (Raw Physical Data) ---
+        # 捕捉军械库原始字段，用于排查底层数据异常
+        market_raw = {
+            "close_D": self._get_safe_series(df, 'close_D', method_name=method_name),
+            "amount_D": self._get_safe_series(df, 'amount_D', method_name=method_name).replace(0, np.nan),
+            "pct_change_D": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name),
+            "turnover_rate_D": self._get_safe_series(df, 'turnover_rate_D', 1.0, method_name=method_name)
         }
-        structure = {
-            "ema_13": self._get_safe_series(df, 'EMA_13_D', method_name=method_name),
-            "ema_21": self._get_safe_series(df, 'EMA_21_D', method_name=method_name),
-            "ema_55": self._get_safe_series(df, 'EMA_55_D', method_name=method_name),
-            "chip_stability": self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name),
-            "chip_entropy": self._get_safe_series(df, 'chip_entropy_D', 1.0, method_name=method_name),
-            "cost_50pct": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),
-            "winner_rate": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name),
+        funds_raw = {
+            "buy_elg_amt_D": self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name),
+            "buy_lg_amt_D": self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name),
+            "sell_elg_amt_D": self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name=method_name),
+            "sell_lg_amt_D": self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name=method_name),
+            "net_mf_amount_D": self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name)
         }
-        buy_lg = self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name)
-        buy_elg = self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name)
-        sell_lg = self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name=method_name)
-        sell_elg = self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name=method_name)
-        funds = {
-            "buy_lg_amt": buy_lg,
-            "buy_elg_amt": buy_elg,
-            "sell_lg_amt": sell_lg,
-            "sell_elg_amt": sell_elg,
-            "buy_lg_vol": self._get_safe_series(df, 'buy_lg_vol_D', 0.0, method_name=method_name),
-            "buy_elg_vol": self._get_safe_series(df, 'buy_elg_vol_D', 0.0, method_name=method_name),
-            "sell_lg_vol": self._get_safe_series(df, 'sell_lg_vol_D', 0.0, method_name=method_name),
-            "sell_elg_vol": self._get_safe_series(df, 'sell_elg_vol_D', 0.0, method_name=method_name),
-            "net_mf_calibrated": self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name),
-            "total_buy_amt": buy_lg + buy_elg,
-            "total_sell_amt": sell_lg + sell_elg,
+        structure_raw = {
+            "cost_50pct_D": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),
+            "chip_stability_D": self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name),
+            "chip_entropy_D": self._get_safe_series(df, 'chip_entropy_D', 1.0, method_name=method_name),
+            "winner_rate_D": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name)
         }
-        sentiment = {
-            "flow_consistency": self._get_safe_series(df, 'flow_consistency_D', 0.5, method_name=method_name),
-            "t0_buy_conf": self._get_safe_series(df, 'intraday_accumulation_confidence_D', 0.0, method_name=method_name),
-            "t0_sell_conf": self._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0, method_name=method_name),
-            "pushing_score": self._get_safe_series(df, 'pushing_score_D', 0.0, method_name=method_name),
-            "shakeout_score": self._get_safe_series(df, 'shakeout_score_D', 0.0, method_name=method_name),
-            "bbw": self._get_safe_series(df, 'BBW_21_2.0_D', 0.1, method_name=method_name),
-            "turnover": self._get_safe_series(df, 'turnover_rate_D', 1.0, method_name=method_name),
-            "vpa_efficiency": self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name=method_name),
+
+        # --- 2. 动力学指标 (Kinematics) ---
+        # 针对军械库衍生指标的快照 
+        derivatives = {
+            "net_mf_jerk": self._get_safe_series(df, 'JERK_5_net_mf_amount_D', 0.0, method_name=method_name),
+            "net_mf_accel": self._get_safe_series(df, 'ACCEL_5_net_mf_amount_D', 0.0, method_name=method_name),
+            "stability_accel": self._get_safe_series(df, 'ACCEL_5_chip_stability_D', 0.0, method_name=method_name)
         }
-        # 2. 动力学衍生数据 (Kinematics Extraction)
-        # 针对核心指标提取 5日 (Lookback=5) 的 derivatives
-        # 注意：如果数据层没有提供现成的列，get_safe_series 会返回默认值(0.0)，不会报错
-        # 资金流动力学
-        funds["net_mf_slope"] = self._get_safe_series(df, 'SLOPE_5_net_mf_amount_D', 0.0, method_name=method_name)
-        funds["net_mf_accel"] = self._get_safe_series(df, 'ACCEL_5_net_mf_amount_D', 0.0, method_name=method_name)
-        funds["net_mf_jerk"]  = self._get_safe_series(df, 'JERK_5_net_mf_amount_D', 0.0, method_name=method_name)
-        # 筹码结构动力学
-        structure["stability_accel"] = self._get_safe_series(df, 'ACCEL_5_chip_stability_D', 0.0, method_name=method_name)
-        # 行为意图动力学
-        sentiment["pushing_jerk"] = self._get_safe_series(df, 'JERK_5_pushing_score_D', 0.0, method_name=method_name)
-        context = {"market": market, "structure": structure, "funds": funds, "sentiment": sentiment}
+
+        # --- 3. 封装 Context 供调度使用 ---
+        context = {
+            "market": market_raw,
+            "funds": funds_raw,
+            "structure": structure_raw,
+            "sentiment": {
+                "vpa_efficiency": self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name=method_name),
+                "bbw": self._get_safe_series(df, 'BBW_21_2.0_D', 0.1, method_name=method_name),
+                "flow_consistency": self._get_safe_series(df, 'flow_consistency_D', 0.5, method_name=method_name)
+            }
+        }
+        # 将聚合逻辑注入 context 以供 downstream 使用
+        context["funds"]["total_buy_amt"] = funds_raw["buy_elg_amt_D"] + funds_raw["buy_lg_amt_D"]
+        context["funds"]["total_sell_amt"] = funds_raw["sell_elg_amt_D"] + funds_raw["sell_lg_amt_D"]
+        context["funds"].update(derivatives)
+
+        # --- 4. 探针记录 (全量快照) ---
         if probe_ts:
-            debug_vals = {}
-            # 仅记录部分核心动力学数据防止日志爆炸
-            debug_vals["funds.net_mf_jerk"] = funds["net_mf_jerk"].loc[probe_ts] if probe_ts in funds["net_mf_jerk"].index else np.nan
-            debug_vals["funds.net_mf_accel"] = funds["net_mf_accel"].loc[probe_ts] if probe_ts in funds["net_mf_accel"].index else np.nan
-            debug_vals["structure.stability_accel"] = structure["stability_accel"].loc[probe_ts] if probe_ts in structure["stability_accel"].index else np.nan
-            _temp_debug_values["原始信号快照(动力学)"] = debug_vals
+            print(f"[探针] 正在捕获原料级数据快照 @ {probe_ts}")
+            raw_snapshot = {}
+            for cat in [market_raw, funds_raw, structure_raw, derivatives]:
+                for k, v in cat.items():
+                    raw_snapshot[k] = v.loc[probe_ts] if probe_ts in v.index else np.nan
+            _temp_debug_values["原料数据快照"] = raw_snapshot
+            
         return context
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
         """
-        【V4.2.0 · 统一调试输出】
-        合并了原有的 _print_pipeline_debug 逻辑。
-        使用结构化遍历，根据 _temp_debug_values 中的键值自动生成报告。
+        【V4.3.0 · 全链路深度诊断输出】
+        职责：按照从“原料数据”到“最终信号”的逻辑链路打印所有探针信息。
         """
-        # 定义输出顺序，确保日志逻辑清晰
-        sections = [
-            ("原始信号快照", "原始信号值"),
-            ("原始信号快照(动力学)", "动力学信号"),
-            ("组件_传统控盘", "传统控盘组件"),
-            ("组件_成本优势", "成本优势组件"),
-            ("组件_净活动", "净活动组件"),
-            ("组件_净活动(动力学)", "净活动动力学"),
-            ("归一化处理", "归一化中间态"),
-            ("融合_中间态", "融合中间态"),
-            ("融合_动力学", "结构动力学融合"),
-            ("风控_杠杆", "风控杠杆模型"),
-            ("最终结果", "最终输出")
+        # 定义全链路输出序列
+        full_chain = [
+            ("原料数据快照", "1. 物理层 (Raw Arsenal Data)"),
+            ("主力平均价格计算", "2. 原子层 (Weighted Cost Calc)"),
+            ("组件_传统控盘", "3. 逻辑层 - 传统控盘 (Fibonacci Resonance)"),
+            ("组件_成本优势", "4. 逻辑层 - 成本优势 (Dual-Track Alpha)"),
+            ("组件_净活动(动力学)", "5. 逻辑层 - 资金动力学 (Kinematic Flows)"),
+            ("归一化处理", "6. 转换层 (MTF & Normalization)"),
+            ("融合_动力学", "7. 决策层 - 深度融合 (Shannon-VPA Fusion)"),
+            ("风控_杠杆", "8. 风控层 (Leverage & Vol Gating)"),
+            ("最终结果", "9. 输出层 (Final Signal)")
         ]
-        for key, label in sections:
+        for key, label in full_chain:
             if key in _temp_debug_values:
-                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- {label} ---"] = ""
+                debug_output[f"  -- [全链路探针] {label}:"] = ""
                 data_map = _temp_debug_values[key]
                 for sub_key, val in data_map.items():
-                    # 统一处理 Series (取单点) 或 Scalar
+                    # 动态解包数据
                     if isinstance(val, pd.Series):
                         v_print = val.loc[probe_ts] if probe_ts in val.index else np.nan
                     else:
                         v_print = val
+                    # 极端值预警标记
+                    warn_tag = " [!] 极端值" if (isinstance(v_print, float) and abs(v_print - 1.0) < 0.0001) else ""
                     # 格式化输出
                     if isinstance(v_print, (float, np.floating)):
-                        debug_output[f"        {sub_key}: {v_print:.4f}"] = ""
+                        debug_output[f"        {sub_key}: {v_print:.4f}{warn_tag}"] = ""
                     else:
                         debug_output[f"        {sub_key}: {v_print}"] = ""
+                        
         self._print_debug_info(debug_output)
 
     def _calculate_main_force_avg_prices(self, df_index: pd.Index, close_price: pd.Series, 
