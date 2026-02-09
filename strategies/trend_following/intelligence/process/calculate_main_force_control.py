@@ -455,49 +455,6 @@ class CalculateMainForceControlRelationship:
         _temp_debug_values["组件_传统控盘"] = {"score": score, "resonance": resonance}
         return score
 
-    def _normalize_and_mtf_control_components(self, df: pd.DataFrame, df_index: pd.Index, kongpan_raw: pd.Series, control_solidity_raw: pd.Series, flow_credibility_raw: pd.Series, mf_t0_buy_efficiency: pd.Series, mf_t0_sell_efficiency: pd.Series, mf_vwap_up_guidance: pd.Series, mf_vwap_down_guidance: pd.Series, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
-        """
-        【V1.0.2】对控盘相关信号进行归一化和MTF融合处理。
-        新增对 `main_force_t0_buy_efficiency_D`、`main_force_t0_sell_efficiency_D`、
-        `main_force_vwap_up_guidance_D`、`main_force_vwap_down_guidance_D` 的归一化处理。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            df_index (pd.Index): DataFrame的索引。
-            kongpan_raw (pd.Series): 原始传统控盘度。
-            control_solidity_raw (pd.Series): 原始控盘稳固度。
-            flow_credibility_raw (pd.Series): 原始资金流可信度。
-            mf_t0_buy_efficiency (pd.Series): 主力T0买入效率。
-            mf_t0_sell_efficiency (pd.Series): 主力T0卖出效率。
-            mf_vwap_up_guidance (pd.Series): 主力VWAP向上引导。
-            mf_vwap_down_guidance (pd.Series): 主力VWAP向下引导。
-            mtf_slope_accel_weights (Dict): MTF斜率加速度权重配置。
-            method_name (str): 调用此方法的名称。
-            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
-        返回:
-            Tuple[pd.Series, ...]: 包含归一化后的传统控盘分、MTF结构控盘分、归一化资金流可信度、
-                                   归一化主力T0买入效率、归一化主力T0卖出效率、归一化主力VWAP向上引导、
-                                   归一化主力VWAP向下引导的元组。
-        """
-        traditional_control_score = self.helper._normalize_series(kongpan_raw, df_index, bipolar=True)
-        mtf_structural_control_score = self.helper._get_mtf_slope_accel_score(df, 'control_solidity_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        flow_credibility_norm = self.helper._normalize_series(flow_credibility_raw, df_index, bipolar=False)
-        # 新增归一化处理
-        mf_t0_buy_efficiency_norm = self.helper._normalize_series(mf_t0_buy_efficiency, df_index, bipolar=False)
-        mf_t0_sell_efficiency_norm = self.helper._normalize_series(mf_t0_sell_efficiency, df_index, bipolar=False)
-        mf_vwap_up_guidance_norm = self.helper._normalize_series(mf_vwap_up_guidance, df_index, bipolar=False)
-        mf_vwap_down_guidance_norm = self.helper._normalize_series(mf_vwap_down_guidance, df_index, bipolar=False)
-        _temp_debug_values["归一化处理"] = {
-            "traditional_control_score": traditional_control_score,
-            "mtf_structural_control_score": mtf_structural_control_score,
-            "flow_credibility_norm": flow_credibility_norm,
-            "main_force_t0_buy_efficiency_norm": mf_t0_buy_efficiency_norm,
-            "main_force_t0_sell_efficiency_norm": mf_t0_sell_efficiency_norm,
-            "main_force_vwap_up_guidance_norm": mf_vwap_up_guidance_norm,
-            "main_force_vwap_down_guidance_norm": mf_vwap_down_guidance_norm,
-        }
-        return traditional_control_score, mtf_structural_control_score, flow_credibility_norm, \
-               mf_t0_buy_efficiency_norm, mf_t0_sell_efficiency_norm, mf_vwap_up_guidance_norm, mf_vwap_down_guidance_norm
-
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
         【V3.2.0 · 结构动力学融合 (Structural Dynamics Fusion)】
@@ -575,29 +532,48 @@ class CalculateMainForceControlRelationship:
 
     def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
         """
-        【辅助方法】归一化适配器。
-        职责：从结构化的 context 中提取数据，适配 _normalize_and_mtf_control_components 的接口。
+        【V4.2.0 · 归一化组件 (Context-Aware)】
+        重构：
+        1. 废弃原 _normalize_and_mtf_control_components 方法。
+        2. 直接基于 context 字典提取数据进行归一化和 MTF 计算。
+        3. 逻辑内收，消除中间层，代码更紧凑。
         """
-        # 解包 Context
+        # 解包数据
         s_struct = context['structure']
         s_sent = context['sentiment']
-        # 获取 MTF 参数
-        _, mtf_slope_accel_weights = self._get_control_parameters(config)
-        # 调用底层的归一化逻辑
-        return self._normalize_and_mtf_control_components(
-            df=df,
-            df_index=df.index,
-            kongpan_raw=scores_traditional,
-            control_solidity_raw=s_struct['chip_stability'],
-            flow_credibility_raw=s_sent['flow_consistency'],
-            mf_t0_buy_efficiency=s_sent['t0_buy_conf'],
-            mf_t0_sell_efficiency=s_sent['t0_sell_conf'],
-            mf_vwap_up_guidance=s_sent['pushing_score'],
-            mf_vwap_down_guidance=s_sent['shakeout_score'],
-            mtf_slope_accel_weights=mtf_slope_accel_weights,
-            method_name=method_name,
-            _temp_debug_values=_temp_debug_values
+        
+        # 获取参数
+        _, mtf_weights = self._get_control_parameters(config)
+        df_index = df.index
+        
+        # 1. 传统控盘分归一化 (Bipolar: -1~1)
+        norm_traditional = self.helper._normalize_series(scores_traditional, df_index, bipolar=True)
+        
+        # 2. 结构控盘分 MTF计算 (基于筹码稳定性)
+        # 注意：这里直接使用 context 中的数据列名或 Series
+        # 由于 helper._get_mtf_slope_accel_score 需要从 df 中读取衍生列(slope/accel)，
+        # 我们依然传入 col_name='chip_stability_D'，前提是 df 中必须有相关列。
+        # 如果 context 中的 series 已经是处理过的（如填补了 NaN），
+        # 理论上 helper 应该支持直接传入 Series，但根据 helper 签名它需要 df 和 col_name。
+        # 为了稳健，这里我们依然指向 df 中的原始列名。
+        norm_structural = self.helper._get_mtf_slope_accel_score(
+            df, 'chip_stability_D', mtf_weights, df_index, method_name, bipolar=True
         )
+        
+        # 3. 辅助指标归一化 (Unipolar: 0~1)
+        norm_flow = self.helper._normalize_series(s_sent['flow_consistency'], df_index, bipolar=False)
+        norm_t0_buy = self.helper._normalize_series(s_sent['t0_buy_conf'], df_index, bipolar=False)
+        norm_t0_sell = self.helper._normalize_series(s_sent['t0_sell_conf'], df_index, bipolar=False)
+        norm_vwap_up = self.helper._normalize_series(s_sent['pushing_score'], df_index, bipolar=False)
+        norm_vwap_down = self.helper._normalize_series(s_sent['shakeout_score'], df_index, bipolar=False)
+
+        _temp_debug_values["归一化处理"] = {
+            "traditional": norm_traditional,
+            "structural_mtf": norm_structural,
+            "flow_consistency": norm_flow
+        }
+        
+        return norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down
 
     def _print_pipeline_debug(self, debug_output: Dict, _temp_debug_values: Dict, probe_ts: pd.Timestamp):
         """
