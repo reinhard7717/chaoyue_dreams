@@ -64,7 +64,8 @@ class CalculateMainForceControlRelationship:
         2. 合并输出逻辑至 _calculate_main_force_control_relationship_debug_output。
         """
         method_name = "calculate_main_force_control_relationship"
-        is_debug = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
+        is_debug = get_param_value(self.debug_params.get('enabled'), False)
+        print(f"[调试] {method_name} 正在运行，调试模式: {is_debug}, 探针日期: {self.probe_dates}")
         # 1. 获取探针时间 (必须独立，用于控制后续的数据收集)
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}

@@ -758,33 +758,33 @@
                 "type": "strategy_sync",
                 "task_type": "strategy",
                 "relationship_type": "consensus",
-                "signal_A": "SCORE_CHIP_STRATEGIC_POSTURE", "source_A": "atomic_states", "change_type_A": "diff",
-                "signal_B": "SCORE_BEHAVIOR_UPWARD_EFFICIENCY", "source_B": "atomic_states", "change_type_B": "diff",
+                "signal_A": "chip_concentration_ratio_D", "source_A": "df", "change_type_A": "diff",
+                "signal_B": "VPA_EFFICIENCY_D", "source_B": "df", "change_type_B": "diff",
                 "signal_b_factor_k": 1.0,
                 "enable_probe": false,
-                "comment": "【V2.0 · 大一统同步版】诊断'筹码战略态势'与'行为上涨效率'的同步过程。高分代表两者同步改善。"
+                "comment": "【V3.0 · 军械库适配版】诊断'筹码集中度'与'VPA效率'的同步过程。高分代表结构与效率同步改善。"
             },
             {
                 "name": "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD",
                 "type": "strategy_sync",
                 "task_type": "strategy",
                 "relationship_type": "divergence",
-                "signal_A": "SCORE_STRUCT_AXIOM_TREND_FORM", "source_A": "atomic_states", "change_type_A": "diff",
-                "signal_B": "SCORE_FF_AXIOM_CONSENSUS", "source_B": "atomic_states", "change_type_B": "diff",
+                "signal_A": "uptrend_strength_D", "source_A": "df", "change_type_A": "diff",
+                "signal_B": "flow_consistency_D", "source_B": "df", "change_type_B": "diff",
                 "signal_b_factor_k": 1.0,
                 "enable_probe": false,
-                "comment": "【V2.1 命名协议修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(资金流变化-结构变化)，正分代表资金领先结构。4.修正signal_B为全称。"
+                "comment": "【V3.0 · 军械库适配版】诊断资金与结构的背离。使用'上涨趋势强度'和'资金一致性'。"
             },
             {
                 "name": "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY",
                 "type": "strategy_sync",
                 "task_type": "strategy",
                 "relationship_type": "consensus",
-                "signal_A": "SCORE_DYN_AXIOM_MOMENTUM", "source_A": "atomic_states", "change_type_A": "diff",
-                "signal_B": "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT", "source_B": "atomic_states", "change_type_B": "diff",
+                "signal_A": "ROC_13_D", "source_A": "df", "change_type_A": "diff",
+                "signal_B": "winner_rate_D", "source_B": "df", "change_type_B": "diff",
                 "signal_b_factor_k": 1.0,
                 "enable_probe": false,
-                "comment": "【V2.1 命名协议修复】明确为'共识'关系。高分代表力学风险与筹码风险同步恶化。修正signal_A为全称。"
+                "comment": "【V3.0 · 军械库适配版】诊断动能与心态的同步衰减。使用'ROC动量'和'获利盘比例'。"
             },
             {
                 "name": "PROCESS_META_STEALTH_ACCUMULATION",
