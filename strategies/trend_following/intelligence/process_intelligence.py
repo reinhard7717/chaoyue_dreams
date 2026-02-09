@@ -584,7 +584,6 @@ class ProcessIntelligence:
         required_signals = [conviction_signal, wash_signal]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         df_index = df.index
         # 计算基础共识分数
         base_consensus_score = self._calculate_instantaneous_relationship(df, config)
@@ -611,7 +610,6 @@ class ProcessIntelligence:
         cost_signal = 'weight_avg_cost_D' 
         if cost_signal not in df.columns:
             return self._calculate_instantaneous_relationship(df, config).clip(-1, 1)
-            
         # 计算基础背离分数
         base_divergence_score = self._calculate_instantaneous_relationship(df, config)
         # 引入战场纵深因子
@@ -878,7 +876,6 @@ class ProcessIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         df_index = df.index
         trend_form_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name)
@@ -1000,7 +997,6 @@ class ProcessIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         df_index = df.index
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name)
         capitulation_flow_raw = self._get_safe_series(df, capitulation_sig, 0.0, method_name)
@@ -1059,7 +1055,6 @@ class ProcessIntelligence:
                 
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         df_index = df.index
         mtf_price_change = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_ca_change = self._get_mtf_slope_accel_score(df, ca_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
@@ -1265,7 +1260,6 @@ class ProcessIntelligence:
                 
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         df_index = df.index
         stock_signal_raw = self._get_safe_series(df, stock_signal_name, 0.0, method_name)
         main_force_net_flow_raw = self._get_safe_series(df, main_force_net_flow_name, 0.0, method_name)
@@ -1308,7 +1302,6 @@ class ProcessIntelligence:
         required_signals = [hotness_signal_name, flow_signal_name]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(dtype=np.float32)
-            
         df_index = df.index
         hotness_signal_raw = self._get_safe_series(df, hotness_signal_name, 0.0, method_name)
         flow_signal_raw = self._get_safe_series(df, flow_signal_name, 0.0, method_name)
@@ -1435,7 +1428,6 @@ class ProcessIntelligence:
         # 使用通用校验
         if not self._validate_required_signals(df, required_signals, "_calculate_ff_vs_structure_relationship"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         # 计算基础背离分数 (依赖 Config 中的 signal_A/B 配置)
         base_divergence_score = self._calculate_instantaneous_relationship(df, config)
         # 引入战略态势放大器
@@ -1463,7 +1455,6 @@ class ProcessIntelligence:
         required_signals = [momentum_signal, sentiment_signal, profit_signal]
         if not self._validate_required_signals(df, required_signals, "_calculate_dyn_vs_chip_relationship"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         # 计算基础共识分数 (依赖 Config)
         base_consensus_score = self._calculate_instantaneous_relationship(df, config)
         # 引入派发压力因子进行动机审判

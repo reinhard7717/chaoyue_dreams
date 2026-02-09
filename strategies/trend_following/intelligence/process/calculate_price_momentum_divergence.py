@@ -84,23 +84,15 @@ class CalculatePriceMomentumDivergence:
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V3.17.0 · 参数体系升级：新增情绪熔断阈值与非线性增强系数"""
+        """V3.18.0 · RDI 自适应参数重构：引入 adaptive_sensitivity 实现动态相位锁定"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         rdi_config = get_param_value(params.get('rdi_params'), {})
         return {
             "fib_periods": [5, 13, 21, 34, 55],
             "hab_periods": [13, 21, 34],
             "intent_dampening_factor": 0.25,
-            # 情绪熔断机制参数 (新增)
-            "circuit_breaker_params": {
-                "emotion_threshold": 0.75,   # 情绪进入极端的阈值
-                "tension_confirmation": 0.8, # 物理张力确认阈值
-                "dampening_factor": 0.4,     # 趋势强劲时的抑制系数 (防踏空)
-                "amplification_factor": 1.4  # 双重极致时的放大系数 (抓拐点)
-            },
             "kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
             "asymmetric_factor": 1.4,
-            "asymmetric_outflow_factor": 1.6,
             "kinematic_deadzone": 1e-6,
             "price_components_weights": {"close_D": 0.4, "CLOSING_STRENGTH_D": 0.3, "VPA_EFFICIENCY_D": 0.3},
             "momentum_components_weights": {"MACDh_13_34_8_D": 0.4, "RSI_13_D": 0.3, "chip_rsi_divergence_D": 0.3},
@@ -116,6 +108,8 @@ class CalculatePriceMomentumDivergence:
             "chip_order_sub_weights": {"convergence": 0.6, "entropy_inverted": 0.4},
             "consistency_weights": {"polarity_resonance": 0.4, "pv_coherence": 0.4, "entropy_order": 0.2},
             "context_weights": {"psychological": 0.3, "physical_tension": 0.4, "game_intensity": 0.3},
+            "circuit_breaker_params": {"emotion_threshold": 0.75, "tension_confirmation": 0.8, "dampening_factor": 0.4, "amplification_factor": 1.4},
+            "asymmetric_outflow_factor": 1.6,
             "conflict_penalty_exponent": 2.5,
             "parabolic_penalty_factor": 0.4,
             "tension_kinematic_weights": {"value": 0.6, "velocity": 0.3, "accel": 0.1},
@@ -127,7 +121,8 @@ class CalculatePriceMomentumDivergence:
                 "rdi_period_weights": {"5": 0.4, "13": 0.3, "21": 0.3},
                 "resonance_reward_factor": 0.15,
                 "divergence_penalty_factor": 0.25,
-                "inflection_reward_factor": 0.10
+                "inflection_reward_factor": 0.10,
+                "adaptive_sensitivity": 0.8 # 新增：质量自适应灵敏度
             }
         }
 
@@ -455,33 +450,49 @@ class CalculatePriceMomentumDivergence:
         }
         return final_context_modulator, debug_info
 
-    def _calculate_rdi_for_pair(self, series_A: pd.Series, series_B: pd.Series, df_index: pd.Index, rdi_params: Dict, method_name: str, pair_name: str) -> Tuple[pd.Series, Dict]:
-        """V1.2 · RDI 计算防御性升级：引入参数 get 逻辑与系数探针"""
-        # 提取参数并提供硬默认值，防止由于配置不完整导致的 KeyError
+    def _calculate_rdi_for_pair(self, series_A: pd.Series, series_B: pd.Series, df_index: pd.Index, rdi_params: Dict, method_name: str, pair_name: str, field_quality: pd.Series = None) -> Tuple[pd.Series, Dict]:
+        """V3.18.0 · 场能自适应 RDI：根据 field_quality 动态调整相位锁定系数"""
+        # 参数提取与默认值防御
         rdi_periods = rdi_params.get('rdi_periods', [5, 13, 21])
-        r_reward = rdi_params.get('resonance_reward_factor', 0.15)
-        d_penalty = rdi_params.get('divergence_penalty_factor', 0.25)
+        base_reward = rdi_params.get('resonance_reward_factor', 0.15)
+        base_penalty = rdi_params.get('divergence_penalty_factor', 0.25)
         i_reward = rdi_params.get('inflection_reward_factor', 0.10)
         rdi_period_weights = rdi_params.get('rdi_period_weights', {"5": 0.4, "13": 0.3, "21": 0.3})
+        sensitivity = rdi_params.get('adaptive_sensitivity', 0.0)
+        # 动态系数计算
+        if field_quality is not None and sensitivity > 0:
+            # 质量越高(>0)，modulator 越大
+            modulator = (1 + field_quality.clip(0, 1) * sensitivity)
+            # 奖励增强，惩罚减弱 (高质量背离允许微小相位错位)
+            eff_reward = base_reward * modulator
+            eff_penalty = base_penalty / modulator
+            is_adaptive = True
+        else:
+            eff_reward = pd.Series(base_reward, index=df_index)
+            eff_penalty = pd.Series(base_penalty, index=df_index)
+            modulator = pd.Series(1.0, index=df_index)
+            is_adaptive = False
         all_rdi_scores_by_period = {}
         period_debug_values = {}
-        # 探针：输出当前使用的 RDI 计算因子
-        print(f"  [探针-RDI] 对称对: {pair_name} | 共振奖励: {r_reward} | 背离惩罚: {d_penalty} | 拐点奖励: {i_reward}")
+        # 探针：输出动态调整后的系数均值
+        mean_r = eff_reward.mean() if isinstance(eff_reward, pd.Series) else eff_reward
+        mean_p = eff_penalty.mean() if isinstance(eff_penalty, pd.Series) else eff_penalty
+        print(f"  [探针-AdaptiveRDI] 模式: {'自适应' if is_adaptive else '静态'} | 质量均值: {field_quality.mean() if field_quality is not None else 0:.4f}")
+        print(f"  [探针-AdaptiveRDI] 动态奖励均值: {mean_r:.4f} (基准{base_reward}) | 动态惩罚均值: {mean_p:.4f} (基准{base_penalty})")
         for p in rdi_periods:
-            # 1. 计算跨周期趋势倾向 (Tendency)
+            # 1. 趋势倾向计算
             tendency_A = series_A.rolling(window=p, min_periods=1).mean().fillna(0)
             tendency_B = series_B.rolling(window=p, min_periods=1).mean().fillna(0)
-            # 2. 核心 RDI 三项式计算
-            resonance_term = ((np.sign(tendency_A) == np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * r_reward
-            divergence_term = ((np.sign(tendency_A) != np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * d_penalty
+            # 2. 核心三项式 (使用动态系数)
+            resonance_term = ((np.sign(tendency_A) == np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * eff_reward
+            divergence_term = ((np.sign(tendency_A) != np.sign(tendency_B)) & (tendency_A.abs() > 1e-9) & (tendency_B.abs() > 1e-9)).astype(np.float32) * eff_penalty
             inflection_A = (tendency_A.shift(1) * tendency_A < 0).astype(np.float32) * i_reward
             inflection_B = (tendency_B.shift(1) * tendency_B < 0).astype(np.float32) * i_reward
             inflection_term = (inflection_A + inflection_B) / 2
-            # 3. 周期分数合成
+            # 3. 周期分数
             period_rdi_score = resonance_term - divergence_term + inflection_term
             all_rdi_scores_by_period[str(p)] = period_rdi_score
             period_debug_values[f"p{p}_rdi"] = period_rdi_score
-        # 4. 多周期加权融合
         fused_rdi_score = _weighted_sum_fusion(all_rdi_scores_by_period, rdi_period_weights, df_index)
         return fused_rdi_score.astype(np.float32), period_debug_values
 
@@ -729,45 +740,37 @@ class CalculatePriceMomentumDivergence:
         return dqwm_score.astype(np.float32)
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V3.16.0 · 灵敏度自适应并行引擎：修复方法调用缺失，集成 DQWM 矩阵聚合 (全探针暴露)"""
+        """V3.18.0 · 自适应 RDI 并行引擎：集成 DQWM 质量驱动的动态相位锁定 (全探针暴露)"""
         method_name = "PriceMomentumAdaptiveSensitivity_System"
         pmd_params = self._get_pmd_params(config)
         df_index = df.index
-        # 0. 信号完整性校验
         if not self._validate_pmd_signals(df, pmd_params, method_name):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-            
-        # 1. 基础动力学路径计算
+        # 1. 基础动力学路径
         f_p, p_diag = self._calculate_fused_price_direction(df, df_index, {}, pmd_params, method_name)
         f_m, m_diag = self._calculate_fused_momentum_direction(df, df_index, {}, pmd_params, method_name)
         base_div = (f_p - f_m).clip(-1, 1)
-        # 2. 质量矩阵融合 (调用修复后的聚合引擎)
+        # 2. 质量矩阵融合
         dqwm_matrix = self._calculate_dqwm_matrix(df, df_index, pmd_params, method_name)
-        # 3. 环境场能调制
+        # 3. 环境场能调制 (含情绪熔断)
         ctx_mod, _ = self._calculate_context_modulator(df_index, {c: df[c] for c in df.columns}, pmd_params)
-        # 4. 双轨并行与意图 HAB 修正 (多空独立计算)
-        # 多头轨道：关注正向背离与隐蔽吸筹
+        # 4. 双轨并行 HAB 修正
         bull_intent = self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name)
         bull_score = (base_div.where(base_div > 0, 0.0) * 0.6 + bull_intent * 0.4)
-        # 空头轨道：关注负向背离与派发意图
         bear_intent = self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name)
         bear_score = (base_div.where(base_div < 0, 0.0).abs() * 0.6 + bear_intent * 0.4)
         # 5. 灵敏度增强融合
-        # 原始差值 = (多头分 - 空头分) * 质量矩阵 * 环境调制
         raw_diff = (bull_score - bear_score) * dqwm_matrix * ctx_mod
-        # 自适应增强：如果原始分值绝对值小于 0.1，应用根号放大提升探测率，防止被 pow(1.8) 吞噬
         boosted_diff = np.where(raw_diff.abs() < 0.1, np.sign(raw_diff) * np.sqrt(raw_diff.abs() * 0.1), raw_diff)
         final_modulated = pd.Series(boosted_diff, index=df_index)
-        # 6. RDI 相位锁定与最终指数化
+        # 6. 自适应 RDI 相位锁定 (核心变更：传入 dqwm_matrix)
         if pmd_params['rdi_params']['enabled']:
-            rdi_val, _ = self._calculate_rdi_for_pair(f_p, f_m, df_index, pmd_params['rdi_params'], method_name, "P_M")
+            # 将质量矩阵传入，实现“高质量-低锁相 / 低质量-高锁相”的动态调节
+            rdi_val, _ = self._calculate_rdi_for_pair(f_p, f_m, df_index, pmd_params['rdi_params'], method_name, "P_M", field_quality=dqwm_matrix)
             final_modulated *= (1 + rdi_val * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
-            
         final_score = np.sign(final_modulated) * (final_modulated.abs().pow(pmd_params['final_fusion_exponent']))
-        # 7. 异常诊断探针
         if final_score.loc[df_index[-1]] == 0 and final_modulated.loc[df_index[-1]] != 0:
             print(f"  [告警] {method_name}: 最终分值发生指数级坍塌，RawDiff: {raw_diff.loc[df_index[-1]]:.6f}")
-            
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 

@@ -142,10 +142,8 @@ class EnhancedVolatilityProxyCalculator:
             w = weights.get(key, 0)
             weighted_sum += val * w
             total_weight += w
-            
         if total_weight == 0:
             return pd.Series(0.5, index=df_index)
-            
         # 基础评分
         base_score = weighted_sum / total_weight
         # 贝叶斯后验修正 (模拟)

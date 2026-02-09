@@ -96,7 +96,6 @@ class EnhancedLiquidityProxyCalculator:
         for key, val in components.items():
             w = weights.get(key, 0)
             weighted_sum += val * w
-            
             # 记录短板 (排除反向指标，如风险溢价)
             if key not in ['risk_premium', 'impact_cost']: # 这些指标已在外部处理为"越好分越高"
                  min_val = np.minimum(min_val, val)

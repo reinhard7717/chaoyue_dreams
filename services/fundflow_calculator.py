@@ -405,7 +405,6 @@ class FundFlowFactorCalculator:
             if abs(cum_net) / total_turnover < 0.01:
                 return 10.0 # 弱吸筹/抵抗
             return 0.0
-            
         # 2. 计算能量密度
         # 分子：资金力度 (Flow Strength)
         total_amt = np.sum(self.daily_amount_array[-window:]) + 1.0
@@ -756,7 +755,6 @@ class FundFlowFactorCalculator:
         # 只有当总分极低时才返回 False
         if final_intensity < 10.0:
             return False, 0.0
-            
         return True, float(np.clip(final_intensity, 0.0, 100.0))
 
     def _calculate_flow_consistency(self) -> float:
@@ -892,13 +890,11 @@ class FundFlowFactorCalculator:
         for key in ['daily_weekly_sync', 'daily_monthly_sync', 
                    'short_mid_sync', 'mid_long_sync']:
             sync_metrics[key] = None
-            
         arr = self.net_amount_array
         if len(arr) < 60: return sync_metrics
         def calc_wma(data, window):
             weights = np.arange(1, window + 1)
             return np.convolve(data, weights/weights.sum(), mode='valid')
-            
         smooth_arr = savgol_filter(arr, window_length=5, polyorder=2) if len(arr) > 5 else arr
         ma5 = calc_wma(smooth_arr, 5)
         ma20 = calc_wma(smooth_arr, 20)
@@ -937,14 +933,12 @@ class FundFlowFactorCalculator:
             if np.isnan(corr): corr = 0.0
         except:
             corr = 0.0
-            
         # 基础分
         base_score = 50.0
         if dir_score > 0:
             final_score = base_score + 25 * dir_score + 25 * max(0, corr)
         else:
             final_score = base_score - 20 * abs(dir_score)
-            
         # [关键修复] 能量协同惩罚
         # 如果两条线虽然方向一致，但是都在"躺平" (斜率绝对值很小)，不应给高分
         # 只有在主升浪/主跌浪中，才能给 100
@@ -955,7 +949,6 @@ class FundFlowFactorCalculator:
             # 使用 sigmoid 
             energy_factor = 0.5 + 0.5 * np.tanh(avg_magnitude)
             final_score *= energy_factor
-            
         return float(np.clip(final_score, 0.0, 100.0))
 
     def _calculate_sync_score(self, series1: List[float], series2: List[float]) -> float:
@@ -1004,7 +997,6 @@ class FundFlowFactorCalculator:
         for key in ['flow_momentum_5d', 'flow_momentum_10d', 'flow_acceleration',
                    'uptrend_strength', 'downtrend_strength']:
             momentum[key] = None
-            
         arr = self.net_amount_array
         if len(arr) < 15: return momentum
         # 1. 基础动量 (Momentum)
@@ -1035,7 +1027,6 @@ class FundFlowFactorCalculator:
                 momentum['flow_acceleration'] = 0.0
         except Exception:
             momentum['flow_acceleration'] = 0.0
-            
         # 3. 趋势强度 (调用已修复的方法)
         up_strength, down_strength = self._calculate_robust_trend_strength()
         momentum['uptrend_strength'] = up_strength
@@ -1096,15 +1087,12 @@ class FundFlowFactorCalculator:
             penalty = 1.0
             if max_dd > 0.3:
                 penalty = max(0.0, 1.0 - (max_dd - 0.3) * 2.0)
-            
             final_up = base_score * penalty
-            
             # [净值保护]：只要 NetGain > 0，至少给 10 分 (即使回撤大，也是涨了)
             if net_change > 0:
                 final_up = max(final_up, 10.0)
                 
             uptrend_val = final_up
-            
         elif base_score < 0:
             # === 下跌趋势计算 ===
             # 反弹惩罚 (Drawup)
@@ -1119,13 +1107,11 @@ class FundFlowFactorCalculator:
                 penalty = max(0.0, 1.0 - (max_du - 0.3) * 2.0)
                 
             final_down = abs(base_score) * penalty
-            
             # [净值保护]
             if net_change < 0:
                 final_down = max(final_down, 10.0)
                 
             downtrend_val = final_down
-            
         return float(np.clip(uptrend_val, 0.0, 100.0)), float(np.clip(downtrend_val, 0.0, 100.0))
 
     def _calculate_complex_trend_strength(self) -> Tuple[float, float]:
@@ -1243,7 +1229,6 @@ class FundFlowFactorCalculator:
             ptp = np.ptp(arr)
             if ptp < 1e-8: return np.zeros_like(arr)
             return (arr - np.min(arr)) / ptp
-            
         p_norm = norm(prices)
         f_norm = norm(cum_flow)
         # 2. 综合相关性 (Min of Pearson & Spearman)
@@ -1268,10 +1253,8 @@ class FundFlowFactorCalculator:
             x = np.arange(window)
             p_slope, _, _, _, _ = linregress(x, prices)
             f_slope, _, _, _, _ = linregress(x, cum_flow)
-            
             div_type = 'NONE'
             strength_mult = 1.0
-            
             # A. 强背离 (反向)
             if p_slope > 0 and f_slope < 0:
                 div_type = 'BEARISH'
@@ -1279,7 +1262,6 @@ class FundFlowFactorCalculator:
             elif p_slope < 0 and f_slope > 0:
                 div_type = 'BULLISH'
                 strength_mult = 1.2
-            
             # B. 弱背离 (同向但力度不一)
             # 使用归一化后的均值差来判断相对强弱
             # Mean Diff > 0.05 即视为有显著差异 (原逻辑是 0.2 太严)
@@ -1293,7 +1275,6 @@ class FundFlowFactorCalculator:
                 if np.mean(f_norm) > np.mean(p_norm) + 0.05:
                     div_type = 'BULLISH'
                     strength_mult = 0.7
-            
             if div_type != 'NONE':
                 divergence['divergence_type'] = div_type
                 # 最终强度 = 背离度 * 类型系数
@@ -1472,7 +1453,6 @@ class FundFlowFactorCalculator:
         if np.std(recent_10) > 1e-6:
             ac1 = np.corrcoef(recent_10[:-1], recent_10[1:])[0, 1]
             if np.isnan(ac1): ac1 = 0.0
-            
         # 基础分: KER * 80 (原150，太激进) + AC1 * 20
         raw_confidence = ker * 80.0 + max(0, ac1) * 20.0
         # [新增] 拥挤度/波动率惩罚
@@ -1484,7 +1464,6 @@ class FundFlowFactorCalculator:
         penalty = 1.0
         if cv > 1.5:
             penalty = max(0.5, 1.0 - (cv - 1.5) * 0.5)
-            
         final_confidence = raw_confidence * penalty
         prediction['flow_forecast_confidence'] = float(np.clip(final_confidence, 0.0, 100.0))
         # 3. 趋势概率 (联动)
@@ -1493,7 +1472,6 @@ class FundFlowFactorCalculator:
             trend_score += final_confidence * 0.4
         else:
             trend_score -= final_confidence * 0.4
-            
         prediction['uptrend_continuation_prob'] = float(np.clip(trend_score, 0.0, 100.0))
         prediction['reversal_prob'] = float(np.clip(100.0 - trend_score, 0.0, 100.0))
         return prediction

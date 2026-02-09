@@ -391,7 +391,6 @@ class CalculateMainForceRallyIntent:
         """
         if series.empty:
             return pd.Series(0.5, index=series.index)
-            
         # 设定滚动窗口 (与记忆周期匹配，默认21日)
         window = 21
         # 1. 计算信号强度 (Signal Power)
