@@ -689,37 +689,85 @@ class CalculatePriceMomentumDivergence:
         }
         return st_consistency_score.astype(np.float32), debug_v
 
+    def _calculate_dqwm_matrix(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict, method_name: str) -> pd.Series:
+        """V3.16.0 · DQWM 矩阵聚合引擎：封装六维质量分量的加权融合逻辑 (修复 AttributeError)"""
+        # 1. 计算六大动力学质量分量
+        dq_mom_quality = self._calculate_momentum_quality_score(df, df_index, {}, pmd_params, method_name)
+        dq_tension = self._calculate_market_tension_score(df, df_index, {}, pmd_params, method_name)
+        dq_stability = self._calculate_stability_score(df, df_index, {}, pmd_params, method_name)
+        dq_chip_potential = self._calculate_chip_historical_potential_score(df, df_index, {}, pmd_params, method_name)
+        dq_tide = self._calculate_liquidity_tide_score(df, df_index, {}, pmd_params, method_name)
+        dq_const = self._calculate_market_constitution_score(df, df_index, {}, pmd_params, method_name)
+        
+        # 2. 构建组件字典
+        dqwm_components = {
+            "momentum_quality": dq_mom_quality, 
+            "market_tension": dq_tension, 
+            "stability": dq_stability, 
+            "chip_potential": dq_chip_potential,
+            "liquidity_tide": dq_tide, 
+            "market_constitution": dq_const
+        }
+        
+        # 3. 执行加权融合 (使用 V3.15.0 的鲁棒融合逻辑)
+        dqwm_score = _weighted_sum_fusion(dqwm_components, pmd_params['dqwm_weights'], df_index)
+        
+        # 4. 探针输出
+        print(f"  [探针-DQWM_Matrix] 动量品质: {dq_mom_quality.mean():.4f} | 物理张力: {dq_tension.mean():.4f} | 稳定性: {dq_stability.mean():.4f}")
+        print(f"  [探针-DQWM_Matrix] 筹码势能: {dq_chip_potential.mean():.4f} | 流动性潮汐: {dq_tide.mean():.4f} | 市场体质: {dq_const.mean():.4f}")
+        print(f"  [探针-DQWM_Matrix] 矩阵最终加权得分: {dqwm_score.mean():.4f}")
+        
+        return dqwm_score.astype(np.float32)
+
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V3.15.0 · 灵敏度自适应并行引擎：解决微弱信号坍塌问题 (全探针暴露)"""
+        """V3.16.0 · 灵敏度自适应并行引擎：修复方法调用缺失，集成 DQWM 矩阵聚合 (全探针暴露)"""
         method_name = "PriceMomentumAdaptiveSensitivity_System"
         pmd_params = self._get_pmd_params(config)
         df_index = df.index
+        
+        # 0. 信号完整性校验
         if not self._validate_pmd_signals(df, pmd_params, method_name):
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 1. 动力学路径计算
+            
+        # 1. 基础动力学路径计算
         f_p, p_diag = self._calculate_fused_price_direction(df, df_index, {}, pmd_params, method_name)
         f_m, m_diag = self._calculate_fused_momentum_direction(df, df_index, {}, pmd_params, method_name)
         base_div = (f_p - f_m).clip(-1, 1)
-        # 2. 质量矩阵融合 (使用升级后的存活逻辑)
-        dqwm_matrix = self._calculate_dqwm_matrix(df, df_index, pmd_params, method_name) # 假设内部调用 _weighted_sum_fusion
+        
+        # 2. 质量矩阵融合 (调用修复后的聚合引擎)
+        dqwm_matrix = self._calculate_dqwm_matrix(df, df_index, pmd_params, method_name)
+        
+        # 3. 环境场能调制
         ctx_mod, _ = self._calculate_context_modulator(df_index, {c: df[c] for c in df.columns}, pmd_params)
-        # 3. 双轨并行与意图 HAB 修正
-        bull_score = (base_div.where(base_div > 0, 0.0) * 0.6 + self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name) * 0.4)
-        bear_score = (base_div.where(base_div < 0, 0.0).abs() * 0.6 + self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name) * 0.4)
-        # 4. 灵敏度增强：对微弱初值进行根号放大，防止被后续 pow(1.8) 杀掉
+        
+        # 4. 双轨并行与意图 HAB 修正 (多空独立计算)
+        # 多头轨道：关注正向背离与隐蔽吸筹
+        bull_intent = self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name)
+        bull_score = (base_div.where(base_div > 0, 0.0) * 0.6 + bull_intent * 0.4)
+        
+        # 空头轨道：关注负向背离与派发意图
+        bear_intent = self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name)
+        bear_score = (base_div.where(base_div < 0, 0.0).abs() * 0.6 + bear_intent * 0.4)
+        
+        # 5. 灵敏度增强融合
+        # 原始差值 = (多头分 - 空头分) * 质量矩阵 * 环境调制
         raw_diff = (bull_score - bear_score) * dqwm_matrix * ctx_mod
-        # 逻辑：如果原始分值绝对值小于 0.1，应用根号放大提升探测率
+        
+        # 自适应增强：如果原始分值绝对值小于 0.1，应用根号放大提升探测率，防止被 pow(1.8) 吞噬
         boosted_diff = np.where(raw_diff.abs() < 0.1, np.sign(raw_diff) * np.sqrt(raw_diff.abs() * 0.1), raw_diff)
         final_modulated = pd.Series(boosted_diff, index=df_index)
-        # 5. RDI 与最终指数化
+        
+        # 6. RDI 相位锁定与最终指数化
         if pmd_params['rdi_params']['enabled']:
             rdi_val, _ = self._calculate_rdi_for_pair(f_p, f_m, df_index, pmd_params['rdi_params'], method_name, "P_M")
             final_modulated *= (1 + rdi_val * pmd_params['rdi_params']['rdi_modulator_weight']).clip(0.5, 1.5)
-        # 最终非线性增强
+            
         final_score = np.sign(final_modulated) * (final_modulated.abs().pow(pmd_params['final_fusion_exponent']))
-        # 6. 异常诊断探针
+        
+        # 7. 异常诊断探针
         if final_score.loc[df_index[-1]] == 0 and final_modulated.loc[df_index[-1]] != 0:
             print(f"  [告警] {method_name}: 最终分值发生指数级坍塌，RawDiff: {raw_diff.loc[df_index[-1]]:.6f}")
+            
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 
