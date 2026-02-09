@@ -267,7 +267,7 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V73.0 · 原料加载层：深度集成 HAB 缓冲系统，计算尾盘压力、板块厚度与波动紧致度的周期累积，清除空行"""
+        """V73.0 · 原料加载层：深度集成 HAB 缓冲系统，计算尾盘压力、板块厚度与波动紧致度的周期累积，清除所有空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
@@ -362,9 +362,12 @@ class CalculatePriceVolumeDynamics:
         turnover, extreme = raw['turnover_rate_f_D'].values, raw['STATE_EMOTIONAL_EXTREME_D'].values.astype(np.float32)
         daily_ratio, accum_ratio = raw['closing_flow_ratio_D'].values, raw['ACCUM_13_CLOSING_FLOW'].values
         exhaustion = np.clip(turnover / 15.0, 0.0, 1.5)
-        hab_risk = np.where(accum_ratio > 3.5, 1.25, 1.0) # 13日内累积尾盘占比过高
+        hab_risk = np.where(accum_ratio > 3.5, 1.25, 1.0) # 识别周期内依赖尾盘偷袭的异常特征
         reversal_pressure = daily_ratio * extreme * exhaustion * hab_risk
         risk_adjustment = pd.Series(1.0 - reversal_pressure * 0.4, index=df_index, dtype=np.float32).clip(0.5, 1.0)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[溢价回吐 HAB 探针 V73.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    13日累积尾盘压力: {accum_ratio[df_index.get_loc(probe_ts)]:.4f}, 风险系数: {hab_risk[df_index.get_loc(probe_ts)]:.2f}")
         return risk_adjustment
 
     def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -373,7 +376,7 @@ class CalculatePriceVolumeDynamics:
         stab, mean_stab = raw['TURNOVER_STABILITY_INDEX_D'].values, raw['MEAN_13_STABILITY'].values
         close, up, ratio = raw['close_D'].values, raw['up_limit_D'].values, raw['closing_flow_ratio_D'].values
         bad_mask = (close >= up * 0.999) & (ratio > 0.4) & (stab < 0.4)
-        fragility = np.where(mean_stab < 0.5, 0.85, 1.0) # 历史稳定性差则更易衰减
+        fragility = np.where(mean_stab < 0.5, 0.85, 1.0) # 历史稳定性差则更容易发生结构性衰减
         winner = raw['winner_rate_D'].values
         repair = np.where((winner < 0.15) & (stab < 0.3), 1.5, 1.0).astype(np.float32)
         decay = (0.6 + stab * 0.4) * np.where(bad_mask, 0.6, 1.0).astype(np.float32) * repair * fragility
@@ -384,10 +387,13 @@ class CalculatePriceVolumeDynamics:
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         s_hot, a_hot = raw['SLOPE_5_THEME_HOTNESS_SCORE_D'].values, raw['ACCEL_5_THEME_HOTNESS_SCORE_D'].values
         accum_hot = raw['ACCUM_21_THEME_HOTNESS'].values
-        mainline_bonus = np.clip(accum_hot / 1000.0, 1.0, 1.35) # 21日累积热度决定主线深度
+        mainline_bonus = np.clip(accum_hot / 1000.0, 1.0, 1.35) # 根据 21 日累积热度锚定主线级别
         impulse = (s_hot * 0.6 + a_hot * 0.4)
         persistence = np.where((raw['industry_rank_accel_D'].values > 0) & (raw['flow_consistency_D'].values > 0.65), 1.2, 0.8).astype(np.float32)
         mod = (1.0 + _numba_power_activation(impulse.astype(np.float64), gain=0.5).astype(np.float32)) * persistence * mainline_bonus
+        if is_debug and probe_ts in df_index:
+            print(f"\n[板块 HAB 探针 V73.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    21日累积热度: {accum_hot[df_index.get_loc(probe_ts)]:.2f}, 主线加成: {mainline_bonus[df_index.get_loc(probe_ts)]:.4f}")
         return pd.Series(mod, index=df_index, dtype=np.float32).clip(0.6, 2.0)
 
     def _calculate_volatility_clustering_adjustment(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -396,7 +402,7 @@ class CalculatePriceVolumeDynamics:
         bbw, squeeze_score = raw['BBW_21_2.0_D'].values, raw['HIST_VOL_SQUEEZE'].values
         s_bbw, a_bbw, j_bbw = raw['SLOPE_5_BBW_21_2.0_D'].values, raw['ACCEL_5_BBW_21_2.0_D'].values, raw['JERK_3_BBW_21_2.0_D'].values
         bbw_ma = pd.Series(bbw, index=df_index).rolling(21).mean().fillna(pd.Series(bbw, index=df_index)).values
-        vcp_ignite = np.where(squeeze_score > 15.0, 1.4, 1.0) # 历史上波动率极致收缩越久，爆发力越强
+        vcp_ignite = np.where(squeeze_score > 15.0, 1.4, 1.0) # 若长期波动紧致，爆发强度赋予 40% 的额外权重
         exp = (bbw < bbw_ma * 1.2) & (a_bbw > 0) & (j_bbw > 0.01)
         trap = (bbw > bbw_ma * 1.5) & ((s_bbw < 0) | (a_bbw < 0))
         p_jerk = raw['JERK_3_close_D'].values
@@ -404,6 +410,9 @@ class CalculatePriceVolumeDynamics:
         adj = np.where(exp & (p_jerk > 0), 1.5 * vcp_ignite, adj)
         adj = np.where(exp & (p_jerk < 0), 0.5, adj)
         adj = np.where(trap, 0.8, adj)
+        if is_debug and probe_ts in df_index:
+            print(f"\n[波动率 HAB 探针 V73.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    21日紧致度积分: {squeeze_score[df_index.get_loc(probe_ts)]:.2f}, VCP点火加成: {vcp_ignite[df_index.get_loc(probe_ts)]:.2f}")
         return pd.Series(adj, index=df_index, dtype=np.float32).clip(0.3, 2.2)
 
     def _calculate_sector_overflow_decay(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -414,7 +423,7 @@ class CalculatePriceVolumeDynamics:
         fd_vals = fd_all[0].astype(np.float32)
         slope = pd.Series(fd_vals, index=df_index).diff(5).fillna(0).values.astype(np.float32)
         accel = pd.Series(slope, index=df_index).diff(5).fillna(0).values.astype(np.float32)
-        hot_threshold = np.where(accum_hot > 1500.0, 70.0, 85.0) # 长期高热下，崩塌门槛降低
+        hot_threshold = np.where(accum_hot > 1500.0, 70.0, 85.0) # 长期高热环境下，崩塌门槛大幅降低（预防高位雪崩）
         avalanche = (hot > hot_threshold) & (slope > 0) & (accel > 0)
         base = (1.5 / (fd_vals + 1e-9)).clip(0.6, 1.1)
         res = np.where(avalanche, base * 0.6, base).astype(np.float32)
