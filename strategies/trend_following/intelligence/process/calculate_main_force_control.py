@@ -57,93 +57,55 @@ class CalculateMainForceControlRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.5.0 · 控盘杠杆与全息资金流验证强化版 - 军械库适配版】
-        基于《最终军械库清单》重构数据源。
-        核心逻辑：
-        1. 主力定义：聚合大单(lg)与超大单(elg)数据作为主力行为代理。
-        2. 控盘结构：使用筹码稳定性(chip_stability)作为控盘稳固度的核心代理。
-        3. 意图判断：引入推升评分与洗盘评分作为VWAP引导的替代指标。
+        【V4.1.0 · 主力控盘关系计算器 - 成本动力学适配版】
+        职责：调度全量计算流程。
+        更新：
+        1. _calculate_main_force_cost_advantage_score 内部集成了成本动力学计算，
+           calculate 方法只需维持流程的纯净性。
         """
         method_name = "calculate_main_force_control_relationship"
-        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
+        is_debug = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
+        probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
-        _temp_debug_values = {}
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算主力控盘关系(军械库适配版)..."] = ""
-        actual_mtf_weights, mtf_slope_accel_weights = self._get_control_parameters(config)
-        # 根据军械库清单更新所需的真实物理信号
-        required_signals = [
-            'close_D', 'net_mf_amount_D', 'chip_stability_D', 'flow_consistency_D',
-            'buy_lg_amount_D', 'buy_elg_amount_D', 'sell_lg_amount_D', 'sell_elg_amount_D',
-            'buy_lg_vol_D', 'buy_elg_vol_D', 'sell_lg_vol_D', 'sell_elg_vol_D',
-            'intraday_accumulation_confidence_D', 'intraday_distribution_confidence_D',
-            'pushing_score_D', 'shakeout_score_D',
-            'EMA_13_D', 'EMA_55_D'
-        ]
-        # 动态添加MTF斜率和加速度信号依赖 (基于代理指标 chip_stability_D)
-        base_sig_proxy = 'chip_stability_D'
-        for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-            required_signals.append(f'SLOPE_{period_str}_{base_sig_proxy}')
-        for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-            required_signals.append(f'ACCEL_{period_str}_{base_sig_proxy}')
-        if not self.helper._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号(如net_mf_amount_D等)，返回默认值。"] = ""
-                self._print_debug_info(debug_output)
+        _temp_debug_values = {} 
+        if probe_ts:
+            debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+            
+        # 1. 验证必要信号
+        if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        # 获取并合成原始信号
-        close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, \
-        mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, \
-        mf_t0_buy_efficiency, mf_t0_sell_efficiency, mf_vwap_up_guidance, mf_vwap_down_guidance = \
-            self._get_raw_control_signals(df, method_name, _temp_debug_values, is_debug_enabled_for_method, probe_ts)
-        # 计算传统控盘度 (依赖EMA)
-        kongpan_raw = self._calculate_traditional_control_score_components(df, method_name, _temp_debug_values, is_debug_enabled_for_method, probe_ts, debug_output)
-        if kongpan_raw.isnull().all():
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 计算主力平均价格和成本优势
-        main_force_avg_buy_price, main_force_avg_sell_price = self._calculate_main_force_avg_prices(df_index, close_price, mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, _temp_debug_values)
-        main_force_cost_advantage_score = self._calculate_main_force_cost_advantage_score(df_index, close_price, main_force_avg_buy_price, main_force_avg_sell_price, _temp_debug_values)
-        # 归一化和MTF融合 (注意：mtf_structural_control_score 内部现在将使用 chip_stability_D)
-        # 这里需要临时hook helper或者在_normalize方法中指定正确的列名，为简化，此处假设 helper._get_mtf_slope_accel_score 能处理传入的 col_name
-        # 修正：直接在下面调用时传入实际存在的列名 'chip_stability_D' 而非原来的 'control_solidity_index_D'
-        traditional_control_score = self.helper._normalize_series(kongpan_raw, df_index, bipolar=True)
-        mtf_structural_control_score = self.helper._get_mtf_slope_accel_score(df, 'chip_stability_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        flow_credibility_norm = self.helper._normalize_series(flow_credibility_raw, df_index, bipolar=False)
-        mf_t0_buy_efficiency_norm = self.helper._normalize_series(mf_t0_buy_efficiency, df_index, bipolar=False)
-        mf_t0_sell_efficiency_norm = self.helper._normalize_series(mf_t0_sell_efficiency, df_index, bipolar=False)
-        mf_vwap_up_guidance_norm = self.helper._normalize_series(mf_vwap_up_guidance, df_index, bipolar=False)
-        mf_vwap_down_guidance_norm = self.helper._normalize_series(mf_vwap_down_guidance, df_index, bipolar=False)
-        _temp_debug_values["归一化处理"] = {
-            "traditional_control_score": traditional_control_score,
-            "mtf_structural_control_score": mtf_structural_control_score,
-            "flow_credibility_norm": flow_credibility_norm,
-            "main_force_t0_buy_efficiency_norm": mf_t0_buy_efficiency_norm,
-            "main_force_t0_sell_efficiency_norm": mf_t0_sell_efficiency_norm,
-            "main_force_vwap_up_guidance_norm": mf_vwap_up_guidance_norm,
-            "main_force_vwap_down_guidance_norm": mf_vwap_down_guidance_norm,
-        }
-        mtf_main_force_net_activity_score = self._calculate_main_force_net_activity_score(df, df_index, mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, mtf_slope_accel_weights, method_name, _temp_debug_values)
-        fused_control_score = self._fuse_control_scores(traditional_control_score, mtf_structural_control_score, _temp_debug_values)
-        control_leverage = self._calculate_control_leverage_model(df_index, fused_control_score, mtf_main_force_net_activity_score, \
-                                                                  flow_credibility_norm, main_force_cost_advantage_score, \
-                                                                  mf_t0_buy_efficiency_norm, mf_t0_sell_efficiency_norm, \
-                                                                  mf_vwap_up_guidance_norm, mf_vwap_down_guidance_norm, _temp_debug_values)
-        final_control_score = (mtf_main_force_net_activity_score * control_leverage).clip(-1, 1)
-        _temp_debug_values["最终控盘分数"] = {"final_control_score": final_control_score}
-        if is_debug_enabled_for_method and probe_ts:
-            self._calculate_main_force_control_relationship_debug_output(debug_output, _temp_debug_values, method_name, probe_ts, final_control_score)
-        return final_control_score.astype(np.float32)
+            
+        # 2. 数据准备
+        control_context = self._get_raw_control_signals(df, method_name, _temp_debug_values, probe_ts)
+        # 3. 组件计算
+        # 3.1 传统控盘度
+        scores_traditional = self._calculate_traditional_control_score_components(control_context, df.index, _temp_debug_values)
+        if scores_traditional.isnull().all():
+             return pd.Series(0.0, index=df.index, dtype=np.float32)
+             
+        # 3.2 主力成本优势 (已升级包含成本Slope/Accel)
+        scores_cost_advantage = self._calculate_main_force_cost_advantage_score(control_context, df.index, _temp_debug_values)
+        # 3.3 主力净活动
+        scores_net_activity = self._calculate_main_force_net_activity_score(control_context, df.index, config, method_name, _temp_debug_values)
+        # 4. 模型融合
+        norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down = \
+            self._normalize_components(df, control_context, scores_traditional, config, method_name, _temp_debug_values)
+            
+        fused_control_score = self._fuse_control_scores(norm_traditional, norm_structural, control_context, _temp_debug_values)
+        # 5. 风控杠杆
+        control_leverage = self._calculate_control_leverage_model(
+            df.index, fused_control_score, scores_net_activity, 
+            norm_flow, scores_cost_advantage, 
+            norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down,
+            control_context, _temp_debug_values
+        )
+        # 6. 最终输出
+        final_control_score = (scores_net_activity * control_leverage).clip(-1, 1).astype(np.float32)
+        _temp_debug_values["最终结果"] = {"Final_Score": final_control_score}
+        if probe_ts:
+            self._calculate_main_force_control_relationship_debug_output(debug_output, _temp_debug_values, probe_ts)
+            
+        return final_control_score
 
     def _get_control_parameters(self, config: Dict) -> Tuple[Dict, Dict]:
         """
@@ -159,64 +121,79 @@ class CalculateMainForceControlRelationship:
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         return actual_mtf_weights, mtf_slope_accel_weights
 
-    def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, is_debug_enabled_for_method: bool, probe_ts: pd.Timestamp) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+    def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
         """
-        【V1.1.0 · 军械库原子指标合成】
-        从《最终军械库清单》中提取基础数据，并合成主力逻辑指标。
-        逻辑映射：
-        - 主力 = 大单(lg) + 超大单(elg)
-        - 控盘稳固度 = 筹码稳定性(chip_stability_D)
-        - 资金流可信度 = 资金流一致性(flow_consistency_D)
-        - 引导意图 = 推升评分(pushing_score_D) / 洗盘评分(shakeout_score_D)
+        【V2.1.0 · 全维动力学信号提取】
+        新增提取 Slope(斜率), Accel(加速度), Jerk(加加速度) 指标。
+        锁定 Lookback = 5 (斐波那契周线窗口)，捕捉主力短线意图的突变。
+        动力学核心对象：
+        1. net_mf_amount_D (资金流): 捕捉点火与衰竭。
+        2. chip_stability_D (筹码结构): 捕捉锁仓加速。
+        3. pushing_score_D (推升意图): 捕捉攻击信号突变。
         """
-        close_price = self._get_safe_series(df, 'close_D', method_name=method_name)
-        # 1. 控盘稳固度 -> 代理指标: 筹码稳定性 (数值越大越稳定，利于控盘)
-        control_solidity_raw = self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name)
-        # 2. 主力净流 -> 直接指标: net_mf_amount_D
-        main_force_net_flow_calibrated = self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name)
-        # 3. 资金流可信度 -> 代理指标: flow_consistency_D
-        flow_credibility_raw = self._get_safe_series(df, 'flow_consistency_D', 0.5, method_name=method_name)
-        # 4. 合成主力买入/卖出金额与成交量 (大单+超大单)
-        buy_lg_amt = self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name)
-        buy_elg_amt = self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name)
-        mf_buy_amount = buy_lg_amt + buy_elg_amt
-        sell_lg_amt = self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name=method_name)
-        sell_elg_amt = self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name=method_name)
-        mf_sell_amount = sell_lg_amt + sell_elg_amt
-        buy_lg_vol = self._get_safe_series(df, 'buy_lg_vol_D', 0.0, method_name=method_name)
-        buy_elg_vol = self._get_safe_series(df, 'buy_elg_vol_D', 0.0, method_name=method_name)
-        mf_buy_volume = buy_lg_vol + buy_elg_vol
-        sell_lg_vol = self._get_safe_series(df, 'sell_lg_vol_D', 0.0, method_name=method_name)
-        sell_elg_vol = self._get_safe_series(df, 'sell_elg_vol_D', 0.0, method_name=method_name)
-        mf_sell_volume = sell_lg_vol + sell_elg_vol
-        # 5. T0效率/日内行为 -> 代理指标: 日内吸筹/派发置信度
-        mf_t0_buy_efficiency = self._get_safe_series(df, 'intraday_accumulation_confidence_D', 0.0, method_name=method_name)
-        mf_t0_sell_efficiency = self._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0, method_name=method_name)
-        # 6. VWAP引导/意图 -> 代理指标: 推升评分/洗盘评分
-        mf_vwap_up_guidance = self._get_safe_series(df, 'pushing_score_D', 0.0, method_name=method_name)
-        mf_vwap_down_guidance = self._get_safe_series(df, 'shakeout_score_D', 0.0, method_name=method_name)
-        raw_signals_series = {
-            "close_D": close_price,
-            "control_solidity_proxy(chip_stability)": control_solidity_raw,
-            "net_mf_amount_D": main_force_net_flow_calibrated,
-            "flow_credibility_proxy(flow_consistency)": flow_credibility_raw,
-            "mf_buy_amount(lg+elg)": mf_buy_amount,
-            "mf_sell_amount(lg+elg)": mf_sell_amount,
-            "mf_t0_buy_eff(accumulation_conf)": mf_t0_buy_efficiency,
-            "mf_t0_sell_eff(distribution_conf)": mf_t0_sell_efficiency,
-            "mf_up_guide(pushing)": mf_vwap_up_guidance,
-            "mf_down_guide(shakeout)": mf_vwap_down_guidance,
+        # 1. 基础数据提取 (保持原有逻辑)
+        market = {
+            "close": self._get_safe_series(df, 'close_D', method_name=method_name),
+            "amount": self._get_safe_series(df, 'amount_D', method_name=method_name).replace(0, np.nan),
+            "pct_change": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name),
         }
-        _temp_debug_values["原始信号值"] = raw_signals_series
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output_raw_values = {}
-            for sig_name, series in raw_signals_series.items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output_raw_values[sig_name] = val
-            _temp_debug_values["原始信号值_具体数值"] = debug_output_raw_values
-        return close_price, control_solidity_raw, main_force_net_flow_calibrated, flow_credibility_raw, \
-               mf_buy_amount, mf_sell_amount, mf_buy_volume, mf_sell_volume, \
-               mf_t0_buy_efficiency, mf_t0_sell_efficiency, mf_vwap_up_guidance, mf_vwap_down_guidance
+        structure = {
+            "ema_13": self._get_safe_series(df, 'EMA_13_D', method_name=method_name),
+            "ema_21": self._get_safe_series(df, 'EMA_21_D', method_name=method_name),
+            "ema_55": self._get_safe_series(df, 'EMA_55_D', method_name=method_name),
+            "chip_stability": self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name),
+            "chip_entropy": self._get_safe_series(df, 'chip_entropy_D', 1.0, method_name=method_name),
+            "cost_50pct": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),
+            "winner_rate": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name),
+        }
+        buy_lg = self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name)
+        buy_elg = self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name)
+        sell_lg = self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name=method_name)
+        sell_elg = self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name=method_name)
+        funds = {
+            "buy_lg_amt": buy_lg,
+            "buy_elg_amt": buy_elg,
+            "sell_lg_amt": sell_lg,
+            "sell_elg_amt": sell_elg,
+            "buy_lg_vol": self._get_safe_series(df, 'buy_lg_vol_D', 0.0, method_name=method_name),
+            "buy_elg_vol": self._get_safe_series(df, 'buy_elg_vol_D', 0.0, method_name=method_name),
+            "sell_lg_vol": self._get_safe_series(df, 'sell_lg_vol_D', 0.0, method_name=method_name),
+            "sell_elg_vol": self._get_safe_series(df, 'sell_elg_vol_D', 0.0, method_name=method_name),
+            "net_mf_calibrated": self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name),
+            "total_buy_amt": buy_lg + buy_elg,
+            "total_sell_amt": sell_lg + sell_elg,
+        }
+        sentiment = {
+            "flow_consistency": self._get_safe_series(df, 'flow_consistency_D', 0.5, method_name=method_name),
+            "t0_buy_conf": self._get_safe_series(df, 'intraday_accumulation_confidence_D', 0.0, method_name=method_name),
+            "t0_sell_conf": self._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0, method_name=method_name),
+            "pushing_score": self._get_safe_series(df, 'pushing_score_D', 0.0, method_name=method_name),
+            "shakeout_score": self._get_safe_series(df, 'shakeout_score_D', 0.0, method_name=method_name),
+            "bbw": self._get_safe_series(df, 'BBW_21_2.0_D', 0.1, method_name=method_name),
+            "turnover": self._get_safe_series(df, 'turnover_rate_D', 1.0, method_name=method_name),
+            "vpa_efficiency": self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name=method_name),
+        }
+        # 2. 动力学衍生数据 (Kinematics Extraction)
+        # 针对核心指标提取 5日 (Lookback=5) 的 derivatives
+        # 注意：如果数据层没有提供现成的列，get_safe_series 会返回默认值(0.0)，不会报错
+        # 资金流动力学
+        funds["net_mf_slope"] = self._get_safe_series(df, 'SLOPE_5_net_mf_amount_D', 0.0, method_name=method_name)
+        funds["net_mf_accel"] = self._get_safe_series(df, 'ACCEL_5_net_mf_amount_D', 0.0, method_name=method_name)
+        funds["net_mf_jerk"]  = self._get_safe_series(df, 'JERK_5_net_mf_amount_D', 0.0, method_name=method_name)
+        # 筹码结构动力学
+        structure["stability_accel"] = self._get_safe_series(df, 'ACCEL_5_chip_stability_D', 0.0, method_name=method_name)
+        # 行为意图动力学
+        sentiment["pushing_jerk"] = self._get_safe_series(df, 'JERK_5_pushing_score_D', 0.0, method_name=method_name)
+        context = {"market": market, "structure": structure, "funds": funds, "sentiment": sentiment}
+        if probe_ts:
+            debug_vals = {}
+            # 仅记录部分核心动力学数据防止日志爆炸
+            debug_vals["funds.net_mf_jerk"] = funds["net_mf_jerk"].loc[probe_ts] if probe_ts in funds["net_mf_jerk"].index else np.nan
+            debug_vals["funds.net_mf_accel"] = funds["net_mf_accel"].loc[probe_ts] if probe_ts in funds["net_mf_accel"].index else np.nan
+            debug_vals["structure.stability_accel"] = structure["stability_accel"].loc[probe_ts] if probe_ts in structure["stability_accel"].index else np.nan
+            _temp_debug_values["原始信号快照(动力学)"] = debug_vals
+            
+        return context
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp, final_control_score: pd.Series):
         """
@@ -268,143 +245,222 @@ class CalculateMainForceControlRelationship:
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力控盘关系诊断完成，最终分值: {final_control_score.loc[probe_ts]:.4f}"] = ""
         self._print_debug_info(debug_output)
 
-    def _calculate_main_force_avg_prices(self, df_index: pd.Index, close_price: pd.Series, mf_buy_amount: pd.Series, mf_sell_amount: pd.Series, mf_buy_volume: pd.Series, mf_sell_volume: pd.Series, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series]:
+    def _calculate_main_force_avg_prices(self, df_index: pd.Index, close_price: pd.Series, 
+                                         buy_lg_amt: pd.Series, buy_elg_amt: pd.Series, 
+                                         sell_lg_amt: pd.Series, sell_elg_amt: pd.Series, 
+                                         buy_lg_vol: pd.Series, buy_elg_vol: pd.Series, 
+                                         sell_lg_vol: pd.Series, sell_elg_vol: pd.Series, 
+                                         _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0.0】计算主力平均买入价格和平均卖出价格。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            close_price (pd.Series): 收盘价序列。
-            mf_buy_amount (pd.Series): 主力日度买入金额。
-            mf_sell_amount (pd.Series): 主力日度卖出金额。
-            mf_buy_volume (pd.Series): 主力日度买入股数。
-            mf_sell_volume (pd.Series): 主力日度卖出股数。
-            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
-        返回:
-            Tuple[pd.Series, pd.Series]: 主力平均买入价格和主力平均卖出价格。
+        【V2.4.0 · 主力成本动力学模型 - 零基陷阱防御版】
+        核心防御机制：
+        1. 预平滑 (Pre-Smoothing): 对原始均价进行 EMA 处理，防止噪音在二阶导数中爆炸。
+        2. 算术差分 (Arithmetic Difference): 
+           - Slope 计算使用百分比 (相对变化)。
+           - Accel/Jerk 计算使用差值 (绝对变化)，严禁使用 (Slope_t - Slope_t-1)/Slope_t-1，
+             彻底规避 Slope=0 导致的除零陷阱和符号翻转陷阱。
+        3. 软压缩 (Soft Clipping): 使用 tanh 对高阶导数进行去极值处理。
         """
-        # 避免除以零，当成交量为0时，平均价格设为NaN或当日收盘价
-        main_force_avg_buy_price = (mf_buy_amount / mf_buy_volume).replace([np.inf, -np.inf], np.nan).fillna(close_price)
-        main_force_avg_sell_price = (mf_sell_amount / mf_sell_volume).replace([np.inf, -np.inf], np.nan).fillna(close_price)
+        # 定义权重：给予 Smart Money (超大单) 更高权重
+        w_elg, w_lg = 1.5, 1.0
+        # --- 1. 计算买入成本 (Buy Cost) ---
+        buy_amt_w = (buy_elg_amt * w_elg) + (buy_lg_amt * w_lg)
+        buy_vol_w = (buy_elg_vol * w_elg) + (buy_lg_vol * w_lg)
+        # 基础计算：加权均价
+        # 防御1: 使用 fillna(close_price) 处理无成交的情况，避免 NaN
+        daily_buy = (buy_amt_w / buy_vol_w.replace(0, np.nan)).fillna(close_price)
+        # 防御2: 预平滑 (Pre-Smoothing)
+        # 成本线本身的波动需要被平滑，否则 Jerk 指标会全是噪音
+        avg_buy = daily_buy.ewm(span=5, adjust=False).mean()
+        # --- 动力学计算 (Kinematics) ---
+        # Level 1: Slope (速度)
+        # 逻辑：成本的 3日变动率。价格永远 > 0，使用百分比是安全的。
+        # replace(0, np.nan) 是最后的保险，防止极端数据错误
+        buy_slope_raw = (avg_buy - avg_buy.shift(3)) / avg_buy.shift(3).replace(0, np.nan) * 100
+        # Level 2: Accel (加速度)
+        # 【关键防御】使用算术差分 (Difference)，而非增长率。
+        # 含义：斜率增加了多少个百分点。避免了 Slope=0 时的除零错误。
+        buy_accel_raw = buy_slope_raw - buy_slope_raw.shift(1)
+        # Level 3: Jerk (加加速度/变盘)
+        # 【关键防御】同样使用算术差分。
+        buy_jerk_raw = buy_accel_raw - buy_accel_raw.shift(1)
+        # --- 数据清洗与压缩 ---
+        # 使用 tanh 将动力学指标限制在合理区间，防止个别妖股的极端数据破坏整体模型
+        # 系数说明：
+        # Slope * 1.0: 1% 的日均变动对应 tanh(1) ~= 0.76 (合理)
+        # Accel * 2.0: 加速度通常很小，放大处理
+        # Jerk * 5.0: 突变信号通常极小，大幅放大以捕捉信号
+        result = {
+            "avg_buy": avg_buy,
+            "buy_slope": buy_slope_raw.fillna(0), # 输出原始值供逻辑判断(如 >0.2%)
+            "buy_accel": buy_accel_raw.fillna(0),
+            "buy_jerk": buy_jerk_raw.fillna(0),
+            
+            # 归一化版本 (用于机器学习或打分融合)
+            "buy_slope_norm": np.tanh(buy_slope_raw),
+            "buy_accel_norm": np.tanh(buy_accel_raw * 2.0),
+            "buy_jerk_norm": np.tanh(buy_jerk_raw * 5.0),
+        }
+        # --- 2. 计算卖出成本 (Sell Cost) ---
+        # 逻辑同上
+        sell_amt_w = (sell_elg_amt * w_elg) + (sell_lg_amt * w_lg)
+        sell_vol_w = (sell_elg_vol * w_elg) + (sell_lg_vol * w_lg)
+        daily_sell = (sell_amt_w / sell_vol_w.replace(0, np.nan)).fillna(close_price)
+        avg_sell = daily_sell.ewm(span=5, adjust=False).mean()
+        sell_slope_raw = (avg_sell - avg_sell.shift(3)) / avg_sell.shift(3).replace(0, np.nan) * 100
+        result["avg_sell"] = avg_sell
+        result["sell_slope"] = sell_slope_raw.fillna(0)
         _temp_debug_values["主力平均价格计算"] = {
-            "main_force_avg_buy_price": main_force_avg_buy_price,
-            "main_force_avg_sell_price": main_force_avg_sell_price
+            "avg_buy": avg_buy,
+            "buy_slope": buy_slope_raw,
+            "buy_accel": buy_accel_raw,
+            "buy_jerk": buy_jerk_raw
         }
-        return main_force_avg_buy_price, main_force_avg_sell_price
+        return result
 
-    def _calculate_main_force_cost_advantage_score(self, df_index: pd.Index, close_price: pd.Series, main_force_avg_buy_price: pd.Series, main_force_avg_sell_price: pd.Series, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.0】计算主力成本优势分数。
-        分数范围 [-1, 1]，正值表示主力成本优势明显，负值表示劣势。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            close_price (pd.Series): 收盘价序列。
-            main_force_avg_buy_price (pd.Series): 主力平均买入价格。
-            main_force_avg_sell_price (pd.Series): 主力平均卖出价格。
-            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
-        返回:
-            pd.Series: 主力成本优势分数。
+        【V2.3.0 · 双轨成本Alpha模型 - 动力学增强版】
+        引入成本斜率 (Cost Slope) 作为核心判定因子。
+        逻辑升级：
+        1. 静态优势 (Static Alpha): 市场成本 vs 主力成本 (原有逻辑)。
+        2. 动态意图 (Dynamic Intent):
+           - 如果主力成本在显著上移 (Slope > 0.5%)，说明主力在“抬轿”，给予 Alpha 加成。
+           - 如果股价涨但主力成本走平 (Slope ~ 0)，可能是虚拉，Alpha 降权。
         """
-        # 避免除以零，当收盘价为0时，设为NaN
-        close_price_safe = close_price.replace(0, np.nan)
-        # 买入成本与收盘价的相对优势 (越低越好)
-        buy_advantage = (close_price_safe - main_force_avg_buy_price) / close_price_safe
-        # 卖出价格与收盘价的相对优势 (越高越好)
-        sell_advantage = (main_force_avg_sell_price - close_price_safe) / close_price_safe
-        # 综合成本优势：买入成本越低，卖出价格越高，优势越明显
-        # 归一化到 [-1, 1]
-        # 考虑主力在买入和卖出两端的综合表现
-        # 如果主力买入价格低于收盘价，且卖出价格高于收盘价，则成本优势明显
-        # 简化为：买入价格越低，卖出价格越高，分数越高
-        cost_advantage_raw = (buy_advantage.fillna(0) + sell_advantage.fillna(0)) / 2
-        # 对原始成本优势进行归一化，使其在 [-1, 1] 之间
-        main_force_cost_advantage_score = self.helper._normalize_series(cost_advantage_raw, df_index, bipolar=True)
-        _temp_debug_values["主力成本优势计算"] = {
-            "buy_advantage": buy_advantage,
-            "sell_advantage": sell_advantage,
-            "cost_advantage_raw": cost_advantage_raw,
-            "main_force_cost_advantage_score": main_force_cost_advantage_score
-        }
-        return main_force_cost_advantage_score
-
-    def _calculate_main_force_net_activity_score(self, df: pd.DataFrame, df_index: pd.Index, mf_buy_amount: pd.Series, mf_sell_amount: pd.Series, mf_buy_volume: pd.Series, mf_sell_volume: pd.Series, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.0.1】计算主力净活动分数（MTF融合版）。
-        调整 `composite_net_activity_series` 的融合逻辑，使其更侧重于净买入/卖出行为。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            df_index (pd.Index): DataFrame的索引。
-            mf_buy_amount (pd.Series): 主力日度买入金额。
-            mf_sell_amount (pd.Series): 主力日度卖出金额。
-            mf_buy_volume (pd.Series): 主力日度买入股数。
-            mf_sell_volume (pd.Series): 主力日度卖出股数。
-            mtf_slope_accel_weights (Dict): MTF斜率加速度权重配置。
-            method_name (str): 调用此方法的名称。
-            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
-        返回:
-            pd.Series: 融合后的MTF主力净活动分数 (范围 [-1, 1])。
-        """
-        net_amount_raw = mf_buy_amount - mf_sell_amount
-        net_volume_raw = mf_buy_volume - mf_sell_volume
-        # 对净金额和净股数进行双极性归一化
-        norm_net_amount = self.helper._normalize_series(net_amount_raw, df_index, bipolar=True)
-        norm_net_volume = self.helper._normalize_series(net_volume_raw, df_index, bipolar=True)
-        # 融合归一化后的净金额和净股数，形成一个复合净活动信号
-        # 赋予金额和股数同等权重，或根据需要调整
-        # 确保净买入/卖出行为的强度得到体现
-        composite_net_activity_series = (norm_net_amount * 0.6 + norm_net_volume * 0.4).clip(-1, 1)
-        # 对复合净活动信号进行MTF斜率和加速度融合
-        mtf_main_force_net_activity_score = self.helper._get_mtf_score_from_series_slope_accel(
-            composite_net_activity_series,
-            mtf_slope_accel_weights,
-            df_index,
-            method_name,
-            bipolar=True
+        m, f, s = context['market'], context['funds'], context['structure']
+        # 1. 调用新的价格计算方法 (返回字典)
+        # 注意：这里需要传入拆分后的资金流数据
+        prices = self._calculate_main_force_avg_prices(
+            index, m['close'],
+            f['buy_lg_amt'], f['buy_elg_amt'], f['sell_lg_amt'], f['sell_elg_amt'],
+            f['buy_lg_vol'], f['buy_elg_vol'], f['sell_lg_vol'], f['sell_elg_vol'],
+            _temp_debug_values
         )
-        _temp_debug_values["主力净活动计算"] = {
-            "net_amount_raw": net_amount_raw,
-            "net_volume_raw": net_volume_raw,
-            "norm_net_amount": norm_net_amount,
-            "norm_net_volume": norm_net_volume,
-            "composite_net_activity_series": composite_net_activity_series,
-            "mtf_main_force_net_activity_score": mtf_main_force_net_activity_score
+        avg_buy = prices['avg_buy']
+        avg_sell = prices['avg_sell']
+        buy_slope = prices['buy_slope'] # 成本趋势
+        buy_accel = prices['buy_accel'] # 抢筹急迫度
+        # 2. 计算静态优势 (Static Score)
+        # 战略Alpha: 主力成本比市场成本低多少
+        strategic_alpha = (s['cost_50pct'] - avg_buy) / s['cost_50pct'].replace(0, np.nan)
+        # 安全垫: 现价高于主力买入价多少
+        safety_margin = (m['close'] - avg_buy) / avg_buy.replace(0, np.nan)
+        # 收割能力: 卖出均价高于市场成本多少
+        harvest_prem = (avg_sell - s['cost_50pct']) / s['cost_50pct'].replace(0, np.nan)
+        # 3. 动态意图修正 (Dynamic Modifier)
+        # 构建“进攻因子” (Aggression Factor)
+        # 逻辑：成本上移(Slope>0) 且 加速(Accel>0) = 强力进攻
+        aggression_bonus = pd.Series(0.0, index=index)
+        # 情景A: 推升 (Pushing) -> 成本Slope > 0.2%
+        aggression_bonus = aggression_bonus.mask(buy_slope > 0.2, 0.2)
+        # 情景B: 抢筹 (Scramble) -> 成本Slope > 0.2% 且 Accel > 0
+        aggression_bonus = aggression_bonus.mask((buy_slope > 0.2) & (buy_accel > 0), 0.4)
+        # 情景C: 虚拉/对倒 (Fake Pump) -> 股价大涨(>3%) 但成本几乎不动(|Slope| < 0.1%)
+        # 这种情况下，静态优势再大也是虚的，需要惩罚
+        is_fake_pump = (m['pct_change'] > 3.0) & (buy_slope.abs() < 0.1)
+        aggression_bonus = aggression_bonus.mask(is_fake_pump, -0.3)
+        # 4. 综合评分
+        # 静态分 (0.8) + 动态修正 (0.2 + bonus)
+        raw_score = (
+            strategic_alpha.fillna(0) * 0.4 + 
+            safety_margin.fillna(0) * 0.3 + 
+            harvest_prem.fillna(0) * 0.1 + 
+            aggression_bonus # 直接叠加 bonus
+        )
+        final_score = np.tanh(raw_score * 5.0)
+        _temp_debug_values["组件_成本优势"] = {
+            "avg_buy": avg_buy,
+            "buy_slope": buy_slope,
+            "aggression_bonus": aggression_bonus,
+            "final_score": final_score
         }
-        return mtf_main_force_net_activity_score
+        return pd.Series(final_score, index=index).fillna(0)
 
-    def _calculate_traditional_control_score_components(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, is_debug_enabled_for_method: bool, probe_ts: pd.Timestamp, debug_output: Dict) -> pd.Series:
+    def _calculate_main_force_net_activity_score(self, context: Dict, index: pd.Index, config: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.2】计算基于EMA的传统控盘度分数。
-        直接从数据层获取EMA指标，不再重新计算。
-        使用EMA_13_D作为短期EMA，EMA_55_D作为中长期平滑EMA（对应原始逻辑中的varn1）。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            method_name (str): 调用此方法的名称。
-            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
-            is_debug_enabled_for_method (bool): 是否启用调试。
-            probe_ts (pd.Timestamp): 探针日期。
-            debug_output (Dict): 调试输出字典。
-        返回:
-            pd.Series: 传统控盘度分数。
+        【V2.2.0 · 资金流动力学模型 (Funds Kinematics Model)】
+        在渗透率基础上，引入 Jerk (脉冲) 和 Accel (力度) 进行非线性修正。
+        核心逻辑：
+        1. 基础渗透率 (Base Penetration): (Buy - Sell) / Amount。
+        2. 动力学修正 (Kinematic Adjustment):
+           - 点火 (Ignition): Jerk > 0 且 Accel > 0。表示主力突然发力，权重 * 1.4。
+           - 衰竭 (Exhaustion): Slope > 0 但 Accel < 0。表示买力虽然为正但在减弱，权重 * 0.8。
+           - 恐慌 (Panic): Jerk < 0 且 Accel < 0。表示主力加速出逃，权重 * 1.2 (负向增强)。
         """
-        # 直接从数据层获取EMA指标
-        # ema13 对应原始逻辑中的短期EMA
-        ema13_series = self._get_safe_series(df, 'EMA_13_D', method_name=method_name)
-        # varn1 对应原始逻辑中 ema13 的二次平滑，这里使用 EMA_55_D 作为中长期平滑的替代
-        varn1_series = self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
-        if ema13_series.isnull().all() or varn1_series.isnull().all():
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 传统控盘度所需EMA数据缺失或全为NaN，返回默认值。"] = ""
-                self._print_debug_info(debug_output)
-            return pd.Series(np.nan, index=df.index, dtype=np.float32) # 返回NaN，让归一化处理
-        prev_varn1_series = varn1_series.shift(1)
-        # 避免除以零，并处理NaN
-        kongpan_raw = (varn1_series - prev_varn1_series) / prev_varn1_series.replace(0, np.nan) * 1000
-        _temp_debug_values["传统控盘度计算"] = {
-            "ema13": ema13_series,
-            "varn1": varn1_series,
-            "prev_varn1": prev_varn1_series,
-            "kongpan_raw": kongpan_raw
+        f, m = context['funds'], context['market']
+        # 1. 基础渗透率
+        net_amt = f['total_buy_amt'] - f['total_sell_amt']
+        penetration = net_amt / m['amount']
+        # 2. 动力学因子提取
+        # 数据层提供的导数通常量级较大或不统一，建议先做方向性判断，或者使用 tanh 压缩
+        # 这里我们主要利用其符号和相对强弱
+        jerk = f['net_mf_jerk']
+        accel = f['net_mf_accel']
+        slope = f['net_mf_slope']
+        # 3. 构建动力学乘数 (Kinematic Multiplier)
+        k_multiplier = pd.Series(1.0, index=index)
+        # 场景A: 暴力点火 (Ignition) -> Jerk正向突变，Accel正向加速
+        # 这种时候往往是行情的起点，给予高溢价
+        mask_ignition = (jerk > 0) & (accel > 0)
+        k_multiplier = k_multiplier.mask(mask_ignition, 1.4)
+        # 场景B: 买力衰竭 (Exhaustion) -> 资金净流入(Slope>0) 但 加速度为负(Accel<0)
+        # 说明主力虽然在买，但手软了，需要降低得分置信度
+        mask_exhaustion = (slope > 0) & (accel < 0)
+        k_multiplier = k_multiplier.mask(mask_exhaustion, 0.8)
+        # 场景C: 加速出逃 (Panic Bailout) -> 资金净流出(Slope<0) 且 加速度为负(Accel<0)
+        # 负向加速，说明砸盘力度在加大，让负分更负
+        mask_panic = (slope < 0) & (accel < 0)
+        # 注意：渗透率为负时，乘以 1.2 会变得更小(更负)，符合逻辑
+        k_multiplier = k_multiplier.mask(mask_panic, 1.2)
+        # 4. 逆势博弈修正 (保留原逻辑)
+        # 黄金坑 & 诱多
+        game_multiplier = pd.Series(1.0, index=index)
+        golden_pit = (m['pct_change'] < -1.5) & (penetration > 0)
+        bull_trap = (m['pct_change'] > 2.5) & (penetration < 0)
+        game_multiplier = game_multiplier.mask(golden_pit, 1.3).mask(bull_trap, 1.3)
+        # 5. 综合计算
+        # Final = tanh(Penetration * Game_Mult * Kinematic_Mult * 5.0)
+        raw_score = penetration * game_multiplier * k_multiplier
+        final_score = np.tanh(raw_score * 5.0)
+        # 6. MTF 融合 (保留)
+        _, mtf_weights = self._get_control_parameters(config)
+        base_series = pd.Series(final_score, index=index).fillna(0)
+        mtf_score = self.helper._get_mtf_score_from_series_slope_accel(
+            base_series, mtf_weights, index, method_name, bipolar=True
+        )
+        _temp_debug_values["组件_净活动(动力学)"] = {
+            "penetration": penetration,
+            "k_multiplier": k_multiplier, 
+            "final_score": final_score
         }
-        return kongpan_raw
+        return mtf_score
+
+    def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V2.1.0 · EMA斐波那契共振模型 - 接口适配版】
+        从 context['structure'] 中提取 EMA13/21/55 进行计算。
+        """
+        s = context['structure']
+        ema_13, ema_21, ema_55 = s['ema_13'], s['ema_21'], s['ema_55']
+        if ema_13.isnull().all() or ema_55.isnull().all():
+            return pd.Series(np.nan, index=index, dtype=np.float32)
+        # 1. 趋势矢量 (Trend Vector)
+        slope_13 = (ema_13 - ema_13.shift(1)) / ema_13.shift(1).replace(0, np.nan) * 100
+        slope_21 = (ema_21 - ema_21.shift(1)) / ema_21.shift(1).replace(0, np.nan) * 100
+        slope_55 = (ema_55 - ema_55.shift(1)) / ema_55.shift(1).replace(0, np.nan) * 100
+        composite_trend = slope_55 * 0.5 + slope_13 * 0.3 + slope_21 * 0.2
+        # 2. 发散张力 (Expansion Tension)
+        tension_score = np.tanh((ema_13 - ema_55) / ema_55.replace(0, np.nan) * 10.0) # 系数调整为10以适配百分比
+        # 3. 形态共振 (Resonance)
+        resonance = pd.Series(1.0, index=index)
+        bullish = (ema_13 > ema_21) & (ema_21 > ema_55)
+        bearish = (ema_13 < ema_21) & (ema_21 < ema_55)
+        resonance = resonance.mask(bullish, 1.2).mask(bearish, 0.8)
+        # 4. 汇总
+        score = (composite_trend + tension_score) * resonance
+        _temp_debug_values["组件_传统控盘"] = {"score": score, "resonance": resonance}
+        return score
 
     def _normalize_and_mtf_control_components(self, df: pd.DataFrame, df_index: pd.Index, kongpan_raw: pd.Series, control_solidity_raw: pd.Series, flow_credibility_raw: pd.Series, mf_t0_buy_efficiency: pd.Series, mf_t0_sell_efficiency: pd.Series, mf_vwap_up_guidance: pd.Series, mf_vwap_down_guidance: pd.Series, mtf_slope_accel_weights: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
         """
@@ -449,66 +505,80 @@ class CalculateMainForceControlRelationship:
         return traditional_control_score, mtf_structural_control_score, flow_credibility_norm, \
                mf_t0_buy_efficiency_norm, mf_t0_sell_efficiency_norm, mf_vwap_up_guidance_norm, mf_vwap_down_guidance_norm
 
-    def _fuse_control_scores(self, traditional_control_score: pd.Series, mtf_structural_control_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
+    def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.0】融合传统控盘分和MTF结构控盘分。
-        参数:
-            traditional_control_score (pd.Series): 传统控盘度分数。
-            mtf_structural_control_score (pd.Series): MTF结构控盘度分数。
-            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
-        返回:
-            pd.Series: 融合后的控盘分数。
+        【V3.2.0 · 结构动力学融合 (Structural Dynamics Fusion)】
+        在香农熵模型基础上，引入“锁仓加速”验证。
+        核心逻辑：
+        1. 熵效能 (Entropy Efficiency): 有序度 * VPA效率。
+        2. 锁仓加速 (Lock-up Acceleration):
+           - 如果筹码稳定性 (Stability) 的加速度 (Accel) > 0，说明筹码沉淀正在加速。
+           - 这是一个极强的“主升浪前兆”信号。
         """
-        fused_control_score = (traditional_control_score * 0.4 + mtf_structural_control_score * 0.6).clip(-1, 1)
-        _temp_debug_values["融合控盘分"] = {
-            "fused_control_score": fused_control_score
+        s_struct = context['structure']
+        s_sent = context['sentiment']
+        # 1. 熵效能因子 (保留原逻辑)
+        orderedness = 1.0 / (1.0 + np.exp(s_struct['chip_entropy'] - 1.5)) * 2.0
+        vpa_norm = s_sent['vpa_efficiency'].clip(0, 1)
+        entropy_factor = (orderedness * 0.6 + vpa_norm * 0.4).clip(0, 1.5)
+        # 2. 结构动力学修正 (Structural Dynamics Adjustment)
+        # stability_accel > 0 意味着“越来越稳定”
+        stab_accel = s_struct['stability_accel']
+        # 构建结构乘数
+        struct_multiplier = pd.Series(1.0, index=traditional_score.index)
+        # 锁仓加速奖励：稳定性在增加(Slope>0) 且 加速增加(Accel>0)
+        # 这种状态下，任何技术形态的突破都极可能是真的
+        is_locking_up = (s_struct['chip_stability'] > 0.6) & (stab_accel > 0)
+        struct_multiplier = struct_multiplier.mask(is_locking_up, 1.2)
+        # 3. 资金二阶动量校验 (保留原逻辑，改用 context 中的 jerk/accel)
+        # 如果资金流 Jerk < 0 (主力突然撤力)，即使趋势还在，也要小心
+        mf_jerk = context['funds']['net_mf_jerk']
+        momentum_penalty = pd.Series(1.0, index=traditional_score.index)
+        momentum_penalty = momentum_penalty.mask(mf_jerk < 0, 0.9) # 脉冲撤退惩罚 10%
+        # 4. 融合
+        base_score = traditional_score * 0.3 + structural_score * 0.7
+        # Final = Base * Entropy * Struct_Dyn * Momentum_Penalty
+        fused_score = base_score * entropy_factor * struct_multiplier * momentum_penalty
+        fused_score = fused_score.clip(-1, 1)
+        _temp_debug_values["融合_动力学"] = {
+            "entropy_factor": entropy_factor, 
+            "struct_multiplier": struct_multiplier,
+            "fused_score": fused_score
         }
-        return fused_control_score
+        return fused_score
 
-    def _calculate_control_leverage_model(self, df_index: pd.Index, fused_control_score: pd.Series, mtf_main_force_net_activity_score: pd.Series, flow_credibility_norm: pd.Series, main_force_cost_advantage_score: pd.Series, mf_t0_buy_efficiency_norm: pd.Series, mf_t0_sell_efficiency_norm: pd.Series, mf_vwap_up_guidance_norm: pd.Series, mf_vwap_down_guidance_norm: pd.Series, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_control_leverage_model(self, index: pd.Index, fused_score: pd.Series, net_activity_score: pd.Series, 
+                                          norm_flow: pd.Series, cost_score: pd.Series, 
+                                          norm_t0_buy: pd.Series, norm_t0_sell: pd.Series, 
+                                          norm_vwap_up: pd.Series, norm_vwap_down: pd.Series,
+                                          context: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.0.2】计算控盘杠杆模型。
-        在 `mf_inflow_validation` 的计算中，引入 `main_force_cost_advantage_score` 和 `mf_t0_buy_efficiency_norm` 作为额外的验证因子。
-        在 `control_leverage` 的惩罚逻辑中，引入 `mf_t0_sell_efficiency_norm` 和 `mf_vwap_down_guidance_norm`。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            fused_control_score (pd.Series): 融合后的控盘分数。
-            mtf_main_force_net_activity_score (pd.Series): MTF主力净活动分数。
-            flow_credibility_norm (pd.Series): 归一化资金流可信度。
-            main_force_cost_advantage_score (pd.Series): 主力成本优势分数。
-            mf_t0_buy_efficiency_norm (pd.Series): 归一化主力T0买入效率。
-            mf_t0_sell_efficiency_norm (pd.Series): 归一化主力T0卖出效率。
-            mf_vwap_up_guidance_norm (pd.Series): 归一化主力VWAP向上引导。
-            mf_vwap_down_guidance_norm (pd.Series): 归一化主力VWAP向下引导。
-            _temp_debug_values (Dict): 临时存储中间计算结果的字典。
-        返回:
-            pd.Series: 控盘杠杆。
+        【V2.1.0 · 锁仓共振与波动率门控杠杆 - 接口适配版】
+        依赖 context['sentiment'] 中的 bbw 和 turnover。
         """
-        # 增强mf_inflow_validation：不仅看净活动和可信度，还要看成本优势和T0买入效率
-        mf_inflow_validation = (
-            mtf_main_force_net_activity_score.clip(lower=0) * 0.4 +
-            flow_credibility_norm * 0.3 +
-            main_force_cost_advantage_score.clip(lower=0) * 0.2 + # 成本优势为正才加分
-            mf_t0_buy_efficiency_norm * 0.1 # T0买入效率高才加分
-        ).clip(0, 1) # 确保验证因子在 [0, 1] 之间
-        control_leverage = pd.Series(1.0, index=df_index, dtype=np.float32)
-        # 控盘强 (fused_control_score > 0)，则放大资金流入
-        control_leverage = control_leverage.mask(fused_control_score > 0, 1 + fused_control_score * mf_inflow_validation)
-        # 控盘弱或负 (fused_control_score <= 0)，则更强地抑制资金流入，甚至反向惩罚
-        # 惩罚因子：当控盘不强时，如果T0卖出效率高或VWAP向下引导强，则惩罚更重
-        punishment_factor = (
-            mf_t0_sell_efficiency_norm * 0.4 + # T0卖出效率高，惩罚
-            mf_vwap_down_guidance_norm * 0.3 + # VWAP向下引导强，惩罚
-            (1 - flow_credibility_norm) * 0.3 # 资金流可信度低，惩罚
-        ).clip(0, 1)
-        control_leverage = control_leverage.mask(fused_control_score <= 0, (1 + fused_control_score) * (1 - mf_inflow_validation * 0.5 - punishment_factor * 0.5)) # 惩罚力度增强
-        control_leverage = control_leverage.clip(0, 2) # 限制杠杆范围，避免过大或过小的负值
-        _temp_debug_values["控盘杠杆模型"] = {
-            "mf_inflow_validation": mf_inflow_validation,
-            "punishment_factor": punishment_factor,
-            "control_leverage": control_leverage
-        }
-        return control_leverage
+        sent = context['sentiment']
+        # 1. 验证因子
+        validation = (net_activity_score.clip(lower=0) * 0.4 + norm_flow * 0.3 + cost_score.clip(lower=0) * 0.2 + norm_t0_buy * 0.1).clip(0, 1)
+        # 2. 锁仓奖励 (低换手 + 控盘)
+        lockup_bonus = pd.Series(0.0, index=index)
+        lockup_bonus = lockup_bonus.mask((fused_score > 0) & (sent['turnover'] < 3.0), 0.5)
+        # 3. 波动率门控 (低BBW)
+        vol_bonus = (0.2 - sent['bbw']).clip(lower=0) * 5.0
+        # 4. 过热惩罚 (高换手)
+        overheat = pd.Series(0.0, index=index)
+        overheat = overheat.mask(sent['turnover'] > 15.0, (sent['turnover'] - 15.0) * 0.05).clip(upper=1.0)
+        # 5. 计算杠杆
+        leverage = pd.Series(1.0, index=index, dtype=np.float32)
+        # 正向增强
+        pos_lev = 1.0 + fused_score * validation + lockup_bonus + vol_bonus - overheat
+        leverage = leverage.mask(fused_score > 0, pos_lev)
+        # 负向惩罚
+        punish = (norm_t0_sell * 0.4 + norm_vwap_down * 0.3 + (1 - norm_flow) * 0.3).clip(0, 1)
+        neg_lev = (1.0 + fused_score) * (1.0 - validation * 0.5 - punish * 0.5)
+        leverage = leverage.mask(fused_score <= 0, neg_lev)
+        final_lev = leverage.clip(0, 2.5)
+        _temp_debug_values["风控_杠杆"] = {"leverage": final_lev, "lockup": lockup_bonus, "vol": vol_bonus}
+        return final_lev
 
 
 
