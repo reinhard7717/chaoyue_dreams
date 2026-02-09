@@ -809,7 +809,7 @@ class ProcessIntelligence:
         mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
         mtf_volume_burst = self._get_mtf_slope_accel_score(df, burst_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
         is_blitz_washout = (mtf_price_trend < -0.3) & (mtf_volume_burst > 0.5)
-        washout_candidate_mask = is_blitz_washout | (panic_score > 0.4 & absorption_score > 0.15)
+        washout_candidate_mask = is_blitz_washout | ((panic_score > 0.4) & (absorption_score > 0.15))
         base_score = (panic_score * absorption_score * repair_score).pow(1/3)
         mf_flow_norm = self._normalize_series(self._get_safe_series(df, mf_flow_sig, 0.0, method_name), df_index, bipolar=True)
         flow_cred_norm = self._normalize_series(self._get_safe_series(df, flow_cred_sig, 0.0, method_name), df_index, bipolar=False)
