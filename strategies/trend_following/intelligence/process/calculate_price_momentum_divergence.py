@@ -100,23 +100,39 @@ class CalculatePriceMomentumDivergence:
         self.helper._print_debug_output({f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 价势背离诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}": ""})
 
     def _get_pmd_params(self, config: Dict) -> Dict:
-        """V3.11.0 · 时空一致性参数重构：引入全频段相干权重与共振冲突惩罚"""
+        """V3.13.0 · 全量动力学参数修复：补齐 kinematic_weights 并整合 HAB 记忆常数"""
         params = get_param_value(config.get('price_momentum_divergence_params'), {})
         rdi_config = get_param_value(params.get('rdi_params'), {})
         return {
             "fib_periods": [5, 13, 21, 34, 55],
-            "consistency_weights": {
-                "polarity_resonance": 0.4, # 跨周期极性一致性
-                "pv_coherence": 0.4, # 价量动力学相干性
-                "entropy_order": 0.2 # 时空熵有序度
-            },
-            "conflict_penalty_exponent": 2.5, # 极性冲突时的非线性惩罚指数
-            "quality_weights": {"structural_tension": 0.2, "kinematic_exhaustion": 0.25, "chip_order": 0.15, "volume_ripeness": 0.2, "st_consistency": 0.2}, # 整合一致性
+            "hab_periods": [13, 21, 34], # HAB 历史累积记忆周期
+            "intent_dampening_factor": 0.25, # 历史累积支撑下的当日意图衰减因子
+            # 动力学核心权重 (修复 KeyError 的关键)
+            "kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
+            "asymmetric_factor": 1.4, # 非对称灵敏度系数
+            "asymmetric_outflow_factor": 1.6, # 资金流出灵敏度
+            "kinematic_deadzone": 1e-6, # 物理死区
+            # 方向融合权重
             "price_components_weights": {"close_D": 0.4, "CLOSING_STRENGTH_D": 0.3, "VPA_EFFICIENCY_D": 0.3},
             "momentum_components_weights": {"MACDh_13_34_8_D": 0.4, "RSI_13_D": 0.3, "chip_rsi_divergence_D": 0.3},
+            # 轨道灵敏度
+            "path_sensitivity": {"bullish": 1.0, "bearish": 1.5},
+            # 质量矩阵与确认权重
             "dqwm_weights": {"momentum_quality": 0.25, "market_tension": 0.20, "stability": 0.15, "chip_potential": 0.15, "liquidity_tide": 0.15, "market_constitution": 0.10},
-            "asymmetric_factor": 1.4,
-            "kinematic_deadzone": 1e-6,
+            "vol_kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
+            "vol_conf_weights": {"energy_balance": 0.4, "kinematic_impact": 0.3, "micro_anomaly": 0.2, "stability": 0.1},
+            "mf_kinematic_weights": {"slope": 0.2, "accel": 0.5, "jerk": 0.3},
+            "mf_cohesion_weights": {"HM_COORDINATED_ATTACK_D": 0.4, "SMART_MONEY_SYNERGY_BUY_D": 0.3, "main_force_activity_index_D": 0.3},
+            "mf_intent_weights": {"shakeout": 0.35, "accumulation": 0.35, "large_order": 0.3},
+            "quality_weights": {"structural_tension": 0.2, "kinematic_exhaustion": 0.25, "chip_order": 0.15, "volume_ripeness": 0.2, "st_consistency": 0.2},
+            "tension_sub_weights": {"tension_index": 0.6, "rubber_band": 0.4},
+            "chip_order_sub_weights": {"convergence": 0.6, "entropy_inverted": 0.4},
+            "consistency_weights": {"polarity_resonance": 0.4, "pv_coherence": 0.4, "entropy_order": 0.2},
+            "context_weights": {"psychological": 0.3, "physical_tension": 0.4, "game_intensity": 0.3},
+            "conflict_penalty_exponent": 2.5,
+            # 其他系数
+            "parabolic_penalty_factor": 0.4,
+            "tension_kinematic_weights": {"value": 0.6, "velocity": 0.3, "accel": 0.1},
             "final_fusion_exponent": get_param_value(params.get('final_fusion_exponent'), 1.8),
             "rdi_params": {"enabled": get_param_value(rdi_config.get('enabled'), True), "rdi_periods": [5, 13, 21], "rdi_modulator_weight": 0.2}
         }
@@ -288,35 +304,37 @@ class CalculatePriceMomentumDivergence:
         return final_mf_conf, debug_v
 
     def _calculate_kinematic_core_node(self, df: pd.DataFrame, df_index: pd.Index, base_col: str, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
-        """V3.5.0 · 动力学计算引擎升级：集成 Tanh 鲁棒映射与死区滤波，彻底回避零基陷阱 (全探针暴露)"""
-        fib = pmd_params['fib_periods'] #
-        k_w = pmd_params['kinematic_weights'] #
-        deadzone = pmd_params['kinematic_deadzone'] #
-        asym = pmd_params['asymmetric_factor'] #
+        """V3.13.0 · 动力学引擎修复版：强化参数键值探针，彻底杜绝零基陷阱"""
+        # 探针：参数完整性硬校验
+        required_keys = ['fib_periods', 'kinematic_weights', 'kinematic_deadzone', 'asymmetric_factor']
+        missing = [k for k in required_keys if k not in pmd_params]
+        if missing:
+            print(f"  [严重异常] _calculate_kinematic_core_node: 缺少核心配置项 {missing}")
+            raise KeyError(f"PMD动力学引擎参数不完整，缺失: {missing}")
+        fib = pmd_params['fib_periods']
+        k_w = pmd_params['kinematic_weights']
+        deadzone = pmd_params['kinematic_deadzone']
+        asym = pmd_params['asymmetric_factor']
         period_scores = []
         probe_data = {}
         for p in fib:
-            # 1. 原始三阶导数信号提取与死区物理滤波
-            s_raw = df[f'SLOPE_{p}_{base_col}'].where(df[f'SLOPE_{p}_{base_col}'].abs() > deadzone, 0.0) #
-            a_raw = df[f'ACCEL_{p}_{base_col}'].where(df[f'ACCEL_{p}_{base_col}'].abs() > deadzone, 0.0) #
-            j_raw = df[f'JERK_{p}_{base_col}'].where(df[f'JERK_{p}_{base_col}'].abs() > deadzone, 0.0) #
-            # 2. 非对称灵敏度调制：强化负向加速度响应速度
+            # 1. 信号提取与物理死区滤波
+            s_raw = df[f'SLOPE_{p}_{base_col}'].where(df[f'SLOPE_{p}_{base_col}'].abs() > deadzone, 0.0)
+            a_raw = df[f'ACCEL_{p}_{base_col}'].where(df[f'ACCEL_{p}_{base_col}'].abs() > deadzone, 0.0)
+            j_raw = df[f'JERK_{p}_{base_col}'].where(df[f'JERK_{p}_{base_col}'].abs() > deadzone, 0.0)
+            # 2. 非对称灵敏度处理与 Tanh 鲁棒映射
             a_mod = np.where(a_raw < 0, a_raw * asym, a_raw)
             j_mod = np.where(j_raw < 0, j_raw * asym, j_raw)
-            # 3. 鲁棒非线性归一化 (使用 Tanh 映射回避 0 轴附近的噪音波动)
-            # 逻辑：将信号映射到 [-1, 1]，在极值区饱和，在 0 轴平滑过度
             s_n = self.helper._normalize_series(s_raw, df_index, bipolar=True)
             a_n = self.helper._normalize_series(pd.Series(a_mod, index=df_index), df_index, bipolar=True)
             j_n = self.helper._normalize_series(pd.Series(j_mod, index=df_index), df_index, bipolar=True)
-            # 4. 动力学三阶合成
+            # 3. 三阶动力学合成
             combined_p = (s_n * k_w['slope'] + a_n * k_w['accel'] + j_n * k_w['jerk'])
             period_scores.append(combined_p)
             probe_data[f"p{p}_jerk_tanh"] = j_n
-        # MTF 全周期均值融合
         fused_kinematic = pd.concat(period_scores, axis=1).mean(axis=1)
         probe_data["fused_kinematic"] = fused_kinematic
-        # 探针输出：检查死区后信号存活率与均值
-        print(f"[探针-KinematicEngine] 信号源: {base_col} | 死区阈值: {deadzone} | 存活率: {(fused_kinematic != 0).mean()*100:.2f}% | 动力均值: {fused_kinematic.mean():.4f}")
+        print(f"  [探针-KinematicEngine] 信号: {base_col} | 动力均值: {fused_kinematic.mean():.4f} | 参数校验已通过")
         return fused_kinematic, probe_data
 
     def _calculate_spatio_temporal_consistency_score(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
