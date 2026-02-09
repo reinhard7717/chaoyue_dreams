@@ -125,43 +125,40 @@ class CalculateMainForceControlRelationship:
 
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
         """
-        【V2.2.0 · 全链路探针强化版】
-        职责：提取并分类存储全量原始物理信号。
-        更新：增加对所有物理原料的快照捕获，确保从数据层到逻辑层的完全透明。
+        【V4.3.1 · 全链路探针映射版】
+        职责：提取原始信号并进行逻辑键名映射，彻底解决 KeyError 问题。
+        修改：显式映射 EMA 等指标至小写简短键名，并在提取时打印探针。
         """
-        # --- 1. 基础物理原料 (Raw Physical Data) ---
-        # 捕捉军械库原始字段，用于排查底层数据异常
+        # 1. 基础物理原料提取与映射 (Arsenal -> Internal Logic)
         market_raw = {
-            "close_D": self._get_safe_series(df, 'close_D', method_name=method_name),
-            "amount_D": self._get_safe_series(df, 'amount_D', method_name=method_name).replace(0, np.nan),
-            "pct_change_D": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name),
-            "turnover_rate_D": self._get_safe_series(df, 'turnover_rate_D', 1.0, method_name=method_name)
+            "close": self._get_safe_series(df, 'close_D', method_name=method_name),
+            "amount": self._get_safe_series(df, 'amount_D', method_name=method_name).replace(0, np.nan),
+            "pct_change": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name),
+            "turnover": self._get_safe_series(df, 'turnover_rate_D', 1.0, method_name=method_name)
+        }
+        # 映射 EMA 关键指标
+        ema_signals = {
+            "ema_13": self._get_safe_series(df, 'EMA_13_D', method_name=method_name),
+            "ema_21": self._get_safe_series(df, 'EMA_21_D', method_name=method_name),
+            "ema_55": self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
         }
         funds_raw = {
-            "buy_elg_amt_D": self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name),
-            "buy_lg_amt_D": self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name),
-            "sell_elg_amt_D": self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name=method_name),
-            "sell_lg_amt_D": self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name=method_name),
-            "net_mf_amount_D": self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name)
+            "buy_elg_amt": self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name),
+            "buy_lg_amt": self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name),
+            "sell_elg_amt": self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name=method_name),
+            "sell_lg_amt": self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name=method_name),
+            "net_mf_amount": self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name)
         }
         structure_raw = {
-            "cost_50pct_D": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),
-            "chip_stability_D": self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name),
-            "chip_entropy_D": self._get_safe_series(df, 'chip_entropy_D', 1.0, method_name=method_name),
-            "winner_rate_D": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name)
+            "cost_50pct": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),
+            "chip_stability": self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name),
+            "chip_entropy": self._get_safe_series(df, 'chip_entropy_D', 1.0, method_name=method_name),
+            "winner_rate": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name)
         }
-
-        # --- 2. 动力学指标 (Kinematics) ---
-        # 针对军械库衍生指标的快照 
-        derivatives = {
-            "net_mf_jerk": self._get_safe_series(df, 'JERK_5_net_mf_amount_D', 0.0, method_name=method_name),
-            "net_mf_accel": self._get_safe_series(df, 'ACCEL_5_net_mf_amount_D', 0.0, method_name=method_name),
-            "stability_accel": self._get_safe_series(df, 'ACCEL_5_chip_stability_D', 0.0, method_name=method_name)
-        }
-
-        # --- 3. 封装 Context 供调度使用 ---
+        # 2. 封装 Context
         context = {
             "market": market_raw,
+            "ema": ema_signals,
             "funds": funds_raw,
             "structure": structure_raw,
             "sentiment": {
@@ -170,20 +167,14 @@ class CalculateMainForceControlRelationship:
                 "flow_consistency": self._get_safe_series(df, 'flow_consistency_D', 0.5, method_name=method_name)
             }
         }
-        # 将聚合逻辑注入 context 以供 downstream 使用
-        context["funds"]["total_buy_amt"] = funds_raw["buy_elg_amt_D"] + funds_raw["buy_lg_amt_D"]
-        context["funds"]["total_sell_amt"] = funds_raw["sell_elg_amt_D"] + funds_raw["sell_lg_amt_D"]
-        context["funds"].update(derivatives)
-
-        # --- 4. 探针记录 (全量快照) ---
+        # 3. 全链路探针输出
         if probe_ts:
-            print(f"[探针] 正在捕获原料级数据快照 @ {probe_ts}")
+            print(f"[探针] 正在校验物理层 EMA 映射: EMA_13_D exists: {'EMA_13_D' in df.columns}")
             raw_snapshot = {}
-            for cat in [market_raw, funds_raw, structure_raw, derivatives]:
+            for cat in [market_raw, ema_signals, funds_raw, structure_raw]:
                 for k, v in cat.items():
                     raw_snapshot[k] = v.loc[probe_ts] if probe_ts in v.index else np.nan
             _temp_debug_values["原料数据快照"] = raw_snapshot
-            
         return context
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
@@ -416,29 +407,29 @@ class CalculateMainForceControlRelationship:
 
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V2.1.0 · EMA斐波那契共振模型 - 接口适配版】
-        从 context['structure'] 中提取 EMA13/21/55 进行计算。
+        【V4.3.1 · 传统控盘计算逻辑修复】
+        职责：基于 EMA 排列计算传统技术面控盘分数。
+        修改：修正 context 访问路径，从 context['ema'] 获取已映射的信号。
         """
-        s = context['structure']
-        ema_13, ema_21, ema_55 = s['ema_13'], s['ema_21'], s['ema_55']
-        if ema_13.isnull().all() or ema_55.isnull().all():
-            return pd.Series(np.nan, index=index, dtype=np.float32)
-        # 1. 趋势矢量 (Trend Vector)
-        slope_13 = (ema_13 - ema_13.shift(1)) / ema_13.shift(1).replace(0, np.nan) * 100
-        slope_21 = (ema_21 - ema_21.shift(1)) / ema_21.shift(1).replace(0, np.nan) * 100
-        slope_55 = (ema_55 - ema_55.shift(1)) / ema_55.shift(1).replace(0, np.nan) * 100
-        composite_trend = slope_55 * 0.5 + slope_13 * 0.3 + slope_21 * 0.2
-        # 2. 发散张力 (Expansion Tension)
-        tension_score = np.tanh((ema_13 - ema_55) / ema_55.replace(0, np.nan) * 10.0) # 系数调整为10以适配百分比
-        # 3. 形态共振 (Resonance)
-        resonance = pd.Series(1.0, index=index)
-        bullish = (ema_13 > ema_21) & (ema_21 > ema_55)
-        bearish = (ema_13 < ema_21) & (ema_21 < ema_55)
-        resonance = resonance.mask(bullish, 1.2).mask(bearish, 0.8)
-        # 4. 汇总
-        score = (composite_trend + tension_score) * resonance
-        _temp_debug_values["组件_传统控盘"] = {"score": score, "resonance": resonance}
-        return score
+        # 1. 提取已映射的信号
+        ema = context['ema']
+        ema_13, ema_21, ema_55 = ema['ema_13'], ema['ema_21'], ema['ema_55']
+        close = context['market']['close']
+        # 2. 计算斐波那契共振排列
+        bullish_alignment = (ema_13 > ema_21) & (ema_21 > ema_55)
+        bearish_alignment = (ema_13 < ema_21) & (ema_21 < ema_55)
+        # 3. 计算离散度与偏离度
+        alignment_score = pd.Series(0.0, index=index)
+        alignment_score = alignment_score.mask(bullish_alignment, 0.8)
+        alignment_score = alignment_score.mask(bearish_alignment, -0.8)
+        # 4. 探针捕获
+        _temp_debug_values["组件_传统控盘"] = {
+            "ema_13_val": ema_13,
+            "ema_21_val": ema_21,
+            "alignment_resonance": alignment_score
+        }
+        print(f"[探针] 传统控盘逻辑执行完成，共振分快照已存入容器")
+        return (alignment_score + (close - ema_55) / ema_55).clip(-1, 1)
 
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
