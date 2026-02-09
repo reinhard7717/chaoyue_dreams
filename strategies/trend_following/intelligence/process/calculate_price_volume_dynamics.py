@@ -267,7 +267,7 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V72.0 · 原料加载层：全面集成资金、能量与筹码熵的 13/21 日周期累积维度，执行 float32 极速降噪，清除空行"""
+        """V73.0 · 原料加载层：深度集成 HAB 缓冲系统，计算尾盘压力、板块厚度与波动紧致度的周期累积，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
@@ -278,8 +278,7 @@ class CalculatePriceVolumeDynamics:
             raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
         raw_vwap = (raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)).fillna(raw_signals['close_D'])
         r_c, r_v = raw_signals['close_D'].values[-60:], raw_vwap.values[-60:]
-        v_m = r_v > 0
-        s_f = 1.0
+        v_m, s_f = r_v > 0, 1.0
         if np.any(v_m):
             m_r = np.median(r_v[v_m] / r_c[v_m])
             if m_r < 0.5 or m_r > 2.0: s_f = 10.0 ** (-np.round(np.log10(m_r)))
@@ -289,14 +288,16 @@ class CalculatePriceVolumeDynamics:
         if np.abs(sm_v).sum() < 1e-5: sm_v = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).values
         raw_signals['ACCUM_13_SMART_MONEY'] = pd.Series(_numba_rolling_accumulation(sm_v.astype(np.float32), 13), index=df.index, dtype=np.float32)
         raw_signals['ACCUM_21_SMART_MONEY'] = pd.Series(_numba_rolling_accumulation(sm_v.astype(np.float32), 21), index=df.index, dtype=np.float32)
-        raw_signals['ACCUM_21_VOLUME'] = pd.Series(_numba_rolling_accumulation(raw_signals['volume_D'].values, 21), index=df.index, dtype=np.float32)
-        ent_diff = pd.Series(raw_signals['chip_entropy_D'].values, index=df.index).diff().fillna(0).values
-        raw_signals['ACCUM_13_ENTROPY_REDUCTION'] = pd.Series(_numba_rolling_accumulation(np.where(ent_diff < 0, -ent_diff, 0.0).astype(np.float32), 13), index=df.index, dtype=np.float32)
+        raw_signals['ACCUM_13_CLOSING_FLOW'] = pd.Series(_numba_rolling_accumulation(raw_signals['closing_flow_ratio_D'].values, 13), index=df.index, dtype=np.float32)
+        raw_signals['ACCUM_21_THEME_HOTNESS'] = pd.Series(_numba_rolling_accumulation(raw_signals['THEME_HOTNESS_SCORE_D'].values, 21), index=df.index, dtype=np.float32)
+        raw_signals['MEAN_13_STABILITY'] = pd.Series(_numba_rolling_accumulation(raw_signals['TURNOVER_STABILITY_INDEX_D'].values, 13), index=df.index, dtype=np.float32) / 13.0
+        bbw_tight = np.clip(1.0 - raw_signals['BBW_21_2.0_D'].values, 0.0, 1.0)
+        raw_signals['HIST_VOL_SQUEEZE'] = pd.Series(_numba_rolling_accumulation(bbw_tight.astype(np.float32), 21), index=df.index, dtype=np.float32)
         threshold_map = {'net_amount_rate_D': (0.01, 0.005), 'winner_rate_D': (0.01, 0.005), 'SMART_MONEY_HM_NET_BUY_D': (10, 10), 'VPA_EFFICIENCY_D': (0.01, 0.01), 'BBW_21_2.0_D': (0.001, 0.0001), 'THEME_HOTNESS_SCORE_D': (0.1, 0.1), 'chip_entropy_D': (0.01, 0.001), 'volume_D': (100, 10), 'pct_change_D': (0.0001, 0.0001), 'close_D': (0.1, 0.01), 'market_sentiment_score_D': (0.1, 0.1), 'industry_strength_rank_D': (0.001, 0.001), 'turnover_rate_f_D': (0.01, 0.01), 'trade_count_D': (10, 5)}
-        fib_windows = [3, 5, 8, 13, 21]
+        fib_wins = [3, 5, 8, 13, 21]
         for col, (abs_th, chg_th) in threshold_map.items():
             base_vals = raw_signals[col].values
-            for win in fib_windows:
+            for win in fib_wins:
                 s, a, j = _numba_robust_dynamics(base_vals, win=win, abs_threshold=abs_th, change_threshold=chg_th)
                 raw_signals[f"SLOPE_{win}_{col}"] = pd.Series(s, index=df.index, dtype=np.float32)
                 raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index, dtype=np.float32)
@@ -356,67 +357,67 @@ class CalculatePriceVolumeDynamics:
         return pd.Series(phy_score, index=df_index, dtype=np.float32)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 溢价回吐风险：NumPy 向量化加速，清除所有空行"""
+        """V73.0 · 溢价回吐风险：引入 13 日 HAB 累积尾盘压力，判别系统性派发风险，全向量化，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        turnover = raw['turnover_rate_f_D'].values
-        extreme = raw['STATE_EMOTIONAL_EXTREME_D'].astype(np.float32).values
-        ratio = raw['closing_flow_ratio_D'].values
+        turnover, extreme = raw['turnover_rate_f_D'].values, raw['STATE_EMOTIONAL_EXTREME_D'].values.astype(np.float32)
+        daily_ratio, accum_ratio = raw['closing_flow_ratio_D'].values, raw['ACCUM_13_CLOSING_FLOW'].values
         exhaustion = np.clip(turnover / 15.0, 0.0, 1.5)
-        pressure = ratio * extreme * exhaustion
-        risk_adj = pd.Series(1.0 - pressure * 0.4, index=df_index, dtype=np.float32).clip(0.6, 1.0)
-        return risk_adj
+        hab_risk = np.where(accum_ratio > 3.5, 1.25, 1.0) # 13日内累积尾盘占比过高
+        reversal_pressure = daily_ratio * extreme * exhaustion * hab_risk
+        risk_adjustment = pd.Series(1.0 - reversal_pressure * 0.4, index=df_index, dtype=np.float32).clip(0.5, 1.0)
+        return risk_adjustment
 
     def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 日内衰减模型：全向量化逻辑判断与 float32 类型降级，提升合成速度，移除空行"""
+        """V73.0 · 日内衰减模型：集成 13 日 HAB 稳定性均值，识别系统性承接脆弱，全向量化，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        stab = np.clip(raw['TURNOVER_STABILITY_INDEX_D'].values, 0.0, 1.0).astype(np.float32)
-        close = raw['close_D'].values
-        up = raw['up_limit_D'].values
-        ratio = raw['closing_flow_ratio_D'].values
+        stab, mean_stab = raw['TURNOVER_STABILITY_INDEX_D'].values, raw['MEAN_13_STABILITY'].values
+        close, up, ratio = raw['close_D'].values, raw['up_limit_D'].values, raw['closing_flow_ratio_D'].values
         bad_mask = (close >= up * 0.999) & (ratio > 0.4) & (stab < 0.4)
+        fragility = np.where(mean_stab < 0.5, 0.85, 1.0) # 历史稳定性差则更易衰减
         winner = raw['winner_rate_D'].values
         repair = np.where((winner < 0.15) & (stab < 0.3), 1.5, 1.0).astype(np.float32)
-        decay = (0.6 + stab * 0.4) * np.where(bad_mask, 0.6, 1.0).astype(np.float32) * repair
-        return pd.Series(decay, index=df_index, dtype=np.float32).clip(0.3, 1.5)
+        decay = (0.6 + stab * 0.4) * np.where(bad_mask, 0.6, 1.0).astype(np.float32) * repair * fragility
+        return pd.Series(decay, index=df_index, dtype=np.float32).clip(0.2, 1.5)
 
     def _calculate_sector_resonance_modifier(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 板块共振算子：全量 NumPy 动力学合成，清除空行"""
+        """V73.0 · 板块共振算子：引入 21 日 HAB 板块能量累积，区分短期题材与跨周期主线，全向量化，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        s_hot = raw['SLOPE_5_THEME_HOTNESS_SCORE_D'].values
-        a_hot = raw['ACCEL_5_THEME_HOTNESS_SCORE_D'].values
+        s_hot, a_hot = raw['SLOPE_5_THEME_HOTNESS_SCORE_D'].values, raw['ACCEL_5_THEME_HOTNESS_SCORE_D'].values
+        accum_hot = raw['ACCUM_21_THEME_HOTNESS'].values
+        mainline_bonus = np.clip(accum_hot / 1000.0, 1.0, 1.35) # 21日累积热度决定主线深度
         impulse = (s_hot * 0.6 + a_hot * 0.4)
         persistence = np.where((raw['industry_rank_accel_D'].values > 0) & (raw['flow_consistency_D'].values > 0.65), 1.2, 0.8).astype(np.float32)
-        mod = (1.0 + _numba_power_activation(impulse.astype(np.float64), gain=0.5).astype(np.float32)) * persistence
-        return pd.Series(mod, index=df_index, dtype=np.float32).clip(0.6, 1.8)
+        mod = (1.0 + _numba_power_activation(impulse.astype(np.float64), gain=0.5).astype(np.float32)) * persistence * mainline_bonus
+        return pd.Series(mod, index=df_index, dtype=np.float32).clip(0.6, 2.0)
 
     def _calculate_volatility_clustering_adjustment(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 波动率伽马模型：全向量化 float32 爆炸判定，消除空行并提升内存命中率"""
+        """V73.0 · 波动率伽马模型：集成 21 日 HAB 历史紧致度，判别“极致收缩”后的爆发力，全向量化，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        bbw = raw['BBW_21_2.0_D'].values
-        s_bbw = raw['SLOPE_5_BBW_21_2.0_D'].values
-        a_bbw = raw['ACCEL_5_BBW_21_2.0_D'].values
-        j_bbw = raw['JERK_3_BBW_21_2.0_D'].values
+        bbw, squeeze_score = raw['BBW_21_2.0_D'].values, raw['HIST_VOL_SQUEEZE'].values
+        s_bbw, a_bbw, j_bbw = raw['SLOPE_5_BBW_21_2.0_D'].values, raw['ACCEL_5_BBW_21_2.0_D'].values, raw['JERK_3_BBW_21_2.0_D'].values
         bbw_ma = pd.Series(bbw, index=df_index).rolling(21).mean().fillna(pd.Series(bbw, index=df_index)).values
+        vcp_ignite = np.where(squeeze_score > 15.0, 1.4, 1.0) # 历史上波动率极致收缩越久，爆发力越强
         exp = (bbw < bbw_ma * 1.2) & (a_bbw > 0) & (j_bbw > 0.01)
         trap = (bbw > bbw_ma * 1.5) & ((s_bbw < 0) | (a_bbw < 0))
         p_jerk = raw['JERK_3_close_D'].values
         adj = np.ones(len(df_index), dtype=np.float32)
-        adj = np.where(exp & (p_jerk > 0), 1.5, adj)
+        adj = np.where(exp & (p_jerk > 0), 1.5 * vcp_ignite, adj)
         adj = np.where(exp & (p_jerk < 0), 0.5, adj)
         adj = np.where(trap, 0.8, adj)
-        return pd.Series(adj, index=df_index, dtype=np.float32).clip(0.4, 1.6)
+        return pd.Series(adj, index=df_index, dtype=np.float32).clip(0.3, 2.2)
 
     def _calculate_sector_overflow_decay(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 熵增雪崩模型：极速分形动力学向量化，采用 float32 降级，消除空行"""
+        """V73.0 · 熵增雪崩模型：根据 HAB 周期累积热度动态调节崩塌门槛，全向量化，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        hot = raw['THEME_HOTNESS_SCORE_D'].values
+        hot, accum_hot = raw['THEME_HOTNESS_SCORE_D'].values, raw['ACCUM_21_THEME_HOTNESS'].values
         fd_all = _numba_fractal_dimension(np.expand_dims(hot, axis=0).astype(np.float64), window=13)
         fd_vals = fd_all[0].astype(np.float32)
         slope = pd.Series(fd_vals, index=df_index).diff(5).fillna(0).values.astype(np.float32)
         accel = pd.Series(slope, index=df_index).diff(5).fillna(0).values.astype(np.float32)
-        avalanche = (raw['THEME_HOTNESS_SCORE_D'].values > 80) & (slope > 0) & (accel > 0)
+        hot_threshold = np.where(accum_hot > 1500.0, 70.0, 85.0) # 长期高热下，崩塌门槛降低
+        avalanche = (hot > hot_threshold) & (slope > 0) & (accel > 0)
         base = (1.5 / (fd_vals + 1e-9)).clip(0.6, 1.1)
-        res = np.where(avalanche, base * 0.7, base).astype(np.float32)
+        res = np.where(avalanche, base * 0.6, base).astype(np.float32)
         return pd.Series(res, index=df_index, dtype=np.float32)
 
     def _calculate_hmm_regime_confirmation(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:

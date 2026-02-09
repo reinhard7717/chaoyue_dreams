@@ -1,5 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_price_momentum_divergence.py
-# 【V1.0.0 · 价格动量背离计算器】 计算“价格动量背离”的专属关系分数。
+# 【V1.0.0 · 价格动量背离计算器】 计算“价格动量背离”的专属关系分数。 已完成
 import json
 import os
 import pandas as pd
