@@ -125,55 +125,77 @@ class CalculateMainForceControlRelationship:
 
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
         """
-        【V4.3.1 · 全链路探针映射版】
-        职责：提取原始信号并进行逻辑键名映射，彻底解决 KeyError 问题。
-        修改：显式映射 EMA 等指标至小写简短键名，并在提取时打印探针。
+        【V4.3.2 · 军械库全量指标补完版】
+        职责：对照《最终军械库清单》提取全量物理信号，消除 KeyError。
+        更新版本：补齐了计算主力成本所需的 buy_lg_vol_D 等量能字段，并映射至内部逻辑键名。
         """
-        # 1. 基础物理原料提取与映射 (Arsenal -> Internal Logic)
+        # 1. 基础量价映射 (Market)
         market_raw = {
             "close": self._get_safe_series(df, 'close_D', method_name=method_name),
             "amount": self._get_safe_series(df, 'amount_D', method_name=method_name).replace(0, np.nan),
             "pct_change": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name),
             "turnover": self._get_safe_series(df, 'turnover_rate_D', 1.0, method_name=method_name)
         }
-        # 映射 EMA 关键指标
+        # 2. 斐波那契均线映射 (EMA)
         ema_signals = {
             "ema_13": self._get_safe_series(df, 'EMA_13_D', method_name=method_name),
             "ema_21": self._get_safe_series(df, 'EMA_21_D', method_name=method_name),
             "ema_55": self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
         }
+        # 3. 资金分层映射 (Funds) - 补齐 Volume 字段
         funds_raw = {
             "buy_elg_amt": self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name),
             "buy_lg_amt": self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name),
             "sell_elg_amt": self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name=method_name),
             "sell_lg_amt": self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name=method_name),
+            "buy_elg_vol": self._get_safe_series(df, 'buy_elg_vol_D', 0.0, method_name=method_name), # 补齐
+            "buy_lg_vol": self._get_safe_series(df, 'buy_lg_vol_D', 0.0, method_name=method_name),   # 补齐
+            "sell_elg_vol": self._get_safe_series(df, 'sell_elg_vol_D', 0.0, method_name=method_name), # 补齐
+            "sell_lg_vol": self._get_safe_series(df, 'sell_lg_vol_D', 0.0, method_name=method_name),   # 补齐
             "net_mf_amount": self._get_safe_series(df, 'net_mf_amount_D', 0.0, method_name=method_name)
         }
+        # 4. 筹码结构映射 (Structure)
         structure_raw = {
             "cost_50pct": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),
             "chip_stability": self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name),
             "chip_entropy": self._get_safe_series(df, 'chip_entropy_D', 1.0, method_name=method_name),
             "winner_rate": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name)
         }
-        # 2. 封装 Context
+        # 5. 动力学衍生指标映射 (Kinematics) - 匹配清单 5日窗口
+        derivatives = {
+            "net_mf_jerk": self._get_safe_series(df, 'JERK_5_net_mf_amount_D', 0.0, method_name=method_name),
+            "net_mf_accel": self._get_safe_series(df, 'ACCEL_5_net_mf_amount_D', 0.0, method_name=method_name),
+            "net_mf_slope": self._get_safe_series(df, 'SLOPE_5_net_mf_amount_D', 0.0, method_name=method_name),
+            "stability_accel": self._get_safe_series(df, 'ACCEL_5_chip_stability_D', 0.0, method_name=method_name)
+        }
+        # 6. 情绪与行为 (Sentiment)
+        sentiment_behavior = {
+            "vpa_efficiency": self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name=method_name),
+            "bbw": self._get_safe_series(df, 'BBW_21_2.0_D', 0.1, method_name=method_name),
+            "flow_consistency": self._get_safe_series(df, 'flow_consistency_D', 0.5, method_name=method_name),
+            "t0_buy_conf": self._get_safe_series(df, 'intraday_accumulation_confidence_D', 0.0, method_name=method_name),
+            "t0_sell_conf": self._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0, method_name=method_name),
+            "pushing_score": self._get_safe_series(df, 'pushing_score_D', 0.0, method_name=method_name),
+            "shakeout_score": self._get_safe_series(df, 'shakeout_score_D', 0.0, method_name=method_name),
+            "pushing_jerk": self._get_safe_series(df, 'JERK_5_pushing_score_D', 0.0, method_name=method_name)
+        }
+        # 7. 封装并计算聚合值
+        funds_raw["total_buy_amt"] = funds_raw["buy_elg_amt"] + funds_raw["buy_lg_amt"]
+        funds_raw["total_sell_amt"] = funds_raw["sell_elg_amt"] + funds_raw["sell_lg_amt"]
         context = {
             "market": market_raw,
             "ema": ema_signals,
             "funds": funds_raw,
             "structure": structure_raw,
-            "sentiment": {
-                "vpa_efficiency": self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name=method_name),
-                "bbw": self._get_safe_series(df, 'BBW_21_2.0_D', 0.1, method_name=method_name),
-                "flow_consistency": self._get_safe_series(df, 'flow_consistency_D', 0.5, method_name=method_name)
-            }
+            "sentiment": sentiment_behavior
         }
-        # 3. 全链路探针输出
+        # 8. 链路探针输出
         if probe_ts:
-            print(f"[探针] 正在校验物理层 EMA 映射: EMA_13_D exists: {'EMA_13_D' in df.columns}")
+            print(f"[探针] 正在校验主力成本原料补全状态: buy_lg_vol exists in context: {'buy_lg_vol' in context['funds']}")
             raw_snapshot = {}
-            for cat in [market_raw, ema_signals, funds_raw, structure_raw]:
-                for k, v in cat.items():
-                    raw_snapshot[k] = v.loc[probe_ts] if probe_ts in v.index else np.nan
+            for cat_name, cat_data in context.items():
+                for k, v in cat_data.items():
+                    raw_snapshot[f"{cat_name}.{k}"] = v.loc[probe_ts] if probe_ts in v.index else np.nan
             _temp_debug_values["原料数据快照"] = raw_snapshot
         return context
 
@@ -289,61 +311,43 @@ class CalculateMainForceControlRelationship:
 
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V2.3.0 · 双轨成本Alpha模型 - 动力学增强版】
-        引入成本斜率 (Cost Slope) 作为核心判定因子。
-        逻辑升级：
-        1. 静态优势 (Static Alpha): 市场成本 vs 主力成本 (原有逻辑)。
-        2. 动态意图 (Dynamic Intent):
-           - 如果主力成本在显著上移 (Slope > 0.5%)，说明主力在“抬轿”，给予 Alpha 加成。
-           - 如果股价涨但主力成本走平 (Slope ~ 0)，可能是虚拉，Alpha 降权。
+        【V2.3.1 · 双轨成本Alpha模型 - 接口对齐版】
+        职责：计算主力持仓成本与市场成本的博弈优势。
+        修改：统一使用 context['funds'] 中的量能字段，确保与 _get_raw_control_signals 补全后的键名一致。
         """
         m, f, s = context['market'], context['funds'], context['structure']
-        # 1. 调用新的价格计算方法 (返回字典)
-        # 注意：这里需要传入拆分后的资金流数据
+        # 1. 内部调用主力均价计算逻辑
         prices = self._calculate_main_force_avg_prices(
             index, m['close'],
             f['buy_lg_amt'], f['buy_elg_amt'], f['sell_lg_amt'], f['sell_elg_amt'],
-            f['buy_lg_vol'], f['buy_elg_vol'], f['sell_lg_vol'], f['sell_elg_vol'],
+            f['buy_lg_vol'], f['buy_elg_vol'], f['sell_lg_vol'], f['sell_elg_vol'], # 已对齐补全后的键名
             _temp_debug_values
         )
         avg_buy = prices['avg_buy']
         avg_sell = prices['avg_sell']
-        buy_slope = prices['buy_slope'] # 成本趋势
-        buy_accel = prices['buy_accel'] # 抢筹急迫度
-        # 2. 计算静态优势 (Static Score)
-        # 战略Alpha: 主力成本比市场成本低多少
+        buy_slope = prices['buy_slope']
+        buy_accel = prices['buy_accel']
+        # 2. 静态优势 (Static Score)
         strategic_alpha = (s['cost_50pct'] - avg_buy) / s['cost_50pct'].replace(0, np.nan)
-        # 安全垫: 现价高于主力买入价多少
         safety_margin = (m['close'] - avg_buy) / avg_buy.replace(0, np.nan)
-        # 收割能力: 卖出均价高于市场成本多少
         harvest_prem = (avg_sell - s['cost_50pct']) / s['cost_50pct'].replace(0, np.nan)
         # 3. 动态意图修正 (Dynamic Modifier)
-        # 构建“进攻因子” (Aggression Factor)
-        # 逻辑：成本上移(Slope>0) 且 加速(Accel>0) = 强力进攻
         aggression_bonus = pd.Series(0.0, index=index)
-        # 情景A: 推升 (Pushing) -> 成本Slope > 0.2%
         aggression_bonus = aggression_bonus.mask(buy_slope > 0.2, 0.2)
-        # 情景B: 抢筹 (Scramble) -> 成本Slope > 0.2% 且 Accel > 0
         aggression_bonus = aggression_bonus.mask((buy_slope > 0.2) & (buy_accel > 0), 0.4)
-        # 情景C: 虚拉/对倒 (Fake Pump) -> 股价大涨(>3%) 但成本几乎不动(|Slope| < 0.1%)
-        # 这种情况下，静态优势再大也是虚的，需要惩罚
         is_fake_pump = (m['pct_change'] > 3.0) & (buy_slope.abs() < 0.1)
         aggression_bonus = aggression_bonus.mask(is_fake_pump, -0.3)
-        # 4. 综合评分
-        # 静态分 (0.8) + 动态修正 (0.2 + bonus)
-        raw_score = (
-            strategic_alpha.fillna(0) * 0.4 + 
-            safety_margin.fillna(0) * 0.3 + 
-            harvest_prem.fillna(0) * 0.1 + 
-            aggression_bonus # 直接叠加 bonus
-        )
+        # 4. 综合评分计算
+        raw_score = (strategic_alpha.fillna(0) * 0.4 + safety_margin.fillna(0) * 0.3 + harvest_prem.fillna(0) * 0.1 + aggression_bonus)
         final_score = np.tanh(raw_score * 5.0)
+        # 5. 探针捕获
         _temp_debug_values["组件_成本优势"] = {
             "avg_buy": avg_buy,
             "buy_slope": buy_slope,
             "aggression_bonus": aggression_bonus,
             "final_score": final_score
         }
+        print(f"[探针] 成本优势模型计算完成，主力买入成本均值: {avg_buy.mean():.4f}")
         return pd.Series(final_score, index=index).fillna(0)
 
     def _calculate_main_force_net_activity_score(self, context: Dict, index: pd.Index, config: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
