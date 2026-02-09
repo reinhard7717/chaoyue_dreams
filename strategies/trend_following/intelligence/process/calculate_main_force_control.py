@@ -202,6 +202,7 @@ class CalculateMainForceControlRelationship:
             ("风控_杠杆", "8. 风控层 (Leverage & Vol Gating)"),
             ("最终结果", "9. 输出层 (Final Signal)")
         ]
+        print(f"[探针] CalculateMainForceControlRelationship 正在捕获全链路数据快照 @ {probe_ts}")
         for key, label in full_chain:
             if key in _temp_debug_values:
                 debug_output[f"  -- [全链路探针] {label}:"] = ""
