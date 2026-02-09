@@ -289,6 +289,7 @@
             "volume_D": [3, 5, 8, 13, 21, 34, 55],
             "MACDh_13_34_8_D": [5, 13, 21, 34, 55],
             "RSI_13_D": [5, 13, 21, 34, 55],
+            "ADX_14_D": [5, 13, 21, 34, 55],
             "chip_concentration_ratio_D": [3, 5, 8, 13, 21, 55],
             "chip_rsi_divergence_D": [3, 5, 8, 13, 21, 34, 55],
             "MA_POTENTIAL_TENSION_INDEX_D": [5, 13, 21, 34, 55],
