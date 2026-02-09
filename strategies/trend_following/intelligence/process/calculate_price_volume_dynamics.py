@@ -305,41 +305,50 @@ class CalculatePriceVolumeDynamics:
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V7.0.0 · 全局动力学集成总线：全链路 float32 向量化，移除索引依赖与空行"""
+        """V74.0 · 全局动力学总线：集成全息探针，实现从 HAB 原料到最终分值的全链路可视化，清除空行"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         if not self._validate_all_required_signals(df, {}, {}, method_name, is_debug, probe_ts): return pd.Series(0.0, index=df_index, dtype=np.float32)
         raw = self._get_raw_signals(df, method_name)
-        physical_base = self._calculate_power_transfer_raw_score(df_index, raw, method_name).values
-        geo_resonance = (pd.Series(_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0), index=df_index) * (1.0 - raw['GEOM_REG_R2_D']) * (raw['STATE_ROUNDING_BOTTOM_D'].astype(np.float32) * 1.2 + 0.5)).values
-        vwap_propulsion = self._calculate_vwap_propulsion_score(raw, df_index, method_name).values
-        unadjusted_intensity = physical_base * 0.50 + geo_resonance * 0.25 + vwap_propulsion * 0.25
-        final_vals = unadjusted_intensity * self._calculate_trend_inertia_momentum(raw, df_index, method_name).values * \
-                     self._calculate_market_permeability_index(raw, df_index, method_name).values * \
-                     self._calculate_entropic_ordering_bonus(raw, df_index, method_name).values * \
-                     self._calculate_fractal_efficiency_resonance(raw, df_index, method_name).values * \
-                     self._calculate_hmm_regime_confirmation(raw, df_index, method_name).values * \
-                     self._calculate_chip_lock_efficiency(raw, df_index, method_name).values * \
-                     self._calculate_microstructure_attack_vector(raw, df_index, method_name).values * \
-                     self._calculate_vpa_elasticity_reflexivity(raw, df_index, method_name).values * \
-                     self._calculate_wyckoff_breakout_quality(raw, df_index, method_name).values * \
-                     self._calculate_premium_reversal_risk(raw, df_index, method_name).values * \
-                     self._calculate_intraday_decay_model(raw, df_index, method_name).values * \
-                     self._calculate_sector_resonance_modifier(raw, df_index, method_name).values * \
-                     self._calculate_volatility_clustering_adjustment(raw, df_index, method_name).values * \
-                     self._calculate_sector_overflow_decay(raw, df_index, method_name).values * \
-                     self._calculate_entry_accessibility_score(raw, df_index, method_name).values
-        final_score = pd.Series(final_vals, index=df_index).clip(-3.5, 6.0).astype(np.float32)
+        # 1. 核心计算链路 (保持 float32 向量化)
+        scores = {}
+        scores['physical'] = self._calculate_power_transfer_raw_score(df_index, raw, method_name)
+        scores['geo'] = pd.Series(_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0), index=df_index) * (1.0 - raw['GEOM_REG_R2_D']) * (raw['STATE_ROUNDING_BOTTOM_D'].astype(np.float32) * 1.2 + 0.5)
+        scores['vwap'] = self._calculate_vwap_propulsion_score(raw, df_index, method_name)
+        scores['inertia'] = self._calculate_trend_inertia_momentum(raw, df_index, method_name)
+        scores['perm'] = self._calculate_market_permeability_index(raw, df_index, method_name)
+        scores['entropy'] = self._calculate_entropic_ordering_bonus(raw, df_index, method_name)
+        scores['fractal'] = self._calculate_fractal_efficiency_resonance(raw, df_index, method_name)
+        scores['hmm'] = self._calculate_hmm_regime_confirmation(raw, df_index, method_name)
+        scores['chip'] = self._calculate_chip_lock_efficiency(raw, df_index, method_name)
+        scores['micro'] = self._calculate_microstructure_attack_vector(raw, df_index, method_name)
+        scores['reflex'] = self._calculate_vpa_elasticity_reflexivity(raw, df_index, method_name)
+        scores['wyckoff'] = self._calculate_wyckoff_breakout_quality(raw, df_index, method_name)
+        # 2. 调节器链路
+        scores['risk'] = self._calculate_premium_reversal_risk(raw, df_index, method_name)
+        scores['decay'] = self._calculate_intraday_decay_model(raw, df_index, method_name)
+        scores['sector_mod'] = self._calculate_sector_resonance_modifier(raw, df_index, method_name)
+        scores['vol_gamma'] = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name)
+        scores['sector_decay'] = self._calculate_sector_overflow_decay(raw, df_index, method_name)
+        scores['access'] = self._calculate_entry_accessibility_score(raw, df_index, method_name)
+        # 3. 最终合成
+        unadjusted = scores['physical'] * 0.50 + scores['geo'] * 0.25 + scores['vwap'] * 0.25
+        final_vals = unadjusted * scores['inertia'] * scores['perm'] * scores['entropy'] * scores['fractal'] * \
+                     scores['hmm'] * scores['chip'] * scores['micro'] * scores['reflex'] * scores['wyckoff'] * \
+                     scores['risk'] * scores['decay'] * scores['sector_mod'] * scores['vol_gamma'] * \
+                     scores['sector_decay'] * scores['access']
+        final_score = final_vals.clip(-3.5, 6.0).astype(np.float32)
+        # 4. 触发全息探针
         if is_debug and probe_ts in df_index:
-            print(f"\n[PROCESS_META_POWER_TRANSFER 全链极速探针 V7.0.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    >>> 最终输出分值: {final_score.loc[probe_ts]:.4f}")
+            self._print_full_chain_probe(probe_ts, raw, scores, final_score.loc[probe_ts])
         return final_score
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V72.0 · 物理动力引擎：引入 21 日资金累积作为【战略质量】权重，平滑非理性波动，实现全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        score_calc = CalculatePowerTransferRawScore(is_debug, probe_ts)
+        """V74.1 · 物理动力引擎：移除分散探针，保留 V73 HAB 逻辑"""
+        # _setup_debug_info 仅保留用于兼容，不再用于打印
+        self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        score_calc = CalculatePowerTransferRawScore(False, None) # 禁用内部调试
         vol_adj = raw['BBW_21_2.0_D'].values.astype(np.float64)
         roll_tc = pd.Series(raw['trade_count_D'].values, index=df_index).rolling(21).mean().replace(0, 1).values
         conf = (raw['trade_count_D'].values / (roll_tc + 1e-9)).astype(np.float64)
@@ -357,52 +366,42 @@ class CalculatePriceVolumeDynamics:
         return pd.Series(phy_score, index=df_index, dtype=np.float32)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V73.0 · 溢价回吐风险：引入 13 日 HAB 累积尾盘压力，判别系统性派发风险，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 溢价风险：移除分散探针，纯净计算"""
         turnover, extreme = raw['turnover_rate_f_D'].values, raw['STATE_EMOTIONAL_EXTREME_D'].values.astype(np.float32)
         daily_ratio, accum_ratio = raw['closing_flow_ratio_D'].values, raw['ACCUM_13_CLOSING_FLOW'].values
         exhaustion = np.clip(turnover / 15.0, 0.0, 1.5)
-        hab_risk = np.where(accum_ratio > 3.5, 1.25, 1.0) # 识别周期内依赖尾盘偷袭的异常特征
+        hab_risk = np.where(accum_ratio > 3.5, 1.25, 1.0)
         reversal_pressure = daily_ratio * extreme * exhaustion * hab_risk
         risk_adjustment = pd.Series(1.0 - reversal_pressure * 0.4, index=df_index, dtype=np.float32).clip(0.5, 1.0)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[溢价回吐 HAB 探针 V73.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    13日累积尾盘压力: {accum_ratio[df_index.get_loc(probe_ts)]:.4f}, 风险系数: {hab_risk[df_index.get_loc(probe_ts)]:.2f}")
         return risk_adjustment
 
     def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V73.0 · 日内衰减模型：集成 13 日 HAB 稳定性均值，识别系统性承接脆弱，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 日内衰减：移除分散探针，纯净计算"""
         stab, mean_stab = raw['TURNOVER_STABILITY_INDEX_D'].values, raw['MEAN_13_STABILITY'].values
         close, up, ratio = raw['close_D'].values, raw['up_limit_D'].values, raw['closing_flow_ratio_D'].values
         bad_mask = (close >= up * 0.999) & (ratio > 0.4) & (stab < 0.4)
-        fragility = np.where(mean_stab < 0.5, 0.85, 1.0) # 历史稳定性差则更容易发生结构性衰减
+        fragility = np.where(mean_stab < 0.5, 0.85, 1.0)
         winner = raw['winner_rate_D'].values
         repair = np.where((winner < 0.15) & (stab < 0.3), 1.5, 1.0).astype(np.float32)
         decay = (0.6 + stab * 0.4) * np.where(bad_mask, 0.6, 1.0).astype(np.float32) * repair * fragility
         return pd.Series(decay, index=df_index, dtype=np.float32).clip(0.2, 1.5)
 
     def _calculate_sector_resonance_modifier(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V73.0 · 板块共振算子：引入 21 日 HAB 板块能量累积，区分短期题材与跨周期主线，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 板块共振：移除分散探针，纯净计算"""
         s_hot, a_hot = raw['SLOPE_5_THEME_HOTNESS_SCORE_D'].values, raw['ACCEL_5_THEME_HOTNESS_SCORE_D'].values
         accum_hot = raw['ACCUM_21_THEME_HOTNESS'].values
-        mainline_bonus = np.clip(accum_hot / 1000.0, 1.0, 1.35) # 根据 21 日累积热度锚定主线级别
+        mainline_bonus = np.clip(accum_hot / 1000.0, 1.0, 1.35)
         impulse = (s_hot * 0.6 + a_hot * 0.4)
         persistence = np.where((raw['industry_rank_accel_D'].values > 0) & (raw['flow_consistency_D'].values > 0.65), 1.2, 0.8).astype(np.float32)
         mod = (1.0 + _numba_power_activation(impulse.astype(np.float64), gain=0.5).astype(np.float32)) * persistence * mainline_bonus
-        if is_debug and probe_ts in df_index:
-            print(f"\n[板块 HAB 探针 V73.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    21日累积热度: {accum_hot[df_index.get_loc(probe_ts)]:.2f}, 主线加成: {mainline_bonus[df_index.get_loc(probe_ts)]:.4f}")
         return pd.Series(mod, index=df_index, dtype=np.float32).clip(0.6, 2.0)
 
     def _calculate_volatility_clustering_adjustment(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V73.0 · 波动率伽马模型：集成 21 日 HAB 历史紧致度，判别“极致收缩”后的爆发力，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 波动率伽马：移除分散探针，纯净计算"""
         bbw, squeeze_score = raw['BBW_21_2.0_D'].values, raw['HIST_VOL_SQUEEZE'].values
         s_bbw, a_bbw, j_bbw = raw['SLOPE_5_BBW_21_2.0_D'].values, raw['ACCEL_5_BBW_21_2.0_D'].values, raw['JERK_3_BBW_21_2.0_D'].values
         bbw_ma = pd.Series(bbw, index=df_index).rolling(21).mean().fillna(pd.Series(bbw, index=df_index)).values
-        vcp_ignite = np.where(squeeze_score > 15.0, 1.4, 1.0) # 若长期波动紧致，爆发强度赋予 40% 的额外权重
+        vcp_ignite = np.where(squeeze_score > 15.0, 1.4, 1.0)
         exp = (bbw < bbw_ma * 1.2) & (a_bbw > 0) & (j_bbw > 0.01)
         trap = (bbw > bbw_ma * 1.5) & ((s_bbw < 0) | (a_bbw < 0))
         p_jerk = raw['JERK_3_close_D'].values
@@ -410,28 +409,23 @@ class CalculatePriceVolumeDynamics:
         adj = np.where(exp & (p_jerk > 0), 1.5 * vcp_ignite, adj)
         adj = np.where(exp & (p_jerk < 0), 0.5, adj)
         adj = np.where(trap, 0.8, adj)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[波动率 HAB 探针 V73.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    21日紧致度积分: {squeeze_score[df_index.get_loc(probe_ts)]:.2f}, VCP点火加成: {vcp_ignite[df_index.get_loc(probe_ts)]:.2f}")
         return pd.Series(adj, index=df_index, dtype=np.float32).clip(0.3, 2.2)
 
     def _calculate_sector_overflow_decay(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V73.0 · 熵增雪崩模型：根据 HAB 周期累积热度动态调节崩塌门槛，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 熵增雪崩：移除分散探针，纯净计算"""
         hot, accum_hot = raw['THEME_HOTNESS_SCORE_D'].values, raw['ACCUM_21_THEME_HOTNESS'].values
         fd_all = _numba_fractal_dimension(np.expand_dims(hot, axis=0).astype(np.float64), window=13)
         fd_vals = fd_all[0].astype(np.float32)
         slope = pd.Series(fd_vals, index=df_index).diff(5).fillna(0).values.astype(np.float32)
         accel = pd.Series(slope, index=df_index).diff(5).fillna(0).values.astype(np.float32)
-        hot_threshold = np.where(accum_hot > 1500.0, 70.0, 85.0) # 长期高热环境下，崩塌门槛大幅降低（预防高位雪崩）
+        hot_threshold = np.where(accum_hot > 1500.0, 70.0, 85.0)
         avalanche = (hot > hot_threshold) & (slope > 0) & (accel > 0)
         base = (1.5 / (fd_vals + 1e-9)).clip(0.6, 1.1)
         res = np.where(avalanche, base * 0.6, base).astype(np.float32)
         return pd.Series(res, index=df_index, dtype=np.float32)
 
     def _calculate_hmm_regime_confirmation(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V72.0 · HMM 动力学共振：引入 21 日资金累积体制偏置，平滑概率判定，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · HMM 体制确认：移除分散探针，保留 HAB 偏置"""
         l_n = raw['SMART_MONEY_HM_NET_BUY_D']
         r_m, r_s = l_n.rolling(21).mean().fillna(0), l_n.rolling(21).std().fillna(1e-9)
         f_n = ((l_n - r_m) / r_s).values.astype(np.float32)
@@ -445,18 +439,15 @@ class CalculatePriceVolumeDynamics:
         p_a, p_j = m_p_s.diff(3).diff(3).fillna(0).values, m_p_s.diff(1).diff(1).diff(1).fillna(0).values
         b_f = np.where(m_p > 0.5, 1.0 + (m_p - 0.5), 0.8 + m_p * 0.4)
         d_b = 1.0 + np.where((m_p > 0.6) & (p_a > 0), 0.2, 0.0) + np.where((m_p > 0.4) & (p_j > 0.1), 0.3, 0.0)
-        res = pd.Series(b_f * d_b * regime_bias, index=df_index, dtype=np.float32)
-        return res
+        return pd.Series(b_f * d_b * regime_bias, index=df_index, dtype=np.float32)
 
     def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 分形相干效率模型：移除 Series 索引开销，采用 NumPy 掩码相变判定，消除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 分形效率：移除分散探针，纯净计算"""
         c_vals = raw['close_D'].values.astype(np.float64)
         v_vals = raw['volume_D'].values.astype(np.float64)
         input_arrays = np.vstack((c_vals, v_vals))
         f_all = _numba_fractal_dimension(input_arrays, window=21)
-        h_p = (2.0 - f_all[0]).astype(np.float32)
-        h_v = (2.0 - f_all[1]).astype(np.float32)
+        h_p, h_v = (2.0 - f_all[0]).astype(np.float32), (2.0 - f_all[1]).astype(np.float32)
         h_slope = pd.Series(h_p, index=df_index).diff(5).fillna(0).values.astype(np.float32)
         gap = np.abs(h_p - h_v)
         gap_a = pd.Series(gap, index=df_index).diff(3).diff(3).fillna(0).values.astype(np.float32)
@@ -468,10 +459,8 @@ class CalculatePriceVolumeDynamics:
         return pd.Series(final, index=df_index, dtype=np.float32)
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V72.0 · 筹码锁定效率：集成周期获利盘稳定性与累积低换手判定，识别深度控盘，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        win = raw['winner_rate_D'].values
-        turn = raw['turnover_rate_f_D'].values
+        """V74.1 · 筹码锁定：移除分散探针，纯净计算"""
+        win, turn = raw['winner_rate_D'].values, raw['turnover_rate_f_D'].values
         t_norm = np.clip(turn / 5.0, 0.0, 1.0)
         s_lock = win * (1.0 - t_norm)
         win_ma13 = pd.Series(win, index=df_index).rolling(13).mean().values
@@ -485,8 +474,7 @@ class CalculatePriceVolumeDynamics:
         return final_eff
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V72.0 · 微观矢量脉冲模型：深度向量化优化与 float32 类型降级，集成历史底仓修正逻辑，清除所有空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 微观矢量：移除分散探针，保留 HAB 护盾逻辑"""
         e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values).astype(np.float32)
         l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values).astype(np.float32)
         t_a = (raw['amount_D'].values + 1e-9).astype(np.float32)
@@ -500,16 +488,10 @@ class CalculatePriceVolumeDynamics:
         h_s = np.where((d_sm < 0) & (a13 > np.abs(d_sm) * 10.0), 1.2, 1.0)
         h_s = np.where((d_sm < 0) & (a21 > np.abs(d_sm) * 20.0), h_s * 1.15, h_s).astype(np.float32)
         f_v = pd.Series(b_v * s_s * h_s, index=df_index, dtype=np.float32).clip(0, 2.0)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[微观极速修正探针 V72.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    当日净流入: {d_sm[p_i]:.2f}, 13日累积: {a13[p_i]:.2f}, 护盾: {h_s[p_i]:.4f}")
-            print(f"    >>> 最终攻击矢量: {f_v.loc[probe_ts]:.4f}")
         return f_v
 
     def _calculate_vpa_elasticity_reflexivity(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V72.0 · 流体反身性模型：引入周期累积能量密度（Money/Volume），识别高效筹码交换，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 反身性：移除分散探针，纯净计算"""
         pp, pv_s = np.abs(raw['pct_change_D'].values), pd.Series(raw['volume_D'].values, index=df_index)
         pv = np.abs(pv_s.pct_change().fillna(0).values)
         base_e = pp / (pv + 0.1)
@@ -523,10 +505,8 @@ class CalculatePriceVolumeDynamics:
         return pd.Series(final, index=df_index, dtype=np.float32).clip(0.5, 2.0)
 
     def _calculate_wyckoff_breakout_quality(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 动态威科夫突破：TR 动力学全向量化，移除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        high = raw['high_D'].values
-        low = raw['low_D'].values
+        """V74.1 · 威科夫突破：移除分散探针，纯净计算"""
+        high, low = raw['high_D'].values, raw['low_D'].values
         close = raw['close_D'].values
         close_prev = raw['close_D'].shift(1).fillna(raw['close_D']).values
         tr = np.maximum(high - low, np.maximum(np.abs(high - close_prev), np.abs(low - close_prev)))
@@ -542,42 +522,29 @@ class CalculatePriceVolumeDynamics:
         return final_score
 
     def _calculate_trend_inertia_momentum(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 趋势运动学模型：全向量化 float32 动能合成，清除所有空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 趋势运动学：移除分散探针，纯净计算"""
         c_vals = raw['close_D'].values
         ma5 = raw['close_D'].rolling(5).mean().values
         ma21 = raw['close_D'].rolling(21).mean().values
         ma55 = raw['close_D'].rolling(55).mean().values
-        s_vals = raw['SLOPE_5_close_D'].values
-        a_vals = raw['ACCEL_5_close_D'].values
-        j_vals = raw['JERK_3_close_D'].values
+        s_vals, a_vals, j_vals = raw['SLOPE_5_close_D'].values, raw['ACCEL_5_close_D'].values, raw['JERK_3_close_D'].values
         r2_vals = raw['GEOM_REG_R2_D'].values
         alignment = np.where((ma5 > ma21) & (ma21 > ma55), 1.0, 0.8).astype(np.float32)
         kinematic = 1.0 + np.where((s_vals > 0) & (a_vals > 0), 0.3, 0.0) + np.where(j_vals > 0.1, 0.2, 0.0) - np.where((s_vals > 0) & (a_vals < 0), 0.2, 0.0)
         final_inertia = pd.Series(alignment * kinematic * (0.6 + np.clip(r2_vals, 0.0, 1.0) * 0.4), index=df_index, dtype=np.float32).clip(0.6, 1.6)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[趋势惯性极速探针 V7.0.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    惯性系数: {final_inertia.loc[probe_ts]:.4f}")
         return final_inertia
 
     def _calculate_market_permeability_index(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 市场渗透率模型：float32 降级与向量化相变判定，清除所有空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        sent = raw['market_sentiment_score_D'].values
-        accel = raw['ACCEL_5_market_sentiment_score_D'].values
-        rank = raw['industry_strength_rank_D'].values
-        jerk = raw['JERK_3_industry_strength_rank_D'].values
+        """V74.1 · 市场渗透率：移除分散探针，纯净计算"""
+        sent, accel = raw['market_sentiment_score_D'].values, raw['ACCEL_5_market_sentiment_score_D'].values
+        rank, jerk = raw['industry_strength_rank_D'].values, raw['JERK_3_industry_strength_rank_D'].values
         perm = np.where((sent < 20) & (accel > 0), 1.3, np.where((sent > 80) & (accel > 0), 0.7, 1.0)).astype(np.float32)
         bonus = np.where(jerk < -2.0, 1.3, np.where(rank < 0.1, 1.1, 0.9)).astype(np.float32)
         final_ctx = pd.Series(perm * bonus, index=df_index, dtype=np.float32).clip(0.6, 1.8)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[市场渗透极速探针 V7.0.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    渗透系数: {final_ctx.loc[probe_ts]:.4f}")
         return final_ctx
 
     def _calculate_entry_accessibility_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · 入场可获得性：极速向量化根号平滑，移除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 入场可获得性：移除分散探针，纯净计算"""
         tf = raw['turnover_rate_f_D'].values
         liq = np.clip(np.sqrt(tf) / 1.2247, 0.1, 1.1)
         up_limit = raw['up_limit_D'].values
@@ -589,8 +556,7 @@ class CalculatePriceVolumeDynamics:
         return pd.Series(limit_access * liq, index=df_index, dtype=np.float32).clip(0.0, 1.0)
 
     def _calculate_entropic_ordering_bonus(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V72.0 · 熵减有序性因子：集成 13 日累积熵减趋势，识别系统性秩序增强，全向量化，清除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · 熵减有序性：移除分散探针，保留 HAB 趋势修正"""
         s5, a5, pct = raw['SLOPE_5_chip_entropy_D'].values, raw['ACCEL_5_chip_entropy_D'].values, raw['pct_change_D'].values
         locking = -(s5 * 0.7 + a5 * 0.3)
         base_bonus = np.clip(np.tanh(locking * 5.0), 0.0, 1.0) * 1.5
@@ -599,19 +565,48 @@ class CalculatePriceVolumeDynamics:
         penalty = np.where((pct > 0) & (s5 > 0), 0.7, 1.0).astype(np.float32)
         final_factor = pd.Series((1.0 + base_bonus + trend_bonus) * penalty, index=df_index, dtype=np.float32).clip(0.7, 2.0)
         return final_factor
-
+    
     def _calculate_vwap_propulsion_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V7.0.0 · VWAP 推进力：全向量化逻辑，移除空行"""
-        is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
+        """V74.1 · VWAP 推进力：移除分散探针，纯净计算"""
         close = raw['close_D'].values
         vwap = raw['VWAP_D'].values
         vwap_slope = pd.Series(vwap, index=df_index).diff(3).values / 3.0
         bias = (close - vwap) / (vwap + 1e-9)
         propulsion = np.where(vwap_slope > 0, 1.0, 0.0) + np.where((bias > 0) & (bias < 0.05), 0.2, 0.0) + np.clip(np.tanh(vwap_slope * 10.0), 0.0, 0.3)
         final_score = pd.Series(propulsion, index=df_index, dtype=np.float32).clip(0, 1.5)
-        if is_debug and probe_ts in df_index:
-            print(f"\n[VWAP 推进极速探针 V7.0.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    最终得分: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
+    def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], scores: Dict[str, pd.Series], final_score: float):
+        """V74.0 · 全息探针诊断总线：构建从 HAB 原料到策略结果的全链路透视，清除空行"""
+        if probe_ts not in raw['close_D'].index: return
+        idx = raw['close_D'].index.get_loc(probe_ts)
+        p_str = probe_ts.strftime('%Y-%m-%d')
+        print(f"\n{'='*30} [全息动力学探针 V74.0 @ {p_str}] {'='*30}")
+        # 1. 基础物理场 (Base Field)
+        c, v, vwap = raw['close_D'].values[idx], raw['volume_D'].values[idx], raw['VWAP_D'].values[idx]
+        print(f"【基础物理】收盘: {c:.2f} | VWAP: {vwap:.2f} | 量能: {v/10000:.1f}万 | 换手: {raw['turnover_rate_f_D'].values[idx]:.2f}%")
+        # 2. HAB 历史累积缓冲 (Historical Accumulation Buffer)
+        print(f"【HAB 缓冲】")
+        print(f"  ├─ 资金底仓 (13d/21d): {raw['ACCUM_13_SMART_MONEY'].values[idx]:.1f} / {raw['ACCUM_21_SMART_MONEY'].values[idx]:.1f}")
+        print(f"  ├─ 尾盘压力 (13d): {raw['ACCUM_13_CLOSING_FLOW'].values[idx]:.2f} (阈值>3.5高危)")
+        print(f"  ├─ 板块厚度 (21d): {raw['ACCUM_21_THEME_HOTNESS'].values[idx]:.1f} (主线锚点>1000)")
+        print(f"  └─ 波动紧致 (21d): {raw['HIST_VOL_SQUEEZE'].values[idx]:.1f} (VCP点火源)")
+        # 3. 动力学特征 (Kinematics)
+        print(f"【动力学特征】")
+        print(f"  ├─ 价格 (S/A/J): {raw['SLOPE_5_close_D'].values[idx]:.4f} / {raw['ACCEL_5_close_D'].values[idx]:.4f} / {raw['JERK_3_close_D'].values[idx]:.4f}")
+        print(f"  └─ 主力 (S/A/J): {raw['SLOPE_5_SMART_MONEY_HM_NET_BUY_D'].values[idx]:.1f} / {raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values[idx]:.1f} / {raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values[idx]:.1f}")
+        # 4. 子模块评分矩阵 (Sub-Module Matrix)
+        print(f"【核心引擎评分】")
+        print(f"  [物理] 强度: {scores['physical'].values[idx]:.4f} | VWAP: {scores['vwap'].values[idx]:.4f} | 几何: {scores['geo'].values[idx]:.4f}")
+        print(f"  [结构] 筹码: {scores['chip'].values[idx]:.4f} | 熵序: {scores['entropy'].values[idx]:.4f} | 威科夫: {scores['wyckoff'].values[idx]:.4f}")
+        print(f"  [环境] 渗透: {scores['perm'].values[idx]:.4f} | 惯性: {scores['inertia'].values[idx]:.4f} | HMM: {scores['hmm'].values[idx]:.4f}")
+        print(f"  [微观] 攻击: {scores['micro'].values[idx]:.4f} | 反身: {scores['reflex'].values[idx]:.4f} | 分形: {scores['fractal'].values[idx]:.4f}")
+        # 5. 风险阀与调节器 (Valves & Modifiers)
+        print(f"【安全阀调节】")
+        print(f"  ├─ 风险回吐: {scores['risk'].values[idx]:.2f} x 日内衰减: {scores['decay'].values[idx]:.2f}")
+        print(f"  └─ 板块溢出: {scores['sector_decay'].values[idx]:.2f} x 波动伽马: {scores['vol_gamma'].values[idx]:.2f}")
+        # 6. 最终合成 (Final Synthesis)
+        print(f"{'-'*75}")
+        print(f" >>> PROCESS_META_POWER_TRANSFER 最终得分: {final_score:.4f}")
+        print(f"{'='*75}\n")
 
