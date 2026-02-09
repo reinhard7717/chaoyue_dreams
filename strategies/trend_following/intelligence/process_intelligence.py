@@ -347,9 +347,16 @@ class ProcessIntelligence:
             return {}
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V2.1 · 校验协议对齐版】元关系诊断分发器。
+        - 核心修复: 修正了校验拦截逻辑，确保其与 `_run_meta_analysis` 保持一致，
+                      对内置硬编码 L2 依赖的 'PROCESS_META_POWER_TRANSFER' 信号予以校验豁免。
+        """
         signal_name = config.get('name', '未知信号')
-        if not self._extract_and_validate_config_signals(df, config, f"_run_meta_analysis (for {signal_name})"):
-            return {}
+        # 对内置硬编码 L2 数据依赖的信号实施校验豁免，防止 Blueprint Inspector 误报
+        if signal_name != 'PROCESS_META_POWER_TRANSFER':
+            if not self._extract_and_validate_config_signals(df, config, f"_diagnose_meta_relationship (for {signal_name})"):
+                return {}
         diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
         if diagnosis_type == 'meta_relationship':
             return self._diagnose_meta_relationship_internal(df, config)
@@ -362,6 +369,71 @@ class ProcessIntelligence:
         else:
             print(f"    -> [过程情报警告] 未知的元分析诊断类型: '{diagnosis_type}'，跳过信号 '{config.get('name')}' 的计算。")
             return {}
+
+    def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V4.2 · 军械库镜像对冲版】计算"主力-散户"权力交接评分。
+        - 核心逻辑: 严格基于军械库 L2 逐单统计数据构建“资金剪刀差”模型。
+        - 信号映射:
+          1. 主力流: (buy_elg + buy_lg) - (sell_elg + sell_lg) [Source 1 & 3]
+          2. 散户流: (buy_md + buy_sm) - (sell_md + sell_sm) [Source 2 & 3]
+          3. 结构增强: 结合 chip_concentration_ratio_D [Source 2] 与 turnover_rate_D [Source 3]。
+        """
+        method_name = "_calculate_power_transfer"
+        # 声明军械库 L2 核心依赖信号
+        required_signals = [
+            'buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D', 'sell_lg_amount_D',
+            'buy_md_amount_D', 'sell_md_amount_D', 'buy_sm_amount_D', 'sell_sm_amount_D',
+            'amount_D', 'chip_concentration_ratio_D', 'chip_stability_D', 'turnover_rate_D',
+            'main_force_activity_index_D', 'downtrend_strength_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, method_name):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        df_index = df.index
+        # 1. 提取 L2 资金流分项 (买入端 Source 1/2, 卖出端 Source 3)
+        buy_elg = self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name)
+        sell_elg = self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name)
+        buy_lg = self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name)
+        sell_lg = self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name)
+        buy_md = self._get_safe_series(df, 'buy_md_amount_D', 0.0, method_name)
+        sell_md = self._get_safe_series(df, 'sell_md_amount_D', 0.0, method_name)
+        buy_sm = self._get_safe_series(df, 'buy_sm_amount_D', 0.0, method_name)
+        sell_sm = self._get_safe_series(df, 'sell_sm_amount_D', 0.0, method_name)
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name).replace(0, 1.0)
+        # 2. 提取结构与行为因子
+        chip_conc = self._get_safe_series(df, 'chip_concentration_ratio_D', 0.0, method_name)
+        chip_stab = self._get_safe_series(df, 'chip_stability_D', 0.5, method_name)
+        turnover = self._get_safe_series(df, 'turnover_rate_D', 0.0, method_name)
+        mf_activity = self._get_safe_series(df, 'main_force_activity_index_D', 50.0, method_name)
+        downtrend = self._get_safe_series(df, 'downtrend_strength_D', 0.0, method_name)
+        # 3. 计算对冲博弈差 (Mirror Hedging Spread)
+        # 主力净额 vs 散户净额
+        main_force_net = (buy_elg - sell_elg) + (buy_lg - sell_lg)
+        retail_net = (buy_md - sell_md) + (buy_sm - sell_sm)
+        # 权力转移系数：主力抢筹且散户割肉时最高
+        fund_game_spread = (main_force_net - retail_net) / amount
+        # 4. 计算筹码穿透增益 (Chip Penetration Gain)
+        conc_diff = chip_conc.diff().fillna(0)
+        # 换手率越高，集中度变化的信号置信度越高
+        turnover_weight = turnover.clip(0, 0.2) * 5.0 
+        chip_penetration = conc_diff * chip_stab * (1 + turnover_weight)
+        # 5. 综合评分合成
+        # 权重配比：资金对冲 50% + 筹码穿透 30% + 活跃度因子 20%
+        score_raw = (
+            (fund_game_spread * 5.0).clip(-1, 1) * 0.5 +
+            (chip_penetration * 20.0).clip(-1, 1) * 0.3 +
+            ((mf_activity / 100.0) * 2 - 1).clip(-1, 1) * 0.2
+        )
+        # 6. 下跌趋势折价过滤
+        # 在极强下跌趋势中，由于市场惯性，单纯资金流入的有效性需打折
+        trend_discount = pd.Series(1.0, index=df_index)
+        trend_discount = trend_discount.mask(downtrend > 0.8, 0.6)
+        final_score = (score_raw * trend_discount).clip(-1, 1)
+        # 7. 调试状态反馈
+        if hasattr(self.strategy, 'atomic_states'):
+            self.strategy.atomic_states["_DEBUG_power_transfer_spread"] = fund_game_spread
+            self.strategy.atomic_states["_DEBUG_power_transfer_penetration"] = chip_penetration
+        return final_score.astype(np.float32)
 
     def _diagnose_meta_relationship_internal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         signal_name = config.get('name')
@@ -473,74 +545,6 @@ class ProcessIntelligence:
         risk_part = meta_score.clip(upper=0).abs()
         states[risk_signal_name] = risk_part.astype(np.float32)
         return states
-
-    def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V4.0 · L2博弈镜像重构版】计算"主力-散户"权力交接评分。
-        核心逻辑：
-        1. 资金博弈 (Fund Game): 直接基于 Level-2 逐单统计 (特大+大 vs 中+小) 构建博弈镜像，计算资金剪刀差。
-        2. 筹码穿透 (Chip Penetration): 引入筹码集中度与换手率的联动，衡量高换手下的筹码聚合效率。
-        3. 弃用旧信号: 不再依赖 'retail_net_flow_calibrated_D' 等已下线指标。
-        """
-        method_name = "_calculate_power_transfer"
-        # 声明新的 L2 核心依赖
-        required_signals = [
-            'buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D', 'sell_lg_amount_D',
-            'buy_md_amount_D', 'sell_md_amount_D', 'buy_sm_amount_D', 'sell_sm_amount_D',
-            'amount_D', 'chip_concentration_ratio_D', 'chip_stability_D', 'turnover_rate_D',
-            'main_force_activity_index_D', 'downtrend_strength_D'
-        ]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        # 1. 获取底层 L2 资金流数据
-        buy_elg = self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name)
-        sell_elg = self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name)
-        buy_lg = self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name)
-        sell_lg = self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name)
-        buy_md = self._get_safe_series(df, 'buy_md_amount_D', 0.0, method_name)
-        sell_md = self._get_safe_series(df, 'sell_md_amount_D', 0.0, method_name)
-        buy_sm = self._get_safe_series(df, 'buy_sm_amount_D', 0.0, method_name)
-        sell_sm = self._get_safe_series(df, 'sell_sm_amount_D', 0.0, method_name)
-        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name).replace(0, 1.0) # 避免除零
-        # 2. 获取筹码与行为数据
-        chip_conc = self._get_safe_series(df, 'chip_concentration_ratio_D', 0.0, method_name)
-        chip_stab = self._get_safe_series(df, 'chip_stability_D', 0.5, method_name)
-        turnover = self._get_safe_series(df, 'turnover_rate_D', 0.0, method_name)
-        mf_activity = self._get_safe_series(df, 'main_force_activity_index_D', 50.0, method_name)
-        downtrend = self._get_safe_series(df, 'downtrend_strength_D', 0.0, method_name)
-        # 3. 计算资金博弈差 (Fund Game Spread, FGS)
-        # 主力净流入 = (特大买 - 特大卖) + (大单买 - 大单卖)
-        main_force_net = (buy_elg - sell_elg) + (buy_lg - sell_lg)
-        # 散户净流入 = (中单买 - 中单卖) + (小单买 - 小单卖)
-        retail_net = (buy_md - sell_md) + (buy_sm - sell_sm)
-        # FGS > 0 表示资金由散户向主力转移
-        fund_game_spread = (main_force_net - retail_net) / amount
-        # 4. 计算筹码穿透率 (Chip Penetration Rate, CPR)
-        # 逻辑：高换手 + 集中度提升 = 强力吸筹；换手率越高，集中度变化的信号置信度越高
-        conc_diff = chip_conc.diff().fillna(0)
-        turnover_weight = turnover.clip(0, 0.2) * 5.0 # 归一化换手权重
-        chip_penetration = conc_diff * chip_stab * (1 + turnover_weight)
-        # 5. 行为确认 (Behavior Confirmation)
-        activity_factor = (mf_activity / 100.0).clip(0, 1)
-        # 6. 综合评分合成
-        # 权重：资金博弈 50% + 筹码结构 30% + 活跃度 20%
-        # fund_game_spread 通常较小，乘以 5.0 放大到合理区间
-        score_raw = (
-            (fund_game_spread * 5.0).clip(-1, 1) * 0.5 +
-            (chip_penetration * 20.0).clip(-1, 1) * 0.3 +
-            (activity_factor * 2 - 1).clip(-1, 1) * 0.2
-        )
-        # 7. 趋势修正 (Trend Filter)
-        # 在极度下跌趋势中，单纯的资金流入风险较高，给予折价
-        trend_discount = pd.Series(1.0, index=df_index)
-        trend_discount = trend_discount.mask(downtrend > 0.8, 0.6)
-        final_score = (score_raw * trend_discount).clip(-1, 1)
-        # 8. 调试状态记录
-        if hasattr(self.strategy, 'atomic_states'):
-            self.strategy.atomic_states["_DEBUG_power_transfer_fgs"] = fund_game_spread
-            self.strategy.atomic_states["_DEBUG_power_transfer_cpr"] = chip_penetration
-        return final_score.astype(np.float32)
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """

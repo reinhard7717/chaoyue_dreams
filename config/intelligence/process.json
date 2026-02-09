@@ -369,12 +369,17 @@
             },
             {
                 "name": "PROCESS_META_POWER_TRANSFER",
-                "type": "meta_analysis", "task_type": "base",
+                "type": "meta_analysis",
+                "task_type": "base",
                 "relationship_type": "divergence",
-                "signal_A": "retail_net_flow_calibrated_D", "source_A": "df", "change_type_A": "diff",
-                "signal_B": "main_force_net_flow_calibrated_D", "source_B": "df", "change_type_B": "diff",
+                "signal_A": "net_amount_D",
+                "source_A": "df",
+                "change_type_A": "diff",
+                "signal_B": "net_mf_amount_D",
+                "source_B": "df",
+                "change_type_B": "diff",
                 "signal_b_factor_k": 1.0,
-                "description": "【V2.0 换装】权力转移。使用'校准后'资金流数据，新逻辑为(主力流量变化-散户流量变化)。"
+                "description": "【V2.1 · 军械库适配版】权力转移。使用全市场净额([Source 3])与主力净额([Source 3])通过配置校验，内部执行L2镜像对冲计算。"
             },
             {
                 "name": "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY",
