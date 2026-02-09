@@ -95,7 +95,7 @@ class CalculateSplitOrderAccumulation:
             })
             debug_output = {}
             debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            self._print_debug_info(method_name, probe_ts, debug_output, _temp_debug_values, adjusted_final_score)
+            # self._print_debug_info(method_name, probe_ts, debug_output, _temp_debug_values, adjusted_final_score)
         return adjusted_final_score.astype(np.float32)
 
     def _calculate_synthetic_smart_proxy(self, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:

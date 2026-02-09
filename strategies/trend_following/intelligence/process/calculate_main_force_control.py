@@ -70,11 +70,9 @@ class CalculateMainForceControlRelationship:
         _temp_debug_values = {} 
         if probe_ts:
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            
         # 1. 验证必要信号
         if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         # 2. 数据准备
         control_context = self._get_raw_control_signals(df, method_name, _temp_debug_values, probe_ts)
         # 3. 组件计算
@@ -82,7 +80,6 @@ class CalculateMainForceControlRelationship:
         scores_traditional = self._calculate_traditional_control_score_components(control_context, df.index, _temp_debug_values)
         if scores_traditional.isnull().all():
              return pd.Series(0.0, index=df.index, dtype=np.float32)
-             
         # 3.2 主力成本优势 (已升级包含成本Slope/Accel)
         scores_cost_advantage = self._calculate_main_force_cost_advantage_score(control_context, df.index, _temp_debug_values)
         # 3.3 主力净活动
@@ -90,7 +87,6 @@ class CalculateMainForceControlRelationship:
         # 4. 模型融合
         norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down = \
             self._normalize_components(df, control_context, scores_traditional, config, method_name, _temp_debug_values)
-            
         fused_control_score = self._fuse_control_scores(norm_traditional, norm_structural, control_context, _temp_debug_values)
         # 5. 风控杠杆
         control_leverage = self._calculate_control_leverage_model(
@@ -104,7 +100,6 @@ class CalculateMainForceControlRelationship:
         _temp_debug_values["最终结果"] = {"Final_Score": final_control_score}
         if probe_ts:
             self._calculate_main_force_control_relationship_debug_output(debug_output, _temp_debug_values, probe_ts)
-            
         return final_control_score
 
     def _get_control_parameters(self, config: Dict) -> Tuple[Dict, Dict]:
@@ -192,7 +187,6 @@ class CalculateMainForceControlRelationship:
             debug_vals["funds.net_mf_accel"] = funds["net_mf_accel"].loc[probe_ts] if probe_ts in funds["net_mf_accel"].index else np.nan
             debug_vals["structure.stability_accel"] = structure["stability_accel"].loc[probe_ts] if probe_ts in structure["stability_accel"].index else np.nan
             _temp_debug_values["原始信号快照(动力学)"] = debug_vals
-            
         return context
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp, final_control_score: pd.Series):
@@ -295,7 +289,6 @@ class CalculateMainForceControlRelationship:
             "buy_slope": buy_slope_raw.fillna(0), # 输出原始值供逻辑判断(如 >0.2%)
             "buy_accel": buy_accel_raw.fillna(0),
             "buy_jerk": buy_jerk_raw.fillna(0),
-            
             # 归一化版本 (用于机器学习或打分融合)
             "buy_slope_norm": np.tanh(buy_slope_raw),
             "buy_accel_norm": np.tanh(buy_accel_raw * 2.0),
@@ -579,6 +572,123 @@ class CalculateMainForceControlRelationship:
         final_lev = leverage.clip(0, 2.5)
         _temp_debug_values["风控_杠杆"] = {"leverage": final_lev, "lockup": lockup_bonus, "vol": vol_bonus}
         return final_lev
+
+    def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+        """
+        【辅助方法】归一化适配器。
+        职责：从结构化的 context 中提取数据，适配 _normalize_and_mtf_control_components 的接口。
+        """
+        # 解包 Context
+        s_struct = context['structure']
+        s_sent = context['sentiment']
+        # 获取 MTF 参数
+        _, mtf_slope_accel_weights = self._get_control_parameters(config)
+        # 调用底层的归一化逻辑
+        return self._normalize_and_mtf_control_components(
+            df=df,
+            df_index=df.index,
+            kongpan_raw=scores_traditional,
+            control_solidity_raw=s_struct['chip_stability'],
+            flow_credibility_raw=s_sent['flow_consistency'],
+            mf_t0_buy_efficiency=s_sent['t0_buy_conf'],
+            mf_t0_sell_efficiency=s_sent['t0_sell_conf'],
+            mf_vwap_up_guidance=s_sent['pushing_score'],
+            mf_vwap_down_guidance=s_sent['shakeout_score'],
+            mtf_slope_accel_weights=mtf_slope_accel_weights,
+            method_name=method_name,
+            _temp_debug_values=_temp_debug_values
+        )
+
+    def _print_pipeline_debug(self, debug_output: Dict, _temp_debug_values: Dict, probe_ts: pd.Timestamp):
+        """
+        【辅助方法】管道调试信息输出。
+        职责：遍历 _temp_debug_values 中的所有中间结果并格式化输出。
+        """
+        # 定义输出顺序，使日志更易读
+        sections = [
+            ("原始信号快照", "原始信号值"),
+            ("原始信号快照(动力学)", "动力学信号"),
+            ("组件_传统控盘", "传统控盘组件"),
+            ("组件_成本优势", "成本优势组件"),
+            ("组件_净活动", "净活动组件"),
+            ("组件_净活动(动力学)", "净活动动力学"),
+            ("归一化处理", "归一化中间态"),
+            ("融合_中间态", "融合中间态"),
+            ("融合_动力学", "结构动力学融合"),
+            ("风控_杠杆", "风控杠杆模型"),
+            ("最终结果", "最终输出")
+        ]
+        for key, label in sections:
+            if key in _temp_debug_values:
+                debug_output[f"  -- [过程情报调试] @ {probe_ts.strftime('%Y-%m-%d')}: --- {label} ---"] = ""
+                data_map = _temp_debug_values[key]
+                for sub_key, val in data_map.items():
+                    # 处理 Series (取单点值) 或 Scalar
+                    if isinstance(val, pd.Series):
+                        v_print = val.loc[probe_ts] if probe_ts in val.index else np.nan
+                    else:
+                        v_print = val
+                    
+                    # 格式化输出
+                    if isinstance(v_print, (float, np.floating)):
+                        debug_output[f"        {sub_key}: {v_print:.4f}"] = ""
+                    else:
+                        debug_output[f"        {sub_key}: {v_print}"] = ""
+                        
+        self._print_debug_info(debug_output)
+
+    def _get_probe_timestamp(self, df: pd.DataFrame, is_debug: bool) -> Optional[pd.Timestamp]: 
+        """
+        【辅助方法】获取用于调试的探针时间戳。
+        逻辑：如果开启调试且设定了 probe_dates，则在 df.index 中寻找最近的匹配日期。
+        """
+        if not is_debug or not self.probe_dates:
+            return None
+        probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+        # 倒序遍历索引，找到最新的匹配日期
+        for date in reversed(df.index):
+            ts = pd.to_datetime(date)
+            if ts.tz_localize(None).normalize() in probe_dates_dt:
+                return date
+        return None
+
+    def _validate_arsenal_signals(self, df: pd.DataFrame, config: Dict, method_name: str, debug_output: Dict, probe_ts: pd.Timestamp) -> bool:
+        """
+        【辅助方法】验证军械库清单中所需的物理信号是否存在。
+        """
+        _, mtf_slope_accel_weights = self._get_control_parameters(config)
+        # 核心物理信号列表 (基于 V4.1.0 需求)
+        required_signals = [
+            'close_D', 'amount_D', 'pct_change_D',
+            'net_mf_amount_D', 'chip_stability_D', 'flow_consistency_D',
+            'buy_lg_amount_D', 'buy_elg_amount_D', 'sell_lg_amount_D', 'sell_elg_amount_D',
+            'EMA_13_D', 'EMA_21_D', 'EMA_55_D',
+            'BBW_21_2.0_D', 'turnover_rate_D',
+            'chip_entropy_D', 'VPA_EFFICIENCY_D',
+            'cost_50pct_D', 'winner_rate_D'
+        ]
+        # 动态添加动力学衍生信号 (Slope/Accel)
+        # 注意：数据层可能根据配置生成这些列，如果缺失通常由 _get_safe_series 处理默认值，
+        # 但这里的校验是为了确保核心逻辑不跑偏。
+        base_sig_proxy = 'chip_stability_D'
+        for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
+            required_signals.append(f'SLOPE_{period_str}_{base_sig_proxy}')
+        for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
+            required_signals.append(f'ACCEL_{period_str}_{base_sig_proxy}')
+        # 执行校验
+        if not self.helper._validate_required_signals(df, required_signals, method_name):
+            if probe_ts:
+                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，计算中断。"] = ""
+                self._print_debug_info(debug_output)
+            return False
+        return True
+
+
+
+
+
+
+
 
 
 
