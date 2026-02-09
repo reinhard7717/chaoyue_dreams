@@ -2140,7 +2140,6 @@ class FundFlowFactorCalculator:
                         current_duration = 0
                         current_gap = 0
                         current_cluster_amt = 0
-                        
         if current_duration > 0:
             cluster_flow_sums.append(current_cluster_amt)
             cluster_durations.append(current_duration)

@@ -367,7 +367,6 @@ async def _get_historical_flow_data_async(stock_code: str, end_date: date, stock
                         item['net_amount_ratio'] = (net_amt / total_amt) * 1000.0
                     else:
                         item['net_amount_ratio'] = 0.0
-                        
         except Exception as e:
             logger.error(f"合并股票 {stock_code} 历史行情数据失败: {e}", exc_info=True)
         return historical_data

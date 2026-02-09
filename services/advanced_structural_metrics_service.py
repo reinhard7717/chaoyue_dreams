@@ -2310,7 +2310,6 @@ class ThematicMetricsCalculators:
                         price_change = breakthrough_zone_ticks['price'].diff().fillna(0).values
                         vols = breakthrough_zone_ticks['volume'].values
                         net_thrust_vol = np.sum(vols * np.sign(price_change))
-                        
                         breakthrough_thrust_purity = net_thrust_vol / total_breakthrough_vol
                         confirmation_raw = (day_close_qfq - prev_day_high) / atr_14
                         confirmation_factor = np.tanh(confirmation_raw)
@@ -2325,7 +2324,6 @@ class ThematicMetricsCalculators:
                         price_change = defense_zone_ticks['price'].diff().fillna(0).values
                         vols = defense_zone_ticks['volume'].values
                         net_thrust_vol = np.sum(vols * np.sign(price_change))
-                        
                         defense_thrust_purity = net_thrust_vol / total_defense_vol
                         rejection_raw = (day_close_qfq - prev_day_low) / atr_14
                         rejection_factor = np.tanh(rejection_raw)

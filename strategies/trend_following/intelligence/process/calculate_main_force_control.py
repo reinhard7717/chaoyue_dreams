@@ -57,49 +57,55 @@ class CalculateMainForceControlRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.1.0 · 主力控盘关系计算器 - 成本动力学适配版】
+        【V4.2.0 · 主力控盘关系计算器 - 最终形态】
         职责：调度全量计算流程。
-        更新：
-        1. _calculate_main_force_cost_advantage_score 内部集成了成本动力学计算，
-           calculate 方法只需维持流程的纯净性。
+        优化：
+        1. 保留 _get_probe_timestamp 用于控制调试开关。
+        2. 合并输出逻辑至 _calculate_main_force_control_relationship_debug_output。
         """
         method_name = "calculate_main_force_control_relationship"
         is_debug = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
+        # 1. 获取探针时间 (必须独立，用于控制后续的数据收集)
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
         _temp_debug_values = {} 
         if probe_ts:
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-        # 1. 验证必要信号
-        if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 2. 数据准备
+        # 2. 验证必要信号
+        if hasattr(self, '_validate_arsenal_signals'):
+             if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
+                return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 3. 数据准备
         control_context = self._get_raw_control_signals(df, method_name, _temp_debug_values, probe_ts)
-        # 3. 组件计算
-        # 3.1 传统控盘度
+        # 4. 组件计算
         scores_traditional = self._calculate_traditional_control_score_components(control_context, df.index, _temp_debug_values)
         if scores_traditional.isnull().all():
              return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 3.2 主力成本优势 (已升级包含成本Slope/Accel)
         scores_cost_advantage = self._calculate_main_force_cost_advantage_score(control_context, df.index, _temp_debug_values)
-        # 3.3 主力净活动
         scores_net_activity = self._calculate_main_force_net_activity_score(control_context, df.index, config, method_name, _temp_debug_values)
-        # 4. 模型融合
+        # 5. 模型融合
         norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down = \
             self._normalize_components(df, control_context, scores_traditional, config, method_name, _temp_debug_values)
         fused_control_score = self._fuse_control_scores(norm_traditional, norm_structural, control_context, _temp_debug_values)
-        # 5. 风控杠杆
+        # 6. 风控杠杆
         control_leverage = self._calculate_control_leverage_model(
             df.index, fused_control_score, scores_net_activity, 
             norm_flow, scores_cost_advantage, 
             norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down,
             control_context, _temp_debug_values
         )
-        # 6. 最终输出
+        # 7. 最终输出
         final_control_score = (scores_net_activity * control_leverage).clip(-1, 1).astype(np.float32)
+        # 将最终结果放入 debug 容器，供统一输出
         _temp_debug_values["最终结果"] = {"Final_Score": final_control_score}
+        # 8. 调试输出 (调用合并后的标准输出方法)
         if probe_ts:
-            self._calculate_main_force_control_relationship_debug_output(debug_output, _temp_debug_values, probe_ts)
+            self._calculate_main_force_control_relationship_debug_output(
+                debug_output, 
+                _temp_debug_values, 
+                method_name, 
+                probe_ts
+            )
         return final_control_score
 
     def _get_control_parameters(self, config: Dict) -> Tuple[Dict, Dict]:
@@ -189,54 +195,41 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["原始信号快照(动力学)"] = debug_vals
         return context
 
-    def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp, final_control_score: pd.Series):
+    def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
         """
-        【V1.0.3】主力控盘关系计算的调试信息输出方法。
-        更新调试输出，以反映 `_temp_debug_values` 中新增的“原始信号值_具体数值”部分。
-        参数:
-            debug_output (Dict): 调试信息字典。
-            _temp_debug_values (Dict): 临时存储的中间计算结果。
-            method_name (str): 调用此方法的名称。
-            probe_ts (pd.Timestamp): 探针日期。
-            final_control_score (pd.Series): 最终计算出的主力控盘分数。
+        【V4.2.0 · 统一调试输出】
+        合并了原有的 _print_pipeline_debug 逻辑。
+        使用结构化遍历，根据 _temp_debug_values 中的键值自动生成报告。
         """
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-        # 遍历并打印原始信号的具体数值
-        for sig_name, val in _temp_debug_values["原始信号值_具体数值"].items():
-            debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 传统控盘度计算 ---"] = ""
-        for key, series in _temp_debug_values["传统控盘度计算"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力平均价格计算 ---"] = ""
-        for key, series in _temp_debug_values["主力平均价格计算"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力成本优势计算 ---"] = ""
-        for key, series in _temp_debug_values["主力成本优势计算"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-        for key, series in _temp_debug_values["归一化处理"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力净活动计算 ---"] = ""
-        for key, series in _temp_debug_values["主力净活动计算"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 融合控盘分 ---"] = ""
-        for key, series in _temp_debug_values["融合控盘分"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 控盘杠杆模型 ---"] = ""
-        for key, series in _temp_debug_values["控盘杠杆模型"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终控盘分数 ---"] = ""
-        for key, series in _temp_debug_values["最终控盘分数"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 主力控盘关系诊断完成，最终分值: {final_control_score.loc[probe_ts]:.4f}"] = ""
+        # 定义输出顺序，确保日志逻辑清晰
+        sections = [
+            ("原始信号快照", "原始信号值"),
+            ("原始信号快照(动力学)", "动力学信号"),
+            ("组件_传统控盘", "传统控盘组件"),
+            ("组件_成本优势", "成本优势组件"),
+            ("组件_净活动", "净活动组件"),
+            ("组件_净活动(动力学)", "净活动动力学"),
+            ("归一化处理", "归一化中间态"),
+            ("融合_中间态", "融合中间态"),
+            ("融合_动力学", "结构动力学融合"),
+            ("风控_杠杆", "风控杠杆模型"),
+            ("最终结果", "最终输出")
+        ]
+        for key, label in sections:
+            if key in _temp_debug_values:
+                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- {label} ---"] = ""
+                data_map = _temp_debug_values[key]
+                for sub_key, val in data_map.items():
+                    # 统一处理 Series (取单点) 或 Scalar
+                    if isinstance(val, pd.Series):
+                        v_print = val.loc[probe_ts] if probe_ts in val.index else np.nan
+                    else:
+                        v_print = val
+                    # 格式化输出
+                    if isinstance(v_print, (float, np.floating)):
+                        debug_output[f"        {sub_key}: {v_print:.4f}"] = ""
+                    else:
+                        debug_output[f"        {sub_key}: {v_print}"] = ""
         self._print_debug_info(debug_output)
 
     def _calculate_main_force_avg_prices(self, df_index: pd.Index, close_price: pd.Series, 
@@ -541,14 +534,11 @@ class CalculateMainForceControlRelationship:
         # 解包数据
         s_struct = context['structure']
         s_sent = context['sentiment']
-        
         # 获取参数
         _, mtf_weights = self._get_control_parameters(config)
         df_index = df.index
-        
         # 1. 传统控盘分归一化 (Bipolar: -1~1)
         norm_traditional = self.helper._normalize_series(scores_traditional, df_index, bipolar=True)
-        
         # 2. 结构控盘分 MTF计算 (基于筹码稳定性)
         # 注意：这里直接使用 context 中的数据列名或 Series
         # 由于 helper._get_mtf_slope_accel_score 需要从 df 中读取衍生列(slope/accel)，
@@ -559,7 +549,6 @@ class CalculateMainForceControlRelationship:
         norm_structural = self.helper._get_mtf_slope_accel_score(
             df, 'chip_stability_D', mtf_weights, df_index, method_name, bipolar=True
         )
-        
         # 3. 辅助指标归一化 (Unipolar: 0~1)
         norm_flow = self.helper._normalize_series(s_sent['flow_consistency'], df_index, bipolar=False)
         norm_t0_buy = self.helper._normalize_series(s_sent['t0_buy_conf'], df_index, bipolar=False)
@@ -572,51 +561,12 @@ class CalculateMainForceControlRelationship:
             "structural_mtf": norm_structural,
             "flow_consistency": norm_flow
         }
-        
         return norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down
 
-    def _print_pipeline_debug(self, debug_output: Dict, _temp_debug_values: Dict, probe_ts: pd.Timestamp):
-        """
-        【辅助方法】管道调试信息输出。
-        职责：遍历 _temp_debug_values 中的所有中间结果并格式化输出。
-        """
-        # 定义输出顺序，使日志更易读
-        sections = [
-            ("原始信号快照", "原始信号值"),
-            ("原始信号快照(动力学)", "动力学信号"),
-            ("组件_传统控盘", "传统控盘组件"),
-            ("组件_成本优势", "成本优势组件"),
-            ("组件_净活动", "净活动组件"),
-            ("组件_净活动(动力学)", "净活动动力学"),
-            ("归一化处理", "归一化中间态"),
-            ("融合_中间态", "融合中间态"),
-            ("融合_动力学", "结构动力学融合"),
-            ("风控_杠杆", "风控杠杆模型"),
-            ("最终结果", "最终输出")
-        ]
-        for key, label in sections:
-            if key in _temp_debug_values:
-                debug_output[f"  -- [过程情报调试] @ {probe_ts.strftime('%Y-%m-%d')}: --- {label} ---"] = ""
-                data_map = _temp_debug_values[key]
-                for sub_key, val in data_map.items():
-                    # 处理 Series (取单点值) 或 Scalar
-                    if isinstance(val, pd.Series):
-                        v_print = val.loc[probe_ts] if probe_ts in val.index else np.nan
-                    else:
-                        v_print = val
-                    
-                    # 格式化输出
-                    if isinstance(v_print, (float, np.floating)):
-                        debug_output[f"        {sub_key}: {v_print:.4f}"] = ""
-                    else:
-                        debug_output[f"        {sub_key}: {v_print}"] = ""
-                        
-        self._print_debug_info(debug_output)
-
-    def _get_probe_timestamp(self, df: pd.DataFrame, is_debug: bool) -> Optional[pd.Timestamp]: 
+    def _get_probe_timestamp(self, df: pd.DataFrame, is_debug: bool) -> Optional[pd.Timestamp]:
         """
         【辅助方法】获取用于调试的探针时间戳。
-        逻辑：如果开启调试且设定了 probe_dates，则在 df.index 中寻找最近的匹配日期。
+        防止 calculate 方法调用时报 AttributeError。
         """
         if not is_debug or not self.probe_dates:
             return None

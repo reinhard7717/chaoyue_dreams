@@ -719,7 +719,6 @@ class CalculateCostAdvantageTrendRelationship:
                     if remaining_nan > 0:
                         repaired_series = repaired_series.ffill()
                         remaining_nan = repaired_series.isna().sum()
-                        
                         # 如果还有NaN，使用后向填充
                         if remaining_nan > 0:
                             repaired_series = repaired_series.bfill()

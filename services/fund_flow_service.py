@@ -2055,20 +2055,16 @@ class AdvancedFundFlowMetricsService:
                     if valid_idx.sum() > 10:
                         # 基础相关性：当前imbalance对未来3秒收益率的影响
                         base_corr = hf_analysis_df.loc[valid_idx, 'imbalance'].corr(mid_price_returns[valid_idx])
-                        
                         # 2. 计算累积效应：过去N期imbalance的累积对未来收益率的影响（A股趋势惯性）
                         imbalance_cumulative = hf_analysis_df['imbalance'].rolling(window=5, min_periods=3).sum()
                         cumulative_corr = imbalance_cumulative[valid_idx].corr(mid_price_returns[valid_idx])
-                        
                         # 3. 计算订单流不平衡的动量效应：imbalance变化率对未来收益率的影响
                         imbalance_momentum = hf_analysis_df['imbalance'].diff(3)  # 3期变化（9秒动量）
                         momentum_corr = imbalance_momentum[valid_idx].corr(mid_price_returns[valid_idx])
-                        
                         # 4. 计算方向一致性：imbalance符号与价格变动方向的一致性比例
                         direction_match = ((hf_analysis_df['imbalance'] > 0) & (mid_price_returns > 0)) | \
                                          ((hf_analysis_df['imbalance'] < 0) & (mid_price_returns < 0))
                         direction_consistency = direction_match[valid_idx].mean() * 100
-                        
                         # 5. 计算有效性得分：综合四个维度，使用权重调整
                         # 基础相关性权重0.3，累积效应权重0.3，动量效应权重0.2，方向一致性权重0.2
                         # 每个维度归一化到[-1,1]或[0,100]区间
@@ -2076,9 +2072,7 @@ class AdvancedFundFlowMetricsService:
                         cumulative_score = cumulative_corr * 0.3
                         momentum_score = momentum_corr * 0.2
                         consistency_score = (direction_consistency - 50) / 50 * 0.2  # 将[0,100]归一化到[-0.2,0.2]
-                        
                         total_score = base_score + cumulative_score + momentum_score + consistency_score
-                        
                         # 6. 统计显著性检验：计算p值，确保结果不是随机波动
                         try:
                             # 使用z检验计算统计显著性

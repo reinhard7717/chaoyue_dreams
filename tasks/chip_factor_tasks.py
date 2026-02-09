@@ -569,7 +569,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                             factors['support_resistance_ratio'] = (sup_strength or 0) / res_strength
                         else:
                             factors['support_resistance_ratio'] = 1.0 if (sup_strength or 0) > 0 else 0.0
-                        
                         # 行为确认度 (Behavior Confirmation)
                         conf_score = 0.0
                         conf_count = 0
@@ -583,7 +582,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                             conf_score += min(1.0, abs(factors['net_migration_direction']) / 10.0)
                             conf_count += 1
                         factors['behavior_confirmation'] = conf_score / conf_count if conf_count > 0 else 0.0
-                        
                         # [修复]：从 intraday_market_microstructure JSON 中提取详细的Tick因子
                         if holding_matrix.intraday_market_microstructure:
                             micro = holding_matrix.intraday_market_microstructure
@@ -614,7 +612,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                             for field in tick_fields:
                                 if field in micro:
                                     factors[field] = micro[field]
-                        
                 except Exception as sync_error:
                     logger.warning(f"从持有矩阵同步因子失败 {stock_code} {current_date}: {sync_error}")
                     print(f"⚠️ [因子同步] {stock_code} {current_date}: 同步失败 - {sync_error}")
@@ -993,7 +990,6 @@ async def verify_chip_factor_saved(stock_code: str, trade_date: date) -> Dict:
                     if hasattr(record, field):
                         value = getattr(record, field)
                         result[f'field_{field}'] = value
-                        
         else:
             # 检查数据库中是否有任何该股票的记录
             total_count = await sync_to_async(chip_factor_model.objects.filter(stock=stock).count)()
@@ -1686,7 +1682,6 @@ async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date
                         record.analysis_method = 'energy_field_v2'
                         await sync_to_async(record.save)()
                         processed_dates += 1
-                        
         except Exception as e:
             print(f"⚠️ [能量场日期错误] {stock_code} {trade_date}: {e}")
             continue
