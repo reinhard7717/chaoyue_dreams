@@ -44,49 +44,53 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V12.3 · 投机溢价全缝合版】主力拉升意图主计算流程
-        修改说明：将市场相位识别提前，并将投机动能溢价缝合进情境调节器，实现“博傻阶段”的上行逻辑闭环。
-        版本号：2026.02.10.282
+        【V12.4 · 参数对齐全闭环版】主力拉升意图主计算流程
+        修改说明：同步更新_calculate_dynamic_weights与审计探针的参数传递，完成全链路物理感知逻辑缝合。
+        版本号：2026.02.10.292
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
-        # 1. 信号层与物理MTF
+        # 1. 信号与物理共振提取
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
-        # 2. 状态识别 (提前计算供复用)
+        # 2. 状态与相位识别 (提前计算)
         factors = self._calculate_market_state_factors(df_index, normalized_signals, mtf_signals)
         phase = self._identify_market_phase(df_index, factors, normalized_signals)
-        # 3. 存量与权重
+        # 3. 历史上下文
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
+        # 4. 代理信号构建
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
+        # 5. 动态权重计算 (修正调用签名)
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals, factors, phase)
-        # 4. 核心维度计算 (补齐签名)
+        # 6. 核心物理分值合成
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 5. 风险裁决与意图合成 (引入相位敏感度)
+        # 7. 风险与意图合成
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase)
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 6. 最终意图缝合与溢价应用
+        # 8. 最终缝合与情境调节
         final_rally_intent = (bullish_intent * (1 - total_risk_penalty * 0.8) + bearish_score).fillna(0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, phase, aggressiveness_score)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
-        # 7. 审计与持久化
+        # 9. 持久化与调试回填
         self._persist_hab_states(historical_context)
+        self.strategy.atomic_states["_DEBUG_rally_integrated_hab"] = historical_context.get('integrated_memory', 0.5)
+        # 10. 执行结构化探针审计 (修正调用签名)
         if self._is_probe_enabled(df):
-            self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent)
+            self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase)
             self._output_probe_info(df_index, final_rally_intent)
         return final_rally_intent.astype(np.float32)
 
-    def _execute_full_link_probing(self, df_index: pd.Index, raw_signals: Dict, mtf_signals: Dict, proxy_signals: Dict, historical_context: Dict, bullish_intent: pd.Series, final_intent: pd.Series):
+    def _execute_full_link_probing(self, df_index: pd.Index, raw_signals: Dict, mtf_signals: Dict, proxy_signals: Dict, historical_context: Dict, bullish_intent: pd.Series, final_intent: pd.Series, phase: pd.Series):
         """
-        【V1.0 · 全链路审计中枢】执行从原始信号到最终意图的深度探针审计
-        修改说明：建立结构化审计流程，通过五个维度监控物理量纲的传递过程，并对溢出风险进行哨兵报警。
-        版本号：2026.02.10.245
+        【V1.1 · 相位审计增强版】全链路结构化探针审计
+        修改说明：在合成层审计中增加Phase标识，确保意图分值的物理背景透明可见。
+        版本号：2026.02.10.291
         """
         ts = df_index[-1]
         self._probe_output.append(f"=== [FULL_LINK_AUDIT] {ts.strftime('%Y-%m-%d')} ===")
@@ -101,13 +105,12 @@ class CalculateMainForceRallyIntent:
         c_hab = historical_context.get('capital_memory', {}).get('hab_score', pd.Series(0.5, index=df_index)).iloc[-1]
         ch_hab = historical_context.get('chip_memory', {}).get('hab_score', pd.Series(0.5, index=df_index)).iloc[-1]
         self._probe_output.append(f"[L3_HAB] Cap_HAB_Rank: {c_hab:.4f}, Chip_HAB_Rank: {ch_hab:.4f}")
-        # 4. 权重层：校验 Softmax 温度
-        rs_w = proxy_signals.get('rs_weight', pd.Series(0.0, index=df_index)).iloc[-1]
-        self._probe_output.append(f"[L4_WEIGHT] RS_Softmax_Weight: {rs_w:.4f}")
-        # 5. 合成层：校验最终意图与 NaN 风险
+        # 4. 权重层：校验关键维度占比
+        agg_w = proxy_signals.get('aggressiveness_weight', pd.Series(0.0, index=df_index)).iloc[-1]
+        self._probe_output.append(f"[L4_WEIGHT] Agg_Weight: {agg_w:.4f}, Phase: {phase.iloc[-1]}")
+        # 5. 合成层：校验最终意图
         b_val = bullish_intent.iloc[-1]
         f_val = final_intent.iloc[-1]
-        if np.isnan(f_val): self._probe_output.append("[L5_ALERT] Detected NaN in final_intent!")
         self._probe_output.append(f"[L5_SYNTHESIS] Bullish: {b_val:.4f} -> Final: {f_val:.4f}")
 
     def _probe_print(self, message: str):
@@ -1136,40 +1139,38 @@ class CalculateMainForceRallyIntent:
                 total_w += weight
         return (sum_val / (total_w + 1e-9)).clip(0, 1)
 
-    def _calculate_dynamic_weights(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _calculate_dynamic_weights(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], factors: Dict[str, pd.Series], phase: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 权重记忆存量与温度控制版】动态权重计算系统
-        修改说明：废弃外部归一化，内部实现带温度控制的Softmax分配，并引入Weight-HAB确保权重在风格切换时的物理惯性。
-        版本号：2026.02.10.120
+        【V6.1 · 参数对齐与性能优化版】动态权重计算系统
+        修改说明：修正参数签名，解决Positional Arguments不匹配导致的TypeError。通过透传factors与phase消除冗余物理计算。
+        版本号：2026.02.10.290
         """
-        factors = self._calculate_market_state_factors(df_index, normalized_signals, mtf_signals)
-        phase = self._identify_market_phase(df_index, factors, normalized_signals)
+        # 1. 物理相位感知的基础权重分配 (直接使用透传的phase)
         base_weights_raw = self._calculate_base_weights(df_index, phase, factors)
-        # 1. 提取运动学增益 (加速度聚焦)
-        rs_acc = proxy_signals.get('rs_accel', pd.Series(0.0, index=df_index)).abs()
-        sent_acc = proxy_signals.get('sentiment_accel', pd.Series(0.0, index=df_index)).abs()
-        # 2. 构建 Weight-HAB (权重存量记忆)
-        # 逻辑：基础权重结合加速度增益后，通过13日窗口进行指数平滑，滤除日内噪音
+        # 2. 提取运动学增益 (加速度聚焦)
+        rs_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).abs()
+        sent_acc = pd.Series(mtf_signals.get('ACCEL_5_market_sentiment_trend', 0.0), index=df_index).abs()
+        # 3. 构建 Weight-HAB (权重存量记忆)
         final_weights_unnorm = {}
         for dim, b_w in base_weights_raw.items():
+            # 为攻击性维度注入运动学加速度溢价
             boost = (rs_acc * 0.5 + sent_acc * 0.5) if dim == 'aggressiveness' else 0
             raw_w = b_w * (1 + boost)
             final_weights_unnorm[dim] = raw_w.ewm(span=13).mean()
-        # 3. 内部 Softmax 归一化
+        # 4. 内部带温度控制的 Softmax 归一化
         final_weights = {dim: pd.Series(0.0, index=df_index) for dim in final_weights_unnorm.keys()}
         quality = factors.get('state_hab_score', pd.Series(0.7, index=df_index))
         for i in range(len(df_index)):
-            # 提取当前时刻原始权重
             raw_vals = np.array([final_weights_unnorm[d].iloc[i] for d in final_weights_unnorm])
-            # 温度控制：质量越高(T越小)，权重越集中；质量越低(T越大)，权重越平均
+            # 温度调节：环境质量越高，权重越向优势维度聚焦
             q_val = quality.iloc[i]
             temp = 2.0 - (q_val * 1.5) 
-            exp_vals = np.exp(raw_vals / temp)
-            norm_vals = exp_vals / np.sum(exp_vals)
+            exp_vals = np.exp(raw_vals / (temp + 1e-9))
+            norm_vals = exp_vals / (np.sum(exp_vals) + 1e-9)
             for idx, dim in enumerate(final_weights_unnorm.keys()):
                 final_weights[dim].iloc[i] = norm_vals[idx]
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[WEIGHT_PROBE] Quality_T: {temp:.2f}, Agg_Weight: {final_weights['aggressiveness'].iloc[-1]:.4f}")
+            self._probe_print(f"[DYNAMIC_WEIGHT_PROBE] Current_Phase: {phase.iloc[-1]}, Temperature: {temp:.2f}")
         return final_weights
 
     def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
