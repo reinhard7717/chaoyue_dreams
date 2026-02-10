@@ -44,46 +44,42 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V11.0 · 物理SAJ与HAB全缝合版】主力拉升意图主计算流程
-        修改说明：缝合SAJ运动学矢量与HAB历史累积存量逻辑，实现多维度物理量纲在对数空间下的几何意图合成。
-        版本号：2026.02.10.160
+        【V11.1 · 原子状态持久化版】主力拉升意图主计算流程
+        修改说明：缝合SAJ运动学矢量与HAB持久化逻辑，通过atomic_states实现跨交易日的存量连贯性，修复冷启动记忆断层。
+        版本号：2026.02.10.170
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
-        # 1. 基础信号准备与定制化归一化 (物理层隔离)
+        # 1. 基础信号准备与定制化归一化
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         # 2. MTF 多周期能量共振提取
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
-        # 3. 构建历史上下文与 HAB 能量场
-        # 内部已缝合 Price-HAB, Capital-HAB, Chip-HAB 和 Sentiment-HAB
+        # 3. 构建历史上下文与 HAB 能量场 (接入持久化载入)
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
-        # 4. 代理信号物理矩阵构建 (SAJ 矢量提取)
+        # 4. 代理信号物理矩阵构建
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
-        # 5. 动态权重分配 (基于环境质量与物理相位的 Softmax 温度控制)
+        # 5. 动态权重分配 (基于温度控制)
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals)
-        # 6. 核心物理维度得分计算 (Aggressiveness, Control, Obstacle Clearance)
+        # 6. 核心物理维度得分
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals, historical_context)
-        # 7. 风险裁决与多头意图合成 (对数几何平均)
+        # 7. 风险裁决与意图合成
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'])
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 8. 最终缝合：多空博弈净意图与情境调节
-        # 逻辑：意图 = 多头分值 * (1 - 风险惩罚) + 空头得分
+        # 8. 最终缝合与情境调节
         final_rally_intent = (bullish_intent * (1 - total_risk_penalty) + bearish_score).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals)
-        # 9. 异常保护与调试状态回填
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
+        # 9. 持久化存量状态回填与状态机更新
+        self._persist_hab_states(historical_context)
         self.strategy.atomic_states["_DEBUG_rally_integrated_hab"] = historical_context.get('integrated_memory', 0.5)
-        # 10. 触发全景探针
+        # 10. 全景探针输出
         if self._is_probe_enabled(df):
-            self._probe_print(f"--- Final Intent Stitching Probe ---")
-            self._probe_print(f"  > Bullish Core: {bullish_intent.iloc[-1]:.4f} | Risk Penalty: {total_risk_penalty.iloc[-1]:.4f}")
-            self._probe_print(f"  > Integrated HAB: {historical_context.get('integrated_memory', pd.Series(0.5, index=df_index)).iloc[-1]:.4f}")
             self._output_probe_info(df_index, final_rally_intent)
         return final_rally_intent.astype(np.float32)
 
@@ -214,20 +210,20 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.1 · 调用链修复版】历史上下文计算调度中心
-        修改说明：修复调用 _calculate_sentiment_memory 时缺失 mtf_signals 参数的问题。
-        版本号：2026.02.10.32
+        【V5.0 · 持久化感知版】历史上下文计算调度中心
+        修改说明：接入HAB持久化载入逻辑，将历史存量作为初始值注入各内存计算模块，确保意图分析的物理连贯性。
+        版本号：2026.02.10.171
         """
         hc_enabled = get_param_value(params.get('enabled'), True)
-        if not hc_enabled:
-            return self._get_empty_context(df_index)
-        # SAJ与HAB增强子模块计算
-        price_memory = self._calculate_price_memory(df_index, raw_signals, mtf_signals, params)
-        capital_memory = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params)
-        chip_memory = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params)
-        # [修复点]：补齐 mtf_signals 参数以对齐 V3.6 情绪模块定义
-        sentiment_memory = self._calculate_sentiment_memory(df_index, raw_signals, mtf_signals, params)
-        # 融合与评估
+        if not hc_enabled: return self._get_empty_context(df_index)
+        # 1. 从原子状态机载入历史HAB水位
+        initial_hab_states = self._load_hab_states()
+        # 2. 注入历史水位进行子模块计算
+        price_memory = self._calculate_price_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('price_hab', 0.0))
+        capital_memory = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('capital_hab', 0.0))
+        chip_memory = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('chip_hab', 0.0))
+        sentiment_memory = self._calculate_sentiment_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('sentiment_hab', 0.0))
+        # 3. 融合与评估
         integrated_memory = self._fuse_integrated_memory(price_memory, capital_memory, chip_memory, sentiment_memory, params)
         phase_sync = self._detect_phase_synchronization(df_index, price_memory, capital_memory, integrated_memory)
         memory_quality = self._assess_memory_quality(df_index, price_memory, capital_memory, chip_memory, sentiment_memory)
@@ -237,6 +233,43 @@ class CalculateMainForceRallyIntent:
             "phase_sync": phase_sync, "memory_quality": memory_quality, "hc_enabled": hc_enabled,
             "dynamic_memory_period": self._calculate_dynamic_period(df_index, raw_signals)
         }
+
+    def _load_hab_states(self) -> Dict[str, float]:
+        """
+        【V1.0】从原子状态机载入HAB历史状态
+        修改说明：从atomic_states恢复四个核心维度的累积水位，支持实时增量计算的物理延续。
+        版本号：2026.02.10.173
+        """
+        states = {
+            'price_hab': self.strategy.atomic_states.get('_HAB_STATE_PRICE', 0.0),
+            'capital_hab': self.strategy.atomic_states.get('_HAB_STATE_CAPITAL', 0.0),
+            'chip_hab': self.strategy.atomic_states.get('_HAB_STATE_CHIP', 0.0),
+            'sentiment_hab': self.strategy.atomic_states.get('_HAB_STATE_SENTIMENT', 0.0)
+        }
+        if any(v > 0 for v in states.values()):
+            self._probe_print(f"[HAB_LOAD] 成功恢复历史存量: Price={states['price_hab']:.4f}, Cap={states['capital_hab']:.4f}")
+        return states
+
+    def _persist_hab_states(self, historical_context: Dict):
+        """
+        【V1.0】将HAB最新状态持久化至原子状态机
+        修改说明：提取当前计算周期末端的原始HAB Buffer水位并存入持久化字典，为下一周期提供物理背书。
+        版本号：2026.02.10.172
+        """
+        try:
+            p_mem = historical_context.get('price_memory', {})
+            c_mem = historical_context.get('capital_memory', {})
+            ch_mem = historical_context.get('chip_memory', {})
+            s_mem = historical_context.get('sentiment_memory', {})
+            # 提取时间序列末端的原始Buffer值 (非归一化值)
+            self.strategy.atomic_states['_HAB_STATE_PRICE'] = float(p_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1])
+            self.strategy.atomic_states['_HAB_STATE_CAPITAL'] = float(c_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1])
+            self.strategy.atomic_states['_HAB_STATE_CHIP'] = float(ch_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1])
+            self.strategy.atomic_states['_HAB_STATE_SENTIMENT'] = float(s_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1])
+            if self._is_probe_enabled(pd.DataFrame()):
+                self._probe_print(f"[HAB_PERSIST] 持久化存量水位: Cap={self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f}")
+        except Exception as e:
+            self._probe_print(f"[HAB_PERSIST_ERROR] 持久化失败: {str(e)}")
 
     def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
         """
@@ -350,112 +383,89 @@ class CalculateMainForceRallyIntent:
         # 前向填充，平滑处理
         return snr_score.ffill().fillna(0.5)
 
-    def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 修复版与能量排位】价格记忆深度计算
-        修改说明：修复Series调用报错。引入Rolling Rank归一化HAB水位，确保能量存量在不同牛熊阶段具有可比性。
-        版本号：2026.02.10.141
+        【V5.2 · 持久化补偿版】价格记忆深度计算
+        修改说明：引入initial_hab初始水位补偿，通过叠加历史存量解决滚动窗口在实时计算中的记忆断层问题。
+        版本号：2026.02.10.174
         """
         decay = get_param_value(params.get('price_memory_decay'), 0.94)
         hab_win = get_param_value(params.get('hab_window'), 55)
-        # 1. 运动学平滑，修复默认Series返回
         s = mtf_signals.get('SLOPE_5_price_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
         a = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
         j = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index)).ewm(alpha=0.2).mean()
-        # 2. HAB 存量累积
         abs_strength = np.tanh(raw_signals.get('absolute_change_strength', pd.Series(0.0, index=df_index)) / 0.05)
         hab_inc = raw_signals.get('chip_stability', pd.Series(0.5, index=df_index)) * a.clip(lower=0) * abs_strength
-        hab_buffer = hab_inc.rolling(window=hab_win, min_periods=20).sum().fillna(0)
-        # 3. 定制化归一化：Rolling Rank (分位数排位)
-        hab_score = (hab_buffer.rolling(hab_win).rank(pct=True)).fillna(0.5)
-        # 4. 综合合成
+        # 物理补偿逻辑：叠加历史持久化水位
+        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0) + initial_hab
+        hab_score = (hab_buffer_raw.rolling(hab_win).rank(pct=True)).fillna(0.5)
         k_sum = (s * 0.4 + a * 0.4 + j * 0.2).clip(0, 1)
         integrated_mem = (k_sum * 0.5 + hab_score * 0.5).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[PRICE_MEM_PROBE] SAJ_Sum: {k_sum.iloc[-1]:.4f}, HAB_Rank: {hab_score.iloc[-1]:.4f}")
-        return {"trend_memory": s, "accel_memory": a, "jerk_memory": j, "hab_score": hab_score, "integrated_price_memory": integrated_mem}
+        return {"trend_memory": s, "accel_memory": a, "jerk_memory": j, "hab_score": hab_score, "hab_buffer_raw": hab_buffer_raw, "integrated_price_memory": integrated_mem}
 
-    def _calculate_capital_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_capital_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 动态阈值资金存量版】资金记忆深度计算
-        修改说明：采用基于波动率调整的Sigmoid归一化逻辑，取代静态normalize，精准捕捉不同波动环境下的主力资金意图。
-        版本号：2026.02.10.92
+        【V5.2 · 持久化补偿版】资金记忆深度计算
+        修改说明：引入initial_hab初始水位补偿，确保资金净流入的“跨日堆积”效应在增量计算中得以保持。
+        版本号：2026.02.10.175
         """
         decay = get_param_value(params.get('capital_memory_decay'), 0.92)
         hab_win = get_param_value(params.get('capital_hab_window'), 34)
-        # 1. 资金运动学提取
-        cs = mtf_signals.get('SLOPE_5_mf_net_amount', 0).ewm(alpha=1-decay).mean()
-        ca = mtf_signals.get('ACCEL_5_mf_net_amount', 0).ewm(alpha=1-decay).mean()
-        # 2. HAB 存量计算
-        mf_flow = raw_signals.get('net_mf_amount', 0)
-        hab_inc = mf_flow * raw_signals.get('flow_consistency', 0.5).clip(0, 1)
-        hab_raw = hab_inc.rolling(window=hab_win, min_periods=10).sum().fillna(0)
-        # 3. 定制化归一化：波动率自适应 Sigmoid
-        vol = raw_signals.get('pct_change', 0).rolling(21).std().fillna(0.02)
-        # 逻辑：波动率越大，分母越大，归一化越保守
-        hab_score = 1 / (1 + np.exp(-hab_raw / (vol * 5e7 + 1e-9))) # 假设资金量纲在千万级
+        cs = mtf_signals.get('SLOPE_5_mf_net_amount', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
+        ca = mtf_signals.get('ACCEL_5_mf_net_amount', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
+        mf_flow = raw_signals.get('net_mf_amount', pd.Series(0.0, index=df_index))
+        hab_inc = mf_flow * raw_signals.get('flow_consistency', pd.Series(0.5, index=df_index)).clip(0, 1)
+        # 物理补偿逻辑：叠加历史持久化水位
+        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0) + initial_hab
+        vol = raw_signals.get('pct_change', pd.Series(0.0, index=df_index)).rolling(21).std().fillna(0.02)
+        hab_score = 1 / (1 + np.exp(-hab_buffer_raw / (vol * 5e7 + 1e-9)))
         integrated_mem = (cs.clip(0,1) * 0.4 + hab_score * 0.6).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[CAP_MEM] Cap_Slope: {cs.iloc[-1]:.4f}, Adaptive_HAB: {hab_score.iloc[-1]:.4f}")
-        return {"integrated_capital_memory": integrated_mem, "hab_score": hab_score}
+        return {"integrated_capital_memory": integrated_mem, "hab_score": hab_score, "hab_buffer_raw": hab_buffer_raw, "cap_accel": ca}
 
-    def _calculate_chip_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_chip_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 筹码长效排位版】筹码记忆深度计算
-        修改说明：采用89日滚动分位数归一化算法取代通用工具，精准刻画筹码锁仓在历史长周期中的稀缺性与确定性。
-        版本号：2026.02.10.100
+        【V5.2 · 持久化补偿版】筹码记忆深度计算
+        修改说明：引入initial_hab初始水位补偿，量化筹码在长周期内的锁仓存量，解决实时排位归一化的冷启动问题。
+        版本号：2026.02.10.176
         """
         decay = get_param_value(params.get('chip_memory_decay'), 0.95)
         hab_win = get_param_value(params.get('chip_hab_window'), 89)
-        # 1. 提取筹码运动学三维矢量 (S/A/J)
-        chip_s = mtf_signals.get('SLOPE_5_chip_concentration', 0).ewm(alpha=1-decay).mean()
-        chip_a = mtf_signals.get('ACCEL_5_chip_concentration', 0).ewm(alpha=1-decay).mean()
-        chip_j = mtf_signals.get('JERK_5_chip_concentration', 0).ewm(alpha=0.15).mean()
-        # 2. 筹码存量记忆缓冲 (Chip-HAB)
-        turnover = raw_signals.get('turnover_rate', 0)
-        hab_inc = (chip_s.clip(lower=0) * raw_signals.get('chip_stability', 0.5) * turnover)
-        hab_buffer = hab_inc.rolling(window=hab_win, min_periods=20).sum().fillna(0)
-        # 3. 定制归一化：Rolling Rank (89日长周期排位)
-        # 理由：筹码集中度是长周期指标，排名法能过滤牛熊周期波动
-        hab_score = hab_buffer.rolling(hab_win).rank(pct=True).fillna(0.5)
-        # 4. 熵记忆与压力记忆归一化 (Log+MinMax)
-        entropy = raw_signals.get('chip_entropy', 0.5)
-        entropy_mem = (np.log1p(entropy) / np.log1p(entropy).rolling(55).max().replace(0, 1)).clip(0, 1)
-        # 5. 综合合成
-        k_vector = (chip_s * 0.4 + chip_a * 0.4 + chip_j * 0.2).clip(0, 1)
-        integrated_chip = (hab_score * 0.4 + k_vector * 0.3 + (1 - entropy_mem) * 0.3).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[CHIP_PROBE] SAJ_Vector: {k_vector.iloc[-1]:.4f}, HAB_Rank: {hab_score.iloc[-1]:.4f}")
-        return {"chip_slope": chip_s, "hab_score": hab_score, "integrated_chip_memory": integrated_chip}
+        chip_s = mtf_signals.get('SLOPE_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
+        chip_a = mtf_signals.get('ACCEL_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
+        chip_j = mtf_signals.get('JERK_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=0.15).mean()
+        turn_rate = raw_signals.get('turnover_rate', pd.Series(0.0, index=df_index))
+        hab_inc = (chip_s.clip(lower=0) * raw_signals.get('chip_stability', pd.Series(0.5, index=df_index)) * turn_rate)
+        # 物理补偿逻辑：叠加历史持久化水位
+        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0) + initial_hab
+        hab_score = hab_buffer_raw.rolling(hab_win).rank(pct=True).fillna(0.5)
+        entropy = raw_signals.get('chip_entropy', pd.Series(0.5, index=df_index))
+        ent_mem = (np.log1p(entropy) / np.log1p(entropy).rolling(55).max().replace(0, 1)).clip(0, 1)
+        k_vec = (chip_s * 0.4 + chip_a * 0.4 + chip_j * 0.2).clip(0, 1)
+        integrated_chip = (hab_score * 0.4 + k_vec * 0.3 + (1 - ent_mem) * 0.3).clip(0, 1)
+        return {"chip_slope": chip_s, "chip_accel": chip_a, "hab_score": hab_score, "hab_buffer_raw": hab_buffer_raw, "integrated_chip_memory": integrated_chip}
 
-    def _calculate_sentiment_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_sentiment_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 修复版与饱和映射】情绪记忆深度计算
-        修改说明：修复'int' object has no attribute 'ewm'报错。采用tanh非线性映射取代通用归一化，平滑A股情绪波动。
-        版本号：2026.02.10.140
+        【V5.2 · 持久化补偿版】情绪记忆深度计算
+        修改说明：引入initial_hab初始水位补偿，确保市场热度与赚钱效应在跨日温压累积中保持物理连续。
+        版本号：2026.02.10.177
         """
         decay = get_param_value(params.get('sentiment_memory_decay'), 0.90)
         hab_win = get_param_value(params.get('sentiment_hab_window'), 21)
-        # 1. 提取运动学矢量，修复默认Series返回
         ss = mtf_signals.get('SLOPE_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
         sa = mtf_signals.get('ACCEL_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
         sj = mtf_signals.get('JERK_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=0.3).mean()
-        # 2. Sentiment-HAB 累积
         m_sent = raw_signals.get('market_sentiment', pd.Series(0.5, index=df_index))
         i_breadth = raw_signals.get('industry_breadth', pd.Series(0.5, index=df_index))
         hab_inc = m_sent * i_breadth * (1 + sa.clip(lower=0))
-        hab_buffer = hab_inc.rolling(window=hab_win, min_periods=5).sum().fillna(0)
-        # 3. 定制化归一化：Tanh 饱和映射
-        # 逻辑：利用滚动中位数和标准差进行标准化后，通过tanh压缩
-        roll_med = hab_buffer.rolling(60).median()
-        roll_std = hab_buffer.rolling(60).std().replace(0, 1e-9)
-        hab_score = (np.tanh((hab_buffer - roll_med) / roll_std) * 0.5 + 0.5).fillna(0.5)
-        # 4. 最终记忆合成
+        # 物理补偿逻辑：叠加历史持久化水位
+        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0) + initial_hab
+        roll_med = hab_buffer_raw.rolling(60).median()
+        roll_std = hab_buffer_raw.rolling(60).std().replace(0, 1e-9)
+        hab_score = (np.tanh((hab_buffer_raw - roll_med) / roll_std) * 0.5 + 0.5).fillna(0.5)
         k_sum = (ss * 0.3 + sa * 0.5 + sj * 0.2).clip(-1, 1)
         integrated_sent = ((k_sum * 0.5 + 0.5) * 0.4 + hab_score * 0.6).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[SENT_MEM_PROBE] SAJ_Sum: {k_sum.iloc[-1]:.4f}, HAB_Tanh: {hab_score.iloc[-1]:.4f}")
-        return {"integrated_sentiment_memory": integrated_sent, "hab_score": hab_score, "sentiment_slope": ss, "sentiment_accel": sa}
+        return {"integrated_sentiment_memory": integrated_sent, "hab_score": hab_score, "hab_buffer_raw": hab_buffer_raw, "sentiment_slope": ss, "sentiment_accel": sa}
 
     def _fuse_integrated_memory(self, price_memory: Dict, capital_memory: Dict, chip_memory: Dict, sentiment_memory: Dict, params: Dict) -> pd.Series:
         """
