@@ -1239,60 +1239,58 @@ class CalculateMainForceRallyIntent:
             self._probe_print(f"  > Final Phase: {smoothed_phases.iloc[-1]}")
         return smoothed_phases
 
-    def _calculate_base_weights(self, df_index: pd.Index, market_phase: pd.Series,
-                               market_state_factors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _calculate_base_weights(self, df_index: pd.Index, market_phase: pd.Series, market_state_factors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.0】基础权重计算（基于市场阶段）
-        核心理念：不同市场阶段需要不同的维度权重配置
-        数学模型：状态依赖权重矩阵 + 因子调节
+        【V5.0 · 物理相位与惯性调节版】基础权重计算
+        修改说明：废弃静态配置，引入基于SAJ加速度与HAB惯性存量的动态权重调节器，实现权重分配在物理相位层面的非线性响应。
+        版本号：2026.02.10.210
         """
-        base_weights = {
-            'aggressiveness': pd.Series(0.3, index=df_index),
-            'control': pd.Series(0.3, index=df_index),
-            'obstacle_clearance': pd.Series(0.2, index=df_index),
-            'risk': pd.Series(0.2, index=df_index)
+        # 1. 提取物理分量
+        p_acc = pd.Series(market_state_factors.get('trend_state_accel', 0.0), index=df_index)
+        s_hab = pd.Series(market_state_factors.get('state_hab_score', 0.5), index=df_index)
+        # 2. 定义相位基准权重矩阵
+        # (攻击性, 控制力, 障碍清除, 风险)
+        phase_config = {
+            '启动': np.array([0.35, 0.30, 0.25, 0.10]),
+            '主升': np.array([0.45, 0.20, 0.25, 0.10]),
+            '调整': np.array([0.20, 0.40, 0.15, 0.25]),
+            '反转风险': np.array([0.10, 0.25, 0.15, 0.50]),
+            '横盘': np.array([0.25, 0.35, 0.20, 0.20])
         }
-        # 阶段依赖的权重配置（专家经验）
-        phase_weight_configs = {
-            # 阶段: (攻击性, 控制力, 障碍清除, 风险)
-            '启动': (0.35, 0.30, 0.20, 0.15),
-            '主升': (0.40, 0.25, 0.20, 0.15),
-            '调整': (0.25, 0.35, 0.15, 0.25),
-            '反转风险': (0.20, 0.30, 0.10, 0.40),
-            '横盘': (0.25, 0.35, 0.20, 0.20),
-            '反弹': (0.30, 0.30, 0.25, 0.15),
-            '过渡': (0.30, 0.30, 0.20, 0.20),
-            '未知': (0.30, 0.30, 0.20, 0.20)
-        }
-        # 根据市场阶段应用基础权重
+        # 3. 初始化权重序列
+        w_agg = pd.Series(0.0, index=df_index)
+        w_ctrl = pd.Series(0.0, index=df_index)
+        w_obs = pd.Series(0.0, index=df_index)
+        w_risk = pd.Series(0.0, index=df_index)
+        # 4. 执行动态调节逻辑
         for i in range(len(df_index)):
             phase = market_phase.iloc[i]
-            weights = phase_weight_configs.get(phase, (0.3, 0.3, 0.2, 0.2))
-            base_weights['aggressiveness'].iloc[i] = weights[0]
-            base_weights['control'].iloc[i] = weights[1]
-            base_weights['obstacle_clearance'].iloc[i] = weights[2]
-            base_weights['risk'].iloc[i] = weights[3]
-        # 根据市场状态因子微调
-        trend_state = market_state_factors.get('trend_state', pd.Series(0.5, index=df_index))
-        volatility_state = market_state_factors.get('volatility_state', pd.Series(0.5, index=df_index))
-        capital_state = market_state_factors.get('capital_state', pd.Series(0.5, index=df_index))
-        for i in range(len(df_index)):
-            # 趋势越强，攻击性权重越高
-            trend_adj = (trend_state.iloc[i] - 0.5) * 0.2  # ±10%调整
-            base_weights['aggressiveness'].iloc[i] *= (1 + trend_adj)
-            # 波动越低，控制力权重越高
-            vol_adj = (0.5 - volatility_state.iloc[i]) * 0.15  # ±7.5%调整
-            base_weights['control'].iloc[i] *= (1 + vol_adj)
-            # 资金流入越强，障碍清除权重越高
-            capital_adj = (capital_state.iloc[i] - 0.5) * 0.15  # ±7.5%调整
-            base_weights['obstacle_clearance'].iloc[i] *= (1 + capital_adj)
-            # 风险权重与波动状态负相关
-            risk_adj = (0.5 - volatility_state.iloc[i]) * 0.1  # ±5%调整
-            base_weights['risk'].iloc[i] *= (1 + risk_adj)
-        # 确保权重非负
-        for dim in base_weights:
-            base_weights[dim] = base_weights[dim].clip(0.05, 0.6)
-        return base_weights
+            base = phase_config.get(phase, phase_config['横盘']).copy()
+            # SAJ 调节：加速度越高，攻击性溢价越高；加速度转负，风险权重激增
+            acc_val = p_acc.iloc[i]
+            if acc_val > 0:
+                base[0] *= (1 + acc_val * 0.5)
+            else:
+                base[3] *= (1 + abs(acc_val) * 0.8)
+            # HAB 调节：环境惯性越高，倾向于维持主趋势权重 (攻击/控制)，降低随机波动风险权重
+            hab_val = s_hab.iloc[i]
+            base[0] *= (0.9 + hab_val * 0.2)
+            base[1] *= (0.9 + hab_val * 0.2)
+            base[3] *= (1.1 - hab_val * 0.2)
+            # 5. 内部 L1 归一化 (确保 Sum = 1.0)
+            total = np.sum(base) + 1e-9
+            norm_w = base / total
+            w_agg.iloc[i], w_ctrl.iloc[i], w_obs.iloc[i], w_risk.iloc[i] = norm_w
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Weight Dynamic Regulator Probe ---")
+            self._probe_print(f"  > Current Phase: {market_phase.iloc[-1]} | Accel: {p_acc.iloc[-1]:.4f}")
+            self._probe_print(f"  > Weights: Agg={w_agg.iloc[-1]:.2f}, Ctrl={w_ctrl.iloc[-1]:.2f}, Risk={w_risk.iloc[-1]:.2f}")
+        return {
+            'aggressiveness': w_agg.clip(0.05, 0.6),
+            'control': w_ctrl.clip(0.05, 0.6),
+            'obstacle_clearance': w_obs.clip(0.05, 0.6),
+            'risk': w_risk.clip(0.05, 0.6)
+        }
 
     def _calculate_aggressiveness_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series]) -> pd.Series:
         """
@@ -1399,32 +1397,40 @@ class CalculateMainForceRallyIntent:
             self._probe_print(f"[CONTROL_PROBE] Sigmoid_Ctrl: {ctrl_norm.iloc[-1]:.4f}, HAB_Rank: {ctrl_hab.iloc[-1]:.4f}")
         return score.astype(np.float32)
 
-    def _calculate_obstacle_clearance_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
+    def _calculate_obstacle_clearance_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V5.0 · 穿透效率稳健标准化版】计算障碍清除分数
-        修改说明：采用基于MAD的稳健归一化取代通用方法，有效识别主力在低换手状态下的筹码真空穿透力。
-        版本号：2026.02.10.102
+        【V6.0 · Volume-Jerk 穿透动力学版】计算障碍清除分数
+        修改说明：引入成交量Jerk捕捉穿透阻力的力量突变，并利用Rolling Rank对Obstacle-HAB进行排位归一化。
+        版本号：2026.02.10.220
         """
-        abs_change = raw_signals.get('absolute_change_strength', 0)
-        vol_ratio = raw_signals.get('volume_ratio', 1.0)
-        # 1. 物理穿透效率：单位成交量带来的绝对涨幅强度
-        eff_raw = abs_change / (vol_ratio + 0.1)
-        # 2. 定制归一化：MAD 稳健标准化 (60日窗口)
-        med = eff_raw.rolling(60).median()
-        mad = (eff_raw - med).abs().rolling(60).median()
-        eff_norm = (np.tanh((eff_raw - med) / (mad * 1.4826 + 1e-9)) * 0.5 + 0.5).clip(0, 1)
-        # 3. 真空度加速度 (A)
-        chip_mem = historical_context.get('chip_memory', {})
-        vac_base = (1 - chip_mem.get('pressure_memory', 0.5)).clip(0, 1)
-        vac_acc = vac_base.diff(1).rolling(3).mean().fillna(0)
-        # 4. 清除存量 HAB (Rolling Rank)
-        hab_inc = vac_base * eff_norm
-        oc_hab = hab_inc.rolling(21).rank(pct=True).fillna(0.5)
-        # 5. 综合合成
-        score = (vac_base * 0.3 + eff_norm * 0.4 + oc_hab * 0.3).clip(0, 1)
+        # 1. 提取物理分量 (修复签名，确保raw_signals可用)
+        abs_change = pd.Series(raw_signals.get('absolute_change_strength', 0.0), index=df_index)
+        vol_ratio = pd.Series(raw_signals.get('volume_ratio', 1.0), index=df_index)
+        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
+        v_jerk = pd.Series(mtf_signals.get('JERK_5_volume_trend', 0.0), index=df_index).abs()
+        # 2. 物理穿透效率 (Penetration Efficiency)
+        # 核心逻辑：单位成交量驱动的价格加速度。增加 v_jerk 作为惩罚项，捕捉“暴力敲板”导致的虚假清除。
+        raw_efficiency = (p_acc.clip(lower=0) / (vol_ratio + 0.1))
+        # 3. 穿透动力学增强 (Jerk-Smoothing)
+        # 如果 v_jerk 极小，说明主力突破动作极其平滑，赋予穿透溢价
+        jerk_penalty = np.tanh(v_jerk * 10) # 10为A股成交量突变敏感度系数
+        clearing_intensity = (raw_efficiency * (1 - jerk_penalty * 0.4)).clip(0, 1)
+        # 4. 构建 Obstacle-HAB (障碍清除存量)
+        # 逻辑：将瞬时穿透强度与筹码稳定性(Chip-Stability)进行耦合累积
+        chip_stab = pd.Series(raw_signals.get('chip_stability', 0.5), index=df_index)
+        hab_win = 34
+        hab_inc = clearing_intensity * chip_stab
+        hab_buffer = hab_inc.rolling(window=hab_win, min_periods=5).sum().fillna(0)
+        # 5. 定制化归一化：Rolling Rank (55日分位数排位)
+        hab_score = hab_buffer.rolling(55).rank(pct=True).fillna(0.5)
+        # 6. 最终合成
+        # 综合考虑：瞬时穿透(40%) + 存量水位(60%)
+        final_score = (clearing_intensity * 0.4 + hab_score * 0.6).clip(0, 1)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[CLEARANCE_PROBE] Efficiency_MAD: {eff_norm.iloc[-1]:.4f}, Vac_Accel: {vac_acc.iloc[-1]:.4f}")
-        return score.astype(np.float32)
+            self._probe_print(f"--- Obstacle Clearance Physics Probe ---")
+            self._probe_print(f"  > Volume-Jerk: {v_jerk.iloc[-1]:.4f} | Instant_Eff: {clearing_intensity.iloc[-1]:.4f}")
+            self._probe_print(f"  > Obstacle-HAB Rank: {hab_score.iloc[-1]:.4f}")
+        return final_score.astype(np.float32)
 
     def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, obstacle_clearance_score: pd.Series, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], historical_context: Dict[str, Any], params: Dict) -> pd.Series:
         """
