@@ -1164,29 +1164,36 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 环境动力学与惯性存量版】七维度市场状态因子计算
-        修改说明：引入环境因子的S/A运动学，构建State-Inertia-HAB量化环境支持的物理惯性。
-        版本号：2026.02.10.83
+        【V5.1 · 类型安全与惯性存量版】七维度市场状态因子计算
+        修改说明：修复'float' object has no attribute 'clip'报错，强制转换输入分量为Series。引入State-Inertia-HAB量化环境惯性。
+        版本号：2026.02.10.190
         """
         factors = {}
-        # 1. 基础因子合成
-        trend_comp = {'mtf_price_trend': mtf_signals.get('mtf_price_trend', 0.5), 'uptrend_strength': normalized_signals.get('uptrend_strength_norm', 0.5)}
+        # 1. 基础因子合成 (类型安全加固：显式转换为Series)
+        trend_comp = {
+            'mtf_price_trend': pd.Series(mtf_signals.get('mtf_price_trend', 0.5), index=df_index),
+            'uptrend_strength': pd.Series(normalized_signals.get('uptrend_strength_norm', 0.5), index=df_index)
+        }
         factors['trend_state'] = self._weighted_geometric_mean(trend_comp, {'mtf_price_trend': 0.5, 'uptrend_strength': 0.5}, df_index)
-        cap_comp = {'net_mf': normalized_signals.get('net_mf_amount_norm', 0.5), 'flow_accel': normalized_signals.get('flow_acceleration_norm', 0.5)}
+        cap_comp = {
+            'net_mf': pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index),
+            'flow_accel': pd.Series(normalized_signals.get('flow_acceleration_norm', 0.5), index=df_index)
+        }
         factors['capital_state'] = self._weighted_geometric_mean(cap_comp, {'net_mf': 0.6, 'flow_accel': 0.4}, df_index)
-        # 2. 环境运动学：加速度识别风向切换瞬间
+        # 2. 环境运动学：识别风向切换
         factors['trend_state_slope'] = factors['trend_state'].diff(1).rolling(5).mean().fillna(0)
         factors['trend_state_accel'] = factors['trend_state_slope'].diff(1).fillna(0)
         # 3. 环境惯性存量 (State-Inertia-HAB)
         hab_window = 21
         state_health = (factors['trend_state'] * factors['capital_state']).clip(0, 1)
         hab_inc = state_health.mask(state_health < 0.6, 0) * (1 + factors['trend_state_accel'].clip(lower=0))
-        factors['state_hab_score'] = normalize_score(hab_inc.rolling(window=hab_window).sum().fillna(0), target_index=df_index, windows=34)
+        # 内部定制归一化：Rolling Rank (34日窗口)
+        factors['state_hab_score'] = hab_inc.rolling(window=hab_window).sum().fillna(0).rolling(34).rank(pct=True).fillna(0.5)
         # 4. 其他基础状态
-        factors['volatility_state'] = 1 - normalized_signals.get('ATR_norm', 0.5)
-        factors['sentiment_state'] = normalized_signals.get('market_sentiment_norm', 0.5)
+        factors['volatility_state'] = (1 - pd.Series(normalized_signals.get('ATR_norm', 0.5), index=df_index)).clip(0, 1)
+        factors['sentiment_state'] = pd.Series(normalized_signals.get('market_sentiment_norm', 0.5), index=df_index).clip(0, 1)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Market State Physics Probe ---")
+            self._probe_print(f"--- Market State Type-Safe Probe ---")
             self._probe_print(f"  > State Inertia HAB: {factors['state_hab_score'].iloc[-1]:.4f}")
         return factors
 
@@ -1470,24 +1477,30 @@ class CalculateMainForceRallyIntent:
 
     def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, params: Dict) -> pd.Series:
         """
-        【V8.0 · 指数级风险惩罚版】深度风险裁决逻辑
-        修改说明：引入风险指标的Jerk突变识别，并采用非线性指数归一化，精准刻画A股高位风险的非线性爆发特征。
-        版本号：2026.02.10.93
+        【V8.1 · 底气偏差熔断版】深度风险裁决逻辑
+        修改说明：新增“底气负偏差”风险项。当资金HAB显著低于价格HAB时，引入Jerk加速惩罚，识别并熔断缩量虚拉风险。
+        版本号：2026.02.10.191
         """
-        # 1. 风险分量合成
-        tech_risk = (normalized_signals.get('RSI_norm', 0.5) - 0.7).clip(lower=0) * 2.0
-        struct_risk = normalized_signals.get('distribution_score_norm', 0)
-        # 2. 风险运动学：识别风险的“二次加速”
-        risk_accel = struct_risk.diff(1).rolling(5).mean().fillna(0).clip(lower=0)
-        # 3. 专用归一化：指数级惩罚映射 (Exponential Penalty)
-        total_risk_raw = (tech_risk * 0.3 + struct_risk * 0.4 + risk_accel * 0.3).clip(0, 1)
-        # 当原始风险 > 0.6 时，通过幂函数加速惩罚响应
-        penalty = np.where(total_risk_raw > 0.6, total_risk_raw ** 0.5, total_risk_raw ** 2)
-        # 4. 最终裁决分值
+        # 1. 基础风险分量
+        tech_risk = (pd.Series(normalized_signals.get('RSI_norm', 0.5), index=df_index) - 0.7).clip(lower=0) * 2.0
+        struct_risk = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
+        # 2. 物理运动学风险 (Jerk 识别力量突变)
+        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).abs()
+        # 3. 【核心新增】底气偏差风险 (Hollow Rally Risk)
+        # 逻辑：价格水位 P_HAB 远高于资金水位 C_HAB 时，风险系数非线性跳升
+        historical_hc = getattr(self, '_last_hc', {}) # 假设从历史上下文传递，若无则使用默认
+        p_hab = pd.Series(normalized_signals.get('absolute_change_strength_norm', 0.5), index=df_index).rolling(21).mean()
+        c_hab = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index).rolling(21).mean()
+        hab_offset = (p_hab - c_hab).clip(lower=0)
+        hollow_risk = (hab_offset ** 2) * (1 + p_jerk * 5)
+        # 4. 专用归一化：指数级惩罚映射
+        total_risk_raw = (tech_risk * 0.2 + struct_risk * 0.3 + hollow_risk * 0.5).clip(0, 1)
+        # 风险超过 0.5 后加速响应
+        penalty = np.where(total_risk_raw > 0.5, total_risk_raw ** 0.5, total_risk_raw ** 2)
         risk_sensitivity = get_param_value(params.get('risk_sensitivity'), 5.0)
-        final_penalty = 1 / (1 + np.exp(-risk_sensitivity * (penalty - 0.6)))
+        final_penalty = 1 / (1 + np.exp(-risk_sensitivity * (penalty - 0.55)))
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[RISK_ADJ] Raw_Risk: {total_risk_raw.iloc[-1]:.4f}, Exp_Penalty: {final_penalty.iloc[-1]:.4f}")
+            self._probe_print(f"[RISK_ADJ_PROBE] Hollow_Risk: {hollow_risk.iloc[-1]:.4f}, Offset: {hab_offset.iloc[-1]:.4f}")
         return final_penalty.clip(0, 1)
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> pd.Series:
