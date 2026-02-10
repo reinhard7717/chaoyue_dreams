@@ -125,20 +125,25 @@ class CalculateMainForceControlRelationship:
 
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
         """
-        【V4.3.4 · 结构化上下文全量映射版】
-        职责：对照《最终军械库清单》提取全量物理信号，并将其精准投喂到下游各组件所需的字典键位。
-        修改：1. 将 turnover 移入 sentiment 以适配杠杆模型。2. 将 stability_accel 移入 structure 以适配融合模型。3. 补全了 funds 桶中的全量导数指标。
+        【V4.4.0 · HAB 历史累积记忆缓冲系统集成版】
+        职责：提取全量物理信号，并计算历史累积数据 (Rolling Accumulation)，构建 HAB 底座。
+        新增：
+        1. 13/21/34 日的主力资金累积净额 (hab_net_mf_*)。
+        2. 13/21/34 日的主力买入总额与总量 (hab_buy_amt_*, hab_buy_vol_*)，用于计算周期 VWAP。
         """
+        # 1. 基础量价映射
         market_raw = {
             "close": self._get_safe_series(df, 'close_D', method_name=method_name),
             "amount": self._get_safe_series(df, 'amount_D', method_name=method_name).replace(0, np.nan),
             "pct_change": self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
         }
+        # 2. 斐波那契均线
         ema_signals = {
             "ema_13": self._get_safe_series(df, 'EMA_13_D', method_name=method_name),
             "ema_21": self._get_safe_series(df, 'EMA_21_D', method_name=method_name),
             "ema_55": self._get_safe_series(df, 'EMA_55_D', method_name=method_name)
         }
+        # 3. 资金分层映射 (基础日频)
         funds_raw = {
             "buy_elg_amt": self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name=method_name),
             "buy_lg_amt": self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name=method_name),
@@ -153,8 +158,31 @@ class CalculateMainForceControlRelationship:
             "net_mf_accel": self._get_safe_series(df, 'ACCEL_5_net_mf_amount_D', 0.0, method_name=method_name),
             "net_mf_slope": self._get_safe_series(df, 'SLOPE_5_net_mf_amount_D', 0.0, method_name=method_name)
         }
+        # 聚合日频总量 (用于 HAB 计算)
+        # 加权逻辑：超大单(ELG)权重 1.5，大单(LG)权重 1.0 (与 avg_prices 保持一致)
+        w_elg, w_lg = 1.5, 1.0
+        daily_buy_amt_weighted = funds_raw["buy_elg_amt"] * w_elg + funds_raw["buy_lg_amt"] * w_lg
+        daily_buy_vol_weighted = funds_raw["buy_elg_vol"] * w_elg + funds_raw["buy_lg_vol"] * w_lg
+        daily_net_mf = funds_raw["net_mf_calibrated"]
         funds_raw["total_buy_amt"] = funds_raw["buy_elg_amt"] + funds_raw["buy_lg_amt"]
         funds_raw["total_sell_amt"] = funds_raw["sell_elg_amt"] + funds_raw["sell_lg_amt"]
+
+        # --- HAB 系统构建 (Historical Accumulation Buffer) ---
+        # 计算 13, 21, 34 日的滚动累积
+        hab_periods = [13, 21, 34]
+        hab_data = {}
+        for p in hab_periods:
+            # 资金 HAB: 累积净流入 (Inventory)
+            hab_data[f"hab_net_mf_{p}"] = daily_net_mf.rolling(window=p, min_periods=1).sum()
+            
+            # 成本 HAB: 累积买入金额与量 (用于计算 Rolling VWAP)
+            hab_data[f"hab_buy_amt_{p}"] = daily_buy_amt_weighted.rolling(window=p, min_periods=1).sum()
+            hab_data[f"hab_buy_vol_{p}"] = daily_buy_vol_weighted.rolling(window=p, min_periods=1).sum()
+
+        # 将 HAB 数据注入 funds
+        funds_raw.update(hab_data)
+
+        # 4. 筹码结构映射
         structure_raw = {
             "cost_50pct": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),
             "chip_stability": self._get_safe_series(df, 'chip_stability_D', 0.5, method_name=method_name),
@@ -162,6 +190,7 @@ class CalculateMainForceControlRelationship:
             "winner_rate": self._get_safe_series(df, 'winner_rate_D', 50.0, method_name=method_name),
             "stability_accel": self._get_safe_series(df, 'ACCEL_5_chip_stability_D', 0.0, method_name=method_name)
         }
+        # 5. 情绪与行为
         sentiment_behavior = {
             "vpa_efficiency": self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0, method_name=method_name),
             "bbw": self._get_safe_series(df, 'BBW_21_2.0_D', 0.1, method_name=method_name),
@@ -175,15 +204,15 @@ class CalculateMainForceControlRelationship:
         }
         context = {"market": market_raw, "ema": ema_signals, "funds": funds_raw, "structure": structure_raw, "sentiment": sentiment_behavior}
         if probe_ts:
-            print(f"[探针] _get_raw_control_signals 数据链路注入校验:")
-            print(f"      - funds.net_mf_jerk exists: {'net_mf_jerk' in context['funds']}")
-            print(f"      - structure.stability_accel exists: {'stability_accel' in context['structure']}")
-            print(f"      - sentiment.turnover exists: {'turnover' in context['sentiment']}")
+            print(f"[探针] HAB 系统数据注入校验:")
+            print(f"      - funds.hab_net_mf_21 exists: {'hab_net_mf_21' in context['funds']}")
+            print(f"      - funds.hab_buy_amt_21 exists: {'hab_buy_amt_21' in context['funds']}")
             raw_snapshot = {}
             for cat_name, cat_data in context.items():
                 for k, v in cat_data.items():
                     raw_snapshot[f"{cat_name}.{k}"] = v.loc[probe_ts] if probe_ts in v.index else np.nan
             _temp_debug_values["原料数据快照"] = raw_snapshot
+            
         return context
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
@@ -231,213 +260,285 @@ class CalculateMainForceControlRelationship:
                                          sell_lg_vol: pd.Series, sell_elg_vol: pd.Series, 
                                          _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.4.1 · 主力成本动力学模型 - 量级修正版】
-        修改说明：引入 unit_correction_factor 修正 A 股成交额与成交量的单位差异（通常为 100 或 10000）。
+        【V3.0.0 · HAB-VWAP 成本动力学模型】
+        引入历史累积记忆缓冲 (HAB) 来计算主力真实的持仓成本 (Inventory Cost)。
+        核心升级：
+        1. 存量意识 (Inventory Awareness): 
+           - 废弃 EMA(5) 短线均价。
+           - 启用 Rolling(21) 计算“21日主力持仓成本线” (HAB-VWAP)。
+           - 逻辑：主力建仓周期通常在 13-34 天，21 天是斐波那契中枢，能有效过滤日内对倒噪音。
+        2. 动力学 (Kinematics): 
+           - 在 HAB 成本线基础上计算 Slope(趋势), Accel(力度), Jerk(突变)。
+           - 此时的 Slope > 0 代表主力“底仓抬升”，而非仅仅是“今日买贵了”。
         """
+        # 权重定义：超大单(ELG)权重 1.5 (Smart Money)，大单(LG)权重 1.0
         w_elg, w_lg = 1.5, 1.0
-        # 1. 计算加权总量
-        buy_amt_w = (buy_elg_amt * w_elg) + (buy_lg_amt * w_lg)
-        buy_vol_w = (buy_elg_vol * w_elg) + (buy_lg_vol * w_lg)
-        # 2. 价格计算与单位修正
-        # 基于探针诊断：当前 0.1153 vs 11.48，需放大 100 倍。
-        # 动态逻辑：如果计算出的单日均价与现价偏离超过 5 倍，自动尝试数量级对齐。
-        raw_daily_buy = (buy_amt_w / buy_vol_w.replace(0, np.nan))
+        # 1. 计算日频加权数据 (Daily Weighted Data)
+        daily_buy_amt_w = (buy_elg_amt * w_elg) + (buy_lg_amt * w_lg)
+        daily_buy_vol_w = (buy_elg_vol * w_elg) + (buy_lg_vol * w_lg)
+        daily_sell_amt_w = (sell_elg_amt * w_elg) + (sell_lg_amt * w_lg)
+        daily_sell_vol_w = (sell_elg_vol * w_elg) + (sell_lg_vol * w_lg)
+        # 2. 构建 HAB-VWAP (21日滚动累积)
+        # 逻辑：21日累积金额 / 21日累积成交量 = 21日持仓均价
+        hab_window = 21
+        # 买入侧 HAB
+        hab_buy_amt = daily_buy_amt_w.rolling(window=hab_window, min_periods=1).sum()
+        hab_buy_vol = daily_buy_vol_w.rolling(window=hab_window, min_periods=1).sum()
+        # 卖出侧 HAB (压力位)
+        hab_sell_amt = daily_sell_amt_w.rolling(window=hab_window, min_periods=1).sum()
+        hab_sell_vol = daily_sell_vol_w.rolling(window=hab_window, min_periods=1).sum()
+        # 3. 价格计算与量级修正 (Unit Correction)
+        # 防止 A 股成交额(万元)与成交量(股)单位不统一导致的计算偏离
+        raw_buy_price = hab_buy_amt / hab_buy_vol.replace(0, np.nan)
         unit_correction = 1.0
-        # 探针逻辑：自动识别万元/股或百元/股的差异
-        avg_raw = raw_daily_buy.mean()
+        # 动态探测修正因子
+        avg_raw = raw_buy_price.mean()
         avg_close = close_price.mean()
         if avg_raw > 0 and avg_close / avg_raw > 50:
             unit_correction = 100.0 if avg_close / avg_raw < 500 else 10000.0
-            print(f"[探针] 检测到成本量级偏离，应用修正因子: {unit_correction}")
-        daily_buy = (raw_daily_buy * unit_correction).fillna(close_price)
-        # 3. 预平滑与动力学 (保持原有逻辑)
-        avg_buy = daily_buy.ewm(span=5, adjust=False).mean()
-        buy_slope_raw = (avg_buy - avg_buy.shift(3)) / avg_buy.shift(3).replace(0, np.nan) * 100
-        buy_accel_raw = buy_slope_raw - buy_slope_raw.shift(1)
-        buy_jerk_raw = buy_accel_raw - buy_accel_raw.shift(1)
-        # 卖出侧同步修正
-        sell_amt_w = (sell_elg_amt * w_elg) + (sell_lg_amt * w_lg)
-        sell_vol_w = (sell_elg_vol * w_elg) + (sell_lg_vol * w_lg)
-        daily_sell = (sell_amt_w / sell_vol_w.replace(0, np.nan) * unit_correction).fillna(close_price)
-        avg_sell = daily_sell.ewm(span=5, adjust=False).mean()
+            print(f"[探针] HAB-VWAP 成本量级修正因子: {unit_correction}")
+            
+        hab_buy_price = (raw_buy_price * unit_correction).fillna(close_price)
+        hab_sell_price = (hab_sell_amt / hab_sell_vol.replace(0, np.nan) * unit_correction).fillna(close_price)
+        # 4. 基于 HAB 成本的动力学计算 (Kinematics on HAB)
+        # 由于 HAB 本身已具备平滑性，直接求导即可，无需再做 EMA
+        # Level 1: Slope (趋势) - 使用百分比
+        buy_slope = (hab_buy_price - hab_buy_price.shift(3)) / hab_buy_price.shift(3).replace(0, np.nan) * 100
+        sell_slope = (hab_sell_price - hab_sell_price.shift(3)) / hab_sell_price.shift(3).replace(0, np.nan) * 100
+        # Level 2: Accel (力度) - 使用差分
+        buy_accel = buy_slope - buy_slope.shift(1)
+        # Level 3: Jerk (突变) - 使用差分
+        buy_jerk = buy_accel - buy_accel.shift(1)
         result = {
-            "avg_buy": avg_buy,
-            "buy_slope": buy_slope_raw.fillna(0),
-            "buy_accel": buy_accel_raw.fillna(0),
-            "buy_jerk": buy_jerk_raw.fillna(0),
-            "avg_sell": avg_sell,
-            "sell_slope": (avg_sell - avg_sell.shift(3)) / avg_sell.shift(3).replace(0, np.nan) * 100
+            "avg_buy": hab_buy_price,     # HAB-VWAP
+            "buy_slope": buy_slope.fillna(0),
+            "buy_accel": buy_accel.fillna(0),
+            "buy_jerk": buy_jerk.fillna(0),
+            "avg_sell": hab_sell_price,   # HAB-VWAP
+            "sell_slope": sell_slope.fillna(0)
         }
         _temp_debug_values["主力平均价格计算"] = result
         return result
 
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V2.3.1 · 双轨成本Alpha模型 - 接口对齐版】
-        职责：计算主力持仓成本与市场成本的博弈优势。
-        修改：统一使用 context['funds'] 中的量能字段，确保与 _get_raw_control_signals 补全后的键名一致。
+        【V2.5.0 · 成本优势模型 - HAB 适配版】
+        职责：利用 HAB-VWAP 和动力学指标，评估主力成本优势与进攻意图。
+        核心逻辑：
+        1. 静态优势 (Static): HAB成本 vs 市场成本。
+        2. 动态进攻 (Aggression): HAB成本 Slope/Accel。
         """
         m, f, s = context['market'], context['funds'], context['structure']
-        # 1. 内部调用主力均价计算逻辑
+        # 1. 调用 HAB-VWAP 计算逻辑
         prices = self._calculate_main_force_avg_prices(
             index, m['close'],
             f['buy_lg_amt'], f['buy_elg_amt'], f['sell_lg_amt'], f['sell_elg_amt'],
-            f['buy_lg_vol'], f['buy_elg_vol'], f['sell_lg_vol'], f['sell_elg_vol'], # 已对齐补全后的键名
+            f['buy_lg_vol'], f['buy_elg_vol'], f['sell_lg_vol'], f['sell_elg_vol'],
             _temp_debug_values
         )
-        avg_buy = prices['avg_buy']
-        avg_sell = prices['avg_sell']
-        buy_slope = prices['buy_slope']
-        buy_accel = prices['buy_accel']
-        # 2. 静态优势 (Static Score)
+        avg_buy = prices['avg_buy']     # 21日持仓均价
+        avg_sell = prices['avg_sell']   # 21日卖出均价
+        buy_slope = prices['buy_slope'] # 持仓成本趋势
+        buy_accel = prices['buy_accel'] # 抢筹力度
+        # 2. 静态优势 (Static Alpha)
+        # 战略Alpha: 主力21日成本比市场平均成本(CYQ)低多少 -> 成本护城河
         strategic_alpha = (s['cost_50pct'] - avg_buy) / s['cost_50pct'].replace(0, np.nan)
+        # 安全垫: 现价 vs 主力21日成本 -> 获利空间
         safety_margin = (m['close'] - avg_buy) / avg_buy.replace(0, np.nan)
+        # 收割能力: 主力21日卖出均价 vs 市场成本 -> 高位派发能力
         harvest_prem = (avg_sell - s['cost_50pct']) / s['cost_50pct'].replace(0, np.nan)
         # 3. 动态意图修正 (Dynamic Modifier)
         aggression_bonus = pd.Series(0.0, index=index)
-        aggression_bonus = aggression_bonus.mask(buy_slope > 0.2, 0.2)
-        aggression_bonus = aggression_bonus.mask((buy_slope > 0.2) & (buy_accel > 0), 0.4)
-        is_fake_pump = (m['pct_change'] > 3.0) & (buy_slope.abs() < 0.1)
+        # 场景A: 趋势推升 (Trend Push) -> 成本线稳步上移 (Slope > 0.1%)
+        # 这代表主力在不断用更高的价格拿货，是真金白银的做多
+        aggression_bonus = aggression_bonus.mask(buy_slope > 0.1, 0.2)
+        # 场景B: 暴力抢筹 (Aggressive Scramble) -> 成本加速上移 (Accel > 0)
+        aggression_bonus = aggression_bonus.mask((buy_slope > 0.1) & (buy_accel > 0), 0.4)
+        # 场景C: 虚拉诱多 (Fake Pump) -> 股价大涨(>3%) 但成本线不动(|Slope| < 0.05%)
+        # 说明主力在用少量筹码对倒拉升股价，底仓没动，极度危险
+        is_fake_pump = (m['pct_change'] > 3.0) & (buy_slope.abs() < 0.05)
         aggression_bonus = aggression_bonus.mask(is_fake_pump, -0.3)
-        # 4. 综合评分计算
-        raw_score = (strategic_alpha.fillna(0) * 0.4 + safety_margin.fillna(0) * 0.3 + harvest_prem.fillna(0) * 0.1 + aggression_bonus)
+        # 4. 综合评分
+        # 静态分(0.8) + 动态修正(Bonus)
+        raw_score = (
+            strategic_alpha.fillna(0) * 0.4 + 
+            safety_margin.fillna(0) * 0.3 + 
+            harvest_prem.fillna(0) * 0.1 + 
+            aggression_bonus
+        )
         final_score = np.tanh(raw_score * 5.0)
-        # 5. 探针捕获
         _temp_debug_values["组件_成本优势"] = {
-            "avg_buy": avg_buy,
+            "hab_vwap_buy": avg_buy,
             "buy_slope": buy_slope,
             "aggression_bonus": aggression_bonus,
             "final_score": final_score
         }
-        print(f"[探针] 成本优势模型计算完成，主力买入成本均值: {avg_buy.mean():.4f}")
+        # 探针
+        print(f"[探针] HAB-VWAP 成本模型计算完成。HAB均价: {avg_buy.mean():.4f}, 成本趋势(Slope): {buy_slope.mean():.4f}")
         return pd.Series(final_score, index=index).fillna(0)
 
     def _calculate_main_force_net_activity_score(self, context: Dict, index: pd.Index, config: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V2.2.0 · 资金流动力学模型 (Funds Kinematics Model)】
-        在渗透率基础上，引入 Jerk (脉冲) 和 Accel (力度) 进行非线性修正。
+        【V3.0.0 · HAB 缓冲型净活动模型】
+        引入历史累积记忆缓冲 (HAB) 来评估资金流出的真实冲击。
         核心逻辑：
-        1. 基础渗透率 (Base Penetration): (Buy - Sell) / Amount。
-        2. 动力学修正 (Kinematic Adjustment):
-           - 点火 (Ignition): Jerk > 0 且 Accel > 0。表示主力突然发力，权重 * 1.4。
-           - 衰竭 (Exhaustion): Slope > 0 但 Accel < 0。表示买力虽然为正但在减弱，权重 * 0.8。
-           - 恐慌 (Panic): Jerk < 0 且 Accel < 0。表示主力加速出逃，权重 * 1.2 (负向增强)。
+        1. 存量缓冲 (Inventory Buffer): 使用 21日累积净流入 (hab_net_mf_21) 作为分母。
+        2. 冲击率 (Impact Ratio): 当日净流出 / 累积净流入。
+           - 若累积了100亿，流出2亿，Impact = -2%，微不足道 -> 得分不应大幅下降。
+           - 若累积仅5亿，流出2亿，Impact = -40%，严重出逃 -> 得分大幅下降。
         """
         f, m = context['funds'], context['market']
-        # 1. 基础渗透率
-        net_amt = f['total_buy_amt'] - f['total_sell_amt']
-        penetration = net_amt / m['amount']
-        # 2. 动力学因子提取
-        # 数据层提供的导数通常量级较大或不统一，建议先做方向性判断，或者使用 tanh 压缩
-        # 这里我们主要利用其符号和相对强弱
+        # 1. 提取 HAB 数据 (21日窗口)
+        hab_net = f['hab_net_mf_21']
+        daily_net = f['net_mf_calibrated']
+        # 2. 计算 HAB 修正后的渗透率
+        # 基础渗透率 (针对全市场成交额)
+        base_penetration = daily_net / m['amount'].replace(0, np.nan)
+        # 缓冲因子 (Buffer Factor)
+        # 逻辑：如果 HAB 是正的(有底仓)，则流出会被缓冲；如果 HAB 是负的(空头主导)，流出会加剧恐慌
+        buffer_impact = pd.Series(1.0, index=index)
+        # 情况A: 有底仓 (HAB > 0) 且 今日流出 (Daily < 0)
+        # 计算流出占底仓的比例
+        has_inventory = (hab_net > 0) & (daily_net < 0)
+        outflow_ratio = (daily_net / hab_net.replace(0, np.nan)).abs() # 例如 2亿/100亿 = 0.02
+        # 如果流出比例很小 (<10%)，则大幅降低 base_penetration 的负面权重
+        # 意为：“这点流出对主力底仓来说是九牛一毛”
+        # 修正系数：(1 - exp(-10 * ratio)) -> ratio=0.02时系数~0.18，即负分打2折
+        dampener = 1.0 - np.exp(-10.0 * outflow_ratio)
+        buffer_impact = buffer_impact.mask(has_inventory, dampener)
+        # 情况B: 无底仓 (HAB < 0) 且 今日流出 (Daily < 0)
+        # 落井下石，无需缓冲，保持原样或放大 (此处保持 1.0)
+        # 3. 应用缓冲
+        buffered_score = base_penetration * buffer_impact
+        # 4. 动力学修正 (保留原有逻辑，应用在缓冲后的分数上)
         jerk = f['net_mf_jerk']
         accel = f['net_mf_accel']
         slope = f['net_mf_slope']
-        # 3. 构建动力学乘数 (Kinematic Multiplier)
         k_multiplier = pd.Series(1.0, index=index)
-        # 场景A: 暴力点火 (Ignition) -> Jerk正向突变，Accel正向加速
-        # 这种时候往往是行情的起点，给予高溢价
-        mask_ignition = (jerk > 0) & (accel > 0)
+        mask_ignition = (jerk > 0) & (accel > 0) # 点火
         k_multiplier = k_multiplier.mask(mask_ignition, 1.4)
-        # 场景B: 买力衰竭 (Exhaustion) -> 资金净流入(Slope>0) 但 加速度为负(Accel<0)
-        # 说明主力虽然在买，但手软了，需要降低得分置信度
-        mask_exhaustion = (slope > 0) & (accel < 0)
-        k_multiplier = k_multiplier.mask(mask_exhaustion, 0.8)
-        # 场景C: 加速出逃 (Panic Bailout) -> 资金净流出(Slope<0) 且 加速度为负(Accel<0)
-        # 负向加速，说明砸盘力度在加大，让负分更负
-        mask_panic = (slope < 0) & (accel < 0)
-        # 注意：渗透率为负时，乘以 1.2 会变得更小(更负)，符合逻辑
+        mask_panic = (slope < 0) & (accel < 0) # 恐慌加速
         k_multiplier = k_multiplier.mask(mask_panic, 1.2)
-        # 4. 逆势博弈修正 (保留原逻辑)
-        # 黄金坑 & 诱多
+        # 5. 逆势博弈修正
         game_multiplier = pd.Series(1.0, index=index)
-        golden_pit = (m['pct_change'] < -1.5) & (penetration > 0)
-        bull_trap = (m['pct_change'] > 2.5) & (penetration < 0)
-        game_multiplier = game_multiplier.mask(golden_pit, 1.3).mask(bull_trap, 1.3)
-        # 5. 综合计算
-        # Final = tanh(Penetration * Game_Mult * Kinematic_Mult * 5.0)
-        raw_score = penetration * game_multiplier * k_multiplier
-        final_score = np.tanh(raw_score * 5.0)
-        # 6. MTF 融合 (保留)
+        golden_pit = (m['pct_change'] < -1.5) & (buffered_score > 0)
+        game_multiplier = game_multiplier.mask(golden_pit, 1.3)
+        # 6. 最终计算
+        final_score = np.tanh(buffered_score * game_multiplier * k_multiplier * 5.0)
+        # MTF 融合
         _, mtf_weights = self._get_control_parameters(config)
         base_series = pd.Series(final_score, index=index).fillna(0)
         mtf_score = self.helper._get_mtf_score_from_series_slope_accel(
             base_series, mtf_weights, index, method_name, bipolar=True
         )
         _temp_debug_values["组件_净活动(动力学)"] = {
-            "penetration": penetration,
-            "k_multiplier": k_multiplier, 
+            "daily_net": daily_net,
+            "hab_net": hab_net,
+            "buffer_impact": buffer_impact, 
             "final_score": final_score
         }
         return mtf_score
 
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V4.3.1 · 传统控盘计算逻辑修复】
-        职责：基于 EMA 排列计算传统技术面控盘分数。
-        修改：修正 context 访问路径，从 context['ema'] 获取已映射的信号。
+        【V4.5.0 · 传统控盘 - 三阶动力学全息模型】
+        职责：通过均线系统的三阶导数（Slope, Accel, Jerk）识别趋势的生长与衰竭。
+        修改说明：
+        1. 引入 EMA-Jerk: 捕捉均线弯曲曲率的突变，用于预警“假突破”后的瞬间反杀 。
+        2. 结构动力学加权: 趋势分不再是静态的 0/1，而是由生命线(EMA55)的斜率与加速度共同决定 。
+        3. 离散度压力测试: 利用 Tension (乖离率) 评估趋势的拉伸极限 。
         """
-        # 1. 提取已映射的信号
+        # 1. 信号提取 (基于 context 映射) 
         ema = context['ema']
         ema_13, ema_21, ema_55 = ema['ema_13'], ema['ema_21'], ema['ema_55']
         close = context['market']['close']
-        # 2. 计算斐波那契共振排列
+        # 2. EMA 55 (生命线) 动力学建模 
+        # Slope: 趋势方向 (Velocity)
+        slope_55 = (ema_55 - ema_55.shift(1)) / ema_55.shift(1).replace(0, np.nan) * 100
+        # Accel: 趋势力度 (Acceleration)
+        accel_55 = slope_55 - slope_55.shift(1)
+        # Jerk: 趋势拐点预警 (Jerk) - 核心新增
+        jerk_55 = accel_55 - accel_55.shift(1)
+        # 3. EMA 13 (攻击线) 动力学建模 (用于捕捉超短线背离) 
+        slope_13 = (ema_13 - ema_13.shift(1)) / ema_13.shift(1).replace(0, np.nan) * 100
+        accel_13 = slope_13 - slope_13.shift(1)
+        # 4. 动力学多级评分逻辑 
+        # 基础分: 生命线斜率映射 (tanh 压缩)
+        base_trend_score = np.tanh(slope_55 * 5.0) 
+        # 动态修正 (Kinematic Modifier)
+        modifier = pd.Series(0.0, index=index)
+        # 场景A: 趋势共振增强 (Jerk > 0 且 Accel > 0) -> 加速主升 
+        modifier = modifier.mask((slope_55 > 0) & (accel_55 > 0) & (jerk_55 > 0), 0.25)
+        # 场景B: 顶部曲率钝化 (Slope > 0 但 Jerk < 0) -> 预警“踩刹车” 
+        modifier = modifier.mask((slope_55 > 0) & (jerk_55 < 0), -0.2)
+        # 场景C: 空头衰竭 (Slope < 0 但 Accel > 0) -> 底部圆弧化 
+        modifier = modifier.mask((slope_55 < 0) & (accel_55 > 0), 0.15)
+        # 5. 形态共振与张力 (Resonance & Tension) 
+        # 多头/空头排列判断
         bullish_alignment = (ema_13 > ema_21) & (ema_21 > ema_55)
         bearish_alignment = (ema_13 < ema_21) & (ema_21 < ema_55)
-        # 3. 计算离散度与偏离度
         alignment_score = pd.Series(0.0, index=index)
-        alignment_score = alignment_score.mask(bullish_alignment, 0.8)
-        alignment_score = alignment_score.mask(bearish_alignment, -0.8)
-        # 4. 探针捕获
+        alignment_score = alignment_score.mask(bullish_alignment, 0.4).mask(bearish_alignment, -0.4)
+        # 乖离率张力 (Tension)
+        tension = (close - ema_55) / ema_55.replace(0, np.nan)
+        tension_score = np.tanh(tension * 3.0) * 0.2
+        # 6. 综合计算 (Final Fusion) 
+        final_score = (base_trend_score * 0.4 + alignment_score + tension_score + modifier).clip(-1, 1)
+        # 7. 探针捕获与输出 
         _temp_debug_values["组件_传统控盘"] = {
-            "ema_13_val": ema_13,
-            "ema_21_val": ema_21,
-            "alignment_resonance": alignment_score
+            "slope_55": slope_55,
+            "accel_55": accel_55,
+            "jerk_55": jerk_55,
+            "modifier": modifier,
+            "final_score": final_score
         }
-        print(f"[探针] 传统控盘逻辑执行完成，共振分快照已存入容器")
-        return (alignment_score + (close - ema_55) / ema_55).clip(-1, 1)
+        print(f"[探针] EMA动力学诊断: 斜率={slope_55.mean():.4f}, 加速度={accel_55.mean():.4f}, 急动度={jerk_55.mean():.4f}")
+        return final_score
 
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V3.2.0 · 结构动力学融合 (Structural Dynamics Fusion)】
-        在香农熵模型基础上，引入“锁仓加速”验证。
-        核心逻辑：
-        1. 熵效能 (Entropy Efficiency): 有序度 * VPA效率。
-        2. 锁仓加速 (Lock-up Acceleration):
-           - 如果筹码稳定性 (Stability) 的加速度 (Accel) > 0，说明筹码沉淀正在加速。
-           - 这是一个极强的“主升浪前兆”信号。
+        【V4.0.0 · 香农熵-HAB动力学全息融合模型】
+        职责：将各组件分数进行非线性融合，识别具备“存量支撑”且“增量加速”的真控盘。
+        版本更新说明：
+        1. 引入 HAB 存量意识：使用 34 日累积资金流作为融合得分的“物理质量”背景。
+        2. 引入动力学校验：利用 net_mf_jerk(急动度) 识别主力是否在共振点“踩刹车”。
+        3. 结构熵增强：结合 chip_entropy_D 评估筹码结构的“有序度”对融合分的乘数效应。
         """
         s_struct = context['structure']
         s_sent = context['sentiment']
-        # 1. 熵效能因子 (保留原逻辑)
+        f_funds = context['funds']
+        # 1. 计算【香农-VPA效能因子】(增量效能)
+        # 有序度映射：熵越低(有序)，分越高。中心点 1.5 位移。
         orderedness = 1.0 / (1.0 + np.exp(s_struct['chip_entropy'] - 1.5)) * 2.0
         vpa_norm = s_sent['vpa_efficiency'].clip(0, 1)
-        entropy_factor = (orderedness * 0.6 + vpa_norm * 0.4).clip(0, 1.5)
-        # 2. 结构动力学修正 (Structural Dynamics Adjustment)
-        # stability_accel > 0 意味着“越来越稳定”
-        stab_accel = s_struct['stability_accel']
-        # 构建结构乘数
-        struct_multiplier = pd.Series(1.0, index=traditional_score.index)
-        # 锁仓加速奖励：稳定性在增加(Slope>0) 且 加速增加(Accel>0)
-        # 这种状态下，任何技术形态的突破都极可能是真的
-        is_locking_up = (s_struct['chip_stability'] > 0.6) & (stab_accel > 0)
-        struct_multiplier = struct_multiplier.mask(is_locking_up, 1.2)
-        # 3. 资金二阶动量校验 (保留原逻辑，改用 context 中的 jerk/accel)
-        # 如果资金流 Jerk < 0 (主力突然撤力)，即使趋势还在，也要小心
-        mf_jerk = context['funds']['net_mf_jerk']
+        # 效能 = 有序度(60%) + VPA效率(40%)
+        entropy_efficiency_factor = (orderedness * 0.6 + vpa_norm * 0.4).clip(0, 1.5)
+        # 2. 计算【HAB 信心乘数】(存量支撑)
+        # 逻辑：考察 34 日累积资金存量。若存量深厚，则得分具备更强的抗噪能力。
+        hab_34 = f_funds.get('hab_net_mf_34', pd.Series(0.0, index=traditional_score.index))
+        # 信心函数：使用 tanh 映射，当存量达到正向极端值时，给予 1.2 倍的融合溢价
+        hab_confidence = 1.0 + np.tanh(hab_34 / 100000.0) * 0.2 # 100000为量级基准
+        # 3. 计算【动力学一票否决】(瞬时修正)
+        # 提取资金流的急动度 (Jerk) 和加速度 (Accel)
+        mf_jerk = f_funds.get('net_mf_jerk', pd.Series(0.0, index=traditional_score.index))
+        mf_accel = f_funds.get('net_mf_accel', pd.Series(0.0, index=traditional_score.index))
+        # 预警逻辑：如果融合分 > 0 且 (Jerk < 0 或 Accel < 0)，说明虽然在控盘，但“力道”在衰减
+        momentum_deterioration = (traditional_score > 0) & ((mf_jerk < 0) | (mf_accel < 0))
         momentum_penalty = pd.Series(1.0, index=traditional_score.index)
-        momentum_penalty = momentum_penalty.mask(mf_jerk < 0, 0.9) # 脉冲撤退惩罚 10%
-        # 4. 融合
-        base_score = traditional_score * 0.3 + structural_score * 0.7
-        # Final = Base * Entropy * Struct_Dyn * Momentum_Penalty
-        fused_score = base_score * entropy_factor * struct_multiplier * momentum_penalty
-        fused_score = fused_score.clip(-1, 1)
+        momentum_penalty = momentum_penalty.mask(momentum_deterioration, 0.85) # 发现减速，融合分贴现 15%
+        # 4. 最终非线性融合公式
+        # $$Fused = (Trad * 0.3 + Struct * 0.7) * EntropyEff * HABConf * MomentumPenalty$$
+        base_fusion = (traditional_score * 0.3 + structural_score * 0.7)
+        final_fused = (base_fusion * entropy_efficiency_factor * hab_confidence * momentum_penalty).clip(-1, 1)
+        # 5. 探针捕获与快照
         _temp_debug_values["融合_动力学"] = {
-            "entropy_factor": entropy_factor, 
-            "struct_multiplier": struct_multiplier,
-            "fused_score": fused_score
+            "entropy_eff": entropy_efficiency_factor,
+            "hab_conf": hab_confidence,
+            "momentum_penalty": momentum_penalty,
+            "fused_score": final_fused
         }
-        return fused_score
+        print(f"[探针] 融合模型执行完毕。HAB信心系数均值: {hab_confidence.mean():.4f}, 动力学惩罚覆盖率: {momentum_deterioration.mean():.2%}")
+        return final_fused
 
     def _calculate_control_leverage_model(self, index: pd.Index, fused_score: pd.Series, net_activity_score: pd.Series, 
                                           norm_flow: pd.Series, cost_score: pd.Series, 
@@ -445,70 +546,108 @@ class CalculateMainForceControlRelationship:
                                           norm_vwap_up: pd.Series, norm_vwap_down: pd.Series,
                                           context: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V2.1.0 · 锁仓共振与波动率门控杠杆 - 接口适配版】
-        依赖 context['sentiment'] 中的 bbw 和 turnover。
+        【V3.0.0 · HAB-动力学增强型全息杠杆模型】
+        职责：基于存量成本水位与瞬时动力学状态，动态锁定最终控盘信号的杠杆倍率。
+        修改说明：
+        1. 引入 HAB-Bias: 计算现价与 21日 HAB 成本线的偏离，定义“博弈安全边际”。
+        2. 动力学门控 (Kinematic Gating): 利用 net_mf_jerk 识别主力撤力风险。
+        3. 筹码熵约束: 利用 chip_entropy 识别控盘质量，对混乱筹码结构执行杠杆惩罚。
         """
         sent = context['sentiment']
-        # 1. 验证因子
+        funds = context['funds']
+        struct = context['structure']
+        market = context['market']
+        # 1. 计算【HAB-Bias 存量偏离因子】
+        # 提取之前在 _calculate_main_force_avg_prices 计算并存入 debug 的 hab_vwap_buy
+        # 若缺失则现场重算 (21日 Rolling VWAP 逻辑)
+        hab_cost = _temp_debug_values.get("主力平均价格计算", {}).get("avg_buy", market['close'])
+        hab_bias = (market['close'] - hab_cost) / hab_cost.replace(0, np.nan)
+        # 逻辑：偏离度越负(深套)，反转潜力越大，给予杠杆补偿；偏离度过正(获利盘多)，杠杆衰减。
+        bias_multiplier = 1.0 - np.tanh(hab_bias * 2.0) * 0.3
+        # 2. 计算【动力学安全阀 (Kinetic Safety Valve)】
+        # 识别资金流是否在“踩刹车”
+        mf_jerk = funds.get('net_mf_jerk', pd.Series(0.0, index=index))
+        mf_accel = funds.get('net_mf_accel', pd.Series(0.0, index=index))
+        kinetic_valve = pd.Series(1.0, index=index)
+        # 若控盘分 > 0 且出现负向突变 (Jerk < 0)，强制杠杆打 7 折
+        kinetic_valve = kinetic_valve.mask((fused_score > 0) & (mf_jerk < 0), 0.7)
+        # 3. 计算【筹码结构熵惩罚】
+        # 筹码越乱 (Entropy > 2.5)，杠杆越低
+        entropy_penalty = (1.0 / (1.0 + np.exp(struct['chip_entropy'] - 2.5))).clip(0.5, 1.0)
+        # 4. 基础验证因子 (继承原有全息验证逻辑)
         validation = (net_activity_score.clip(lower=0) * 0.4 + norm_flow * 0.3 + cost_score.clip(lower=0) * 0.2 + norm_t0_buy * 0.1).clip(0, 1)
-        # 2. 锁仓奖励 (低换手 + 控盘)
+        # 5. 波动率与换手率因子 (锁仓共振)
         lockup_bonus = pd.Series(0.0, index=index)
         lockup_bonus = lockup_bonus.mask((fused_score > 0) & (sent['turnover'] < 3.0), 0.5)
-        # 3. 波动率门控 (低BBW)
         vol_bonus = (0.2 - sent['bbw']).clip(lower=0) * 5.0
-        # 4. 过热惩罚 (高换手)
-        overheat = pd.Series(0.0, index=index)
-        overheat = overheat.mask(sent['turnover'] > 15.0, (sent['turnover'] - 15.0) * 0.05).clip(upper=1.0)
-        # 5. 计算杠杆
+        # 6. 综合杠杆合成
+        # Leverage = (Base + Bonuses) * BiasFactor * KineticValve * EntropyPenalty
         leverage = pd.Series(1.0, index=index, dtype=np.float32)
-        # 正向增强
-        pos_lev = 1.0 + fused_score * validation + lockup_bonus + vol_bonus - overheat
+        pos_lev = (1.0 + fused_score * validation + lockup_bonus + vol_bonus) * bias_multiplier * kinetic_valve * entropy_penalty
         leverage = leverage.mask(fused_score > 0, pos_lev)
-        # 负向惩罚
+        # 负向惩罚逻辑：保留原有高效出货识别
         punish = (norm_t0_sell * 0.4 + norm_vwap_down * 0.3 + (1 - norm_flow) * 0.3).clip(0, 1)
         neg_lev = (1.0 + fused_score) * (1.0 - validation * 0.5 - punish * 0.5)
         leverage = leverage.mask(fused_score <= 0, neg_lev)
         final_lev = leverage.clip(0, 2.5)
-        _temp_debug_values["风控_杠杆"] = {"leverage": final_lev, "lockup": lockup_bonus, "vol": vol_bonus}
+        # 7. 探针捕获
+        _temp_debug_values["风控_杠杆"] = {
+            "hab_bias": hab_bias,
+            "bias_multiplier": bias_multiplier,
+            "kinetic_valve": kinetic_valve,
+            "entropy_penalty": entropy_penalty,
+            "final_leverage": final_lev
+        }
+        print(f"[探针] 杠杆模型闭环。HAB偏离均值: {hab_bias.mean():.4f}, 最终平均杠杆: {final_lev.mean():.4f}")
         return final_lev
 
     def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
         """
-        【V4.2.0 · 归一化组件 (Context-Aware)】
-        重构：
-        1. 废弃原 _normalize_and_mtf_control_components 方法。
-        2. 直接基于 context 字典提取数据进行归一化和 MTF 计算。
-        3. 逻辑内收，消除中间层，代码更紧凑。
+        【V4.6.0 · 独立组件归一化系统 (Kinetic Normalizer)】
+        职责：放弃通用 Helper 逻辑，采用基于物理动力学和博弈深度定制的非线性归一化方案。
+        修改说明：
+        1. Bipolar Tanh Scaling: 用于传统得分和结构得分，处理极端离群值，保留 0 轴敏感度。
+        2. Inline MTF Structure: 内部实现多周期筹码稳定性斜率加权，判定控盘沉淀。
+        3. Intent Sigmoid Mapping: 对意图信心分执行逻辑回归映射，强化强信号，压制弱噪音。
         """
-        # 解包数据
         s_struct = context['structure']
         s_sent = context['sentiment']
-        # 获取参数
-        _, mtf_weights = self._get_control_parameters(config)
         df_index = df.index
-        # 1. 传统控盘分归一化 (Bipolar: -1~1)
-        norm_traditional = self.helper._normalize_series(scores_traditional, df_index, bipolar=True)
-        # 2. 结构控盘分 MTF计算 (基于筹码稳定性)
-        # 注意：这里直接使用 context 中的数据列名或 Series
-        # 由于 helper._get_mtf_slope_accel_score 需要从 df 中读取衍生列(slope/accel)，
-        # 我们依然传入 col_name='chip_stability_D'，前提是 df 中必须有相关列。
-        # 如果 context 中的 series 已经是处理过的（如填补了 NaN），
-        # 理论上 helper 应该支持直接传入 Series，但根据 helper 签名它需要 df 和 col_name。
-        # 为了稳健，这里我们依然指向 df 中的原始列名。
-        norm_structural = self.helper._get_mtf_slope_accel_score(
-            df, 'chip_stability_D', mtf_weights, df_index, method_name, bipolar=True
-        )
-        # 3. 辅助指标归一化 (Unipolar: 0~1)
-        norm_flow = self.helper._normalize_series(s_sent['flow_consistency'], df_index, bipolar=False)
-        norm_t0_buy = self.helper._normalize_series(s_sent['t0_buy_conf'], df_index, bipolar=False)
-        norm_t0_sell = self.helper._normalize_series(s_sent['t0_sell_conf'], df_index, bipolar=False)
-        norm_vwap_up = self.helper._normalize_series(s_sent['pushing_score'], df_index, bipolar=False)
-        norm_vwap_down = self.helper._normalize_series(s_sent['shakeout_score'], df_index, bipolar=False)
-        _temp_debug_values["归一化处理"] = {
-            "traditional": norm_traditional,
-            "structural_mtf": norm_structural,
-            "flow_consistency": norm_flow
-        }
+        # --- 1. 传统控盘分归一化 (Bipolar -1 to 1) ---
+        # 逻辑：传统分包含乖离张力，分布较广。使用 Tanh(x/std) 保持中心敏感。
+        std_trad = scores_traditional.std() if scores_traditional.std() > 0 else 1.0
+        norm_traditional = np.tanh(scores_traditional / (std_trad * 1.5))
+        # --- 2. 结构控盘分 MTF 计算 (Kinetic MTF Structure) ---
+        # 逻辑：不依赖 helper，直接计算 chip_stability 的多周期斜率共振。
+        stability = s_struct['chip_stability']
+        # 计算 5, 13, 21 日斜率
+        slope_5 = (stability - stability.shift(5)) / 5.0
+        slope_13 = (stability - stability.shift(13)) / 13.0
+        slope_21 = (stability - stability.shift(21)) / 21.0
+        # 执行权重融合 (近高远低: 0.5, 0.3, 0.2)
+        mtf_struct_raw = slope_5 * 0.5 + slope_13 * 0.3 + slope_21 * 0.2
+        # 将变化率转化为 [-1, 1] 的控盘强度。0.01 的日均变化即为极强信号。
+        norm_structural = np.tanh(mtf_struct_raw * 100.0)
+        # --- 3. 辅助指标归一化 (Unipolar 0 to 1) ---
+        # 流量一致性: 原始 0-100 -> [0, 1]
+        norm_flow = (s_sent['flow_consistency'] / 100.0).clip(0, 1)
+        # 意图信心分 (Sigmoid 强化): 0.5 为中性，强化两极
+        def _intent_sigmoid(s: pd.Series):
+            return 1.0 / (1.0 + np.exp(-10.0 * (s - 0.5)))
+        norm_t0_buy = _intent_sigmoid(s_sent['t0_buy_conf'])
+        norm_t0_sell = _intent_sigmoid(s_sent['t0_sell_conf'])
+        # 脉冲强度 (Min-Max 缩放): 0.0-1.0
+        norm_vwap_up = s_sent['pushing_score'].clip(0, 1)
+        norm_vwap_down = s_sent['shakeout_score'].clip(0, 1)
+        # --- 4. 转换层探针捕获 ---
+        if _temp_debug_values is not None:
+            _temp_debug_values["归一化处理"] = {
+                "traditional_norm": norm_traditional,
+                "structural_mtf_norm": norm_structural,
+                "flow_consistency": norm_flow,
+                "t0_buy_boost": norm_t0_buy
+            }
+        print(f"[探针] 组件归一化自研逻辑执行完成。结构斜率均值: {mtf_struct_raw.mean():.6f}")
         return norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down
 
     def _get_probe_timestamp(self, df: pd.DataFrame, is_debug: bool) -> Optional[pd.Timestamp]:
@@ -528,36 +667,51 @@ class CalculateMainForceControlRelationship:
 
     def _validate_arsenal_signals(self, df: pd.DataFrame, config: Dict, method_name: str, debug_output: Dict, probe_ts: pd.Timestamp) -> bool:
         """
-        【V1.2.0 · 军械库全链路信号验证版】
-        职责：在所有计算开始前，强制验证军械库清单中所需的物理信号是否存在。
-        修改：扩充了验证清单，包含高阶动力学衍生指标及主力意图指标，确保逻辑链路不因缺数中断。
+        【V1.3.0 · 军械库全链路动力学与存量验证版】
+        职责：作为调度器的“守门人”，在计算开始前强制检查动力学信号（增量）与HAB基础信号（存量）的完整性。
+        更新说明：
+        1. 动力学校验：新增对 JERK、ACCEL、SLOPE 等高阶导数信号的强制检查。 
+        2. HAB原料校验：确保 buy_lg_vol_D 等计算持仓成本所需的物理量能字段存在。 
+        3. 决策原料校验：加入 chip_entropy_D 和 VPA_EFFICIENCY_D 等结构化决策指标。 
         """
         _, mtf_slope_accel_weights = self._get_control_parameters(config)
-        required_signals = [
-            'close_D', 'amount_D', 'pct_change_D', 'turnover_rate_D',
-            'net_mf_amount_D', 'chip_stability_D', 'flow_consistency_D',
-            'buy_lg_amount_D', 'buy_elg_amount_D', 'sell_lg_amount_D', 'sell_elg_amount_D',
-            'buy_lg_vol_D', 'buy_elg_vol_D', 'sell_lg_vol_D', 'sell_elg_vol_D',
-            'EMA_13_D', 'EMA_21_D', 'EMA_55_D',
-            'BBW_21_2.0_D', 'chip_entropy_D', 'VPA_EFFICIENCY_D',
-            'cost_50pct_D', 'winner_rate_D',
-            'intraday_accumulation_confidence_D', 'intraday_distribution_confidence_D',
-            'pushing_score_D', 'shakeout_score_D',
-            'JERK_5_net_mf_amount_D', 'ACCEL_5_net_mf_amount_D', 'SLOPE_5_net_mf_amount_D',
-            'ACCEL_5_chip_stability_D', 'JERK_5_pushing_score_D'
+        # 1. 定义核心物理原料清单 (用于 HAB 存量计算)
+        required_physical_raw = [
+            'close_D', 'amount_D', 'pct_change_D', 'turnover_rate_D', # 基础量价 [cite: 2]
+            'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', # 资金金额 [cite: 2]
+            'buy_elg_vol_D', 'buy_lg_vol_D', 'sell_elg_vol_D', 'sell_lg_vol_D', # 资金量能 (HAB-VWAP核心) [cite: 2]
+            'net_mf_amount_D', 'flow_consistency_D', 'chip_stability_D' # 资金/筹码性质 [cite: 2]
         ]
+        # 2. 定义动力学与决策指标清单 (用于 增量与共振 计算)
+        required_kinematics_decision = [
+            'JERK_5_net_mf_amount_D', 'ACCEL_5_net_mf_amount_D', 'SLOPE_5_net_mf_amount_D', # 资金动力学 
+            'ACCEL_5_chip_stability_D', 'JERK_5_pushing_score_D', # 结构动力学 
+            'EMA_13_D', 'EMA_21_D', 'EMA_55_D', # 斐波那契均线系统 
+            'chip_entropy_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', # 结构熵与效能 
+            'cost_50pct_D', 'winner_rate_D', 'pushing_score_D', 'shakeout_score_D' # 筹码博弈与意图 
+        ]
+        # 3. 动态扩展 MTF 信号校验 (基于配置)
+        dynamic_mtf_signals = []
         base_sig_proxy = 'chip_stability_D'
         for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-            required_signals.append(f'SLOPE_{period_str}_{base_sig_proxy}')
+            dynamic_mtf_signals.append(f'SLOPE_{period_str}_{base_sig_proxy}')
         for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-            required_signals.append(f'ACCEL_{period_str}_{base_sig_proxy}')
-        if not self.helper._validate_required_signals(df, required_signals, method_name):
+            dynamic_mtf_signals.append(f'ACCEL_{period_str}_{base_sig_proxy}')
+        # 4. 汇总全链路验证清单
+        full_validation_list = list(set(required_physical_raw + required_kinematics_decision + dynamic_mtf_signals))
+        # 5. 执行验证探针
+        if probe_ts:
+            print(f"[探针] _validate_arsenal_signals 启动全链路自检 @ {probe_ts}")
+            print(f"      - 物理原料检查项: {len(required_physical_raw)} 个")
+            print(f"      - 动力学与决策检查项: {len(required_kinematics_decision)} 个")
+        # 6. 调用 helper 执行底层列存在性检查
+        if not self.helper._validate_required_signals(df, full_validation_list, method_name):
             if probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 关键军械库信号缺失，计算终止。"] = ""
+                missing_cols = [col for col in full_validation_list if col not in df.columns]
+                debug_output[f"    -> [过程情报警告] {method_name} 关键军械库信号缺失: {missing_cols[:5]}... 计算被迫中断。"] = ""
                 self._print_debug_info(debug_output)
             return False
         return True
-
 
 
 

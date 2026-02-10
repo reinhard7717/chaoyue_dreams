@@ -555,17 +555,39 @@ class CalculatePriceVolumeDynamics:
         limit_access = np.where(close >= up_limit * 0.999, 0.4 * (1.0 - sealing), 1.0).astype(np.float32)
         return pd.Series(limit_access * liq, index=df_index, dtype=np.float32).clip(0.0, 1.0)
 
-    def _calculate_entropic_ordering_bonus(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V74.1 · 熵减有序性：移除分散探针，保留 HAB 趋势修正"""
-        s5, a5, pct = raw['SLOPE_5_chip_entropy_D'].values, raw['ACCEL_5_chip_entropy_D'].values, raw['pct_change_D'].values
-        locking = -(s5 * 0.7 + a5 * 0.3)
-        base_bonus = np.clip(np.tanh(locking * 5.0), 0.0, 1.0) * 1.5
-        acc_red = raw['ACCUM_13_ENTROPY_REDUCTION'].values
-        trend_bonus = np.clip(acc_red * 2.0, 0.0, 0.5).astype(np.float32)
-        penalty = np.where((pct > 0) & (s5 > 0), 0.7, 1.0).astype(np.float32)
-        final_factor = pd.Series((1.0 + base_bonus + trend_bonus) * penalty, index=df_index, dtype=np.float32).clip(0.7, 2.0)
-        return final_factor
-    
+    def _calculate_entropic_ordering_bonus(self, df: pd.DataFrame, df_index: pd.Index, method_name: str) -> pd.Series:
+        """V3.21.0 · 熵减有序度奖励模型：采用非线性饱和映射替代统计归一化，精准度量系统做功 """
+        # 1. 获取基础价格熵 (军械库真实字段)
+        # PRICE_ENTROPY_D: 通常在 0~1 之间，1代表最大混乱，0代表最大有序
+        # 填充 NaN 为 1.0 (最大混乱)
+        price_entropy = df['PRICE_ENTROPY_D'].fillna(1.0)
+        # 2. 计算动态熵减流 (Entropy Reduction Flow)
+        # 逻辑：计算每日熵的变化量。
+        # diff < 0 代表混乱度降低（有序度增加），这是我们需要捕捉的“负熵流”。
+        entropy_delta = price_entropy.diff()
+        # 只保留熵减少的部分 (取绝对值)，熵增加的部分置为 0
+        valid_reduction = entropy_delta.clip(upper=0).abs()
+        # 3. 计算 13日 累积熵减做功 (Accumulated Entropic Work)
+        # 这代表了过去一个短周期内，市场为恢复有序所做的“总功”
+        acc_entropy_reduction = valid_reduction.rolling(window=13).sum().fillna(0)
+        # 4. 专用物理归一化：非线性饱和映射 (Non-linear Saturation Mapping)
+        # 设定灵敏度系数 lambda = 2.5
+        # 当累积熵减达到 0.4 时，tanh(0.4 * 2.5) = tanh(1.0) ≈ 0.76 (显著)
+        # 当累积熵减达到 0.8 时，tanh(0.8 * 2.5) = tanh(2.0) ≈ 0.96 (极强)
+        sensitivity_lambda = 2.5
+        saturation_score = np.tanh(acc_entropy_reduction * sensitivity_lambda)
+        # 5. 当前绝对有序度 (Current Absolute Order)
+        # 仅仅有熵减过程不够，当前状态必须也处于相对有序区间
+        current_absolute_order = (1 - price_entropy).clip(0, 1)
+        # 6. 最终融合
+        # 熵减过程分(70%) + 当前绝对分(30%)
+        # 这种设计强调了“变化的过程”比“当前的状态”更具预测性
+        final_entropy_score = pd.Series(saturation_score * 0.7 + current_absolute_order * 0.3, index=df_index)
+        # 7. 探针输出
+        print(f"  [探针-EntropyDynamics] 13日累积熵减均值: {acc_entropy_reduction.mean():.4f} | 物理饱和分值均值: {saturation_score.mean():.4f}")
+        print(f"  [探针-EntropyDynamics] 当前绝对有序均值: {current_absolute_order.mean():.4f} | 最终奖励分值: {final_entropy_score.mean():.4f}")
+        return final_entropy_score.astype(np.float32)
+
     def _calculate_vwap_propulsion_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V74.1 · VWAP 推进力：移除分散探针，纯净计算"""
         close = raw['close_D'].values

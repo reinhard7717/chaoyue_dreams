@@ -136,7 +136,8 @@ class CalculateMainForceRallyIntent:
 
     def _get_required_column_map(self) -> Dict[str, str]:
         """
-        【V8.0 · 映射清单精简版】移除数据层不提供的 'IS_BREAKOUT_D' 等Flag列
+        【V8.1 · 运动学扩展版】更新映射清单，将主力净额纳入运动学(S/A/J)计算基准
+        版本号：2026.02.10.02
         """
         col_map = {
             'close': 'close_D', 'high': 'high_D', 'low': 'low_D', 'open': 'open_D',
@@ -174,10 +175,12 @@ class CalculateMainForceRallyIntent:
             'accumulation_score': 'accumulation_score_D', 'distribution_score': 'distribution_score_D',
             'behavior_accumulation': 'behavior_accumulation_D', 'behavior_distribution': 'behavior_distribution_D'
         }
+        # 新增 mf_net_amount 到运动学计算基座中
         kinematic_bases = {
             'price_trend': 'close_D', 'volume_trend': 'volume_D',
             'net_amount_trend': 'net_amount_D', 'flow_intensity': 'flow_intensity_D',
-            'chip_concentration': 'chip_concentration_ratio_D'
+            'chip_concentration': 'chip_concentration_ratio_D',
+            'mf_net_amount': 'net_mf_amount_D' # [新增项]
         }
         for signal_name, col_name in kinematic_bases.items():
             for p in [5, 13, 21, 55]:
@@ -236,53 +239,32 @@ class CalculateMainForceRallyIntent:
             )
         return mtf_signals
 
-    def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 历史上下文深度重构版】
-        基于幻方量化A股交易经验，深度重构历史上下文计算
-        核心理念：
-        1. 多维度记忆融合：价格记忆、资金记忆、筹码记忆、情绪记忆
-        2. 非线性衰减权重：近期数据权重更高，但保留关键历史拐点记忆
-        3. 周期自适应：根据市场状态动态调整记忆周期
-        4. 相位同步检测：识别主力行为与价格趋势的相位关系
+        【V3.2 · 全维运动学版】历史上下文计算调度，增加 chip_memory 的 SAJ/HAB 逻辑支持
+        版本号：2026.02.10.06
         """
-        # 参数配置
         hc_enabled = get_param_value(params.get('enabled'), True)
         if not hc_enabled:
-            self._probe_print("历史上下文功能已禁用")
             return self._get_empty_context(df_index)
-        # 1. 价格记忆（Price Memory） - 识别趋势强度与持续性
-        price_memory = self._calculate_price_memory(df_index, raw_signals, params)
-        # 2. 资金记忆（Capital Memory） - 主力资金行为的持续性分析
-        capital_memory = self._calculate_capital_memory(df_index, raw_signals, params)
-        # 3. 筹码记忆（Chip Memory） - 筹码结构的稳定性与演变
-        chip_memory = self._calculate_chip_memory(df_index, raw_signals, params)
-        # 4. 情绪记忆（Sentiment Memory） - 市场情绪的持续性特征
+        # 1. 价格记忆 (HAB+SAJ增强)
+        price_memory = self._calculate_price_memory(df_index, raw_signals, mtf_signals, params)
+        # 2. 资金记忆 (HAB+SAJ增强)
+        capital_memory = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params)
+        # 3. 筹码记忆 ([升级点]：传入 mtf_signals 以支持筹码运动学计算)
+        chip_memory = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params)
+        # 4. 情绪记忆
         sentiment_memory = self._calculate_sentiment_memory(df_index, raw_signals, params)
-        # 5. 综合记忆融合（使用加权几何平均增强信号一致性）
-        integrated_memory = self._fuse_integrated_memory(
-            price_memory, capital_memory, chip_memory, sentiment_memory, params
-        )
-        # 6. 相位同步检测（Phase Synchronization Detection）
-        phase_sync = self._detect_phase_synchronization(
-            df_index, price_memory, capital_memory, integrated_memory
-        )
-        # 7. 记忆质量评估（Memory Quality Assessment）
-        memory_quality = self._assess_memory_quality(
-            df_index, price_memory, capital_memory, chip_memory, sentiment_memory
-        )
-        context = {
-            "price_memory": price_memory,
-            "capital_memory": capital_memory,
-            "chip_memory": chip_memory,
-            "sentiment_memory": sentiment_memory,
-            "integrated_memory": integrated_memory,
-            "phase_sync": phase_sync,
-            "memory_quality": memory_quality,
-            "hc_enabled": hc_enabled,
+        # 5. 融合与质量评估
+        integrated_memory = self._fuse_integrated_memory(price_memory, capital_memory, chip_memory, sentiment_memory, params)
+        phase_sync = self._detect_phase_synchronization(df_index, price_memory, capital_memory, integrated_memory)
+        memory_quality = self._assess_memory_quality(df_index, price_memory, capital_memory, chip_memory, sentiment_memory)
+        return {
+            "price_memory": price_memory, "capital_memory": capital_memory, "chip_memory": chip_memory,
+            "sentiment_memory": sentiment_memory, "integrated_memory": integrated_memory,
+            "phase_sync": phase_sync, "memory_quality": memory_quality, "hc_enabled": hc_enabled,
             "dynamic_memory_period": self._calculate_dynamic_period(df_index, raw_signals)
         }
-        return context
 
     def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
         """
@@ -418,320 +400,395 @@ class CalculateMainForceRallyIntent:
         # 前向填充，平滑处理
         return snr_score.ffill().fillna(0.5)
 
-    def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0】价格记忆深度计算
-        核心理念：价格具有记忆效应，近期价格行为对当前影响更大
-        数学模型：指数加权记忆衰减 + 趋势结构识别
+        【V3.5 · 运动学与HAB增强版】价格记忆深度计算
+        修改说明：引入S/A/J运动学三维向量，并构建历史累积记忆缓冲系统(HAB)，强化“存量意识”。
+        版本号：2026.02.10.01
         """
-        # 初始化价格记忆计算类
-        price_memory_calculator = CalculatePriceMemory(df_index, raw_signals.get('close', pd.Series(0.0, index=df_index)), params)
-        # 参数
+        # 1. 基础配置提取
         memory_period = get_param_value(params.get('price_memory_period'), 34)
         decay_factor = get_param_value(params.get('price_memory_decay'), 0.94)
-        # 1. 趋势强度记忆（加权指数衰减）
-        uptrend_strength = raw_signals.get('uptrend_strength', pd.Series(0.0, index=df_index))
-        downtrend_strength = raw_signals.get('downtrend_strength', pd.Series(0.0, index=df_index))
-        net_trend_strength = uptrend_strength - downtrend_strength
-        # 指数加权移动平均（EWMA）赋予近期更高权重
-        trend_memory_ewma = net_trend_strength.ewm(alpha=1-decay_factor, adjust=False).mean()
-        # 2. 价格动量记忆（自适应周期）
-        momentum_memory = price_memory_calculator.calculate_adaptive_momentum_memory(
-            raw_signals.get('close', pd.Series(0.0, index=df_index)),
-            df_index, memory_period
-        )
-        # 3. 波动率记忆（GARCH模型简化版）
-        volatility_memory = price_memory_calculator.calculate_volatility_memory(
-            raw_signals.get('pct_change', pd.Series(0.0, index=df_index)),
-            df_index, memory_period
-        )
-        # 4. 支撑阻力记忆（关键价格水平记忆）
-        support_resistance_memory = price_memory_calculator.calculate_support_resistance_memory(
-            raw_signals, df_index, memory_period
-        )
-        # 综合价格记忆（使用模糊逻辑融合）
-        price_memory_score = (
-            trend_memory_ewma * 0.35 +
-            momentum_memory * 0.25 +
-            (1 - volatility_memory) * 0.20 +  # 低波动有利
-            support_resistance_memory * 0.20
+        hab_window = get_param_value(params.get('hab_window'), 55)
+        # 2. 运动学记忆向量计算 (Kinematic Memory Vectors)
+        # 速度记忆：基于MTF斜率的指数平滑
+        slope_mem = mtf_signals.get('SLOPE_5_price_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay_factor).mean()
+        # 能量记忆：基于MTF加速度，识别力量积攒过程
+        accel_mem = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay_factor).mean()
+        # 冲击记忆：捕捉Jerk(加加速度)突变，识别主力“踩油门”的记忆残余
+        jerk_mem = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index)).ewm(alpha=0.2).mean() # Jerk记忆衰减更快，突出时效性
+        # 3. 历史累积记忆缓冲系统 (Historical Accumulation Buffer, HAB)
+        # 核心逻辑：计算价格变动与筹码稳定性的乘积累积量。当稳定性高且有正向加速度时，HAB水位升高
+        chip_stab = raw_signals.get('chip_stability', pd.Series(0.5, index=df_index))
+        price_accel = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0.0, index=df_index)).clip(lower=0)
+        # HAB 增量公式：稳定性 * 加速度 * 绝对变动强度
+        hab_increment = chip_stab * price_accel * raw_signals.get('absolute_change_strength', pd.Series(0.0, index=df_index))
+        hab_buffer = hab_increment.rolling(window=hab_window, min_periods=20).sum().fillna(0)
+        # 归一化HAB，使其成为[0, 1]的置信度调节器
+        hab_score = normalize_score(hab_buffer, target_index=df_index, windows= hab_window)
+        # 4. 动态综合记忆模型
+        # 结合原有的趋势、动量和波动率，加入运动学分量和HAB存量
+        price_memory_calculator = CalculatePriceMemory(df_index, raw_signals.get('close', pd.Series(0.0, index=df_index)), params)
+        momentum_memory = price_memory_calculator.calculate_adaptive_momentum_memory(raw_signals.get('close', pd.Series(0.0, index=df_index)), df_index, memory_period)
+        volatility_memory = price_memory_calculator.calculate_volatility_memory(raw_signals.get('pct_change', pd.Series(0.0, index=df_index)), df_index, memory_period)
+        # 综合评分：HAB 作为核心权重调节器
+        kinematic_sum = (slope_mem * 0.4 + accel_mem * 0.4 + jerk_mem * 0.2).clip(0, 1)
+        integrated_price_memory = (
+            kinematic_sum * 0.4 +
+            momentum_memory * 0.2 +
+            (1 - volatility_memory) * 0.2 +
+            hab_score * 0.2
         ).clip(0, 1)
+        # 5. 详细探针输出
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Price Memory HAB Probe ---")
+            self._probe_print(f"  > Kinematic Vector (S/A/J): {slope_mem.iloc[-1]:.4f} / {accel_mem.iloc[-1]:.4f} / {jerk_mem.iloc[-1]:.4f}")
+            self._probe_print(f"  > HAB Accumulation Level: {hab_buffer.iloc[-1]:.4f} (Score: {hab_score.iloc[-1]:.4f})")
+            self._probe_print(f"  > Final Integrated Memory: {integrated_price_memory.iloc[-1]:.4f}")
         return {
-            "trend_memory": trend_memory_ewma,
+            "trend_memory": slope_mem, # 用斜率记忆替代原有的静态趋势记忆
+            "accel_memory": accel_mem,
+            "jerk_memory": jerk_mem,
+            "hab_score": hab_score,
             "momentum_memory": momentum_memory,
             "volatility_memory": volatility_memory,
-            "support_resistance_memory": support_resistance_memory,
-            "integrated_price_memory": price_memory_score
+            "integrated_price_memory": integrated_price_memory
         }
 
-    def _calculate_capital_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_capital_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0】资金记忆深度计算（完整版）
-        核心理念：主力资金行为具有持续性，大单资金流向是先行指标
-        数学模型：资金流向量合成 + 持续性检测 + 异常检测
+        【V3.5 · 资金运动学与弹药库版】资金记忆深度计算
+        修改说明：引入资金流S/A/J运动学矢量，并构建资金历史累积记忆缓冲系统(Capital-HAB)，度量主力“弹药存量”。
+        版本号：2026.02.10.05
         """
-        # 初始化资金记忆计算类
-        capital_memory_calculator = CalculateCapitalMemory(raw_signals.get('capital_flow', pd.Series(0.0, index=df_index)))
-        # 参数
+        # 1. 基础配置
         memory_period = get_param_value(params.get('capital_memory_period'), 21)
-        # 1. 多级别资金流合成（向量合成法）
-        capital_vectors = []
-        # 特大单净流向（权重最高）
-        if 'buy_elg_amount' in raw_signals and 'sell_elg_amount' in raw_signals:
-            elg_net = (raw_signals['buy_elg_amount'] - raw_signals['sell_elg_amount'])
-            elg_vector = elg_net.rolling(window=5, min_periods=3).mean()  # 5日平滑
-            capital_vectors.append(("elg", elg_vector, 0.35))
-        # 大单净流向
-        if 'buy_lg_amount' in raw_signals and 'sell_lg_amount' in raw_signals:
-            lg_net = (raw_signals['buy_lg_amount'] - raw_signals['sell_lg_amount'])
-            lg_vector = lg_net.rolling(window=3, min_periods=2).mean()  # 3日平滑
-            capital_vectors.append(("lg", lg_vector, 0.30))
-        # 中单净流向
-        if 'buy_md_amount' in raw_signals and 'sell_md_amount' in raw_signals:
-            md_net = (raw_signals['buy_md_amount'] - raw_signals['sell_md_amount'])
-            md_vector = md_net.rolling(window=2, min_periods=1).mean()  # 2日平滑
-            capital_vectors.append(("md", md_vector, 0.20))
-        # 小单净流向（反向指标，权重为负）
-        if 'buy_sm_amount' in raw_signals and 'sell_sm_amount' in raw_signals:
-            sm_net = (raw_signals['buy_sm_amount'] - raw_signals['sell_sm_amount'])
-            sm_vector = -sm_net.rolling(window=1).mean()  # 当日，反向
-            capital_vectors.append(("sm", sm_vector, 0.15))
-        # 向量合成
-        composite_capital_flow = pd.Series(0.0, index=df_index)
-        for name, vector, weight in capital_vectors:
-            # 归一化处理
-            vector_norm = capital_memory_calculator._normalize_capital_vector(vector, df_index)
-            composite_capital_flow += vector_norm * weight
-        # 2. 资金持续性检测（Hurst指数简化版）
-        persistence_score = capital_memory_calculator._calculate_capital_persistence(
-            composite_capital_flow, df_index, memory_period
-        )
-        # 3. 资金异常检测（Z-score异常检测）
-        anomaly_score = capital_memory_calculator._detect_capital_anomaly(
-            composite_capital_flow, df_index, memory_period
-        )
-        # 4. 资金效率记忆（资金推动价格上涨的效率）
-        efficiency_memory = capital_memory_calculator._calculate_capital_efficiency(
-            composite_capital_flow,
-            raw_signals.get('pct_change', pd.Series(0.0, index=df_index)),
-            df_index, memory_period
-        )
-        # 综合资金记忆
-        capital_memory_score = (
-            composite_capital_flow.clip(-1, 1) * 0.40 +
-            persistence_score * 0.25 +
-            (1 - anomaly_score) * 0.20 +  # 异常越低越好
+        decay_factor = get_param_value(params.get('capital_memory_decay'), 0.92)
+        hab_window = get_param_value(params.get('capital_hab_window'), 34)
+        # 2. 资金运动学矢量提取 (Capital Kinematics)
+        # 资金趋势速度 (Slope)
+        cap_slope = mtf_signals.get('SLOPE_5_mf_net_amount', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay_factor).mean()
+        # 资金攻击能量 (Acceleration)
+        cap_accel = mtf_signals.get('ACCEL_5_mf_net_amount', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay_factor).mean()
+        # 资金冲击力 (Jerk) - 主力“踩油门”深度
+        cap_jerk = mtf_signals.get('JERK_5_mf_net_amount', pd.Series(0.0, index=df_index)).ewm(alpha=0.25).mean()
+        # 3. 资金历史累积记忆缓冲系统 (Capital HAB - "主力弹药库")
+        # 核心逻辑：计算主力资金流入与流向一致性的乘积累积。只有“稳健流入”才能转化为 HAB 存量水位。
+        mf_net_flow = raw_signals.get('net_mf_amount', pd.Series(0.0, index=df_index))
+        flow_consistency = raw_signals.get('flow_consistency', pd.Series(0.5, index=df_index))
+        # HAB 增量公式：主力净流入 * 一致性系数 (映射到[0, 1])
+        hab_increment = mf_net_flow * (flow_consistency.clip(0, 1))
+        # 累积量级（代表主力的历史总持筹成本优势位）
+        hab_buffer = hab_increment.rolling(window=hab_window, min_periods=10).sum().fillna(0)
+        # 归一化 HAB 水位分
+        hab_score = normalize_score(hab_buffer, target_index=df_index, windows=hab_window)
+        # 4. 动态资金记忆合成
+        capital_memory_calculator = CalculateCapitalMemory(raw_signals.get('net_mf_amount', pd.Series(0.0, index=df_index)))
+        persistence_score = capital_memory_calculator._calculate_capital_persistence(cap_slope, df_index, memory_period)
+        efficiency_memory = capital_memory_calculator._calculate_capital_efficiency(cap_slope, raw_signals.get('pct_change', pd.Series(0.0, index=df_index)), df_index, memory_period)
+        # 运动学向量综合强度
+        kinematic_vector_sum = (cap_slope * 0.4 + cap_accel * 0.4 + cap_jerk * 0.2).clip(-1, 1)
+        # 综合资金记忆：HAB作为存量底色，SAJ作为即时推力
+        integrated_capital_memory = (
+            kinematic_vector_sum * 0.4 +
+            hab_score * 0.3 +
+            persistence_score * 0.15 +
             efficiency_memory * 0.15
         ).clip(-1, 1)
+        # 5. 全景探针输出
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Capital Memory HAB Probe ---")
+            self._probe_print(f"  > Capital SAJ Vector: Slope={cap_slope.iloc[-1]:.4f}, Accel={cap_accel.iloc[-1]:.4f}, Jerk={cap_jerk.iloc[-1]:.4f}")
+            self._probe_print(f"  > Capital HAB Level: {hab_buffer.iloc[-1]:,.0f} (Score: {hab_score.iloc[-1]:.4f})")
+            self._probe_print(f"  > Integrated Capital Memory: {integrated_capital_memory.iloc[-1]:.4f}")
         return {
-            "composite_capital_flow": composite_capital_flow,
+            "composite_capital_flow": cap_slope, # 物理含义：经过平滑的资金流速
+            "cap_accel": cap_accel,
+            "cap_jerk": cap_jerk,
+            "hab_score": hab_score,
             "persistence_score": persistence_score,
-            "anomaly_score": anomaly_score,
             "efficiency_memory": efficiency_memory,
-            "integrated_capital_memory": capital_memory_score
+            "integrated_capital_memory": integrated_capital_memory
         }
 
-    def _calculate_chip_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_chip_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0】筹码记忆深度计算
-        核心理念：筹码结构演变反映市场参与者的成本分布变化
-        数学模型：筹码熵变分析 + 集中度迁移 + 稳定性检测
+        【V3.5 · 筹码运动学与硬核存量版】筹码记忆深度计算
+        修改说明：引入筹码集中度S/A/J运动学矢量，构建筹码历史累积记忆缓冲系统(Chip-HAB)，量化主力“锁仓硬核”。
+        版本号：2026.02.10.08
         """
-        chip_memory_calculator = CalculateChipMemory(df_index, raw_signals, params)
+        # 1. 基础配置
         memory_period = get_param_value(params.get('chip_memory_period'), 55)
-        # 1. 筹码熵变记忆（信息熵变化反映筹码混乱度）
-        entropy_memory = chip_memory_calculator._calculate_chip_entropy_memory(
-            raw_signals, df_index, memory_period
-        )
-        # 2. 筹码集中度迁移记忆
-        concentration_migration = chip_memory_calculator._calculate_concentration_migration(
-            raw_signals.get('chip_concentration_ratio', pd.Series(0.0, index=df_index)),
-            df_index, memory_period
-        )
-        # 3. 筹码稳定性记忆（马尔可夫稳定性检测）
-        stability_memory = chip_memory_calculator._calculate_chip_stability_memory(
-            raw_signals, df_index, memory_period
-        )
-        # 4. 筹码压力记忆（获利盘与套牢盘记忆）
-        pressure_memory = chip_memory_calculator._calculate_chip_pressure_memory(
-            raw_signals, df_index, memory_period
-        )
-        # 综合筹码记忆（低熵+高集中度+高稳定性+低压力=良好筹码结构）
-        chip_memory_score = (
-            (1 - entropy_memory) * 0.30 +  # 低熵有利
-            concentration_migration * 0.25 +
-            stability_memory * 0.25 +
-            (1 - pressure_memory) * 0.20  # 低压力有利
+        decay_factor = get_param_value(params.get('chip_memory_decay'), 0.95)
+        hab_window = get_param_value(params.get('chip_hab_window'), 89) # 筹码记忆周期较长，使用 89 日
+        # 2. 筹码运动学矢量提取 (Chip Kinematics)
+        # 集中度斜率 (Slope) - 识别筹码归集方向
+        chip_slope = mtf_signals.get('SLOPE_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay_factor).mean()
+        # 集中度加速度 (Acceleration) - 识别主力集中的紧迫感
+        chip_accel = mtf_signals.get('ACCEL_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay_factor).mean()
+        # 集中度冲击力 (Jerk) - 识别筹码结构的剧烈突变
+        chip_jerk = mtf_signals.get('JERK_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=0.15).mean()
+        # 3. 筹码历史累积记忆缓冲系统 (Chip HAB - "锁仓硬核")
+        # 核心逻辑：HAB = Σ (集中度斜率 * 筹码稳定性 * 换手率权重)
+        # 只有在稳定性高且集中度增加时的换手，才被视为“高质量锁仓”
+        chip_stability = raw_signals.get('chip_stability', pd.Series(0.5, index=df_index))
+        turnover_rate = raw_signals.get('turnover_rate', pd.Series(0.0, index=df_index))
+        # HAB 增量公式：斜率(需为正) * 稳定性 * 换手活跃度
+        hab_increment = (chip_slope.clip(lower=0) * chip_stability * turnover_rate)
+        # 累积水位：代表主力经过长时间博弈沉淀下来的“硬筹码”
+        hab_buffer = hab_increment.rolling(window=hab_window, min_periods=20).sum().fillna(0)
+        # 归一化 HAB 分值
+        hab_score = normalize_score(hab_buffer, target_index=df_index, windows=hab_window)
+        # 4. 动态筹码记忆综合模型
+        chip_memory_calculator = CalculateChipMemory(df_index, raw_signals, params)
+        entropy_memory = chip_memory_calculator._calculate_chip_entropy_memory(raw_signals, df_index, memory_period)
+        pressure_memory = chip_memory_calculator._calculate_chip_pressure_memory(raw_signals, df_index, memory_period)
+        # 运动学向量综合：重点关注斜率与加速度的共振
+        kinematic_vector_sum = (chip_slope * 0.4 + chip_accel * 0.4 + chip_jerk * 0.2).clip(0, 1)
+        # 综合筹码记忆：HAB 作为存量护城河，SAJ 作为增量推力
+        integrated_chip_memory = (
+            hab_score * 0.35 +           # 存量锁仓质量 (HAB)
+            kinematic_vector_sum * 0.3 +  # 即时集中趋势 (SAJ)
+            (1 - entropy_memory) * 0.2 +  # 筹码有序度 (1 - Entropy)
+            (1 - pressure_memory) * 0.15  # 上方阻力释放程度 (1 - Pressure)
         ).clip(0, 1)
+        # 5. 全景探针输出
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Chip Memory HAB Probe ---")
+            self._probe_print(f"  > Chip SAJ Vector: Slope={chip_slope.iloc[-1]:.4f}, Accel={chip_accel.iloc[-1]:.4f}, Jerk={chip_jerk.iloc[-1]:.4f}")
+            self._probe_print(f"  > Chip-HAB Hardcore Level: {hab_buffer.iloc[-1]:.4f} (Score: {hab_score.iloc[-1]:.4f})")
+            self._probe_print(f"  > Integrated Chip Memory: {integrated_chip_memory.iloc[-1]:.4f}")
         return {
+            "chip_slope": chip_slope,
+            "chip_accel": chip_accel,
+            "chip_jerk": chip_jerk,
+            "hab_score": hab_score,
             "entropy_memory": entropy_memory,
-            "concentration_migration": concentration_migration,
-            "stability_memory": stability_memory,
             "pressure_memory": pressure_memory,
-            "integrated_chip_memory": chip_memory_score
+            "integrated_chip_memory": integrated_chip_memory
         }
 
-    def _calculate_sentiment_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
+    def _calculate_sentiment_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0】情绪记忆深度计算
-        核心理念：市场情绪具有惯性和均值回归特性
-        数学模型：情绪动量 + 情绪分歧度 + 情绪极端检测
+        【V3.5 · 情绪运动学与热度存量版】情绪记忆深度计算
+        修改说明：引入情绪S/A/J运动学矢量，构建情绪历史累积记忆缓冲系统(Sentiment-HAB)，量化市场“温压”。
+        版本号：2026.02.10.12
         """
-        sentiment_memory_calculator = CalculateSentimentMemory(df_index, raw_signals, params)
+        # 1. 基础配置提取
         memory_period = get_param_value(params.get('sentiment_memory_period'), 13)
-        # 1. 情绪动量记忆（一阶差分动量）
-        sentiment_momentum = self._calculate_sentiment_momentum(
-            raw_signals.get('market_sentiment', pd.Series(0.0, index=df_index)),
-            df_index, memory_period
-        )
-        # 2. 情绪分歧度记忆（波动率反映分歧）
-        sentiment_divergence = sentiment_memory_calculator._calculate_sentiment_divergence(
-            raw_signals.get('market_sentiment', pd.Series(0.0, index=df_index)),
-            df_index, memory_period
-        )
-        # 3. 情绪极端记忆（Z-score检测极端情绪）
-        sentiment_extreme = sentiment_memory_calculator._detect_sentiment_extreme(
-            raw_signals.get('market_sentiment', pd.Series(0.0, index=df_index)),
-            df_index, memory_period
-        )
-        # 4. 情绪一致性记忆（多指标情绪一致性）
-        sentiment_consistency = sentiment_memory_calculator._calculate_sentiment_consistency(
-            raw_signals, df_index, memory_period
-        )
-        # 综合情绪记忆（适度动量+低分歧+非极端+高一致性=健康情绪）
-        sentiment_memory_score = (
-            sentiment_momentum.abs().clip(0, 0.5) * 0.30 +  # 适度动量
-            (1 - sentiment_divergence) * 0.25 +  # 低分歧
-            (1 - sentiment_extreme) * 0.25 +  # 非极端
-            sentiment_consistency * 0.20
+        decay_factor = get_param_value(params.get('sentiment_memory_decay'), 0.90) # 情绪变化快，衰减更快
+        hab_window = get_param_value(params.get('sentiment_hab_window'), 21) # 情绪热度周期建议使用 21 日
+        # 2. 情绪运动学矢量提取 (Sentiment Kinematics)
+        # 情绪趋势斜率 (Slope) - 衡量信心修复速度
+        sent_slope = mtf_signals.get('SLOPE_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay_factor).mean()
+        # 情绪扩张加速度 (Acceleration) - 衡量贪婪/恐惧的扩散速度
+        sent_accel = mtf_signals.get('ACCEL_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay_factor).mean()
+        # 情绪冲击力 (Jerk) - 衡量群体无意识行为的爆发 (如踩踏或抢筹)
+        sent_jerk = mtf_signals.get('JERK_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=0.3).mean()
+        # 3. 情绪历史累积记忆缓冲系统 (Sentiment HAB - "市场热度池")
+        # 核心逻辑：HAB = Σ (情绪得分 * 情绪一致性 * 市场宽度)
+        market_sentiment = raw_signals.get('market_sentiment', pd.Series(0.5, index=df_index))
+        industry_breadth = raw_signals.get('industry_breadth', pd.Series(0.5, index=df_index))
+        # HAB 增量公式：当前情绪强度与扩散范围的乘积
+        hab_increment = (market_sentiment * industry_breadth)
+        # 累积热度：代表市场在历史中沉淀下来的“情绪能量”
+        hab_buffer = hab_increment.rolling(window=hab_window, min_periods=5).sum().fillna(0)
+        # 归一化 HAB 热度分
+        hab_score = normalize_score(hab_buffer, target_index=df_index, windows=hab_window)
+        # 4. 动态情绪记忆综合模型
+        sentiment_calculator = CalculateSentimentMemory(df_index, raw_signals, params)
+        sentiment_divergence = sentiment_calculator._calculate_sentiment_divergence(market_sentiment, df_index, memory_period)
+        sentiment_consistency = sentiment_calculator._calculate_sentiment_consistency(raw_signals, df_index, memory_period)
+        # 运动学向量综合：突出加速度对情绪拐点的引导作用
+        kinematic_vector_sum = (sent_slope * 0.3 + sent_accel * 0.5 + sent_jerk * 0.2).clip(-1, 1)
+        # 综合情绪记忆：HAB作为背景温度，SAJ作为即时变量，一致性作为置信度
+        # 归一化到 [0, 1] 方便后续处理
+        integrated_sentiment_memory = (
+            (kinematic_vector_sum * 0.5 + 0.5) * 0.4 + # 即时冲力
+            hab_score * 0.3 +                         # 累积热度背景
+            sentiment_consistency * 0.2 +             # 信号一致性
+            (1 - sentiment_divergence) * 0.1          # 减少分歧权重
         ).clip(0, 1)
+        # 5. 全景探针输出
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Sentiment Memory HAB Probe ---")
+            self._probe_print(f"  > Sentiment SAJ: Slope={sent_slope.iloc[-1]:.4f}, Accel={sent_accel.iloc[-1]:.4f}, Jerk={sent_jerk.iloc[-1]:.4f}")
+            self._probe_print(f"  > Sentiment HAB Heat: {hab_buffer.iloc[-1]:.4f} (Score: {hab_score.iloc[-1]:.4f})")
+            self._probe_print(f"  > Integrated Sentiment Memory: {integrated_sentiment_memory.iloc[-1]:.4f}")
         return {
-            "sentiment_momentum": sentiment_momentum,
-            "sentiment_divergence": sentiment_divergence,
-            "sentiment_extreme": sentiment_extreme,
+            "sentiment_slope": sent_slope,
+            "sentiment_accel": sent_accel,
+            "sentiment_jerk": sent_jerk,
+            "hab_score": hab_score,
             "sentiment_consistency": sentiment_consistency,
-            "integrated_sentiment_memory": sentiment_memory_score
+            "sentiment_divergence": sentiment_divergence,
+            "integrated_sentiment_memory": integrated_sentiment_memory
         }
 
     def _fuse_integrated_memory(self, price_memory: Dict, capital_memory: Dict, chip_memory: Dict, sentiment_memory: Dict, params: Dict) -> pd.Series:
         """
-        【V3.0】综合记忆融合算法
-        核心理念：多维度记忆的加权几何平均，强调一致性
-        数学模型：加权几何平均 + 一致性检测 + 置信度加权
+        【V4.0 · 运动学共振与集成HAB版】综合记忆融合算法
+        修改说明：引入多维SAJ矢量共振检测与集成HAB存量水位评估，强化“三军协同”识别能力。
+        版本号：2026.02.10.15
         """
-        # 提取各维度核心记忆
-        price_score = price_memory.get("integrated_price_memory", pd.Series(0.5, index=price_memory["trend_memory"].index))
-        capital_score = capital_memory.get("integrated_capital_memory", pd.Series(0.0, index=capital_memory["composite_capital_flow"].index)).clip(0, 1)
-        chip_score = chip_memory.get("integrated_chip_memory", pd.Series(0.5, index=chip_memory["entropy_memory"].index))
-        sentiment_score = sentiment_memory.get("integrated_sentiment_memory", pd.Series(0.5, index=sentiment_memory["sentiment_momentum"].index))
-        # 动态权重调整（基于市场状态）
-        market_state = self._detect_market_state(price_score, capital_score, chip_score, sentiment_score)
-        # 不同市场状态下的权重配置
-        if market_state == "trending_up":
-            weights = {"price": 0.35, "capital": 0.30, "chip": 0.20, "sentiment": 0.15}
-        elif market_state == "trending_down":
-            weights = {"price": 0.30, "capital": 0.35, "chip": 0.25, "sentiment": 0.10}
-        elif market_state == "consolidating":
-            weights = {"price": 0.25, "capital": 0.25, "chip": 0.30, "sentiment": 0.20}
-        else:  # "reversing"
-            weights = {"price": 0.20, "capital": 0.35, "chip": 0.25, "sentiment": 0.20}
-        # 加权几何平均（增强一致性要求）
-        # 防止零值
-        eps = 1e-9
-        price_adj = price_score.clip(eps, 1)
-        capital_adj = capital_score.clip(eps, 1)
-        chip_adj = chip_score.clip(eps, 1)
-        sentiment_adj = sentiment_score.clip(eps, 1)
-        # 几何平均：exp(sum(weight * log(score)))
-        log_avg = (
-            np.log(price_adj) * weights["price"] +
-            np.log(capital_adj) * weights["capital"] +
-            np.log(chip_adj) * weights["chip"] +
-            np.log(sentiment_adj) * weights["sentiment"]
-        )
-        integrated_memory = np.exp(log_avg)
-        # 一致性增强因子（所有维度同向时增强）
-        consistency_factor = self._calculate_memory_consistency(
-            price_score, capital_score, chip_score, sentiment_score
-        )
-        # 应用一致性增强
-        integrated_memory_enhanced = integrated_memory * (1 + consistency_factor * 0.3)
-        return integrated_memory_enhanced.clip(0, 1)
+        df_index = price_memory["integrated_price_memory"].index
+        # 1. 提取各维度核心分值 (Base Scores)
+        p_base = price_memory["integrated_price_memory"]
+        c_base = capital_memory["integrated_capital_memory"]
+        ch_base = chip_memory["integrated_chip_memory"]
+        s_base = sentiment_memory["integrated_sentiment_memory"]
+        # 2. 运动学矢量共振检测 (Kinematic Synergy Detection)
+        # 提取斜率 (Slope) 与 加速度 (Accel) 向量
+        slopes = pd.DataFrame({
+            "p": price_memory.get("trend_memory", 0),
+            "c": capital_memory.get("composite_capital_flow", 0),
+            "ch": chip_memory.get("chip_slope", 0),
+            "s": sentiment_memory.get("sentiment_slope", 0)
+        })
+        accels = pd.DataFrame({
+            "p": price_memory.get("accel_memory", 0),
+            "c": capital_memory.get("cap_accel", 0),
+            "ch": chip_memory.get("chip_accel", 0),
+            "s": sentiment_memory.get("sentiment_accel", 0)
+        })
+        # 计算方向一致性：所有维度方向相同的比例
+        slope_consistency = (np.sign(slopes).nunique(axis=1) == 1).astype(float)
+        accel_synergy = (accels > 0).sum(axis=1) / 4.0 # 加速度转正的维度占比
+        # 3. 集成历史累积缓冲评估 (Integrated HAB - "全维蓄能")
+        # 提取各维度 HAB 水位并进行加权几何平均
+        hab_components = {
+            "p_hab": price_memory.get("hab_score", pd.Series(0.5, index=df_index)),
+            "c_hab": capital_memory.get("hab_score", pd.Series(0.5, index=df_index)),
+            "ch_hab": chip_memory.get("hab_score", pd.Series(0.5, index=df_index)),
+            "s_hab": sentiment_memory.get("hab_score", pd.Series(0.5, index=df_index))
+        }
+        hab_weights = {"p_hab": 0.25, "c_hab": 0.30, "ch_hab": 0.30, "s_hab": 0.15}
+        integrated_hab = _robust_geometric_mean(hab_components, hab_weights, df_index)
+        # 4. 动态权重融合 (基于市场状态)
+        market_state = self._detect_market_state(p_base, c_base, s_base, ch_base)
+        state_weights = {
+            "trending_up": {"p": 0.30, "c": 0.30, "ch": 0.25, "s": 0.15},
+            "reversing":   {"p": 0.15, "c": 0.35, "ch": 0.25, "s": 0.25},
+            "consolidating":{"p": 0.20, "c": 0.20, "ch": 0.40, "s": 0.20},
+            "trending_down":{"p": 0.40, "c": 0.30, "ch": 0.20, "s": 0.10}
+        }
+        w = state_weights.get(market_state, state_weights["consolidating"])
+        # 执行加权融合
+        base_fusion = (p_base * w["p"] + c_base * w["c"] + ch_base * w["ch"] + s_base * w["s"])
+        # 5. 运动学与 HAB 非线性增强
+        # 共振增益因子：当方向一致且加速度共振时，提升融合分
+        synergy_boost = (slope_consistency * 0.1 + accel_synergy * 0.2)
+        # HAB 存量调节：存量越高，即时信号的置信度越高
+        hab_modulator = 0.9 + (integrated_hab * 0.2)
+        # 最终合成
+        final_integrated_memory = (base_fusion * hab_modulator * (1 + synergy_boost)).clip(0, 1)
+        # 6. 详细探针输出
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Integrated Memory Fusion Probe ---")
+            self._probe_print(f"  > Market State identified as: {market_state}")
+            self._probe_print(f"  > Kinematic Synergy: Slope_Consist={slope_consistency.iloc[-1]:.2f}, Accel_Syn={accel_synergy.iloc[-1]:.2f}")
+            self._probe_print(f"  > Integrated HAB Level: {integrated_hab.iloc[-1]:.4f}")
+            self._probe_print(f"  > Final Integrated Memory: {final_integrated_memory.iloc[-1]:.4f}")
+        return final_integrated_memory.astype(np.float32)
 
-    def _detect_market_state(self, price_score: pd.Series, capital_score: pd.Series, chip_score: pd.Series, sentiment_score: pd.Series) -> str:
+    def _detect_market_state(self, price_mem: Dict, capital_mem: Dict, sentiment_mem: Dict, chip_mem: Dict) -> str:
         """
-        【V4.2 · 相位识别版】基于多维记忆分值动态检测市场核心状态
-        逻辑：通过判定各维度的一致性与动量斜率，识别市场所处的博弈阶段。
+        【V5.0 · 动力学政权识别版】基于SAJ矢量与HAB存量的市场状态检测
+        修改说明：引入能量突变(Jerk)识别转折点，利用集成HAB水位校验趋势真伪。
+        版本号：2026.02.10.18
         """
-        # 获取最新一帧的数据
-        p, c, s, ch = price_score.iloc[-1], capital_score.iloc[-1], sentiment_score.iloc[-1], chip_score.iloc[-1]
-        # 计算短期动量斜率（3日均值差）
-        p_slope = price_score.tail(3).diff().mean()
-        c_slope = capital_score.tail(3).diff().mean()
-        # 1. 趋势态判定：价格与资金强共振，且价格分值处于高位或明显上升
-        if (p > 0.6 and c > 0.5 and p_slope > 0) or (p > 0.75):
+        # 1. 提取最新一帧的各维度运动学快照
+        # 价格运动学
+        p_slope = price_mem.get("trend_memory", pd.Series(0)).iloc[-1]
+        p_accel = price_mem.get("accel_memory", pd.Series(0)).iloc[-1]
+        p_jerk  = price_mem.get("jerk_memory", pd.Series(0)).iloc[-1]
+        # 资金运动学
+        c_slope = capital_mem.get("composite_capital_flow", pd.Series(0)).iloc[-1]
+        c_accel = capital_mem.get("cap_accel", pd.Series(0)).iloc[-1]
+        # 存量底色 (HAB)
+        p_hab = price_mem.get("hab_score", pd.Series(0.5)).iloc[-1]
+        c_hab = capital_mem.get("hab_score", pd.Series(0.5)).iloc[-1]
+        integrated_hab = (p_hab * 0.4 + c_hab * 0.6)
+        # 2. 状态判定矩阵 (Regime Decision Matrix)
+        # 逻辑：能量(Jerk/Accel) > 趋势(Slope) > 状态(Base Score)
+        # 状态 A：强力主升 (Trending Up)
+        # 判据：斜率正一致 + 加速度转正 + HAB支撑
+        if p_slope > 0.1 and c_slope > 0.05 and p_accel > 0 and integrated_hab > 0.6:
             return "trending_up"
-        # 2. 弱势态判定：价格与资金持续走弱
-        if (p < 0.4 and c < 0.4 and p_slope < 0) or (p < 0.25):
-            return "trending_down"
-        # 3. 转折态判定：资金或情绪与价格发生明显的相位背离（A股典型的见顶/见底特征）
-        # 场景：价格还在涨但资金斜率已转负，或者价格低位但资金开始暴增
-        if (p_slope * c_slope < 0) and (abs(c_slope) > 0.05):
+        # 状态 B：剧烈转折 (Reversing)
+        # 判据：Jerk 爆发 或 加速度方向与斜率方向相反
+        # 典型的“V转”或“A杀”早期特征
+        is_jerk_burst = abs(p_jerk) > 0.15
+        is_accel_reversal = (p_slope * p_accel < 0) and (abs(p_accel) > 0.1)
+        if is_jerk_burst or is_accel_reversal:
             return "reversing"
-        # 4. 整理态判定：价格波动钝化，筹码集中度或稳定性成为主导变量
-        if abs(p_slope) < 0.02 and 0.4 <= p <= 0.6:
+        # 状态 C：衰力阴跌 (Trending Down)
+        # 判据：斜率负一致 + HAB水位坍塌
+        if p_slope < -0.1 and integrated_hab < 0.4:
+            return "trending_down"
+        # 状态 D：底部蓄势 / 横盘 (Consolidating)
+        # 判据：低加速度 + HAB水位缓慢抬升
+        if abs(p_accel) < 0.05 and c_slope > 0 and integrated_hab > 0.5:
             return "consolidating"
-        # 默认兜底状态
-        return "consolidating"
+        # 3. 兜底逻辑：如果无法匹配高能态，则根据 HAB 基准值返回平稳态
+        return "trending_up" if integrated_hab > 0.7 else "consolidating"
 
-    def _calculate_memory_consistency(self, *memory_series) -> pd.Series:
+    def _calculate_memory_consistency(self, price_mem: Dict, capital_mem: Dict, chip_mem: Dict, sentiment_mem: Dict) -> pd.Series:
         """
-        【V3.0】记忆一致性计算
-        数学模型：多序列相关性 + 方向一致性
+        【V4.0 · 物理矢量与蓄能共振版】记忆一致性深度计算
+        修改说明：引入SAJ运动学三维矢量共振与HAB蓄能水位对齐检测，量化“多维合力”的真实性。
+        版本号：2026.02.10.21
         """
-        if len(memory_series) < 2:
-            return pd.Series(1.0, index=memory_series[0].index)
-        # 1. 方向一致性（符号相同比例）
-        direction_consistency = pd.Series(1.0, index=memory_series[0].index)
-        for i in range(len(direction_consistency)):
-            signs = []
-            for series in memory_series:
-                if i < len(series):
-                    # 计算方向（与均值的比较）
-                    if i >= 10:
-                        mean_val = series.iloc[max(0, i-10):i].mean()
-                        sign = 1 if series.iloc[i] > mean_val else -1 if series.iloc[i] < mean_val else 0
-                        signs.append(sign)
-            if len(signs) >= 2:
-                # 计算方向一致比例
-                positive_count = sum(1 for s in signs if s > 0)
-                negative_count = sum(1 for s in signs if s < 0)
-                total_count = len(signs)
-                if total_count > 0:
-                    max_uniform = max(positive_count, negative_count)
-                    direction_consistency.iloc[i] = max_uniform / total_count
-        # 2. 相关性一致性（滚动窗口相关性）
-        correlation_consistency = pd.Series(1.0, index=memory_series[0].index)
-        if len(memory_series) >= 2:
-            window = 20
-            for i in range(window, len(correlation_consistency)):
-                if i < window:
-                    continue
-                correlations = []
-                # 计算所有序列对的相关性
-                for j in range(len(memory_series)):
-                    for k in range(j+1, len(memory_series)):
-                        series1_seg = memory_series[j].iloc[i-window:i]
-                        series2_seg = memory_series[k].iloc[i-window:i]
-                        if len(series1_seg) >= 5 and len(series2_seg) >= 5:
-                            corr = series1_seg.corr(series2_seg)
-                            if not np.isnan(corr):
-                                correlations.append(abs(corr))  # 取绝对值
-                if correlations:
-                    correlation_consistency.iloc[i] = np.mean(correlations)
-        # 综合一致性
-        consistency_score = (direction_consistency * 0.6 + correlation_consistency * 0.4).clip(0, 1)
-        return consistency_score
+        df_index = price_mem["integrated_price_memory"].index
+        # 1. 运动学一致性 (Kinematic Coherence)
+        # 提取各维度斜率(Slope)与加速度(Accel)向量进行空间相关性分析
+        # 逻辑：真正的突破需要物理能量在同一时刻爆发
+        vec_df = pd.DataFrame({
+            "p_accel": price_mem.get("accel_memory", 0),
+            "c_accel": capital_mem.get("cap_accel", 0),
+            "ch_accel": chip_mem.get("chip_accel", 0),
+            "s_accel": sentiment_mem.get("sentiment_accel", 0)
+        })
+        # 计算每一时刻各维度加速度的符号一致性 (三军是否齐步走)
+        # 使用正向加速度占比作为共振得分
+        accel_resonance = (vec_df > 0).sum(axis=1) / 4.0
+        # 2. 存量蓄能一致性 (HAB Reservoir Consistency)
+        # 提取各维度 HAB 水位并计算离散度
+        hab_matrix = pd.DataFrame({
+            "p_hab": price_mem.get("hab_score", 0.5),
+            "c_hab": capital_mem.get("hab_score", 0.5),
+            "ch_hab": chip_mem.get("hab_score", 0.5),
+            "s_hab": sentiment_mem.get("hab_score", 0.5)
+        })
+        # 计算标准差：标准差越小，说明各维度的“底气”越对等，一致性越强
+        hab_std = hab_matrix.std(axis=1)
+        hab_sync_score = (1 - hab_std * 2).clip(0, 1) # 映射：std=0 -> 1.0, std=0.5 -> 0
+        # 3. 基础方向一致性 (Legacy Logic - Optimized)
+        # 提取各子模块的最终合成得分
+        bases = pd.DataFrame({
+            "p": price_mem["integrated_price_memory"],
+            "c": capital_mem["integrated_capital_memory"],
+            "ch": chip_mem["integrated_chip_memory"],
+            "s": sentiment_mem["integrated_sentiment_memory"]
+        })
+        # 计算滚动相关性的平均值 (衡量长效同步)
+        rolling_corr = bases.rolling(window=13).corr().unstack().mean(axis=1).fillna(0.5)
+        # 4. 综合一致性合成 (Multi-Metric Synthesis)
+        # 权重分配：运动学共振(40%) + 存量水位对齐(40%) + 历史相关性(20%)
+        # 物理意义：能量和存量是实打实的，历史相关性作为置信度辅助
+        consistency_score = (
+            accel_resonance * 0.4 +
+            hab_sync_score * 0.4 +
+            rolling_corr.clip(0, 1) * 0.2
+        ).clip(0, 1)
+        # 5. 详细探针输出
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Memory Consistency Full-Resonance Probe ---")
+            self._probe_print(f"  > Accel Resonance (SAJ): {accel_resonance.iloc[-1]:.2f}")
+            self._probe_print(f"  > HAB Reservoir Sync: {hab_sync_score.iloc[-1]:.4f}")
+            self._probe_print(f"  > Mean Rolling Correlation: {rolling_corr.iloc[-1]:.4f}")
+            self._probe_print(f"  > Final Consistency Score: {consistency_score.iloc[-1]:.4f}")
+        return consistency_score.astype(np.float32)
 
     def _get_empty_context(self, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
@@ -841,117 +898,130 @@ class CalculateMainForceRallyIntent:
 
     def _construct_proxy_signals(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 代理信号深度重构版】
-        基于幻方量化A股交易经验，深度重构代理信号构建系统
-        核心理念：
-        1. 多维度代理信号：相对强度、资本属性、市场情绪、流动性、波动性、风险偏好
-        2. 非线性合成：使用几何平均或Sigmoid函数增强信号一致性
-        3. 自适应权重：根据市场状态动态调整各维度权重
-        4. 领先滞后关系：识别各代理信号的领先滞后特性
-        5. 信号质量评估：评估每个代理信号的可靠性和稳定性
-        数学模型创新：
-        1. 相对强度指数（RSI扩展版）
-        2. 资本效率因子（CEF）
-        3. 情绪复合指数（SCI）
-        4. 流动性分层模型（LTM）
-        5. 波动性调整因子（VAF）
-        6. 风险偏好指数（RPI）
+        【V5.0 · 运动学矢量与HAB能量场版】代理信号构建中枢
+        修改说明：引入代理信号层级的 S/A/J 运动学提取与 HAB 历史累积缓冲逻辑，构建具有“动能”与“存量”意识的代理矩阵。
+        版本号：2026.02.10.25
         """
-        # 1. 相对强度代理信号（增强版）
-        rs_proxy = self._calculate_enhanced_rs_proxy(df_index, mtf_signals, normalized_signals, config)
-        # 2. 资本属性代理信号（多维度资本分析）
-        capital_proxy = self._calculate_enhanced_capital_proxy(df_index, mtf_signals, normalized_signals, config)
-        # 3. 市场情绪代理信号（复合情绪指数）
-        sentiment_proxy = self._calculate_enhanced_sentiment_proxy(df_index, mtf_signals, normalized_signals, config)
-        # 4. 流动性代理信号（分层流动性分析）
-        liquidity_proxy = self._calculate_enhanced_liquidity_proxy(df_index, mtf_signals, normalized_signals, config)
-        # 5. 波动性代理信号（自适应波动率）
-        volatility_proxy = self._calculate_enhanced_volatility_proxy(df_index, mtf_signals, normalized_signals, config)
-        # 6. 风险偏好代理信号（市场风险偏好）
-        risk_preference_proxy = self._calculate_enhanced_risk_preference_proxy(df_index, mtf_signals, normalized_signals, config)
-        # 7. 综合信号质量评估
+        self._probe_print(">>> 启动代理信号能量场构建 (V5.0) <<<")
+        # 1. 计算六大基础代理信号
+        # 调用子模块计算基础分值
+        rs_res = self._calculate_enhanced_rs_proxy(df_index, mtf_signals, normalized_signals, config)
+        cap_res = self._calculate_enhanced_capital_proxy(df_index, mtf_signals, normalized_signals, config)
+        sent_res = self._calculate_enhanced_sentiment_proxy(df_index, mtf_signals, normalized_signals, config)
+        liq_res = self._calculate_enhanced_liquidity_proxy(df_index, mtf_signals, normalized_signals, config)
+        vol_res = self._calculate_enhanced_volatility_proxy(df_index, mtf_signals, normalized_signals, config)
+        risk_res = self._calculate_enhanced_risk_preference_proxy(df_index, mtf_signals, normalized_signals, config)
+        # 2. 运动学分量提取 (Kinematic Component Extraction)
+        # 为核心代理信号注入 S/A/J 指标（利用 mtf_signals 中的预计算列）
+        # 逻辑：我们将代理信号本身视为一个“物理点”，观察其在多维空间中的运动轨迹
+        proxy_cores = {
+            "rs": rs_res.get("enhanced_rs_proxy"),
+            "capital": cap_res.get("enhanced_capital_proxy"),
+            "sentiment": sent_res.get("enhanced_sentiment_proxy")
+        }
+        kinematic_proxies = {}
+        for name, series in proxy_cores.items():
+            if series is not None:
+                # 提取 5 日周期运动矢量
+                kinematic_proxies[f"{name}_slope"] = series.diff(1).rolling(window=5).mean().fillna(0)
+                kinematic_proxies[f"{name}_accel"] = kinematic_proxies[f"{name}_slope"].diff(1).fillna(0)
+                kinematic_proxies[f"{name}_jerk"]  = kinematic_proxies[f"{name}_accel"].diff(1).fillna(0)
+        # 3. 历史累积记忆缓冲系统 (Proxy-HAB System)
+        # 核心逻辑：将代理信号的正向变动积聚在 Buffer 中，形成“能量存量”
+        proxy_hab_scores = {}
+        hab_window = get_param_value(config.get('proxy_hab_window'), 13)
+        for name, series in proxy_cores.items():
+            if series is not None:
+                # 只有当信号强度 > 0.5 时，才计入 HAB 累积（忽略噪音期）
+                hab_increment = series.mask(series < 0.5, 0).diff(1).clip(lower=0)
+                hab_buffer = hab_increment.rolling(window=hab_window).sum().fillna(0)
+                # 使用 normalize_score 转化为置信度 [0, 1]
+                proxy_hab_scores[f"{name}_hab_score"] = normalize_score(hab_buffer, target_index=df_index, windows=21)
+        # 4. 综合信号质量与市场阶段评估 (集成 HAB 分数)
+        # 这里的综合评估会参考 HAB 水位：水位越高，评估结果越趋向于“主升/蓄势”
+        combined_hab = (proxy_hab_scores.get("rs_hab_score", 0.5) * 0.4 + 
+                        proxy_hab_scores.get("capital_hab_score", 0.5) * 0.6)
         signal_quality = self._assess_signal_quality(
-            rs_proxy, capital_proxy, sentiment_proxy, 
-            liquidity_proxy, volatility_proxy, risk_preference_proxy
+            rs_res, cap_res, sent_res, liq_res, vol_res, risk_res
         )
-        # 8. 动态权重合成（根据信号质量和市场状态）
+        # 将 HAB 存量权重注入信号质量：高存量意味着更高的信号可靠性
+        signal_quality = (signal_quality * 0.7 + combined_hab * 0.3).clip(0, 1)
+        # 5. 动态权重合成
         final_proxy_signals = self._dynamic_weighted_synthesis(
-            rs_proxy, capital_proxy, sentiment_proxy, 
-            liquidity_proxy, volatility_proxy, risk_preference_proxy,
-            signal_quality, config
+            rs_res, cap_res, sent_res, liq_res, vol_res, risk_res, signal_quality, config
         )
+        # 6. 状态增强：将计算出的 S/A/J 和 HAB 指标注入最终字典，供后续 Adjudication (裁决) 使用
+        final_proxy_signals.update(kinematic_proxies)
+        final_proxy_signals.update(proxy_hab_scores)
+        final_proxy_signals["proxy_combined_hab"] = combined_hab
+        # 7. 全景探针输出
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Proxy Energy Field Probe ---")
+            for name in ["rs", "capital"]:
+                s = kinematic_proxies.get(f"{name}_slope", pd.Series(0, index=df_index)).iloc[-1]
+                a = kinematic_proxies.get(f"{name}_accel", pd.Series(0, index=df_index)).iloc[-1]
+                j = kinematic_proxies.get(f"{name}_jerk",  pd.Series(0, index=df_index)).iloc[-1]
+                h = proxy_hab_scores.get(f"{name}_hab_score", pd.Series(0, index=df_index)).iloc[-1]
+                self._probe_print(f"  > {name.upper()} Field: S={s:.4f}, A={a:.4f}, J={j:.4f} | HAB={h:.4f}")
+            self._probe_print(f"  > Integrated Proxy HAB: {combined_hab.iloc[-1]:.4f}")
         return final_proxy_signals
 
     def _calculate_enhanced_rs_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.0】增强版相对强度代理信号
-        核心理念：相对强度不仅看价格趋势，还要看动量、加速、结构等多个维度
-        数学模型：多维度RSI扩展 + 结构强度 + 动量扩散
-        数据层需要新增：
-        1. 行业相对强度排名
-        2. 板块轮动速度
-        3. 相对成交额变化
+        【V5.0 · RS运动学与HAB能量版】增强版相对强度代理信号
+        修改说明：引入RS维度的S/A/J运动学矢量与HAB历史累积缓冲逻辑。
+        版本号：2026.02.10.28
         """
         enhanced_rs_proxy_calculator = EnhancedRSProxyCalculator(config)
-        rs_components = {}
-        # 1. 价格趋势相对强度（MTF趋势）
-        price_trend_strength = mtf_signals.get('mtf_price_trend', pd.Series(0.0, index=df_index)).clip(lower=0)
-        # 2. 动量相对强度（自适应RSI）
+        # 1. 基础分量提取
+        # 价格趋势相对强度（MTF趋势） 
+        price_trend_strength = mtf_signals.get('mtf_price_trend', pd.Series(0.5, index=df_index)).clip(lower=0)
+        # 2. RS 运动学矢量计算 (RS Kinematics) [cite: 4]
+        # 直接接驳数据层提供的 5日 斐波那契运动学指标 
+        rs_slope = mtf_signals.get('SLOPE_5_price_trend', pd.Series(0.0, index=df_index))
+        rs_accel = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0.0, index=df_index))
+        rs_jerk  = mtf_signals.get('JERK_5_price_trend',  pd.Series(0.0, index=df_index))
+        # 3. RS 历史累积记忆缓冲系统 (RS-HAB) 
+        # 核心逻辑：累积高 RS 状态下的加速度，形成“强势记忆存量”
+        hab_window = get_param_value(config.get('rs_hab_window'), 21)
+        # 只有在 RS 处于强势区 (>0.6) 且加速度为正时，累积 HAB 
+        hab_increment = (price_trend_strength.mask(price_trend_strength < 0.6, 0) * rs_accel.clip(lower=0))
+        hab_buffer = hab_increment.rolling(window=hab_window, min_periods=5).sum().fillna(0)
+        # 归一化为 0-1 的存量分 
+        hab_score = normalize_score(hab_buffer, target_index=df_index, windows=34)
+        # 4. 动态 RS 综合模型合成
+        # 基础 RS 组件
         rsi_strength = enhanced_rs_proxy_calculator._calculate_adaptive_rsi_strength(
-            normalized_signals.get('RSI_norm', pd.Series(0.5, index=df_index)),
-            df_index
+            normalized_signals.get('RSI_norm', pd.Series(0.5, index=df_index)), df_index
         )
-        # 3. 加速相对强度（价格加速度）
-        acceleration_strength = enhanced_rs_proxy_calculator._calculate_price_acceleration_strength(
-            mtf_signals.get('mtf_price_trend', pd.Series(0.0, index=df_index)),
-            df_index
-        )
-        # 4. 结构相对强度（突破、支撑、阻力）
-        structural_strength = enhanced_rs_proxy_calculator._calculate_structural_strength(
-            normalized_signals, mtf_signals, df_index
-        )
-        # 5. 成交量相对强度（量价配合）
-        volume_strength = enhanced_rs_proxy_calculator._calculate_volume_relative_strength(
-            normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index)),
-            price_trend_strength,
-            df_index
-        )
-        # 6. 资金流相对强度（资金推动效率）
-        capital_flow_strength = enhanced_rs_proxy_calculator._calculate_capital_flow_relative_strength(
-            normalized_signals.get('net_amount_ratio_norm', pd.Series(0.5, index=df_index)),
-            price_trend_strength,
-            df_index
-        )
-        # 综合相对强度（使用加权几何平均）
-        rs_weights = {
-            "price_trend": 0.25,
-            "rsi": 0.20,
-            "acceleration": 0.15,
-            "structural": 0.15,
-            "volume": 0.15,
-            "capital_flow": 0.10
-        }
+        structural_strength = enhanced_rs_proxy_calculator._calculate_structural_strength(normalized_signals, mtf_signals, df_index)
+        # 运动学向量综合：突出 Jerk 在 A 股启动初期的作用 
+        kinematic_vector_sum = (rs_slope * 0.3 + rs_accel * 0.4 + rs_jerk * 0.3).clip(0, 1)
+        # 5. 最终合成：HAB 水位作为置信度倍率 
+        rs_weights = {"price_trend": 0.3, "rsi": 0.2, "structural": 0.2, "kinematic": 0.3}
         rs_components_values = {
-            "price_trend": price_trend_strength.clip(0, 1),
-            "rsi": rsi_strength.clip(0, 1),
-            "acceleration": acceleration_strength.clip(0, 1),
-            "structural": structural_strength.clip(0, 1),
-            "volume": volume_strength.clip(0, 1),
-            "capital_flow": capital_flow_strength.clip(0, 1)
+            "price_trend": price_trend_strength,
+            "rsi": rsi_strength,
+            "structural": structural_strength,
+            "kinematic": kinematic_vector_sum
         }
-        # 使用加权几何平均（强调一致性）
-        rs_proxy = self._weighted_geometric_mean(rs_components_values, rs_weights, df_index)
-        # 动态调节器：根据市场状态调整强度
-        market_state = enhanced_rs_proxy_calculator._detect_market_state_for_rs(rs_components_values, df_index)
-        rs_modulator = enhanced_rs_proxy_calculator._calculate_rs_modulator(market_state, config)
-        # 最终相对强度代理信号
-        enhanced_rs_proxy = (rs_proxy * rs_modulator).clip(0, 1)
+        # 加权几何平均合成基础 RS 
+        rs_proxy_raw = self._weighted_geometric_mean(rs_components_values, rs_weights, df_index)
+        # 应用 HAB 调节：高存量强势股在再次爆发时获得额外溢价 
+        rs_modulator = 0.95 + (hab_score * 0.15)
+        enhanced_rs_proxy = (rs_proxy_raw * rs_modulator).clip(0, 1)
+        # 6. 全景探针输出 
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- RS Enhanced Proxy Probe ---")
+            self._probe_print(f"  > RS Kinematics: S={rs_slope.iloc[-1]:.4f}, A={rs_accel.iloc[-1]:.4f}, J={rs_jerk.iloc[-1]:.4f}")
+            self._probe_print(f"  > RS-HAB Stock Level: {hab_buffer.iloc[-1]:.4f} (Score: {hab_score.iloc[-1]:.4f})")
+            self._probe_print(f"  > Final Enhanced RS: {enhanced_rs_proxy.iloc[-1]:.4f}")
         return {
-            "raw_rs_proxy": rs_proxy,
+            "raw_rs_proxy": rs_proxy_raw,
             "enhanced_rs_proxy": enhanced_rs_proxy,
-            "rs_modulator": rs_modulator,
-            "rs_components": rs_components_values,
-            "market_state": pd.Series(market_state, index=df_index)
+            "rs_hab_score": hab_score,
+            "rs_kinematic_vector": kinematic_vector_sum,
+            "rs_modulator": rs_modulator
         }
 
     def _calculate_enhanced_capital_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
