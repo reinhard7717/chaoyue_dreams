@@ -44,39 +44,38 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V12.6 · 物理量纲稳健版】主力拉升意图主计算流程
-        修改说明：在物理层通过RPS算法拦截量纲异常，执行成交量Jerk诊断，确保拉升意图不再因极值被熔断。
-        版本号：2026.02.10.313
+        【V12.7 · Fisher共振爆发全缝合版】主力拉升意图主计算流程
+        修改说明：完成Fisher一致性审计与动态权重确定性溢价的逻辑闭环，提升横盘末端突破识别的敏锐度。
+        版本号：2026.02.10.373
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
-        # 1. 物理层处理与异常诊断
+        # 1. 信号与物理层
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
-        if self._is_probe_enabled(df):
-            self._diagnose_vol_jerk_anomaly(df_index, raw_signals, mtf_signals)
-        # 2. 逻辑链条计算
+        if self._is_probe_enabled(df): self._diagnose_vol_jerk_anomaly(df_index, raw_signals, mtf_signals)
+        # 2. 状态识别
         factors = self._calculate_market_state_factors(df_index, normalized_signals, mtf_signals)
         phase = self._identify_market_phase(df_index, factors, normalized_signals)
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
+        # 3. 代理与权重 (包含 Fisher 审计)
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals, factors, phase)
-        # 3. 维度分值合成
+        # 4. 核心分值合成
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 4. 风险评估与意图缝合
+        # 5. 风险与最终意图
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase)
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 5. 最终意图计算与保护
         final_rally_intent = (bullish_intent * (1 - total_risk_penalty * 0.8) + bearish_score).fillna(0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, phase, aggressiveness_score)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0).fillna(0)
-        # 6. 持久化与全链路探针
+        # 6. 审计与持久化
         self._persist_hab_states(historical_context)
         if self._is_probe_enabled(df):
             self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase, dynamic_weights)
@@ -701,39 +700,44 @@ class CalculateMainForceRallyIntent:
 
     def _construct_proxy_signals(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 能量场自闭环版】代理信号构建中枢
-        修改说明：彻底废弃外部归一化。内部实现Proxy-HAB的Rolling Rank排位，并集成自适应信噪比评估。
-        版本号：2026.02.10.142
+        【V7.1 · 审计回填版】代理信号构建中枢
+        修改说明：将Fisher一致性爆发得分与综合质量指标回填至返回字典，为动态权重模块提供确定性溢价依据。
+        版本号：2026.02.10.371
         """
+        # 1. 核心代理信号计算
         rs_res = self._calculate_enhanced_rs_proxy(df_index, mtf_signals, normalized_signals, config)
         cap_res = self._calculate_enhanced_capital_proxy(df_index, mtf_signals, normalized_signals, config)
         sent_res = self._calculate_enhanced_sentiment_proxy(df_index, mtf_signals, normalized_signals, config)
         liq_res = self._calculate_enhanced_liquidity_proxy(df_index, mtf_signals, normalized_signals, config)
         vol_res = self._calculate_enhanced_volatility_proxy(df_index, mtf_signals, normalized_signals, config)
         risk_res = self._calculate_enhanced_risk_preference_proxy(df_index, mtf_signals, normalized_signals, config)
+
         proxy_cores = {"rs": rs_res.get("enhanced_rs_proxy"), "capital": cap_res.get("enhanced_capital_proxy"), "sentiment": sent_res.get("enhanced_sentiment_proxy")}
-        # 1. 物理矢量与存量累积 (HAB)
-        proxy_hab_scores = {}
-        hab_win = 21
-        for name, series in proxy_cores.items():
-            if series is not None:
-                hab_inc = series.mask(series < 0.6, 0).diff(1).clip(lower=0)
-                hab_raw = hab_inc.rolling(window=hab_win).sum().fillna(0)
-                # 专用归一化：Rolling Rank (局部排位)
-                proxy_hab_scores[f"{name}_hab_score"] = hab_raw.rolling(55).rank(pct=True).fillna(0.5)
-        # 2. 内聚式信号质量评估 (基于 SNR 映射)
+
+        # 2. Fisher 一致性审计 (继承 V7.0 核心算法)
+        core_df = pd.DataFrame(proxy_cores).fillna(0.5)
+        avg_sync_raw = core_df.rolling(window=13).apply(lambda x: (np.nansum(x.corr().values) - 3) / 6.0, raw=False).fillna(0)
+        fisher_norm = np.tanh(0.5 * np.log((1 + avg_sync_raw.clip(-0.99, 0.99)) / (1 - avg_sync_raw.clip(-0.99, 0.99)))).clip(0, 1)
+        sync_burst_score = np.tanh(fisher_norm.diff(1).diff(1).clip(lower=0).rolling(5).mean().fillna(0) * 50).clip(0, 1)
+
+        # 3. 综合质量评估 (Fisher-SNR)
         quality_list = []
         for name, series in proxy_cores.items():
-            noise = series.diff().abs().rolling(13).sum().replace(0, 1e-9)
-            signal = series.diff(13).abs()
-            snr = (signal / noise).clip(0, 1)
-            quality_list.append(np.tanh(snr * 3)) # Tanh 非线性增强
-        signal_quality = pd.concat(quality_list, axis=1).mean(axis=1).fillna(0.7)
-        # 3. 动态权重合成与 HAB 注入
-        final_proxy_signals = self._dynamic_weighted_synthesis(rs_res, cap_res, sent_res, liq_res, vol_res, risk_res, signal_quality, config)
-        final_proxy_signals.update(proxy_hab_scores)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Proxy Field Integrated HAB: {proxy_hab_scores.get('rs_hab_score', pd.Series(0.5)).iloc[-1]:.4f}")
+            noise = series.diff().abs().rolling(13, min_periods=1).sum().replace(0, 1e-9)
+            signal = series.diff(13).abs().fillna(0)
+            quality_list.append(np.tanh(0.5 * np.log((1 + (signal/noise).clip(0, 0.99)) / (1 - (signal/noise).clip(0, 0.99)))))
+        individual_quality = pd.concat(quality_list, axis=1).mean(axis=1).fillna(0.7)
+        combined_signal_quality = (individual_quality * 0.4 + fisher_norm * 0.4 + sync_burst_score * 0.2).clip(0, 1)
+
+        # 4. 动态权重合成与 HAB 注入
+        final_proxy_signals = self._dynamic_weighted_synthesis(rs_res, cap_res, sent_res, liq_res, vol_res, risk_res, combined_signal_quality, config)
+        # 核心修复：回填审计指标供 _calculate_dynamic_weights 使用
+        final_proxy_signals['combined_signal_quality'] = combined_signal_quality
+        final_proxy_signals['sync_burst_score'] = sync_burst_score
+        # 注入各维度 HAB 存量
+        for name, series in proxy_cores.items():
+            final_proxy_signals[f"{name}_hab_score"] = series.mask(series < 0.6, 0).diff(1).clip(lower=0).rolling(21).sum().fillna(0).rolling(55).rank(pct=True).fillna(0.5)
+
         return final_proxy_signals
 
     def _calculate_enhanced_rs_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
@@ -765,31 +769,28 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_enhanced_capital_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 物理鲁棒性版】增强版资本属性代理信号
-        修改说明：废弃外部归一化工具，采用Rolling Rank处理HAB存量。针对极端资金流SAJ引入tanh压缩，防止信号爆表。
-        版本号：2026.02.10.250
+        【V5.2 · 动态量纲自适应版】增强版资本属性代理信号
+        修改说明：废弃固定1e7缩放，改用滚动均值作为物理量纲基准。确保Capital-HAB在不同成交量级的个股中均能有效感知存量累积。
+        版本号: 2026.02.10.321
         """
-        # 1. 提取资金运动学三维矢量并执行饱和压缩
-        cap_slope = np.tanh(mtf_signals.get('SLOPE_5_mf_net_amount', pd.Series(0.0, index=df_index)) / 1e7)
-        cap_accel = np.tanh(mtf_signals.get('ACCEL_5_mf_net_amount', pd.Series(0.0, index=df_index)) / 1e7)
-        cap_jerk = np.tanh(mtf_signals.get('JERK_5_mf_net_amount', pd.Series(0.0, index=df_index)) / 1e7)
-        # 2. 资金历史累积记忆缓冲 (Capital-HAB)
+        # 1. 获取动态缩放基准 (13日均值)
+        mf_series = mtf_signals.get('SLOPE_5_mf_net_amount', pd.Series(0.0, index=df_index))
+        scaling_base = mf_series.abs().rolling(21, min_periods=5).mean().replace(0, 1e6)
+        # 2. 运动学矢量执行自适应饱和压缩
+        cap_slope = np.tanh(mf_series / scaling_base)
+        cap_accel = np.tanh(mtf_signals.get('ACCEL_5_mf_net_amount', pd.Series(0.0, index=df_index)) / scaling_base)
+        cap_jerk = np.tanh(mtf_signals.get('JERK_5_mf_net_amount', pd.Series(0.0, index=df_index)) / scaling_base)
+        # 3. Capital-HAB 累积
         net_mf_norm = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index)
-        flow_consis = pd.Series(normalized_signals.get('flow_consistency_norm', 0.5), index=df_index)
-        hab_window = get_param_value(config.get('capital_hab_window'), 21)
-        hab_increment = (net_mf_norm.mask(net_mf_norm < 0.5, 0) * flow_consis * cap_accel.clip(lower=0))
-        cap_hab_buffer = hab_increment.rolling(window=hab_window, min_periods=5).sum().fillna(0)
-        # 定制归一化：Rolling Rank (34日排位)
-        cap_hab_score = cap_hab_buffer.rolling(34).rank(pct=True).fillna(0.5)
-        # 3. 资本效率因子 (CEF)
-        vol_ratio = pd.Series(normalized_signals.get('volume_ratio_norm', 0.5), index=df_index)
-        capital_efficiency = (cap_slope.clip(lower=0) / (vol_ratio + 0.1)).clip(0, 1)
-        # 4. 综合合成
+        hab_inc = (net_mf_norm.mask(net_mf_norm < 0.55, 0) * cap_accel.clip(lower=0))
+        cap_hab_score = hab_inc.rolling(window=21, min_periods=5).sum().fillna(0).rolling(34).rank(pct=True).fillna(0.5)
+        # 4. 最终合成
         kinematic_sum = (cap_slope * 0.4 + cap_accel * 0.4 + cap_jerk * 0.2).clip(0, 1)
-        raw_proxy = (kinematic_sum * 0.4 + cap_hab_score * 0.4 + capital_efficiency * 0.2).clip(0, 1)
-        capital_modulator = 0.9 + (vol_ratio * 0.2)
-        enhanced_capital_proxy = (raw_proxy * capital_modulator).clip(0, 1)
-        return {"raw_capital_proxy": raw_proxy, "enhanced_capital_proxy": enhanced_capital_proxy, "capital_hab_score": cap_hab_score, "capital_modulator": capital_modulator}
+        raw_proxy = (kinematic_sum * 0.4 + cap_hab_score * 0.4 + 0.2).clip(0, 1) # 给予固定效率补给
+        enhanced_capital_proxy = (raw_proxy * 1.0).clip(0, 1)
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"[CAP_PROBE_V5.2] Raw_Slope: {mf_series.iloc[-1]:.0f} | Base: {scaling_base.iloc[-1]:.0f} | HAB: {cap_hab_score.iloc[-1]:.4f}")
+        return {"raw_capital_proxy": raw_proxy, "enhanced_capital_proxy": enhanced_capital_proxy, "capital_hab_score": cap_hab_score}
 
     def _calculate_enhanced_sentiment_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
@@ -1152,36 +1153,38 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_dynamic_weights(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], factors: Dict[str, pd.Series], phase: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V6.1 · 参数对齐与性能优化版】动态权重计算系统
-        修改说明：修正参数签名，解决Positional Arguments不匹配导致的TypeError。通过透传factors与phase消除冗余物理计算。
-        版本号：2026.02.10.290
+        【V6.2 · 确定性溢价调节版】动态权重计算系统
+        修改说明：引入基于Fisher一致性爆发的确定性溢价。当信号共振爆发时，自动压缩Softmax温度，使权重瞬间聚焦优势维度。
+        版本号：2026.02.10.372
         """
-        # 1. 物理相位感知的基础权重分配 (直接使用透传的phase)
+        # 1. 物理相位基准权重
         base_weights_raw = self._calculate_base_weights(df_index, phase, factors)
-        # 2. 提取运动学增益 (加速度聚焦)
+        # 2. 运动学增益
         rs_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).abs()
-        sent_acc = pd.Series(mtf_signals.get('ACCEL_5_market_sentiment_trend', 0.0), index=df_index).abs()
-        # 3. 构建 Weight-HAB (权重存量记忆)
+        # 3. 提取一致性爆发与综合质量 (来自 Proxy 模块回填)
+        quality = proxy_signals.get('combined_signal_quality', factors.get('state_hab_score', pd.Series(0.7, index=df_index)))
+        burst_score = proxy_signals.get('sync_burst_score', pd.Series(0.0, index=df_index))
         final_weights_unnorm = {}
         for dim, b_w in base_weights_raw.items():
-            # 为攻击性维度注入运动学加速度溢价
-            boost = (rs_acc * 0.5 + sent_acc * 0.5) if dim == 'aggressiveness' else 0
-            raw_w = b_w * (1 + boost)
-            final_weights_unnorm[dim] = raw_w.ewm(span=13).mean()
-        # 4. 内部带温度控制的 Softmax 归一化
+            boost = (rs_acc * 0.6) if dim == 'aggressiveness' else 0
+            final_weights_unnorm[dim] = (b_w * (1 + boost)).ewm(span=13).mean()
+
+        # 4. 带确定性溢价的 Softmax 归一化
         final_weights = {dim: pd.Series(0.0, index=df_index) for dim in final_weights_unnorm.keys()}
-        quality = factors.get('state_hab_score', pd.Series(0.7, index=df_index))
         for i in range(len(df_index)):
             raw_vals = np.array([final_weights_unnorm[d].iloc[i] for d in final_weights_unnorm])
-            # 温度调节：环境质量越高，权重越向优势维度聚焦
-            q_val = quality.iloc[i]
-            temp = 2.0 - (q_val * 1.5) 
-            exp_vals = np.exp(raw_vals / (temp + 1e-9))
+            # 基础温度：由综合质量决定 (0.5 -> 2.0)
+            base_temp = 2.0 - (quality.iloc[i] * 1.5)
+            # 【核心重构】确定性溢价：一致性爆发时，温度快速下降，锐化分配逻辑
+            # burst_score 为 1 时，温度最高被压缩 45% (除以 1.8)
+            final_temp = base_temp / (1 + burst_score.iloc[i] * 0.8 + 1e-9)
+            
+            exp_vals = np.exp(raw_vals / (final_temp.clip(0.1, 2.0)))
             norm_vals = exp_vals / (np.sum(exp_vals) + 1e-9)
             for idx, dim in enumerate(final_weights_unnorm.keys()):
                 final_weights[dim].iloc[i] = norm_vals[idx]
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[DYNAMIC_WEIGHT_PROBE] Current_Phase: {phase.iloc[-1]}, Temperature: {temp:.2f}")
+            self._probe_print(f"[WEIGHT_BURST_PROBE] Burst: {burst_score.iloc[-1]:.4f} | Final_Temp: {final_temp.iloc[-1]:.4f}")
         return final_weights
 
     def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -1319,24 +1322,63 @@ class CalculateMainForceRallyIntent:
             self._probe_print(f"  > Final Agg Score: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
-    def _detect_bear_trap(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series]) -> pd.Series:
+    def _detect_bear_trap(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], obstacle_clearance_score: pd.Series) -> pd.Series:
         """
-        【V6.0 · Tanh反转强度版】诱空陷阱检测
-        修改说明：采用tanh非线性映射取代通用归一化，精准捕捉价格加速度从负值极速转正的物理拐点。
-        版本号：2026.02.10.121
+        【V7.0 · PAR-Jerk 诱空识别版】诱空陷阱检测
+        修改说明：引入PAR-HAB（障碍清除分数）的阶跃与Price-Jerk的正向偏移。判别横盘回踩是否为“暴力洗盘”，捕捉启动前的最后物理拐点。
+        版本号：2026.02.10.350
         """
-        p_acc = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0.0, index=df_index))
-        p_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0.0, index=df_index))
-        # 1. 识别动量拐点：加速度为负(下跌惯性)但Jerk为正(力量开始向上反扑)
-        reversal_impulse = (p_jerk.clip(lower=0) * p_acc.clip(upper=0).abs())
-        # 2. 定制归一化：Tanh 映射 (中心点0.005，模拟小概率大反转)
-        trap_intensity = np.tanh(reversal_impulse / 0.005).clip(0, 1)
-        # 3. 结合筹码存量：主力若锁仓，则陷阱成立度更高
-        chip_stab = normalized_signals.get('chip_stability_norm', 0.5)
-        final_trap_score = (trap_intensity * chip_stab).rolling(window=3).mean().fillna(0)
+        # 1. 提取关键物理矢量
+        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
+        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index)
+        # 2. 计算 PAR-HAB 阶跃 (Step Change)
+        # 逻辑：当障碍清除分值（代表吸收强度）在急跌中跳升，意味着主力在特定价位“接盘”
+        par_step = obstacle_clearance_score.diff(1).clip(lower=0)
+        # 3. 识别反转冲量 (Jerk Offset)
+        # 物理逻辑：加速度为负（下跌中）且加加速度为正（正在极速减速或受力反弹）
+        # trap_impulse = 下跌惯性绝对值 * 向上反作用力 * 吸收阶跃
+        trap_impulse = p_acc.clip(upper=0).abs() * p_jerk.clip(lower=0) * (1 + par_step * 2)
+        # 4. 定制化归一化：Tanh 映射
+        # 阈值设为 0.0015，对应 A 股常见的缩量诱空反转强度
+        trap_intensity = np.tanh(trap_impulse / 0.0015).clip(0, 1)
+        # 5. 结合障碍清除存量背书
+        # 只有在长期障碍清理水位(HAB-Rank)较高时，局部的“陷阱”才具备确定性
+        hab_backing = obstacle_clearance_score.rolling(window=13).mean()
+        final_trap_score = (trap_intensity * hab_backing).fillna(0)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[TRAP_PROBE] Impulse: {reversal_impulse.iloc[-1]:.6f}, Tanh_Score: {trap_intensity.iloc[-1]:.4f}")
-        return final_trap_score
+            self._probe_print(f"--- PAR-Jerk Bear Trap Probe ---")
+            self._probe_print(f"  > PAR_Step: {par_step.iloc[-1]:.4f} | Jerk_Offset: {p_jerk.iloc[-1]:.4f}")
+            self._probe_print(f"  > Trap_Impulse: {trap_impulse.iloc[-1]:.6f} | Final_Score: {final_trap_score.iloc[-1]:.4f}")
+            
+        return final_trap_score.astype(np.float32)
+
+    def _detect_bull_trap(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dist_hab: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 物理受力反转版】诱多陷阱检测
+        修改说明：Bear Trap逻辑的物理反转。识别上涨惯性中派发力量的阶跃与价格Jerk的负向偏移。
+        版本号：2026.02.10.360
+        """
+        # 1. 提取物理矢量
+        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
+        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index)
+        dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
+        # 2. 计算派发阶跃 (Dist Step)
+        dist_step = dist_score.diff(1).clip(lower=0)
+        # 3. 识别诱多冲量 (Bull Trap Impulse)
+        # 物理逻辑：处于上涨惯性(Acc > 0)但受力方向已变(Jerk < 0)，且伴随派发增强
+        bull_impulse = p_acc.clip(lower=0) * p_jerk.clip(upper=0).abs() * (1 + dist_step * 2)
+        # 4. 定制化归一化
+        # 阈值设为 0.0020，捕捉A股典型的高位缩量诱多
+        trap_intensity = np.tanh(bull_impulse / 0.0020).clip(0, 1)
+        # 5. 结合派发存量背书 (Dist-HAB)
+        # 诱多陷阱必须建立在主力已有充分出货存量的前提下
+        final_trap_score = (trap_intensity * dist_hab).fillna(0)
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Bull Trap Physics Probe ---")
+            self._probe_print(f"  > Dist_Step: {dist_step.iloc[-1]:.4f} | Neg_Jerk: {p_jerk.iloc[-1]:.4f}")
+            self._probe_print(f"  > Bull_Impulse: {bull_impulse.iloc[-1]:.6f} | Trap_Score: {final_trap_score.iloc[-1]:.4f}")
+            
+        return final_trap_score.astype(np.float32)
 
     def _calculate_volume_price_divergence(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series]) -> pd.Series:
         """
@@ -1382,131 +1424,171 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_control_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V5.1 · 参数修复与韧性增强版】计算控制力分数
-        修改说明：修复缺失raw_signals导致的NameError。采用非对称Sigmoid归一化，量化主力高位锁仓的控盘韧性。
-        版本号：2026.02.10.231
+        【V5.2 · 筹码熵变动力学版】计算控制力分数
+        修改说明：利用筹码熵的一阶导数识别缩量筹码搬家。熵减斜率与成交量反向耦合，量化高位横盘时的“真实锁仓”强度。
+        版本号：2026.02.10.330
         """
-        # 1. 提取物理分量并强制类型转换
+        # 1. 提取筹码熵与稳定性
+        entropy = pd.Series(raw_signals.get('chip_entropy', 0.5), index=df_index)
         chip_stab = pd.Series(raw_signals.get('chip_stability', 0.5), index=df_index)
-        accumulation = pd.Series(raw_signals.get('behavior_accumulation', 0.5), index=df_index)
-        # 2. 控盘基础分与非对称 Sigmoid 增强
-        # 逻辑：中心点设为0.6，强化深度控盘区的识别斜率
-        base_ctrl = (chip_stab * 0.6 + accumulation * 0.4).clip(0, 1)
-        ctrl_norm = 1 / (1 + np.exp(-12 * (base_ctrl - 0.6)))
-        # 3. 控盘历史累积 (Control-HAB)
-        hab_inc = ctrl_norm * accumulation
-        ctrl_hab = hab_inc.rolling(34).rank(pct=True).fillna(0.5)
-        # 4. 最终合成
-        score = (ctrl_norm * 0.7 + ctrl_hab * 0.3).clip(0, 1)
+        vol_ratio = pd.Series(raw_signals.get('volume_ratio', 1.0), index=df_index)
+        # 2. 计算熵变斜率 (Entropy Slope) - 熵减代表集中
+        entropy_slope = entropy.diff(3).rolling(5).mean().fillna(0)
+        # 3. 计算“缩量搬家效率” (Migration Efficiency)
+        # 逻辑：熵减强度越大(负值绝对值大)且成交量越低，控盘效率越高
+        # 使用tanh映射，中心点设为 -0.01 (代表3日熵减1%)
+        concentration_impulse = np.tanh(-entropy_slope / 0.01).clip(lower=0)
+        # 搬家效率 = 集中冲量 / (成交量比率 + 修正项)
+        migration_efficiency = (concentration_impulse / (vol_ratio + 0.1)).clip(0, 2)
+        migration_norm = np.tanh(migration_efficiency).clip(0, 1)
+        # 4. 构建 Control-Entropy-HAB (控盘存量)
+        # 逻辑：将搬家效率与筹码稳定性进行耦合累积
+        hab_win = 21
+        hab_inc = migration_norm * chip_stab
+        hab_buffer = hab_inc.rolling(window=hab_win, min_periods=5).sum().fillna(0)
+        # 定制化归一化：Rolling Rank (55日分位数排位)
+        hab_score = hab_buffer.rolling(55).rank(pct=True).fillna(0.5)
+        # 5. 判别“最后的疯狂” vs “高位良换手”
+        # 识别特征：高位横盘(P-HAB高)且熵增(Slope > 0) = 疯狂/派发
+        p_hab = pd.Series(normalized_signals.get('absolute_change_strength_norm', 0.5), index=df_index).rolling(13).mean()
+        frenzy_risk = (p_hab.mask(p_hab < 0.7, 0) * np.tanh(entropy_slope.clip(lower=0) / 0.01)).clip(0, 1)
+        # 6. 最终合成
+        # 控盘得分 = (瞬时集中度 + 存量水位) * (1 - 疯狂风险)
+        base_control = (migration_norm * 0.4 + hab_score * 0.6).clip(0, 1)
+        final_control = (base_control * (1 - frenzy_risk * 0.5)).clip(0, 1)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[CONTROL_PROBE] Sigmoid_Ctrl: {ctrl_norm.iloc[-1]:.4f}, Control_HAB: {ctrl_hab.iloc[-1]:.4f}")
-        return score.astype(np.float32)
+            self._probe_print(f"--- Chip Migration Control Probe ---")
+            self._probe_print(f"  > Entropy_Slope: {entropy_slope.iloc[-1]:.6f} | Mig_Eff: {migration_norm.iloc[-1]:.4f}")
+            self._probe_print(f"  > Control_HAB_Rank: {hab_score.iloc[-1]:.4f} | Frenzy_Risk: {frenzy_risk.iloc[-1]:.4f}")
+        return final_control.astype(np.float32)
 
     def _calculate_obstacle_clearance_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V6.1 · 签名对齐与Jerk穿透版】计算障碍清除分数
-        修改说明：补齐raw_signals参数签名。利用Volume-Jerk识别主力穿透筹码压力区时的平滑度与效率。
-        版本号：2026.02.10.232
+        【V7.0 · 抛压吸收动力学版】计算障碍清除分数
+        修改说明：引入PAR(抛压吸收比)逻辑，利用物理Jerk识别支撑位瞬间的吸筹强度。通过HAB存量化抛压消化进度，判别高位横盘的健康度。
+        版本号：2026.02.10.340
         """
-        # 1. 提取物理分量
-        abs_change = pd.Series(raw_signals.get('absolute_change_strength', 0.0), index=df_index)
-        vol_ratio = pd.Series(raw_signals.get('volume_ratio', 1.0), index=df_index)
-        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
-        v_jerk = pd.Series(mtf_signals.get('JERK_5_volume_trend', 0.0), index=df_index).abs()
-        # 2. 物理穿透效率 (Penetration Efficiency)
-        # 逻辑：单位成交量驱动的价格加速度，并受成交量加加速度(Jerk)的惩罚，过滤暴力对敲。
-        raw_efficiency = (p_acc.clip(lower=0) / (vol_ratio + 0.1))
-        jerk_penalty = np.tanh(v_jerk * 10)
-        clearing_intensity = (raw_efficiency * (1 - jerk_penalty * 0.4)).clip(0, 1)
-        # 3. 构建 Obstacle-HAB (障碍清除存量)
+        # 1. 提取物理分量与支撑参考
+        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).fillna(0.0)
+        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).fillna(0.0)
+        v_ratio = pd.Series(raw_signals.get('volume_ratio', 1.0), index=df_index).replace(0, 1e-9)
         chip_stab = pd.Series(raw_signals.get('chip_stability', 0.5), index=df_index)
-        hab_inc = clearing_intensity * chip_stab
-        hab_buffer = hab_inc.rolling(window=34, min_periods=5).sum().fillna(0)
-        # 4. 定制归一化：Rolling Rank (55日排位)
-        hab_score = hab_buffer.rolling(55).rank(pct=True).fillna(0.5)
-        # 5. 最终合成
-        final_score = (clearing_intensity * 0.4 + hab_score * 0.6).clip(0, 1)
+        # 2. 计算抛压吸收比 (Pressure Absorption Ratio)
+        # 逻辑：利用价格力的三阶导数(Jerk)来衡量对抛压的“弹性反馈”。
+        # 若在低成交量下产生极高的向上Jerk，说明该价位已无抛压。
+        par_raw = (p_jerk.clip(lower=0) / v_ratio)
+        # 定制归一化：基于MAD的稳健tanh映射
+        par_med = par_raw.rolling(60, min_periods=5).median()
+        par_mad = (par_raw - par_med).abs().rolling(60, min_periods=5).median()
+        par_norm = np.tanh(par_raw / (par_mad * 4.4478 + 1e-9)).clip(0, 1)
+        # 3. 识别回踩支撑效应 (Support Impact)
+        # 逻辑：价格处于低斜率区间（横盘或微跌），但Jerk呈阶跃式爆发
+        p_slope_abs = pd.Series(mtf_signals.get('SLOPE_5_price_trend', 0.0), index=df_index).abs()
+        support_rebound_intensity = (par_norm * (1 - np.tanh(p_slope_abs / 0.02))).clip(0, 1)
+        # 4. 构建 PAR-HAB (抛压吸收存量)
+        # 逻辑：将瞬时吸收强度与筹码稳定性耦合，记录“障碍清理”的累计进度
+        hab_win = 34
+        hab_inc = support_rebound_intensity * chip_stab * (1 + p_acc.clip(lower=0))
+        hab_buffer = hab_inc.rolling(window=hab_win, min_periods=5).sum().fillna(0)
+        # 5. 定制化归一化：Rolling Rank (89日长周期排位)
+        hab_score = hab_buffer.rolling(89, min_periods=20).rank(pct=True).fillna(0.5)
+        # 6. 最终合成
+        # 障碍清除度 = 瞬时吸收强度(30%) + 存量水位(70%)
+        # 存量水位在横盘区具有一票否决权，只有存量足够高，才视为良性换手
+        final_score = (support_rebound_intensity * 0.3 + hab_score * 0.7).clip(0, 1)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[CLEARANCE_PROBE] Volume-Jerk: {v_jerk.iloc[-1]:.4f}, HAB_Rank: {hab_score.iloc[-1]:.4f}")
+            self._probe_print(f"--- Pressure Absorption Physics Probe ---")
+            self._probe_print(f"  > PAR_Norm: {par_norm.iloc[-1]:.4f} | Rebound_Int: {support_rebound_intensity.iloc[-1]:.4f}")
+            self._probe_print(f"  > Obstacle_HAB_Rank: {hab_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
     def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, obstacle_clearance_score: pd.Series, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], historical_context: Dict[str, Any], params: Dict) -> pd.Series:
         """
-        【V6.0 · 对数几何合成版】主力多头意图深度合成
-        修改说明：在内部实现稳健的对数空间几何平均算法，弃用通用工具，确保攻击、控制、障碍三维度在高度共振时才释放强信号。
-        版本号：2026.02.10.132
+        【V6.1 · 诱空参数缝合版】主力多头意图深度合成
+        修改说明：更新诱空陷阱检测接口，传递obstacle_clearance_score以利用PAR-HAB阶跃提升识别精度。
+        版本号：2026.02.10.351
         """
-        # 1. 对数空间几何平均合成基础意图 (否决制合成)
+        # 1. 基础意图：对数空间几何平均 (否决制)
         comps = {'agg': aggressiveness_score.clip(1e-6, 1), 'ctrl': control_score.clip(1e-6, 1), 'obs': obstacle_clearance_score.clip(1e-6, 1)}
         w = {'agg': dynamic_weights.get('aggressiveness', 0.35), 'ctrl': dynamic_weights.get('control', 0.35), 'obs': dynamic_weights.get('obstacle_clearance', 0.30)}
         log_intent = (w['agg'] * np.log(comps['agg']) + w['ctrl'] * np.log(comps['ctrl']) + w['obs'] * np.log(comps['obs']))
         bullish_base = np.exp(log_intent).clip(0, 1)
-        # 2. 增强因子定制归一化 (Tanh)
+        # 2. 增强因子：共振与诱空 (修正调用签名)
         res_score = self._calculate_acceleration_resonance(df_index, mtf_signals)
-        trap_score = self._detect_bear_trap(df_index, mtf_signals, normalized_signals)
-        enhancement = np.tanh(res_score * 0.4 + trap_score * 0.6).clip(0, 1)
-        # 3. 结合历史记忆 HAB (Rolling Rank)
+        trap_score = self._detect_bear_trap(df_index, mtf_signals, normalized_signals, obstacle_clearance_score)
+        # 3. 物理增强合成：诱空陷阱在启动初期具有极高的爆发权重
+        enhancement = np.tanh(res_score * 0.4 + trap_score * 0.8).clip(0, 1)
+        # 4. 结合历史记忆 HAB
         int_mem = historical_context.get('integrated_memory', pd.Series(0.5, index=df_index))
         mem_rank = int_mem.rolling(55).rank(pct=True).fillna(0.5)
-        # 4. 最终意图合成
-        final_intent = (bullish_base * (1 + enhancement * 0.2) * (0.9 + mem_rank * 0.2)).clip(0, 1)
+        # 5. 最终意图
+        final_intent = (bullish_base * (1 + enhancement * 0.25) * (0.9 + mem_rank * 0.1)).clip(0, 1)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[BULL_PROBE] Base_Geom: {bullish_base.iloc[-1]:.4f}, Enhance: {enhancement.iloc[-1]:.4f}, Final: {final_intent.iloc[-1]:.4f}")
+            self._probe_print(f"[BULL_SYNTH_PROBE] Trap_Score: {trap_score.iloc[-1]:.4f} | Enhance: {enhancement.iloc[-1]:.4f}")
+            
         return final_intent
 
     def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V6.0 · 派发物理加速版】计算复合看跌意图
-        修改说明：引入派发行为的S/A/J矢量，废弃外部归一化，通过Rolling Rank识别高位“底气背离”后的风险阶跃。
-        版本号：2026.02.10.251
+        【V7.0 · 诱多陷阱增强版】计算复合看跌意图
+        修改说明：引入诱多陷阱(Bull Trap)检测。利用物理Jerk识别高位“外强中干”的受力特征，增强看跌意图的前瞻性。
+        版本号：2026.02.10.361
         """
         dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
-        # 1. 派发运动学：识别出货的加速度
+        # 1. 派发运动学分析
         dist_slope = dist_score.diff(1).rolling(3).mean().fillna(0)
         dist_accel = dist_slope.diff(1).fillna(0)
         dist_jerk = dist_accel.diff(1).abs().fillna(0)
         # 2. 派发存量 (Distribution-HAB) - 使用 Rolling Rank
         hab_inc = dist_score * (1 + dist_accel.clip(lower=0))
-        dist_hab_buffer = hab_inc.rolling(window=21).sum().fillna(0)
+        dist_hab_buffer = hab_inc.rolling(window=21, min_periods=5).sum().fillna(0)
         dist_hab = dist_hab_buffer.rolling(34).rank(pct=True).fillna(0.0)
-        # 3. 恐慌冲击 (Panic Impulse)
+        # 3. 【核心新增】诱多陷阱检测 (Bull Trap)
+        bull_trap_score = self._detect_bull_trap(df_index, mtf_signals, normalized_signals, dist_hab)
+        # 4. 恐慌冲击感应
         p_acc_down = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).clip(upper=0).abs()
         panic_impulse = (p_acc_down * dist_accel.clip(lower=0)).pow(0.5).fillna(0)
-        # 4. 合成：派发存量是核心权重
-        bear_comp = {'dist': dist_score, 'hab': dist_hab, 'jerk': dist_jerk, 'panic': panic_impulse}
-        log_bear = (0.2 * np.log(bear_comp['dist'].clip(1e-6)) + 0.4 * np.log(bear_comp['hab'].clip(1e-6)) + 0.4 * np.log((bear_comp['jerk'] + bear_comp['panic']).clip(1e-6)))
-        final_bear_score = np.exp(log_bear).clip(0, 1)
-        # 如果存量过满且出现加速度阶跃，分值倍增
-        if (dist_hab.iloc[-1] > 0.8) and (dist_accel.iloc[-1] > 0):
-            final_bear_score *= 1.2
-        return -final_bear_score.clip(0, 1).astype(np.float32)
+        # 5. 最终合成：诱多陷阱分值作为溢价因子注入
+        bear_comp = {'dist': dist_score, 'hab': dist_hab, 'panic': panic_impulse}
+        log_bear = (0.3 * np.log(bear_comp['dist'].clip(1e-6)) + 
+                    0.4 * np.log(bear_comp['hab'].clip(1e-6)) + 
+                    0.3 * np.log(bear_comp['panic'].clip(1e-6)))
+        base_bear_score = np.exp(log_bear).clip(0, 1)
+        # 诱多增强：如果检测到诱多陷阱，看跌意图最高提升 30%
+        final_bear_score = (base_bear_score * (1 + bull_trap_score * 0.3)).clip(0, 1)
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Bearish Intent Synthesis Probe ---")
+            self._probe_print(f"  > Bull_Trap_Boost: {bull_trap_score.iloc[-1]:.4f} | Final_Bear: {-final_bear_score.iloc[-1]:.4f}")
+            
+        return -final_bear_score.astype(np.float32)
 
     def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, params: Dict, market_phase: pd.Series) -> pd.Series:
         """
-        【V8.4 · 风险平滑缓冲区版】深度风险裁决逻辑
-        修改说明：引入0.3的偏差缓冲区，防止底气偏差风险过早爆发。优化Hollow_Risk的平方响应逻辑，确保合成意图在派发初期的存续力。
-        版本号：2026.02.10.303
+        【V8.5 · 物理软阈值风险版】深度风险裁决逻辑
+        修改说明：引入Sigmoid非线性风险阈值。在底气偏差(Offset)处于中高区时执行软熔断，防止在强势横盘期误杀多头意图。
+        版本号: 2026.02.10.320
         """
         tech_risk = (pd.Series(normalized_signals.get('RSI_norm', 0.5), index=df_index) - 0.75).clip(lower=0) * 2.0
         struct_risk = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
-        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).abs()
-        # 1. 稳健HAB水位计算
+        # 1. 物理底气背离 (Offset)
         p_hab = pd.Series(normalized_signals.get('absolute_change_strength_norm', 0.5), index=df_index).rolling(21, min_periods=1).mean().fillna(0.5)
         c_hab = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index).rolling(21, min_periods=1).mean().fillna(0.5)
-        # 2. 底气偏差风险与缓冲区 (Buffer: 0.3)
         hab_offset = (p_hab - c_hab).clip(lower=0)
-        buffered_offset = (hab_offset - 0.3).clip(lower=0)
-        raw_hollow_risk = (buffered_offset ** 1.5) * (1 + p_jerk * 3)
-        # 3. 相位感知豁免
-        risk_modulator = market_phase.map({"派发初期": 0.25, "主升": 0.4, "派发末端": 1.2, "反转风险": 1.5}).fillna(1.0)
-        adjusted_hollow_risk = (raw_hollow_risk * risk_modulator).clip(0, 1)
-        # 4. 指数级合成惩罚 (中心点上移至0.65)
-        total_risk_raw = (tech_risk * 0.2 + struct_risk * 0.3 + adjusted_hollow_risk * 0.5).clip(0, 1)
-        penalty = np.where(total_risk_raw > 0.65, total_risk_raw ** 0.5, total_risk_raw ** 2.2)
+        # 2. 【核心重构】Sigmoid 风险软阈值
+        # 逻辑：在 Offset < 0.5 时几乎无感，在 0.5-0.8 之间快速爬升，利用 Sigmoid 平滑极值冲击
+        hollow_risk_base = 1 / (1 + np.exp(-10 * (hab_offset - 0.65)))
+        # 3. 动态物理约束：若价格加速度仍为正，则大幅衰减背离风险
+        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
+        risk_modulator = market_phase.map({"派发初期": 0.2, "主升": 0.3, "横盘": 0.4, "派发末端": 1.2, "反转风险": 1.5}).fillna(1.0)
+        # 如果加速度为正，背离风险仅保留 50%
+        final_hollow_risk = (hollow_risk_base * risk_modulator * (np.where(p_acc > 0, 0.5, 1.0))).clip(0, 1)
+        # 4. 指数级惩罚映射
+        total_risk_raw = (tech_risk * 0.2 + struct_risk * 0.3 + final_hollow_risk * 0.5).clip(0, 1)
+        penalty = np.where(total_risk_raw > 0.65, total_risk_raw ** 0.5, total_risk_raw ** 2.5)
         risk_sens = get_param_value(params.get('risk_sensitivity'), 4.0)
-        final_penalty = 1 / (1 + np.exp(-risk_sens * (penalty - 0.65)))
+        final_penalty = 1 / (1 + np.exp(-risk_sens * (penalty - 0.7))) # 中心点进一步上移
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[RISK_BUFFER_PROBE] Raw_Offset: {hab_offset.iloc[-1]:.4f} | Mod_Risk: {adjusted_hollow_risk.iloc[-1]:.4f}")
+            self._probe_print(f"[RISK_SOFT_PROBE] Offset: {hab_offset.iloc[-1]:.4f} | Hollow_Risk: {final_hollow_risk.iloc[-1]:.4f} | Penalty: {final_penalty.iloc[-1]:.4f}")
         return final_penalty.clip(0, 1)
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], market_phase: pd.Series, aggressiveness_score: pd.Series) -> pd.Series:
