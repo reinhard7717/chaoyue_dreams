@@ -700,9 +700,9 @@ class CalculateMainForceRallyIntent:
 
     def _construct_proxy_signals(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V7.1 · 审计回填版】代理信号构建中枢
-        修改说明：将Fisher一致性爆发得分与综合质量指标回填至返回字典，为动态权重模块提供确定性溢价依据。
-        版本号：2026.02.10.371
+        【V7.2 · 修正版】代理信号构建中枢
+        修改说明：修复 rolling().apply() 导致的 TypeError。采用显式两两相关性计算 RS、资金与情绪代理的共振度，并应用 Fisher 锐化。
+        版本号：2026.02.10.375
         """
         # 1. 核心代理信号计算
         rs_res = self._calculate_enhanced_rs_proxy(df_index, mtf_signals, normalized_signals, config)
@@ -712,32 +712,48 @@ class CalculateMainForceRallyIntent:
         vol_res = self._calculate_enhanced_volatility_proxy(df_index, mtf_signals, normalized_signals, config)
         risk_res = self._calculate_enhanced_risk_preference_proxy(df_index, mtf_signals, normalized_signals, config)
 
-        proxy_cores = {"rs": rs_res.get("enhanced_rs_proxy"), "capital": cap_res.get("enhanced_capital_proxy"), "sentiment": sent_res.get("enhanced_sentiment_proxy")}
+        proxy_cores = {
+            "rs": rs_res.get("enhanced_rs_proxy", pd.Series(0.5, index=df_index)),
+            "capital": cap_res.get("enhanced_capital_proxy", pd.Series(0.5, index=df_index)),
+            "sentiment": sent_res.get("enhanced_sentiment_proxy", pd.Series(0.5, index=df_index))
+        }
 
-        # 2. Fisher 一致性审计 (继承 V7.0 核心算法)
-        core_df = pd.DataFrame(proxy_cores).fillna(0.5)
-        avg_sync_raw = core_df.rolling(window=13).apply(lambda x: (np.nansum(x.corr().values) - 3) / 6.0, raw=False).fillna(0)
+        # 2. 【核心修复】显式成对相关性审计 (取代报错的 apply)
+        c_rs = proxy_cores["rs"]; c_cap = proxy_cores["capital"]; c_sent = proxy_cores["sentiment"]
+        # 计算 13 日滚动两两相关性
+        corr_rc = c_rs.rolling(window=13, min_periods=5).corr(c_cap).fillna(0)
+        corr_rs = c_rs.rolling(window=13, min_periods=5).corr(c_sent).fillna(0)
+        corr_cs = c_cap.rolling(window=13, min_periods=5).corr(c_sent).fillna(0)
+        # 均值共振度
+        avg_sync_raw = (corr_rc + corr_rs + corr_cs) / 3.0
+        
+        # 3. Fisher 变换锐化与一致性爆发
         fisher_norm = np.tanh(0.5 * np.log((1 + avg_sync_raw.clip(-0.99, 0.99)) / (1 - avg_sync_raw.clip(-0.99, 0.99)))).clip(0, 1)
         sync_burst_score = np.tanh(fisher_norm.diff(1).diff(1).clip(lower=0).rolling(5).mean().fillna(0) * 50).clip(0, 1)
 
-        # 3. 综合质量评估 (Fisher-SNR)
+        # 4. 综合信号质量评估 (Fisher-SNR)
         quality_list = []
         for name, series in proxy_cores.items():
             noise = series.diff().abs().rolling(13, min_periods=1).sum().replace(0, 1e-9)
             signal = series.diff(13).abs().fillna(0)
-            quality_list.append(np.tanh(0.5 * np.log((1 + (signal/noise).clip(0, 0.99)) / (1 - (signal/noise).clip(0, 0.99)))))
+            snr_raw = (signal / noise).clip(0, 1)
+            quality_list.append(np.tanh(0.5 * np.log((1 + snr_raw.clip(0, 0.99)) / (1 - snr_raw.clip(0, 0.99)))))
+        
         individual_quality = pd.concat(quality_list, axis=1).mean(axis=1).fillna(0.7)
         combined_signal_quality = (individual_quality * 0.4 + fisher_norm * 0.4 + sync_burst_score * 0.2).clip(0, 1)
 
-        # 4. 动态权重合成与 HAB 注入
+        # 5. 动态权重合成与审计指标回填
         final_proxy_signals = self._dynamic_weighted_synthesis(rs_res, cap_res, sent_res, liq_res, vol_res, risk_res, combined_signal_quality, config)
-        # 核心修复：回填审计指标供 _calculate_dynamic_weights 使用
         final_proxy_signals['combined_signal_quality'] = combined_signal_quality
         final_proxy_signals['sync_burst_score'] = sync_burst_score
-        # 注入各维度 HAB 存量
+        
+        # 6. 各维度 HAB 存量注入
         for name, series in proxy_cores.items():
             final_proxy_signals[f"{name}_hab_score"] = series.mask(series < 0.6, 0).diff(1).clip(lower=0).rolling(21).sum().fillna(0).rolling(55).rank(pct=True).fillna(0.5)
 
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"--- Fisher Proxy-SNR Consistency Fix Probe ---")
+            self._probe_print(f"  > Fisher_Sync: {fisher_norm.iloc[-1]:.4f} | Burst: {sync_burst_score.iloc[-1]:.4f}")
         return final_proxy_signals
 
     def _calculate_enhanced_rs_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
