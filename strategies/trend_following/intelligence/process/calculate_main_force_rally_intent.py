@@ -44,9 +44,9 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V11.1 · 原子状态持久化版】主力拉升意图主计算流程
-        修改说明：缝合SAJ运动学矢量与HAB持久化逻辑，通过atomic_states实现跨交易日的存量连贯性，修复冷启动记忆断层。
-        版本号：2026.02.10.170
+        【V11.2 · 物理参数对齐修复版】主力拉升意图主计算流程
+        修改说明：修复_calculate_control_score等方法缺失raw_signals导致的NameError，完成物理数据流的全链路闭环。
+        版本号：2026.02.10.230
         """
         self._probe_output = []
         params = self._get_parameters(config)
@@ -57,16 +57,16 @@ class CalculateMainForceRallyIntent:
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         # 2. MTF 多周期能量共振提取
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
-        # 3. 构建历史上下文与 HAB 能量场 (接入持久化载入)
+        # 3. 构建历史上下文与 HAB 能量场
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
         # 4. 代理信号物理矩阵构建
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
         # 5. 动态权重分配 (基于温度控制)
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals)
-        # 6. 核心物理维度得分
+        # 6. 核心物理维度得分 (修正参数传递，补齐 raw_signals)
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
-        control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context)
-        obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals, historical_context)
+        control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
+        obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         # 7. 风险裁决与意图合成
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'])
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
@@ -75,10 +75,10 @@ class CalculateMainForceRallyIntent:
         final_rally_intent = (bullish_intent * (1 - total_risk_penalty) + bearish_score).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
-        # 9. 持久化存量状态回填与状态机更新
+        # 9. 持久化存量状态
         self._persist_hab_states(historical_context)
         self.strategy.atomic_states["_DEBUG_rally_integrated_hab"] = historical_context.get('integrated_memory', 0.5)
-        # 10. 全景探针输出
+        # 10. 触发全景探针
         if self._is_probe_enabled(df):
             self._output_probe_info(df_index, final_rally_intent)
         return final_rally_intent.astype(np.float32)
@@ -1375,18 +1375,18 @@ class CalculateMainForceRallyIntent:
             self._probe_print(f"[RESONANCE_PROBE] Count: {res_count.iloc[-1]}, Acc_Norm: {a_norm.iloc[-1]:.4f}")
         return resonance_score
 
-    def _calculate_control_score(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
+    def _calculate_control_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V5.0 · 非对称控盘韧性版】计算控制力分数
-        修改说明：采用定制化非对称Sigmoid归一化取代通用方法，强化对高位锁仓与持续积聚行为的敏感度。
-        版本号：2026.02.10.103
+        【V5.1 · 参数修复与韧性增强版】计算控制力分数
+        修改说明：修复缺失raw_signals导致的NameError。采用非对称Sigmoid归一化，量化主力高位锁仓的控盘韧性。
+        版本号：2026.02.10.231
         """
-        chip_stab = raw_signals.get('chip_stability', 0.5)
-        accumulation = raw_signals.get('behavior_accumulation', 0.5)
-        # 1. 控盘基础分
+        # 1. 提取物理分量并强制类型转换
+        chip_stab = pd.Series(raw_signals.get('chip_stability', 0.5), index=df_index)
+        accumulation = pd.Series(raw_signals.get('behavior_accumulation', 0.5), index=df_index)
+        # 2. 控盘基础分与非对称 Sigmoid 增强
+        # 逻辑：中心点设为0.6，强化深度控盘区的识别斜率
         base_ctrl = (chip_stab * 0.6 + accumulation * 0.4).clip(0, 1)
-        # 2. 定制归一化：非对称 Sigmoid 增强 (中心点 0.6, 灵敏度 12)
-        # 理由：A股中，真正的控盘行为往往发生在分值超过0.6之后
         ctrl_norm = 1 / (1 + np.exp(-12 * (base_ctrl - 0.6)))
         # 3. 控盘历史累积 (Control-HAB)
         hab_inc = ctrl_norm * accumulation
@@ -1394,42 +1394,35 @@ class CalculateMainForceRallyIntent:
         # 4. 最终合成
         score = (ctrl_norm * 0.7 + ctrl_hab * 0.3).clip(0, 1)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[CONTROL_PROBE] Sigmoid_Ctrl: {ctrl_norm.iloc[-1]:.4f}, HAB_Rank: {ctrl_hab.iloc[-1]:.4f}")
+            self._probe_print(f"[CONTROL_PROBE] Sigmoid_Ctrl: {ctrl_norm.iloc[-1]:.4f}, Control_HAB: {ctrl_hab.iloc[-1]:.4f}")
         return score.astype(np.float32)
 
     def _calculate_obstacle_clearance_score(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V6.0 · Volume-Jerk 穿透动力学版】计算障碍清除分数
-        修改说明：引入成交量Jerk捕捉穿透阻力的力量突变，并利用Rolling Rank对Obstacle-HAB进行排位归一化。
-        版本号：2026.02.10.220
+        【V6.1 · 签名对齐与Jerk穿透版】计算障碍清除分数
+        修改说明：补齐raw_signals参数签名。利用Volume-Jerk识别主力穿透筹码压力区时的平滑度与效率。
+        版本号：2026.02.10.232
         """
-        # 1. 提取物理分量 (修复签名，确保raw_signals可用)
+        # 1. 提取物理分量
         abs_change = pd.Series(raw_signals.get('absolute_change_strength', 0.0), index=df_index)
         vol_ratio = pd.Series(raw_signals.get('volume_ratio', 1.0), index=df_index)
         p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
         v_jerk = pd.Series(mtf_signals.get('JERK_5_volume_trend', 0.0), index=df_index).abs()
         # 2. 物理穿透效率 (Penetration Efficiency)
-        # 核心逻辑：单位成交量驱动的价格加速度。增加 v_jerk 作为惩罚项，捕捉“暴力敲板”导致的虚假清除。
+        # 逻辑：单位成交量驱动的价格加速度，并受成交量加加速度(Jerk)的惩罚，过滤暴力对敲。
         raw_efficiency = (p_acc.clip(lower=0) / (vol_ratio + 0.1))
-        # 3. 穿透动力学增强 (Jerk-Smoothing)
-        # 如果 v_jerk 极小，说明主力突破动作极其平滑，赋予穿透溢价
-        jerk_penalty = np.tanh(v_jerk * 10) # 10为A股成交量突变敏感度系数
+        jerk_penalty = np.tanh(v_jerk * 10)
         clearing_intensity = (raw_efficiency * (1 - jerk_penalty * 0.4)).clip(0, 1)
-        # 4. 构建 Obstacle-HAB (障碍清除存量)
-        # 逻辑：将瞬时穿透强度与筹码稳定性(Chip-Stability)进行耦合累积
+        # 3. 构建 Obstacle-HAB (障碍清除存量)
         chip_stab = pd.Series(raw_signals.get('chip_stability', 0.5), index=df_index)
-        hab_win = 34
         hab_inc = clearing_intensity * chip_stab
-        hab_buffer = hab_inc.rolling(window=hab_win, min_periods=5).sum().fillna(0)
-        # 5. 定制化归一化：Rolling Rank (55日分位数排位)
+        hab_buffer = hab_inc.rolling(window=34, min_periods=5).sum().fillna(0)
+        # 4. 定制归一化：Rolling Rank (55日排位)
         hab_score = hab_buffer.rolling(55).rank(pct=True).fillna(0.5)
-        # 6. 最终合成
-        # 综合考虑：瞬时穿透(40%) + 存量水位(60%)
+        # 5. 最终合成
         final_score = (clearing_intensity * 0.4 + hab_score * 0.6).clip(0, 1)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Obstacle Clearance Physics Probe ---")
-            self._probe_print(f"  > Volume-Jerk: {v_jerk.iloc[-1]:.4f} | Instant_Eff: {clearing_intensity.iloc[-1]:.4f}")
-            self._probe_print(f"  > Obstacle-HAB Rank: {hab_score.iloc[-1]:.4f}")
+            self._probe_print(f"[CLEARANCE_PROBE] Volume-Jerk: {v_jerk.iloc[-1]:.4f}, HAB_Rank: {hab_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
     def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, obstacle_clearance_score: pd.Series, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], historical_context: Dict[str, Any], params: Dict) -> pd.Series:
