@@ -504,7 +504,6 @@ class CalculateMainForceControlRelationship:
         norm_t0_sell = self.helper._normalize_series(s_sent['t0_sell_conf'], df_index, bipolar=False)
         norm_vwap_up = self.helper._normalize_series(s_sent['pushing_score'], df_index, bipolar=False)
         norm_vwap_down = self.helper._normalize_series(s_sent['shakeout_score'], df_index, bipolar=False)
-
         _temp_debug_values["归一化处理"] = {
             "traditional": norm_traditional,
             "structural_mtf": norm_structural,
