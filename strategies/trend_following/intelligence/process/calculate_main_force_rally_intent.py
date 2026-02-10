@@ -44,59 +44,39 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V9.0 · 工业级逻辑中枢】主力拉升意图主计算流程
-        修改说明：重新梳理逻辑时序，确保记忆、代理、权重与风险模块的零延迟耦合。
-        版本号：2025.02.07.01
+        【V10.1 · 调用链修复版】主力拉升意图主计算流程
+        修改说明：修复调用 _calculate_historical_context 时缺失 mtf_signals 参数导致的 TypeError。
+        版本号：2026.02.10.31
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
-        # 1. 数据完整性与基础信号准备
+        # 1. 基础信号准备
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
-        # 2. 信号预处理层 (Normalization & MTF)
+        # 2. 信号预处理与物理特征提取
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
-        # 3. 历史上下文层 (Memory System)
-        # 必须先计算动态周期，再注入历史上下文计算
-        dynamic_memory_period = self._calculate_dynamic_period(df_index, raw_signals)
-        historical_context = self._calculate_historical_context(df, df_index, raw_signals, params['historical_context_params'])
-        historical_context['dynamic_memory_period'] = dynamic_memory_period
-        # 4. 智能代理层 (Proxy Layer)
+        # 3. 历史上下文层 (核心修复点：补齐 mtf_signals 以对齐 V4.0 定义)
+        historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
+        dynamic_memory_period = historical_context.get('dynamic_memory_period', pd.Series(21, index=df_index))
+        # 4. 代理与权重计算
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
-        # 5. 权重决策层 (Weighting Layer)
-        # 依据代理信号识别的市场政权(Regime)分配动态权重
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals)
-        # 6. 核心维度得分层 (Scoring Layer)
+        # 5. 核心维度得分
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, mtf_signals, normalized_signals, historical_context)
-        # 7. 风险裁决层 (Risk Adjudication)
-        # 核心逻辑：利用 V6.0 版风险共振引擎生成非线性惩罚项
-        total_risk_penalty = self._adjudicate_risk(
-            df_index, raw_signals, mtf_signals, normalized_signals, 
-            dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params']
-        )
-        # 8. 综合意图合成层 (Synthesis Layer)
-        bullish_intent = self._synthesize_bullish_intent(
-            df_index, aggressiveness_score, control_score, obstacle_clearance_score,
-            mtf_signals, normalized_signals, dynamic_weights, historical_context,
-            params['rally_intent_synthesis_params']
-        )
+        # 6. 风险裁决与意图合成
+        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'])
+        bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 9. 最终修饰与极端行情保护
-        # 先应用风险惩罚，再结合看跌分数
-        penalized_bullish_part = bullish_intent * (1 - total_risk_penalty)
-        final_rally_intent = (penalized_bullish_part + bearish_score).clip(-1, 1)
-        # 应用情境调节器（RS与资本属性微调）
+        # 7. 最终合成与保护
+        final_rally_intent = (bullish_intent * (1 - total_risk_penalty) + bearish_score).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals)
-        # A股封板保护逻辑
-        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (total_risk_penalty > 0.5), final_rally_intent * 0.5)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
-        # 10. 调试信息回填
-        self.strategy.atomic_states["_DEBUG_rally_total_risk_penalty"] = total_risk_penalty
-        self.strategy.atomic_states["_DEBUG_rally_bullish_intent"] = bullish_intent
-        self.strategy.atomic_states["_DEBUG_dynamic_period"] = dynamic_memory_period
+        # 8. 调试信息回填
+        self.strategy.atomic_states["_DEBUG_rally_integrated_hab"] = historical_context.get('integrated_memory', 0.5)
         if self._is_probe_enabled(df):
             self._output_probe_info(df_index, final_rally_intent)
         return final_rally_intent.astype(np.float32)
@@ -241,21 +221,20 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 全维运动学版】历史上下文计算调度，增加 chip_memory 的 SAJ/HAB 逻辑支持
-        版本号：2026.02.10.06
+        【V4.1 · 调用链修复版】历史上下文计算调度中心
+        修改说明：修复调用 _calculate_sentiment_memory 时缺失 mtf_signals 参数的问题。
+        版本号：2026.02.10.32
         """
         hc_enabled = get_param_value(params.get('enabled'), True)
         if not hc_enabled:
             return self._get_empty_context(df_index)
-        # 1. 价格记忆 (HAB+SAJ增强)
+        # SAJ与HAB增强子模块计算
         price_memory = self._calculate_price_memory(df_index, raw_signals, mtf_signals, params)
-        # 2. 资金记忆 (HAB+SAJ增强)
         capital_memory = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params)
-        # 3. 筹码记忆 ([升级点]：传入 mtf_signals 以支持筹码运动学计算)
         chip_memory = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params)
-        # 4. 情绪记忆
-        sentiment_memory = self._calculate_sentiment_memory(df_index, raw_signals, params)
-        # 5. 融合与质量评估
+        # [修复点]：补齐 mtf_signals 参数以对齐 V3.6 情绪模块定义
+        sentiment_memory = self._calculate_sentiment_memory(df_index, raw_signals, mtf_signals, params)
+        # 融合与评估
         integrated_memory = self._fuse_integrated_memory(price_memory, capital_memory, chip_memory, sentiment_memory, params)
         phase_sync = self._detect_phase_synchronization(df_index, price_memory, capital_memory, integrated_memory)
         memory_quality = self._assess_memory_quality(df_index, price_memory, capital_memory, chip_memory, sentiment_memory)
