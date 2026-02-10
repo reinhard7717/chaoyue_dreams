@@ -584,38 +584,28 @@ class CalculateMainForceRallyIntent:
             return "consolidating"
         return "trending_up" if integrated_hab > 0.7 else "consolidating"
 
-    def _calculate_memory_consistency(self, price_mem: Dict, capital_mem: Dict, chip_mem: Dict, sentiment_mem: Dict) -> pd.Series:
+    def _calculate_memory_consistency(self, price_mem: Dict, capital_mem: Dict, chip_mem: Dict, sentiment_memory: Dict) -> pd.Series:
         """
-        【V5.0 · 多维共振场与一致性存量版】记忆一致性深度计算
-        修改说明：引入Consistency-HAB，量化多维度信号在时间轴上的同步稳定性，识别“系统性主升”特征。
-        版本号：2026.02.10.76
+        【V5.1 · 鲁棒共振版】记忆一致性深度计算
+        修改说明：废弃外部归一化。采用基于中位数的tanh压缩处理一致性存量，增强对多维信号“齐步走”的辨识力。
+        版本号：2026.02.10.252
         """
         df_index = price_mem["integrated_price_memory"].index
-        # 1. 提取核心维度的加速度矢量
         accel_df = pd.DataFrame({
-            "p_acc": price_mem.get("accel_memory", 0),
-            "c_acc": capital_mem.get("cap_accel", 0),
-            "ch_acc": chip_mem.get("chip_accel", 0),
-            "s_acc": sentiment_mem.get("sentiment_accel", 0)
+            "p_acc": price_mem.get("accel_memory", 0), "c_acc": capital_mem.get("cap_accel", 0),
+            "ch_acc": chip_mem.get("chip_accel", 0), "s_acc": sentiment_memory.get("sentiment_accel", 0)
         })
-        # 2. 计算瞬时共振强度：四维度方向一致性的非线性加权
+        # 1. 瞬时共振
         resonance_count = (accel_df > 0).sum(axis=1)
         instant_resonance = resonance_count.map({4: 1.0, 3: 0.7, 2: 0.3, 1: 0.1, 0: 0.0})
-        # 3. 构建一致性存量 (Consistency-HAB)
-        # 物理意义：一致性不是一个点，而是一个“场”。场强取决于同步行为的持续时间。
-        hab_window = 13
-        # 当共振强度高且加速度绝对值大时，累积一致性存量
-        accel_magnitude = accel_df.abs().mean(axis=1)
-        hab_inc = instant_resonance * accel_magnitude
-        consistency_hab = normalize_score(hab_inc.rolling(window=hab_window).sum().fillna(0), target_index=df_index, windows=21)
-        # 4. 综合合成：历史相关性(20%) + 瞬时共振(30%) + 一致性存量(50%)
+        # 2. Consistency-HAB
+        hab_inc = instant_resonance * accel_df.abs().mean(axis=1)
+        hab_raw = hab_inc.rolling(window=13).sum().fillna(0)
+        # 定制归一化：Tanh (60日窗口)
+        consistency_hab = (np.tanh((hab_raw - hab_raw.rolling(60).median()) / (hab_raw.rolling(60).std() + 1e-9)) * 0.5 + 0.5).fillna(0.5)
+        # 3. 最终合成
         rolling_corr = accel_df.rolling(window=10).corr().unstack().mean(axis=1).fillna(0.5).clip(0, 1)
-        final_consistency = (rolling_corr * 0.2 + instant_resonance * 0.3 + consistency_hab * 0.5).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Consistency Resonance Field Probe ---")
-            self._probe_print(f"  > Instant Resonance: {instant_resonance.iloc[-1]:.2f}")
-            self._probe_print(f"  > Consistency-HAB Stock: {consistency_hab.iloc[-1]:.4f}")
-        return final_consistency.astype(np.float32)
+        return (rolling_corr * 0.2 + instant_resonance * 0.3 + consistency_hab * 0.5).clip(0, 1).astype(np.float32)
 
     def _get_empty_context(self, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
@@ -761,37 +751,30 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_enhanced_capital_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 资金运动学与弹药存量版】增强版资本属性代理信号
-        修改说明：全面引入主力净额(net_mf_amount)的S/A/J运动学特征，并构建Capital-HAB历史累积缓冲系统。
-        版本号：2026.02.10.80
+        【V5.1 · 物理鲁棒性版】增强版资本属性代理信号
+        修改说明：废弃外部归一化工具，采用Rolling Rank处理HAB存量。针对极端资金流SAJ引入tanh压缩，防止信号爆表。
+        版本号：2026.02.10.250
         """
-        # 1. 提取资金运动学三维矢量
-        cap_slope = mtf_signals.get('SLOPE_5_mf_net_amount', pd.Series(0.0, index=df_index))
-        cap_accel = mtf_signals.get('ACCEL_5_mf_net_amount', pd.Series(0.0, index=df_index))
-        cap_jerk = mtf_signals.get('JERK_5_mf_net_amount', pd.Series(0.0, index=df_index))
+        # 1. 提取资金运动学三维矢量并执行饱和压缩
+        cap_slope = np.tanh(mtf_signals.get('SLOPE_5_mf_net_amount', pd.Series(0.0, index=df_index)) / 1e7)
+        cap_accel = np.tanh(mtf_signals.get('ACCEL_5_mf_net_amount', pd.Series(0.0, index=df_index)) / 1e7)
+        cap_jerk = np.tanh(mtf_signals.get('JERK_5_mf_net_amount', pd.Series(0.0, index=df_index)) / 1e7)
         # 2. 资金历史累积记忆缓冲 (Capital-HAB)
-        # 逻辑：将主力净流入强度与一致性进行累积。高水位代表主力在此价格区间有重仓防御意识。
-        net_mf_norm = normalized_signals.get('net_mf_amount_norm', pd.Series(0.5, index=df_index))
-        flow_consis = normalized_signals.get('flow_consistency_norm', pd.Series(0.5, index=df_index))
+        net_mf_norm = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index)
+        flow_consis = pd.Series(normalized_signals.get('flow_consistency_norm', 0.5), index=df_index)
         hab_window = get_param_value(config.get('capital_hab_window'), 21)
-        # 在流入且加速度不为负时计入存量累积
         hab_increment = (net_mf_norm.mask(net_mf_norm < 0.5, 0) * flow_consis * cap_accel.clip(lower=0))
         cap_hab_buffer = hab_increment.rolling(window=hab_window, min_periods=5).sum().fillna(0)
-        cap_hab_score = normalize_score(cap_hab_buffer, target_index=df_index, windows=34)
+        # 定制归一化：Rolling Rank (34日排位)
+        cap_hab_score = cap_hab_buffer.rolling(34).rank(pct=True).fillna(0.5)
         # 3. 资本效率因子 (CEF)
-        vol_ratio = normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index))
+        vol_ratio = pd.Series(normalized_signals.get('volume_ratio_norm', 0.5), index=df_index)
         capital_efficiency = (cap_slope.clip(lower=0) / (vol_ratio + 0.1)).clip(0, 1)
-        # 4. 综合合成：运动学(40%) + 存量水位(40%) + 效率(20%)
+        # 4. 综合合成
         kinematic_sum = (cap_slope * 0.4 + cap_accel * 0.4 + cap_jerk * 0.2).clip(0, 1)
         raw_proxy = (kinematic_sum * 0.4 + cap_hab_score * 0.4 + capital_efficiency * 0.2).clip(0, 1)
-        # 5. 情境调节
-        liq_state = normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index))
-        capital_modulator = 0.9 + (liq_state * 0.2)
+        capital_modulator = 0.9 + (vol_ratio * 0.2)
         enhanced_capital_proxy = (raw_proxy * capital_modulator).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Capital Energy-HAB Probe ---")
-            self._probe_print(f"  > Cap SAJ: S={cap_slope.iloc[-1]:.4f}, A={cap_accel.iloc[-1]:.4f}, J={cap_jerk.iloc[-1]:.4f}")
-            self._probe_print(f"  > Capital-HAB Level: {cap_hab_score.iloc[-1]:.4f}")
         return {"raw_capital_proxy": raw_proxy, "enhanced_capital_proxy": enhanced_capital_proxy, "capital_hab_score": cap_hab_score, "capital_modulator": capital_modulator}
 
     def _calculate_enhanced_sentiment_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
@@ -1478,29 +1461,30 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V5.0 · 派发动力学与风险阶跃版】计算复合看跌意图
-        修改说明：引入派发行为的S/A/J矢量与Distribution-HAB，捕捉撤退力量的突发阶跃。
-        版本号：2026.02.10.84
+        【V6.0 · 派发物理加速版】计算复合看跌意图
+        修改说明：引入派发行为的S/A/J矢量，废弃外部归一化，通过Rolling Rank识别高位“底气背离”后的风险阶跃。
+        版本号：2026.02.10.251
         """
-        dist_score = normalized_signals.get('distribution_score_norm', pd.Series(0.0, index=df_index))
-        # 1. 派发运动学分析
+        dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
+        # 1. 派发运动学：识别出货的加速度
         dist_slope = dist_score.diff(1).rolling(3).mean().fillna(0)
         dist_accel = dist_slope.diff(1).fillna(0)
         dist_jerk = dist_accel.diff(1).abs().fillna(0)
-        # 2. 派发存量 (Distribution-HAB)
+        # 2. 派发存量 (Distribution-HAB) - 使用 Rolling Rank
         hab_inc = dist_score * (1 + dist_accel.clip(lower=0))
-        dist_hab = normalize_score(hab_inc.rolling(window=21).sum().fillna(0), target_index=df_index, windows=34)
-        # 3. 恐慌冲击感应 (Panic Impulse)
-        price_accel_down = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0, index=df_index)).clip(upper=0).abs()
-        panic_impulse = (price_accel_down * dist_accel.clip(lower=0)).pow(0.5).fillna(0)
-        # 4. 最终合成
+        dist_hab_buffer = hab_inc.rolling(window=21).sum().fillna(0)
+        dist_hab = dist_hab_buffer.rolling(34).rank(pct=True).fillna(0.0)
+        # 3. 恐慌冲击 (Panic Impulse)
+        p_acc_down = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).clip(upper=0).abs()
+        panic_impulse = (p_acc_down * dist_accel.clip(lower=0)).pow(0.5).fillna(0)
+        # 4. 合成：派发存量是核心权重
         bear_comp = {'dist': dist_score, 'hab': dist_hab, 'jerk': dist_jerk, 'panic': panic_impulse}
-        score_raw = _robust_geometric_mean(bear_comp, {'dist': 0.25, 'hab': 0.35, 'jerk': 0.2, 'panic': 0.2}, df_index)
-        final_bear_score = (score_raw * (1 + (dist_hab > 0.8).astype(float) * dist_jerk * 0.5)).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Bearish Physics Probe ---")
-            self._probe_print(f"  > Dist-HAB Level: {dist_hab.iloc[-1]:.4f} | Panic: {panic_impulse.iloc[-1]:.4f}")
-        return -final_bear_score.astype(np.float32)
+        log_bear = (0.2 * np.log(bear_comp['dist'].clip(1e-6)) + 0.4 * np.log(bear_comp['hab'].clip(1e-6)) + 0.4 * np.log((bear_comp['jerk'] + bear_comp['panic']).clip(1e-6)))
+        final_bear_score = np.exp(log_bear).clip(0, 1)
+        # 如果存量过满且出现加速度阶跃，分值倍增
+        if (dist_hab.iloc[-1] > 0.8) and (dist_accel.iloc[-1] > 0):
+            final_bear_score *= 1.2
+        return -final_bear_score.clip(0, 1).astype(np.float32)
 
     def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, params: Dict) -> pd.Series:
         """
