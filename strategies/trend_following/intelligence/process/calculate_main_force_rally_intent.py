@@ -44,41 +44,39 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V12.0 · 全链路探针集成版】主力拉升意图主计算流程
-        修改说明：建立全链路探针中枢，集成原始信号、MTF能量共振、HAB存量与意图合成的深度监控。
-        版本号：2026.02.10.240
+        【V12.1 · 全链路缝合与审计版】主力拉升意图主计算流程
+        修改说明：集成全链路结构化探针，优化风险惩罚与多头意图的缝合逻辑，确保输出值的物理合理性。
+        版本号：2026.02.10.246
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
-        # 1. 原始信号载入与归一化
+        # 1. 信号准备与预处理
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
-        # 2. MTF 多周期能量提取
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
-        # 3. 历史上下文与状态载入
-        initial_hab_states = self._load_hab_states()
+        # 2. 存量载入与上下文计算
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
-        # 4. 代理矩阵与动态权重
+        # 3. 代理信号与权重分配
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals)
-        # 5. 三大核心维度得分 (传递补齐后的参数)
+        # 4. 核心维度计算
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 6. 风险裁决与多头意图合成
+        # 5. 风险裁决与多空意图合成
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'])
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 7. 最终意图缝合
-        final_rally_intent = (bullish_intent * (1 - total_risk_penalty) + bearish_score).fillna(0).clip(-1, 1)
+        # 6. 最终意图缝合：引入平滑修正，防止风险惩罚过度零化
+        final_rally_intent = (bullish_intent * (1 - total_risk_penalty * 0.8) + bearish_score).fillna(0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
-        # 8. 持久化存量状态
+        # 7. 存量状态持久化
         self._persist_hab_states(historical_context)
         self.strategy.atomic_states["_DEBUG_rally_integrated_hab"] = historical_context.get('integrated_memory', 0.5)
-        # 9. 执行全链路结构化探针
+        # 8. 执行全链路深度审计探针
         if self._is_probe_enabled(df):
             self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent)
             self._output_probe_info(df_index, final_rally_intent)
@@ -86,30 +84,31 @@ class CalculateMainForceRallyIntent:
 
     def _execute_full_link_probing(self, df_index: pd.Index, raw_signals: Dict, mtf_signals: Dict, proxy_signals: Dict, historical_context: Dict, bullish_intent: pd.Series, final_intent: pd.Series):
         """
-        【V1.0】全链路结构化探针审计
-        修改说明：建立从信号层到合成层的统一审计节点，实时侦测NaN风险与物理水位异常。
-        版本号：2026.02.10.241
+        【V1.0 · 全链路审计中枢】执行从原始信号到最终意图的深度探针审计
+        修改说明：建立结构化审计流程，通过五个维度监控物理量纲的传递过程，并对溢出风险进行哨兵报警。
+        版本号：2026.02.10.245
         """
         ts = df_index[-1]
-        self._probe_print(f"=== [INTENT_AUDIT] {ts.strftime('%Y-%m-%d')} ===")
-        # 1. 物理层审计 (SAJ 能量)
+        self._probe_output.append(f"=== [FULL_LINK_AUDIT] {ts.strftime('%Y-%m-%d')} ===")
+        # 1. 信号层：校验归一化基准
+        p_norm = raw_signals.get('pct_change', pd.Series(0, index=df_index)).iloc[-1]
+        self._probe_output.append(f"[L1_SIGNAL] Pct_Change: {p_norm:.4f}")
+        # 2. 物理层：校验运动学矢量 (SAJ)
         p_acc = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0, index=df_index)).iloc[-1]
         v_jerk = mtf_signals.get('JERK_5_volume_trend', pd.Series(0, index=df_index)).iloc[-1]
-        self._probe_print(f"[PHYS_AUDIT] Price_Accel: {p_acc:.4f}, Vol_Jerk: {v_jerk:.4f}")
-        # 2. 存量层审计 (HAB 水位)
+        self._probe_output.append(f"[L2_PHYSICS] Price_Accel: {p_acc:.4f}, Vol_Jerk: {v_jerk:.4f}")
+        # 3. 存量层：校验 HAB 水位
         c_hab = historical_context.get('capital_memory', {}).get('hab_score', pd.Series(0.5, index=df_index)).iloc[-1]
         ch_hab = historical_context.get('chip_memory', {}).get('hab_score', pd.Series(0.5, index=df_index)).iloc[-1]
-        self._probe_print(f"[HAB_AUDIT] Cap_HAB_Rank: {c_hab:.4f}, Chip_HAB_Rank: {ch_hab:.4f}")
-        # 3. 质量审计 (SNR & Sync)
-        sync = historical_context.get('phase_sync', pd.Series(0.0, index=df_index)).iloc[-1]
-        self._probe_print(f"[QUAL_AUDIT] Phase_Sync: {sync:.4f}")
-        # 4. 合成审计 (NaN 哨兵)
+        self._probe_output.append(f"[L3_HAB] Cap_HAB_Rank: {c_hab:.4f}, Chip_HAB_Rank: {ch_hab:.4f}")
+        # 4. 权重层：校验 Softmax 温度
+        rs_w = proxy_signals.get('rs_weight', pd.Series(0.0, index=df_index)).iloc[-1]
+        self._probe_output.append(f"[L4_WEIGHT] RS_Softmax_Weight: {rs_w:.4f}")
+        # 5. 合成层：校验最终意图与 NaN 风险
         b_val = bullish_intent.iloc[-1]
         f_val = final_intent.iloc[-1]
-        if np.isnan(f_val):
-            self._probe_print(f"[NAN_ALERT] 检测到最终意图为NaN! 正在追溯路径...")
-            if np.isnan(b_val): self._probe_print(f"  > 路径断裂点: bullish_intent")
-        self._probe_print(f"[RESULT_AUDIT] Bull_Intent: {b_val:.4f}, Final_Rally_Intent: {f_val:.4f}")
+        if np.isnan(f_val): self._probe_output.append("[L5_ALERT] Detected NaN in final_intent!")
+        self._probe_output.append(f"[L5_SYNTHESIS] Bullish: {b_val:.4f} -> Final: {f_val:.4f}")
 
     def _probe_print(self, message: str):
         """
@@ -281,22 +280,22 @@ class CalculateMainForceRallyIntent:
 
     def _persist_hab_states(self, historical_context: Dict):
         """
-        【V1.0】将HAB最新状态持久化至原子状态机
-        修改说明：提取当前计算周期末端的原始HAB Buffer水位并存入持久化字典，为下一周期提供物理背书。
-        版本号：2026.02.10.172
+        【V1.1 · 数值安全持久化版】将HAB最新状态持久化
+        修改说明：修复水位溢出问题。持久化前对原始Buffer进行Tanh标准化压缩，确保存储在状态机中的存量水位具有稳定的物理量纲。
+        版本号：2026.02.10.247
         """
         try:
             p_mem = historical_context.get('price_memory', {})
             c_mem = historical_context.get('capital_memory', {})
             ch_mem = historical_context.get('chip_memory', {})
             s_mem = historical_context.get('sentiment_memory', {})
-            # 提取时间序列末端的原始Buffer值 (非归一化值)
-            self.strategy.atomic_states['_HAB_STATE_PRICE'] = float(p_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1])
-            self.strategy.atomic_states['_HAB_STATE_CAPITAL'] = float(c_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1])
-            self.strategy.atomic_states['_HAB_STATE_CHIP'] = float(ch_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1])
-            self.strategy.atomic_states['_HAB_STATE_SENTIMENT'] = float(s_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1])
+            # 采用tanh压缩后再持久化，防止原始量纲溢出 (5e7为资金量纲缩放基准)
+            self.strategy.atomic_states['_HAB_STATE_PRICE'] = float(np.tanh(p_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1]))
+            self.strategy.atomic_states['_HAB_STATE_CAPITAL'] = float(np.tanh(c_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1] / 5e7))
+            self.strategy.atomic_states['_HAB_STATE_CHIP'] = float(np.tanh(ch_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1]))
+            self.strategy.atomic_states['_HAB_STATE_SENTIMENT'] = float(np.tanh(s_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1]))
             if self._is_probe_enabled(pd.DataFrame()):
-                self._probe_print(f"[HAB_PERSIST] 持久化存量水位: Cap={self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f}")
+                self._probe_print(f"[HAB_PERSIST] 存量水位标准化持久化完成 (Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
         except Exception as e:
             self._probe_print(f"[HAB_PERSIST_ERROR] 持久化失败: {str(e)}")
 
