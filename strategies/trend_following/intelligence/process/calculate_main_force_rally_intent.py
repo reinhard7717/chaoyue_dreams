@@ -44,44 +44,72 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V11.2 · 物理参数对齐修复版】主力拉升意图主计算流程
-        修改说明：修复_calculate_control_score等方法缺失raw_signals导致的NameError，完成物理数据流的全链路闭环。
-        版本号：2026.02.10.230
+        【V12.0 · 全链路探针集成版】主力拉升意图主计算流程
+        修改说明：建立全链路探针中枢，集成原始信号、MTF能量共振、HAB存量与意图合成的深度监控。
+        版本号：2026.02.10.240
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
-        # 1. 基础信号准备与定制化归一化
+        # 1. 原始信号载入与归一化
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
-        # 2. MTF 多周期能量共振提取
+        # 2. MTF 多周期能量提取
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
-        # 3. 构建历史上下文与 HAB 能量场
+        # 3. 历史上下文与状态载入
+        initial_hab_states = self._load_hab_states()
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
-        # 4. 代理信号物理矩阵构建
+        # 4. 代理矩阵与动态权重
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
-        # 5. 动态权重分配 (基于温度控制)
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals)
-        # 6. 核心物理维度得分 (修正参数传递，补齐 raw_signals)
+        # 5. 三大核心维度得分 (传递补齐后的参数)
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 7. 风险裁决与意图合成
+        # 6. 风险裁决与多头意图合成
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'])
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 8. 最终缝合与情境调节
-        final_rally_intent = (bullish_intent * (1 - total_risk_penalty) + bearish_score).clip(-1, 1)
+        # 7. 最终意图缝合
+        final_rally_intent = (bullish_intent * (1 - total_risk_penalty) + bearish_score).fillna(0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0)
-        # 9. 持久化存量状态
+        # 8. 持久化存量状态
         self._persist_hab_states(historical_context)
         self.strategy.atomic_states["_DEBUG_rally_integrated_hab"] = historical_context.get('integrated_memory', 0.5)
-        # 10. 触发全景探针
+        # 9. 执行全链路结构化探针
         if self._is_probe_enabled(df):
+            self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent)
             self._output_probe_info(df_index, final_rally_intent)
         return final_rally_intent.astype(np.float32)
+
+    def _execute_full_link_probing(self, df_index: pd.Index, raw_signals: Dict, mtf_signals: Dict, proxy_signals: Dict, historical_context: Dict, bullish_intent: pd.Series, final_intent: pd.Series):
+        """
+        【V1.0】全链路结构化探针审计
+        修改说明：建立从信号层到合成层的统一审计节点，实时侦测NaN风险与物理水位异常。
+        版本号：2026.02.10.241
+        """
+        ts = df_index[-1]
+        self._probe_print(f"=== [INTENT_AUDIT] {ts.strftime('%Y-%m-%d')} ===")
+        # 1. 物理层审计 (SAJ 能量)
+        p_acc = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0, index=df_index)).iloc[-1]
+        v_jerk = mtf_signals.get('JERK_5_volume_trend', pd.Series(0, index=df_index)).iloc[-1]
+        self._probe_print(f"[PHYS_AUDIT] Price_Accel: {p_acc:.4f}, Vol_Jerk: {v_jerk:.4f}")
+        # 2. 存量层审计 (HAB 水位)
+        c_hab = historical_context.get('capital_memory', {}).get('hab_score', pd.Series(0.5, index=df_index)).iloc[-1]
+        ch_hab = historical_context.get('chip_memory', {}).get('hab_score', pd.Series(0.5, index=df_index)).iloc[-1]
+        self._probe_print(f"[HAB_AUDIT] Cap_HAB_Rank: {c_hab:.4f}, Chip_HAB_Rank: {ch_hab:.4f}")
+        # 3. 质量审计 (SNR & Sync)
+        sync = historical_context.get('phase_sync', pd.Series(0.0, index=df_index)).iloc[-1]
+        self._probe_print(f"[QUAL_AUDIT] Phase_Sync: {sync:.4f}")
+        # 4. 合成审计 (NaN 哨兵)
+        b_val = bullish_intent.iloc[-1]
+        f_val = final_intent.iloc[-1]
+        if np.isnan(f_val):
+            self._probe_print(f"[NAN_ALERT] 检测到最终意图为NaN! 正在追溯路径...")
+            if np.isnan(b_val): self._probe_print(f"  > 路径断裂点: bullish_intent")
+        self._probe_print(f"[RESULT_AUDIT] Bull_Intent: {b_val:.4f}, Final_Rally_Intent: {f_val:.4f}")
 
     def _probe_print(self, message: str):
         """
