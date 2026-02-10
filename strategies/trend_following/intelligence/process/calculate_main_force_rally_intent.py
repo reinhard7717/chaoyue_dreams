@@ -1199,43 +1199,44 @@ class CalculateMainForceRallyIntent:
 
     def _identify_market_phase(self, df_index: pd.Index, market_state_factors: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V5.0 · SAJ-HAB相位转移模型版】市场阶段识别算法
-        修改说明：废弃if-elif硬编码逻辑，引入SAJ物理相位交叉与HAB存量水位差分析，量化市场从蓄势到派发的非线性转移概率。
-        版本号：2026.02.10.150
+        【V5.1 · 数值映射平滑版】市场阶段识别算法
+        修改说明：修复'DataError: No numeric types to aggregate'。通过将阶段标签数值化，解决pandas无法对字符串序列进行rolling操作的问题。
+        版本号：2026.02.10.200
         """
-        # 1. 提取核心水位与动力分量 (确保为Series)
-        p_hab = market_state_factors.get('state_hab_score', pd.Series(0.5, index=df_index))
-        # 假设从历史上下文获取更细致的水位 (通过 internal state 传递或重新计算)
-        c_hab = normalized_signals.get('net_mf_amount_norm', pd.Series(0.5, index=df_index)).rolling(21).rank(pct=True)
-        # 提取加速度矢量
-        p_acc = market_state_factors.get('trend_state_accel', pd.Series(0.0, index=df_index))
-        # 2. 相位交叉识别 (Phase Crossover)
-        # 逻辑：资金加速度领先于价格加速度转正，视为启动信号
-        cap_lead_price = (normalized_signals.get('flow_acceleration_norm', 0.5) > 0.6) & (p_acc < 0)
-        # 3. 计算各阶段概率得分 (Probability Scoring)
-        # 蓄势 (Accumulation): 资金水位上升，价格低位震荡
+        # 1. 提取核心水位与动力分量 (类型加固)
+        p_hab = pd.Series(market_state_factors.get('state_hab_score', 0.5), index=df_index)
+        c_hab = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index).rolling(21).rank(pct=True).fillna(0.5)
+        p_acc = pd.Series(market_state_factors.get('trend_state_accel', 0.0), index=df_index)
+        # 2. 相位交叉识别
+        cap_accel = pd.Series(normalized_signals.get('flow_acceleration_norm', 0.5), index=df_index)
+        cap_lead_price = (cap_accel > 0.6) & (p_acc < 0)
+        # 3. 各阶段概率得分
         prob_acc = (c_hab * (1 - p_hab)).clip(0, 1)
-        # 主升 (Expansion): 价格与资金水位同步高位，加速度均为正
         prob_exp = (p_hab * c_hab * (p_acc.clip(lower=0) + 0.5)).clip(0, 1)
-        # 派发 (Distribution): 价格水位极高，但资金水位开始背离下降
         prob_dist = (p_hab * (1 - c_hab)).clip(0, 1)
-        # 恐慌/反转 (Panic): 加速度剧烈转负，Jerk 阶跃
         p_jerk = p_acc.diff(1).fillna(0)
         prob_panic = (p_jerk.clip(upper=0).abs() * p_hab).clip(0, 1)
-        # 4. 状态判别矩阵
+        # 4. 状态决策矩阵
         phase_matrix = pd.DataFrame({
-            "蓄势": prob_acc, "主升": prob_exp, "派发": prob_dist, "反转风险": prob_panic, "横盘": 0.3 # 基准概率
+            "蓄势": prob_acc, "主升": prob_exp, "派发": prob_dist, "反转风险": prob_panic, "横盘": 0.3
         }, index=df_index)
-        # 特殊修正：相位领先修正
         phase_matrix.loc[cap_lead_price, "蓄势"] += 0.3
-        # 5. 最终决策与平滑
-        # 取概率最大者，并使用 5 日滚动众数平滑，防止跳变
         raw_phases = phase_matrix.idxmax(axis=1)
-        smoothed_phases = raw_phases.rolling(window=5).apply(lambda x: x.mode()[0] if not x.mode().empty else x.iloc[-1], raw=False).fillna("横盘")
+        # 5. 数值映射平滑处理 (核心修复点)
+        phase_map = {"蓄势": 0, "主升": 1, "派发": 2, "反转风险": 3, "横盘": 4}
+        inv_phase_map = {v: k for k, v in phase_map.items()}
+        # 将字符串转换为整数进行滚动计算
+        raw_phases_int = raw_phases.map(phase_map).astype(np.float64)
+        def get_rolling_mode(x):
+            m = x.mode()
+            return m.iloc[0] if not m.empty else x.iloc[-1]
+        # 对整数序列执行平滑，随后映射回字符串
+        smoothed_phases_int = raw_phases_int.rolling(window=5).apply(get_rolling_mode, raw=False).fillna(4)
+        smoothed_phases = smoothed_phases_int.map(inv_phase_map).fillna("横盘")
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Phase Transfer Probe ---")
-            self._probe_print(f"  > Probabilities: Acc={prob_acc.iloc[-1]:.2f}, Exp={prob_exp.iloc[-1]:.2f}, Dist={prob_dist.iloc[-1]:.2f}")
-            self._probe_print(f"  > Selected Phase: {smoothed_phases.iloc[-1]}")
+            self._probe_print(f"--- Phase Numeric-Mapping Probe ---")
+            self._probe_print(f"  > Probabilities: Acc={prob_acc.iloc[-1]:.2f}, Exp={prob_exp.iloc[-1]:.2f}")
+            self._probe_print(f"  > Final Phase: {smoothed_phases.iloc[-1]}")
         return smoothed_phases
 
     def _calculate_base_weights(self, df_index: pd.Index, market_phase: pd.Series,
