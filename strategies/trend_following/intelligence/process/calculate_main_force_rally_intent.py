@@ -185,9 +185,9 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_mtf_fused_signals(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 多窗口能量共振版】MTF跨周期信号融合
-        修改说明：彻底废弃外部MTF工具方法，内部实现基于多窗口波动率标准化的斜率与加速度融合算法，提升对长短周期共振的捕捉精度。
-        版本号：2026.02.10.130
+        【V8.1 · 鲁棒性增强版】MTF跨周期信号融合
+        修改说明：修复探针显示的NaN值问题。在标准化环节引入强制非空填充，确保冷启动阶段的能量共振分值为0（中性）。
+        版本号：2026.02.10.180
         """
         mtf_signals = {}
         for internal_key, series in raw_signals.items():
@@ -198,14 +198,15 @@ class CalculateMainForceRallyIntent:
         for signal_name, col_name in core_fusion_signals.items():
             fused_score = pd.Series(0.0, index=df_index)
             for window, weight in weights.items():
-                # 局部定制归一化：基于窗口波动率的 Tanh 压缩
                 val = df[col_name].diff(window).fillna(0)
-                std = val.rolling(window * 3).std().replace(0, 1e-9)
-                norm_val = np.tanh(val / (std * 2)) # 2倍标准差作为饱和点
+                # 核心修复：处理rolling初期产生的NaN，防止NaN污染加权和
+                std = val.rolling(window * 3).std().replace(0, 1e-9).fillna(1.0)
+                norm_val = np.tanh(val / (std * 2)).fillna(0)
                 fused_score += norm_val * weight
             mtf_signals[f'mtf_{signal_name}'] = fused_score.clip(-1, 1)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[MTF_PROBE] Price_MTF_Resonance: {mtf_signals['mtf_price_trend'].iloc[-1]:.4f}")
+            nan_count = mtf_signals['mtf_price_trend'].isna().sum()
+            self._probe_print(f"[MTF_PROBE] Price_MTF_Resonance: {mtf_signals['mtf_price_trend'].iloc[-1]:.4f}, NaNs: {nan_count}")
         return mtf_signals
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
@@ -318,32 +319,36 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_dynamic_period(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V4.0 · 物理稳定性响应版】动态记忆周期计算
-        修改说明：引入Jerk作为记忆长度的调节因子。Jerk越大（突变越剧烈），周期越短（敏锐）；Jerk越小（趋势稳健），周期越长（利用存量）。
-        版本号：2026.02.10.82
+        【V4.1 · 强类型安全版】动态记忆周期计算
+        修改说明：彻底解决IntCastingNaNError。在进行np.int32强转前，对计算链路进行全量非有限值（NaN/Inf）清除。
+        版本号：2026.02.10.181
         """
         pct_change = raw_signals.get('pct_change', pd.Series(0.0, index=df_index)).fillna(0.0)
         vol_ratio = raw_signals.get('volume_ratio', pd.Series(1.0, index=df_index)).fillna(1.0)
-        # 1. 基础波动率位置
+        # 1. 基础波动率位置 (归一化逻辑内化)
         volatility = pct_change.rolling(window=21).std().fillna(0.01)
-        vol_min = volatility.rolling(window=60).min()
-        vol_max = volatility.rolling(window=60).max()
-        vol_pos = (volatility - vol_min) / (vol_max - vol_min + 1e-9)
+        vol_min = volatility.rolling(window=60).min().fillna(0.01)
+        vol_max = volatility.rolling(window=60).max().fillna(1.0)
+        vol_pos = ((volatility - vol_min) / (vol_max - vol_min + 1e-9)).clip(0, 1)
         # 2. 趋势一致性 (ER)
         net_diff = pct_change.rolling(window=10).sum().abs()
-        path_len = pct_change.abs().rolling(window=10).sum()
-        er = (net_diff / (path_len + 1e-9)).clip(0, 1)
-        # 3. Jerk 稳定性调节 (识别物理力量突变)
-        price_jerk = raw_signals.get('JERK_5_price_trend', pct_change.diff().diff().rolling(5).mean()).abs()
-        jerk_norm = normalize_score(price_jerk, target_index=df_index, windows=60).clip(0, 1)
-        # 4. 周期映射：基准 21。
+        path_len = pct_change.abs().rolling(window=10).sum().replace(0, 1e-9)
+        er = (net_diff / path_len).clip(0, 1)
+        # 3. Jerk 稳定性调节 (内化归一化防止NaN透传)
+        price_jerk = pct_change.diff().diff().rolling(5).mean().abs().fillna(0)
+        j_med = price_jerk.rolling(60).median().replace(0, 1e-9)
+        jerk_norm = np.tanh(price_jerk / j_med).clip(0, 1)
+        # 4. 周期合成
+        # 核心逻辑：ER增加周期，Vol减少周期，Jerk剧烈减少周期
         dynamic_period = 21 * (1 + er * 0.4 - vol_pos * 0.3 - jerk_norm * 0.5)
-        # 5. 异常修正
+        # 5. 异常修正与强制转换
         vol_adj = (vol_ratio / 5.0).clip(0, 0.3)
-        dynamic_period = (dynamic_period * (1 - vol_adj)).clip(5, 55).round().astype(np.int32)
+        # 核心修复点：使用 replace + fillna 确保数据有限，再进行 astype
+        final_period_series = (dynamic_period * (1 - vol_adj)).clip(5, 55).round()
+        final_period_series = final_period_series.replace([np.inf, -np.inf], 21).fillna(21)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[PROBE] Dynamic Period: Jerk_Norm={jerk_norm.iloc[-1]:.4f}, Final_Period={dynamic_period.iloc[-1]}")
-        return dynamic_period
+            self._probe_print(f"[PERIOD_PROBE] Final_Period: {final_period_series.iloc[-1]}, Jerk_Norm: {jerk_norm.iloc[-1]:.4f}")
+        return final_period_series.astype(np.int32)
 
     def _estimate_snr(self, series: pd.Series) -> pd.Series:
         """
