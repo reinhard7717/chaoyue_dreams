@@ -1368,29 +1368,25 @@ class CalculateMainForceRallyIntent:
 
     def _detect_bull_trap(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dist_hab: pd.Series) -> pd.Series:
         """
-        【V1.0 · 物理受力反转版】诱多陷阱检测
-        修改说明：Bear Trap逻辑的物理反转。识别上涨惯性中派发力量的阶跃与价格Jerk的负向偏移。
-        版本号：2026.02.10.360
+        【V1.1 · 空值清洗版】诱多陷阱检测
+        修改说明：增加对dist_score的空值填充，防止微分计算产生NaN。
+        版本号：2026.02.10.382
         """
-        # 1. 提取物理矢量
-        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
-        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index)
-        dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
-        # 2. 计算派发阶跃 (Dist Step)
-        dist_step = dist_score.diff(1).clip(lower=0)
-        # 3. 识别诱多冲量 (Bull Trap Impulse)
-        # 物理逻辑：处于上涨惯性(Acc > 0)但受力方向已变(Jerk < 0)，且伴随派发增强
+        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).fillna(0.0)
+        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).fillna(0.0)
+        dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index).fillna(0.0)
+        
+        # 填充后计算微分
+        dist_step = dist_score.diff(1).fillna(0.0).clip(lower=0)
+        
         bull_impulse = p_acc.clip(lower=0) * p_jerk.clip(upper=0).abs() * (1 + dist_step * 2)
-        # 4. 定制化归一化
-        # 阈值设为 0.0020，捕捉A股典型的高位缩量诱多
         trap_intensity = np.tanh(bull_impulse / 0.0020).clip(0, 1)
-        # 5. 结合派发存量背书 (Dist-HAB)
-        # 诱多陷阱必须建立在主力已有充分出货存量的前提下
-        final_trap_score = (trap_intensity * dist_hab).fillna(0)
+        final_trap_score = (trap_intensity * dist_hab.fillna(0)).fillna(0)
+        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
             self._probe_print(f"--- Bull Trap Physics Probe ---")
-            self._probe_print(f"  > Dist_Step: {dist_step.iloc[-1]:.4f} | Neg_Jerk: {p_jerk.iloc[-1]:.4f}")
-            self._probe_print(f"  > Bull_Impulse: {bull_impulse.iloc[-1]:.6f} | Trap_Score: {final_trap_score.iloc[-1]:.4f}")
+            self._probe_print(f"  > Dist_Step: {dist_step.iloc[-1]:.4f} | Bull_Impulse: {bull_impulse.iloc[-1]:.6f}")
+            self._probe_print(f"  > Trap_Score: {final_trap_score.iloc[-1]:.4f}")
             
         return final_trap_score.astype(np.float32)
 
@@ -1544,78 +1540,84 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
         """
-        【V7.0 · 诱多陷阱增强版】计算复合看跌意图
-        修改说明：引入诱多陷阱(Bull Trap)检测。利用物理Jerk识别高位“外强中干”的受力特征，增强看跌意图的前瞻性。
-        版本号：2026.02.10.361
+        【V7.1 · 鲁棒性增强版】计算复合看跌意图
+        修改说明：增加输入数据的NaN清洗，防止对数合成时产生空值。
+        版本号：2026.02.10.383
         """
-        dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
-        # 1. 派发运动学分析
+        dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index).fillna(0.0)
+        # 运动学计算
         dist_slope = dist_score.diff(1).rolling(3).mean().fillna(0)
         dist_accel = dist_slope.diff(1).fillna(0)
-        dist_jerk = dist_accel.diff(1).abs().fillna(0)
-        # 2. 派发存量 (Distribution-HAB) - 使用 Rolling Rank
+        
+        # HAB 存量
         hab_inc = dist_score * (1 + dist_accel.clip(lower=0))
-        dist_hab_buffer = hab_inc.rolling(window=21, min_periods=5).sum().fillna(0)
-        dist_hab = dist_hab_buffer.rolling(34).rank(pct=True).fillna(0.0)
-        # 3. 【核心新增】诱多陷阱检测 (Bull Trap)
+        dist_hab_buffer = hab_inc.rolling(window=21, min_periods=1).sum().fillna(0) # min_periods=1 关键
+        dist_hab = dist_hab_buffer.rolling(34, min_periods=1).rank(pct=True).fillna(0.0)
+        
+        # 诱多陷阱
         bull_trap_score = self._detect_bull_trap(df_index, mtf_signals, normalized_signals, dist_hab)
-        # 4. 恐慌冲击感应
-        p_acc_down = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).clip(upper=0).abs()
+        
+        # 恐慌冲击
+        p_acc_down = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).clip(upper=0).abs().fillna(0)
         panic_impulse = (p_acc_down * dist_accel.clip(lower=0)).pow(0.5).fillna(0)
-        # 5. 最终合成：诱多陷阱分值作为溢价因子注入
+        
+        # 合成
         bear_comp = {'dist': dist_score, 'hab': dist_hab, 'panic': panic_impulse}
+        # 使用 1e-6 替换 0 防止 log(-inf)
         log_bear = (0.3 * np.log(bear_comp['dist'].clip(1e-6)) + 
                     0.4 * np.log(bear_comp['hab'].clip(1e-6)) + 
                     0.3 * np.log(bear_comp['panic'].clip(1e-6)))
+        
         base_bear_score = np.exp(log_bear).clip(0, 1)
-        # 诱多增强：如果检测到诱多陷阱，看跌意图最高提升 30%
         final_bear_score = (base_bear_score * (1 + bull_trap_score * 0.3)).clip(0, 1)
+        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
             self._probe_print(f"--- Bearish Intent Synthesis Probe ---")
-            self._probe_print(f"  > Bull_Trap_Boost: {bull_trap_score.iloc[-1]:.4f} | Final_Bear: {-final_bear_score.iloc[-1]:.4f}")
+            self._probe_print(f"  > Bull_Trap: {bull_trap_score.iloc[-1]:.4f} | Final_Bear: {-final_bear_score.iloc[-1]:.4f}")
             
         return -final_bear_score.astype(np.float32)
 
     def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, params: Dict, market_phase: pd.Series) -> pd.Series:
         """
-        【V8.6 · 类型安全修复版】深度风险裁决逻辑
-        修改说明：修复np.where返回ndarray导致的AttributeError。强制将风险惩罚项转换为pd.Series，确保探针iloc调用安全。
-        版本号：2026.02.10.380
+        【V8.7 · Pandas原生掩码版】深度风险裁决逻辑
+        修改说明：弃用np.where，改用Series.mask/where进行非线性映射，确保返回类型严格为Series且索引对齐。同时增强输入端的NaN清洗。
+        版本号：2026.02.10.381
         """
-        tech_risk = (pd.Series(normalized_signals.get('RSI_norm', 0.5), index=df_index) - 0.75).clip(lower=0) * 2.0
-        struct_risk = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
-        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).abs()
+        # 1. 基础风险分量 (输入清洗)
+        tech_risk = (pd.Series(normalized_signals.get('RSI_norm', 0.5), index=df_index).fillna(0.5) - 0.75).clip(lower=0) * 2.0
+        struct_risk = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index).fillna(0.0)
+        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).abs().fillna(0.0)
         
-        # 1. 稳健HAB水位与底气偏差
+        # 2. 稳健HAB水位与底气偏差
         p_hab = pd.Series(normalized_signals.get('absolute_change_strength_norm', 0.5), index=df_index).rolling(21, min_periods=1).mean().fillna(0.5)
         c_hab = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index).rolling(21, min_periods=1).mean().fillna(0.5)
         hab_offset = (p_hab - c_hab).clip(lower=0)
         
-        # 2. Sigmoid 风险软阈值
+        # 3. Sigmoid 风险软阈值
         hollow_risk_base = 1 / (1 + np.exp(-10 * (hab_offset - 0.65)))
         
-        # 3. 动态物理约束 (确保全部为Series操作)
-        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
+        # 4. 动态物理约束
+        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).fillna(0.0)
         risk_modulator = market_phase.map({"派发初期": 0.2, "主升": 0.3, "横盘": 0.4, "派发末端": 1.2, "反转风险": 1.5}).fillna(1.0)
         
-        # 使用 Series.where 或 np.where 后强制转 Series
-        acc_mask = (p_acc > 0).astype(float)
-        acc_factor = acc_mask.replace(1.0, 0.5).replace(0.0, 1.0) # Acc > 0 -> 0.5, else 1.0
+        # 使用 Pandas 原生操作替代 where/mask 以保持 Series 类型
+        acc_factor = pd.Series(1.0, index=df_index)
+        acc_factor = acc_factor.mask(p_acc > 0, 0.5)
         
         final_hollow_risk = (hollow_risk_base * risk_modulator * acc_factor).clip(0, 1)
         
-        # 4. 指数级惩罚映射
+        # 5. 指数级惩罚映射 (Pandas 原生实现)
         total_risk_raw = (tech_risk * 0.2 + struct_risk * 0.3 + final_hollow_risk * 0.5).clip(0, 1)
         
-        # 核心修复：np.where 返回 ndarray，需封装回 Series
-        penalty_arr = np.where(total_risk_raw > 0.65, total_risk_raw ** 0.5, total_risk_raw ** 2.5)
-        penalty = pd.Series(penalty_arr, index=df_index)
+        # 核心修复：使用 mask/where 替代 np.where
+        # 逻辑：if risk > 0.65 then risk^0.5 else risk^2.5
+        penalty = total_risk_raw ** 2.5
+        penalty = penalty.mask(total_risk_raw > 0.65, total_risk_raw ** 0.5)
         
         risk_sens = get_param_value(params.get('risk_sensitivity'), 4.0)
         final_penalty = 1 / (1 + np.exp(-risk_sens * (penalty - 0.7)))
         
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            # 现在 final_penalty 是 Series，可以使用 iloc
             self._probe_print(f"[RISK_SOFT_PROBE] Offset: {hab_offset.iloc[-1]:.4f} | Hollow_Risk: {final_hollow_risk.iloc[-1]:.4f} | Penalty: {final_penalty.iloc[-1]:.4f}")
             
         return final_penalty.clip(0, 1)
