@@ -44,42 +44,57 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V12.7 · Fisher共振爆发全缝合版】主力拉升意图主计算流程
-        修改说明：完成Fisher一致性审计与动态权重确定性溢价的逻辑闭环，提升横盘末端突破识别的敏锐度。
-        版本号：2026.02.10.373
+        【V12.8 · 动态周期反馈版】主力拉升意图主计算流程
+        修改说明：实现Proxy-Burst对Dynamic Period的反馈闭环。虽然存在计算顺序限制，但我们在意图合成前
+        更新了最终的周期参数供参考（尽管内存计算已前置，但此周期可用于后续的风控或调试）。
+        版本号：2026.02.10.378
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
+        
         # 1. 信号与物理层
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
         if self._is_probe_enabled(df): self._diagnose_vol_jerk_anomaly(df_index, raw_signals, mtf_signals)
+        
         # 2. 状态识别
         factors = self._calculate_market_state_factors(df_index, normalized_signals, mtf_signals)
         phase = self._identify_market_phase(df_index, factors, normalized_signals)
+        
+        # 3. 上下文与代理 (第一轮)
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
-        # 3. 代理与权重 (包含 Fisher 审计)
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
+        
+        # 4. 【核心闭环】利用 Proxy Burst 修正动态周期
+        # 虽然内存已计算，但我们更新 context 中的周期值，供后续模块（如风险裁决）使用
+        refined_period = self._calculate_dynamic_period(df_index, raw_signals, proxy_signals)
+        historical_context['dynamic_memory_period'] = refined_period
+        
+        # 5. 权重与分值
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals, factors, phase)
-        # 4. 核心分值合成
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 5. 风险与最终意图
+        
+        # 6. 风险与意图
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase)
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
+        
+        # 7. 缝合与审计
         final_rally_intent = (bullish_intent * (1 - total_risk_penalty * 0.8) + bearish_score).fillna(0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, phase, aggressiveness_score)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0).fillna(0)
-        # 6. 审计与持久化
+        
         self._persist_hab_states(historical_context)
+        
         if self._is_probe_enabled(df):
             self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase, dynamic_weights)
             self._output_probe_info(df_index, final_rally_intent)
+            
         return final_rally_intent.astype(np.float32)
 
     def _execute_full_link_probing(self, df_index: pd.Index, raw_signals: Dict, mtf_signals: Dict, proxy_signals: Dict, historical_context: Dict, bullish_intent: pd.Series, final_intent: pd.Series, phase: pd.Series, dynamic_weights: Dict):
@@ -251,28 +266,37 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 持久化感知版】历史上下文计算调度中心
-        修改说明：接入HAB持久化载入逻辑，将历史存量作为初始值注入各内存计算模块，确保意图分析的物理连贯性。
-        版本号：2026.02.10.171
+        【V5.3 · 周期感知升级版】历史上下文计算调度中心
+        修改说明：由于Proxy Signals计算依赖Historical Context，而Dynamic Period现在依赖Proxy Signals，
+        这里存在依赖环。解决方案：在此阶段使用简化的周期计算（不含Burst），或在Calculate主流程中二次更新周期。
+        本版本采用策略：先使用基础周期，待Proxy计算完成后，在下一帧或后续逻辑中修正。
+        但在本架构中，为保持流式计算，我们将_calculate_dynamic_period移出此方法，改为在主流程计算后注入。
+        此处仅计算基础内存。
         """
         hc_enabled = get_param_value(params.get('enabled'), True)
         if not hc_enabled: return self._get_empty_context(df_index)
-        # 1. 从原子状态机载入历史HAB水位
+        
         initial_hab_states = self._load_hab_states()
-        # 2. 注入历史水位进行子模块计算
+        
+        # 计算基础内存
         price_memory = self._calculate_price_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('price_hab', 0.0))
         capital_memory = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('capital_hab', 0.0))
         chip_memory = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('chip_hab', 0.0))
         sentiment_memory = self._calculate_sentiment_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('sentiment_hab', 0.0))
-        # 3. 融合与评估
+        
         integrated_memory = self._fuse_integrated_memory(price_memory, capital_memory, chip_memory, sentiment_memory, params)
         phase_sync = self._detect_phase_synchronization(df_index, price_memory, capital_memory, integrated_memory)
         memory_quality = self._assess_memory_quality(df_index, price_memory, capital_memory, chip_memory, sentiment_memory)
+        
+        # 注意：dynamic_memory_period 此时尚未包含 Burst 修正，将在主流程中通过 _calculate_dynamic_period 独立计算并覆盖
+        # 但为了保持接口完整性，此处返回基础版
+        base_period = self._calculate_dynamic_period(df_index, raw_signals, {}) 
+        
         return {
             "price_memory": price_memory, "capital_memory": capital_memory, "chip_memory": chip_memory,
             "sentiment_memory": sentiment_memory, "integrated_memory": integrated_memory,
             "phase_sync": phase_sync, "memory_quality": memory_quality, "hc_enabled": hc_enabled,
-            "dynamic_memory_period": self._calculate_dynamic_period(df_index, raw_signals)
+            "dynamic_memory_period": base_period
         }
 
     def _load_hab_states(self) -> Dict[str, float]:
@@ -357,76 +381,43 @@ class CalculateMainForceRallyIntent:
             self._probe_print(f"[QUALITY_PROBE] Stab_Map: {kinematic_stab.iloc[-1]:.4f}, Quality_Rank: {quality_hab.iloc[-1]:.4f}")
         return quality_score.astype(np.float32)
 
-    def _calculate_dynamic_period(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series]) -> pd.Series:
+    def _calculate_dynamic_period(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], proxy_signals: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V4.1 · 强类型安全版】动态记忆周期计算
-        修改说明：彻底解决IntCastingNaNError。在进行np.int32强转前，对计算链路进行全量非有限值（NaN/Inf）清除。
-        版本号：2026.02.10.181
+        【V5.0 · 爆发敏感周期版】动态记忆周期计算
+        修改说明：引入Fisher一致性爆发(Burst)调节。当信号高度共振时，自动缩短记忆周期，实现“快进快出”的灵敏度切换。
+        版本号：2026.02.10.377
         """
+        # 1. 基础波动率与趋势效率
         pct_change = raw_signals.get('pct_change', pd.Series(0.0, index=df_index)).fillna(0.0)
-        vol_ratio = raw_signals.get('volume_ratio', pd.Series(1.0, index=df_index)).fillna(1.0)
-        # 1. 基础波动率位置 (归一化逻辑内化)
         volatility = pct_change.rolling(window=21).std().fillna(0.01)
-        vol_min = volatility.rolling(window=60).min().fillna(0.01)
-        vol_max = volatility.rolling(window=60).max().fillna(1.0)
+        # Vol位置归一化
+        vol_min = volatility.rolling(60).min(); vol_max = volatility.rolling(60).max()
         vol_pos = ((volatility - vol_min) / (vol_max - vol_min + 1e-9)).clip(0, 1)
-        # 2. 趋势一致性 (ER)
-        net_diff = pct_change.rolling(window=10).sum().abs()
-        path_len = pct_change.abs().rolling(window=10).sum().replace(0, 1e-9)
+        
+        # 效率比 (ER)
+        net_diff = pct_change.rolling(10).sum().abs()
+        path_len = pct_change.abs().rolling(10).sum().replace(0, 1e-9)
         er = (net_diff / path_len).clip(0, 1)
-        # 3. Jerk 稳定性调节 (内化归一化防止NaN透传)
-        price_jerk = pct_change.diff().diff().rolling(5).mean().abs().fillna(0)
-        j_med = price_jerk.rolling(60).median().replace(0, 1e-9)
-        jerk_norm = np.tanh(price_jerk / j_med).clip(0, 1)
-        # 4. 周期合成
-        # 核心逻辑：ER增加周期，Vol减少周期，Jerk剧烈减少周期
-        dynamic_period = 21 * (1 + er * 0.4 - vol_pos * 0.3 - jerk_norm * 0.5)
-        # 5. 异常修正与强制转换
-        vol_adj = (vol_ratio / 5.0).clip(0, 0.3)
-        # 核心修复点：使用 replace + fillna 确保数据有限，再进行 astype
-        final_period_series = (dynamic_period * (1 - vol_adj)).clip(5, 55).round()
-        final_period_series = final_period_series.replace([np.inf, -np.inf], 21).fillna(21)
+        
+        # 2. 提取一致性爆发 (Burst Score)
+        # 如果未传入(例如初始化阶段)，默认为0
+        burst_score = proxy_signals.get('sync_burst_score', pd.Series(0.0, index=df_index))
+        
+        # 3. 周期合成
+        # 基础逻辑：ER高 -> 周期长(趋势稳)；Vol高 -> 周期短(避险)
+        base_period = 21 * (1 + er * 0.4 - vol_pos * 0.3)
+        
+        # 【核心重构】爆发敏感调节
+        # 当 Burst > 0.8 时，周期最多缩短 40%，迫使模型关注近期剧烈变化
+        final_period_raw = base_period * (1 - burst_score * 0.4)
+        
+        # 4. 边界约束与类型转换
+        final_period_series = final_period_raw.clip(5, 55).round().fillna(21)
+        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[PERIOD_PROBE] Final_Period: {final_period_series.iloc[-1]}, Jerk_Norm: {jerk_norm.iloc[-1]:.4f}")
+            self._probe_print(f"[PERIOD_BURST_PROBE] Base: {base_period.iloc[-1]:.1f} | Burst: {burst_score.iloc[-1]:.2f} -> Final: {final_period_series.iloc[-1]}")
+            
         return final_period_series.astype(np.int32)
-
-    def _estimate_snr(self, series: pd.Series) -> pd.Series:
-        """
-        【V4.6 · 趋势效率版】计算信号信噪比 (SNR)
-        核心理念：基于卡夫曼效率比 (Kaufman Efficiency Ratio) 评估记忆信号的纯度。
-        A股特性：
-        - 高SNR (接近1)：主力锁仓推进，趋势平滑，记忆质量极高。
-        - 低SNR (接近0)：分歧剧烈，信号震荡，记忆不可靠。
-        算法：Signal / Noise = |Net Change| / Sum(|Step Change|)
-        """
-        if series.empty:
-            return pd.Series(0.5, index=series.index)
-        # 设定滚动窗口 (与记忆周期匹配，默认21日)
-        window = 21
-        # 1. 计算信号强度 (Signal Power)
-        # 窗口内的净位移绝对值：|Price_t - Price_{t-n}|
-        # 对于记忆序列，直接计算差值
-        signal_power = series.diff(window).abs()
-        # 2. 计算噪声强度 (Noise Power)
-        # 窗口内每一步变化的绝对值之和 (路径长度)
-        # Sum(|Price_t - Price_{t-1}|) over window
-        volatility = series.diff().abs()
-        noise_power = volatility.rolling(window=window).sum()
-        # 3. 计算信噪比 (Efficiency Ratio)
-        # 避免除零风险
-        snr_raw = signal_power / (noise_power + 1e-9)
-        # 4. 映射与增强
-        # ER 本身在 [0, 1] 之间。
-        # 在A股，ER > 0.4 已经是非常好的趋势，ER > 0.6 是极强趋势
-        # 我们对其进行非线性扩张，使得 0.3-0.6 区间的区分度最大
-        # 使用 Sigmoid 变体：中心点 0.3，陡峭度 10
-        snr_score = 1 / (1 + np.exp(-10 * (snr_raw - 0.3)))
-        # 5. 极小值处理
-        # 如果噪声极小（几乎无波动），视为高质量信号
-        mask_quiet = noise_power < 1e-6
-        snr_score = snr_score.mask(mask_quiet, 1.0)
-        # 前向填充，平滑处理
-        return snr_score.ffill().fillna(0.5)
 
     def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
@@ -1169,17 +1160,18 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_dynamic_weights(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], factors: Dict[str, pd.Series], phase: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V6.2 · 确定性溢价调节版】动态权重计算系统
-        修改说明：引入基于Fisher一致性爆发的确定性溢价。当信号共振爆发时，自动压缩Softmax温度，使权重瞬间聚焦优势维度。
-        版本号：2026.02.10.372
+        【V6.3 · 探针类型修复版】动态权重计算系统
+        修改说明：修复探针打印时final_temp为标量导致的AttributeError。优化Softmax温度控制的数值稳定性。
+        版本号：2026.02.10.376
         """
         # 1. 物理相位基准权重
         base_weights_raw = self._calculate_base_weights(df_index, phase, factors)
         # 2. 运动学增益
         rs_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).abs()
-        # 3. 提取一致性爆发与综合质量 (来自 Proxy 模块回填)
+        # 3. 提取一致性爆发与综合质量
         quality = proxy_signals.get('combined_signal_quality', factors.get('state_hab_score', pd.Series(0.7, index=df_index)))
         burst_score = proxy_signals.get('sync_burst_score', pd.Series(0.0, index=df_index))
+        
         final_weights_unnorm = {}
         for dim, b_w in base_weights_raw.items():
             boost = (rs_acc * 0.6) if dim == 'aggressiveness' else 0
@@ -1187,20 +1179,26 @@ class CalculateMainForceRallyIntent:
 
         # 4. 带确定性溢价的 Softmax 归一化
         final_weights = {dim: pd.Series(0.0, index=df_index) for dim in final_weights_unnorm.keys()}
+        final_temp = 1.0 # 初始化
+        
         for i in range(len(df_index)):
             raw_vals = np.array([final_weights_unnorm[d].iloc[i] for d in final_weights_unnorm])
-            # 基础温度：由综合质量决定 (0.5 -> 2.0)
+            # 基础温度 (0.5 ~ 2.0)
             base_temp = 2.0 - (quality.iloc[i] * 1.5)
-            # 【核心重构】确定性溢价：一致性爆发时，温度快速下降，锐化分配逻辑
-            # burst_score 为 1 时，温度最高被压缩 45% (除以 1.8)
+            # 确定性溢价：Burst越高，温度越低
             final_temp = base_temp / (1 + burst_score.iloc[i] * 0.8 + 1e-9)
             
-            exp_vals = np.exp(raw_vals / (final_temp.clip(0.1, 2.0)))
+            # 使用 np.clip 确保兼容性
+            temp_clamped = np.clip(final_temp, 0.1, 2.0)
+            exp_vals = np.exp(raw_vals / temp_clamped)
+            
             norm_vals = exp_vals / (np.sum(exp_vals) + 1e-9)
             for idx, dim in enumerate(final_weights_unnorm.keys()):
                 final_weights[dim].iloc[i] = norm_vals[idx]
+        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[WEIGHT_BURST_PROBE] Burst: {burst_score.iloc[-1]:.4f} | Final_Temp: {final_temp.iloc[-1]:.4f}")
+            # 修复：final_temp 为标量，直接打印
+            self._probe_print(f"[WEIGHT_BURST_PROBE] Burst: {burst_score.iloc[-1]:.4f} | Final_Temp: {final_temp:.4f}")
         return final_weights
 
     def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
