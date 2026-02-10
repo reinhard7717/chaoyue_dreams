@@ -1578,31 +1578,46 @@ class CalculateMainForceRallyIntent:
 
     def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, params: Dict, market_phase: pd.Series) -> pd.Series:
         """
-        【V8.5 · 物理软阈值风险版】深度风险裁决逻辑
-        修改说明：引入Sigmoid非线性风险阈值。在底气偏差(Offset)处于中高区时执行软熔断，防止在强势横盘期误杀多头意图。
-        版本号: 2026.02.10.320
+        【V8.6 · 类型安全修复版】深度风险裁决逻辑
+        修改说明：修复np.where返回ndarray导致的AttributeError。强制将风险惩罚项转换为pd.Series，确保探针iloc调用安全。
+        版本号：2026.02.10.380
         """
         tech_risk = (pd.Series(normalized_signals.get('RSI_norm', 0.5), index=df_index) - 0.75).clip(lower=0) * 2.0
         struct_risk = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index)
-        # 1. 物理底气背离 (Offset)
+        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).abs()
+        
+        # 1. 稳健HAB水位与底气偏差
         p_hab = pd.Series(normalized_signals.get('absolute_change_strength_norm', 0.5), index=df_index).rolling(21, min_periods=1).mean().fillna(0.5)
         c_hab = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index).rolling(21, min_periods=1).mean().fillna(0.5)
         hab_offset = (p_hab - c_hab).clip(lower=0)
-        # 2. 【核心重构】Sigmoid 风险软阈值
-        # 逻辑：在 Offset < 0.5 时几乎无感，在 0.5-0.8 之间快速爬升，利用 Sigmoid 平滑极值冲击
+        
+        # 2. Sigmoid 风险软阈值
         hollow_risk_base = 1 / (1 + np.exp(-10 * (hab_offset - 0.65)))
-        # 3. 动态物理约束：若价格加速度仍为正，则大幅衰减背离风险
+        
+        # 3. 动态物理约束 (确保全部为Series操作)
         p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
         risk_modulator = market_phase.map({"派发初期": 0.2, "主升": 0.3, "横盘": 0.4, "派发末端": 1.2, "反转风险": 1.5}).fillna(1.0)
-        # 如果加速度为正，背离风险仅保留 50%
-        final_hollow_risk = (hollow_risk_base * risk_modulator * (np.where(p_acc > 0, 0.5, 1.0))).clip(0, 1)
+        
+        # 使用 Series.where 或 np.where 后强制转 Series
+        acc_mask = (p_acc > 0).astype(float)
+        acc_factor = acc_mask.replace(1.0, 0.5).replace(0.0, 1.0) # Acc > 0 -> 0.5, else 1.0
+        
+        final_hollow_risk = (hollow_risk_base * risk_modulator * acc_factor).clip(0, 1)
+        
         # 4. 指数级惩罚映射
         total_risk_raw = (tech_risk * 0.2 + struct_risk * 0.3 + final_hollow_risk * 0.5).clip(0, 1)
-        penalty = np.where(total_risk_raw > 0.65, total_risk_raw ** 0.5, total_risk_raw ** 2.5)
+        
+        # 核心修复：np.where 返回 ndarray，需封装回 Series
+        penalty_arr = np.where(total_risk_raw > 0.65, total_risk_raw ** 0.5, total_risk_raw ** 2.5)
+        penalty = pd.Series(penalty_arr, index=df_index)
+        
         risk_sens = get_param_value(params.get('risk_sensitivity'), 4.0)
-        final_penalty = 1 / (1 + np.exp(-risk_sens * (penalty - 0.7))) # 中心点进一步上移
+        final_penalty = 1 / (1 + np.exp(-risk_sens * (penalty - 0.7)))
+        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            # 现在 final_penalty 是 Series，可以使用 iloc
             self._probe_print(f"[RISK_SOFT_PROBE] Offset: {hab_offset.iloc[-1]:.4f} | Hollow_Risk: {final_hollow_risk.iloc[-1]:.4f} | Penalty: {final_penalty.iloc[-1]:.4f}")
+            
         return final_penalty.clip(0, 1)
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], market_phase: pd.Series, aggressiveness_score: pd.Series) -> pd.Series:
