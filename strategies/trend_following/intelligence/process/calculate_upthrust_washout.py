@@ -29,8 +29,8 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V19.0.0 · 全链路白盒总控]
-        - 升级: 增强探针数据流，支持从原料到结果的完整溯源。
+        [V19.2.0 · Bug修复版]
+        - 修复: 修正 _assess_dynamic_chip_metabolism 调用时的变量名错误 (hab_release -> hab_rel)。
         - 架构: Trap(4D) -> Resonance(Stratified) -> Meta(Anchor) -> Solidity(Stress) -> Deception(Skew) -> Anomaly(Fractal)
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
@@ -45,22 +45,30 @@ class CalculateUpthrustWashoutRelationship:
          abnormal_vol, clustering, order_anomaly, acc_abnormal,
          ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
+        
         # 2. 物理层 (4D Trap)
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
+        
         # 3. 资金层 (Stratified Resonance & HAB)
         f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
         f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, slope_f_21, accel_f_21, vpa_eff, f_volat)
         fund_score = f_resonance * f_hab
+        
         # 4. 筹码层 (Dynamic Metabolism)
-        chip_meta = self._assess_dynamic_chip_metabolism(hab_release, turnover, winner, acc_win, chip_stab, cost_diff)
+        # [修复点] 使用 hab_rel 而非 hab_release
+        chip_meta = self._assess_dynamic_chip_metabolism(hab_rel, turnover, winner, acc_win, chip_stab, cost_diff)
+        
         # 5. 防御层 (Structural Stress Test)
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
+        
         # 6. 取证与融合
         chrono_dec = self._assess_skewed_deception_narrative(morning, stealth, high_lock, skew, pct_chg)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
+        
         forensics = (chrono_dec * 0.4 + chip_meta * 0.3 + fractal_man * 0.3)
         final_score = (k_trap * fund_score * forensics * solidity * context).clip(0, 1)
+        
         # 7. 全链路探针调用
         self._print_debug_probe(df_index, final_score, 
                                 k_trap, och_acc, vpa_eff,                   # 物理维度
