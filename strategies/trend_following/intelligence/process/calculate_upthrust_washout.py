@@ -29,22 +29,13 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V26.0.1 · 总线补全修复版]
-        - 修复: 补全 debug_context 中 Phys 字典缺失的 OCH/VPA/BBP 键值对，消除 KeyError。
-        - 架构: 维持 V26.0.0 的动态熵校准总控逻辑。
+        [V26.0.2 · 总线全对齐版]
+        - 核心修复: 彻底解决 debug_context 与探针引用之间的 Key 错配问题，补全 Fund 层及各层缺失指标。
+        - 逻辑链: 维持 V26 动态熵校准机制，将所有过程变量(f_resonance, f_split, raw_fund 等)强制压入数据总线。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        # 1. 提取全量原料
-        (open_p, high_p, low_p, close_p, pct_chg, p_entropy,
-         slope_p, accel_p, jerk_p,                                   
-         raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, 
-         vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, 
-         morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, 
-         chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, 
-         abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, 
-         ma_res, slope_t) = self._get_raw_signals(df, method_name)
+        (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, accel_p, jerk_p, raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        # 2. 逻辑模块计算
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
         f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
         f_split = self._assess_split_order_accumulation(volume, trade_count, clustering, raw_f, total_net)
@@ -55,22 +46,19 @@ class CalculateUpthrustWashoutRelationship:
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
         chrono_dec = self._assess_skewed_deception_narrative(morning, stealth, high_lock, skew, pct_chg)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
-        # 3. 全局熵校准
         e_scale = p_entropy.rolling(60, min_periods=1).mean().replace(0, 1e-9)
         n_entropy = np.tanh(p_entropy / e_scale).clip(0.2, 1.0)
         entropy_multiplier = (1.2 - n_entropy).clip(0, 1)
-        # 4. 融合
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
         forensics = (chrono_dec * 0.4 + chip_meta * 0.3 + fractal_man * 0.3)
         final_score = (k_trap * fund_score * forensics * solidity * context * entropy_multiplier).clip(0, 1)
-        # 5. 数据总线封包 [核心修复点: 补全 Phys 字典中的键]
         debug_context = {
             "Final": final_score, "EntropyMultiplier": entropy_multiplier, "EntropyRaw": p_entropy,
             "Phys": {"Node": k_trap, "OCH": och_acc, "VPA": vpa_eff, "BBP": bbp_pos, "Slope": slope_p, "Jerk": jerk_p},
-            "Fund": {"Node": fund_score, "AccT": t_accum_34, "Active": f_active, "HAB": f_hab, "Split": f_split},
-            "Chip": {"Node": chip_meta, "CostDiff": cost_diff, "H_Rel": hab_rel, "TO": turnover, "Kurt": chip_kurt, "Conv": chip_conv, "A_Win": acc_win, "A_Stab": acc_stab_21},
+            "Fund": {"Node": fund_score, "Res": f_resonance, "Split": f_split, "HAB": f_hab, "S_Net": smart_n, "P_Jerk": jerk_f, "AccL": f_accum_34, "AccT": t_accum_34, "D_Out": raw_f},
+            "Chip": {"Node": chip_meta, "Kurt": chip_kurt, "Conv": chip_conv, "A_Win": acc_win, "A_Stab": acc_stab_21, "H_Rel": hab_rel, "TO": turnover, "C_Diff": cost_diff},
             "Defense": {"Node": solidity, "SR": sr_ratio, "Test": test_cnt, "Mig": cost_mig, "AccS": acc_supp},
-            "Forensics": {"Dec": chrono_dec, "Man": fractal_man, "Skew": skew, "Lock": high_lock}
+            "Forensics": {"Dec": chrono_dec, "Man": fractal_man, "Skew": skew, "Lock": high_lock, "Stealth": stealth, "Clust": clustering, "Anom": order_anomaly}
         }
         self._print_debug_probe(df_index, debug_context)
         return final_score.astype(np.float32).fillna(0.0)
