@@ -267,29 +267,51 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V80.0 · 原料加载层：引入基于市值的自适应 HAB 窗口(8/13/21/34)，计算动态周期累积，清除空行"""
+        """V86.0 · 原料加载层：修复市值(0.0)导致的自适应窗口错误，新增动态市值估算与稳健回退机制，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
-        # 新增 circ_mv_D 用于市值自适应
-        base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D', 'circ_mv_D']
+        # 基础列定义
+        base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
+        # 尝试获取市值列，若无则标记后续处理
+        has_mv_col = 'circ_mv_D' in df.columns
+        if has_mv_col: base_cols.append('circ_mv_D')
+        
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
         tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D']
+        
         for col in base_cols + struct_cols + tech_cols:
-            if col not in df.columns: 
-                if col == 'circ_mv_D': # 容错：如果没有市值数据，用成交额估算或给默认值
-                    raw_signals[col] = df['amount_D'].rolling(20).mean() * 1000 # 粗略估算
-                else:
-                    raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
-            else:
-                raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
-        # 市值自适应窗口逻辑 (Adaptive Window Logic)
+            if col not in df.columns: raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
+            raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
+
+        # --- 市值自适应逻辑修正 (Market Value Robustness) ---
+        mv_source = "RAW"
+        print(f"DEBUG: 原始数据是否包含市值列: {has_mv_col}")
+        print(f"DEBUG: 原始数据市值列均值: {raw_signals.get('circ_mv_D', pd.Series([0])).mean():.2e}")
+        if not has_mv_col or raw_signals.get('circ_mv_D', pd.Series([0])).mean() < 1e5: # 阈值过小视为无效
+            # 尝试通过 (成交额 / 换手率) 反推市值
+            amt = raw_signals['amount_D']
+            turn = raw_signals['turnover_rate_f_D']
+            # 避免除以零，换手率限制最小 0.1%
+            est_mv = (amt / (turn + 0.1) * 100.0).fillna(0)
+            raw_signals['circ_mv_D'] = est_mv
+            mv_source = "ESTIMATED"
+        
         avg_mv = raw_signals['circ_mv_D'].mean()
-        w_s, w_l = 13, 21 # 默认中盘
+        w_s, w_l = 13, 21 # 默认回退到中盘 (Safe Default)
+        mv_tag = "MID"
+
         if avg_mv > 0:
-            if avg_mv < 50e8: w_s, w_l = 8, 13   # 小盘 (<50亿): 敏捷窗口
-            elif avg_mv > 500e8: w_s, w_l = 21, 34 # 大盘 (>500亿): 稳健窗口
-        # 将实际窗口存入 raw 以便探针读取
-        raw_signals['META_HAB_WINDOWS'] = pd.Series([w_s, w_l], index=df.index[:2]) 
+            if avg_mv < 50e8: # < 50亿
+                w_s, w_l = 8, 13
+                mv_tag = "SMALL"
+            elif avg_mv > 500e8: # > 500亿
+                w_s, w_l = 21, 34
+                mv_tag = "LARGE"
+        
+        # 将窗口参数存入信号流
+        raw_signals['META_HAB_WINDOWS'] = pd.Series([w_s, w_l], index=df.index[:2])
+        
+        # --- 后续计算保持不变 ---
         raw_vwap = (raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)).fillna(raw_signals['close_D'])
         r_c, r_v = raw_signals['close_D'].values[-60:], raw_vwap.values[-60:]
         v_m, s_f = r_v > 0, 1.0
@@ -300,8 +322,8 @@ class CalculatePriceVolumeDynamics:
         if raw_signals['winner_rate_D'].max() > 1.1: raw_signals['winner_rate_D'] /= 100.0
         sm_v = raw_signals['SMART_MONEY_HM_NET_BUY_D'].values
         if np.abs(sm_v).sum() < 1e-5: sm_v = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).values
-        # 使用动态窗口计算 HAB
-        # 注意：Key名保持 '13'/'21' 以兼容下游代码，但实际计算使用 w_s / w_l
+        
+        # 使用自适应窗口计算 HAB
         raw_signals['ACCUM_13_SMART_MONEY'] = pd.Series(_numba_rolling_accumulation(sm_v.astype(np.float32), w_s), index=df.index, dtype=np.float32)
         raw_signals['ACCUM_21_SMART_MONEY'] = pd.Series(_numba_rolling_accumulation(sm_v.astype(np.float32), w_l), index=df.index, dtype=np.float32)
         raw_signals['ACCUM_21_VOLUME'] = pd.Series(_numba_rolling_accumulation(raw_signals['volume_D'].values, w_l), index=df.index, dtype=np.float32)
@@ -336,8 +358,9 @@ class CalculatePriceVolumeDynamics:
                 raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index, dtype=np.float32)
                 raw_signals[f"JERK_{win}_{col}"] = pd.Series(j, index=df.index, dtype=np.float32)
         if is_debug and probe_ts in df.index:
-            print(f"\n[原料 V80.0 自适应 HAB 探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    市值: {avg_mv/1e8:.1f}亿, 适配窗口: 短{w_s}/长{w_l}")
+            print(f"\n[原料 V86.0 稳健 HAB 探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    市值: {avg_mv/1e8:.1f}亿 ({mv_source}), 类型: {mv_tag}")
+            print(f"    窗口配置: 短 {w_s}d / 长 {w_l}d")
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
