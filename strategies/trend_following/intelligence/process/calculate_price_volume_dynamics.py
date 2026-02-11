@@ -276,7 +276,8 @@ class CalculatePriceVolumeDynamics:
         
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
         tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D']
-        
+        print(f"raw_signals['cost_50pct_D']: {raw_signals['cost_50pct_D']}")
+        print(f"raw_signals['winner_rate_D']: {raw_signals['winner_rate_D']}")
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns: raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
             raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
