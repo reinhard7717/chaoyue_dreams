@@ -166,15 +166,21 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V13.3 · 物理抛压加速缝合版】主力拉升意图主计算流程
-        修改说明：更新 _calculate_bearish_intent 调用接口。注入 factors 字典以启用背离压力调节，实现对空头意图爆发的物理级感知。
-        版本号：2026.02.11.122
+        【V13.4 · 全向量化极限版】主力拉升意图主计算流程
+        修改说明：废弃 df.apply(is_limit_up)，引入向量化涨停检测算子。彻底消除主流程中最后的 Python 循环，实现全链路矩阵运算。
+        版本号：2026.02.11.130
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
+        # 1. 基础信号加载
         raw_signals = self._get_raw_signals(df)
-        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
+        # 2. 【核心优化】向量化涨停检测 (替代 df.apply)
+        close_v = raw_signals.get('close', 0.0).values
+        pre_close_v = raw_signals.get('pre_close', 0.0).values
+        # 简单涨停逻辑向量化：close >= pre_close * 1.099 (兼容处理)
+        is_limit_up_vec = (close_v >= np.round(pre_close_v * 1.098, 2)) & (pre_close_v > 0)
+        # 3. 物理分量计算
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
         if self._is_probe_enabled(df): self._diagnose_vol_jerk_anomaly(df_index, raw_signals, mtf_signals)
@@ -185,18 +191,20 @@ class CalculateMainForceRallyIntent:
         refined_period = self._calculate_dynamic_period(df_index, raw_signals, proxy_signals)
         historical_context['dynamic_memory_period'] = refined_period
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals, factors, phase)
+        # 4. 意图组件合成
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 1. 优先执行风险裁决 (Risk Pre-check)
+        # 5. 风险与熔断
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase, factors).astype(np.float32)
-        # 2. 注入风险分量执行带熔断的意图合成 (Bullish Intent with Circuit Breaker)
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'], proxy_signals, total_risk_penalty).astype(np.float32)
-        # 3. 后续看跌意图合成与最终缝合 (注入 factors)
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context, factors).astype(np.float32)
+        # 6. 最终意图缝合
         final_rally_intent = (bullish_intent * (1.0 - total_risk_penalty * 0.8) + bearish_score).fillna(0.0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, phase, aggressiveness_score)
-        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0).fillna(0.0)
+        # 应用涨停保护
+        final_rally_intent = pd.Series(np.where(is_limit_up_vec & (final_rally_intent.values < 0), 0.0, final_rally_intent.values), index=df_index)
+        # 7. 持久化与审计
         self._persist_hab_states(historical_context, final_rally_intent, proxy_signals)
         if self._is_probe_enabled(df):
             self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase, dynamic_weights)
@@ -210,7 +218,7 @@ class CalculateMainForceRallyIntent:
         版本号：2026.02.11.105
         """
         ts = df_index[-1]
-        self._probe_print(f"=== [FULL_LINK_PHYSICS_AUDIT] {ts.strftime('%Y-%m-%d')} ===")
+        # self._probe_print(f"=== [FULL_LINK_PHYSICS_AUDIT] {ts.strftime('%Y-%m-%d')} ===")
         # 1. 物理穿透链条审计 (NumPy 访问)
         v_jerk_s = mtf_signals.get('JERK_5_volume_trend', pd.Series(0.0, index=df_index))
         p_acc_s = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0.0, index=df_index))
@@ -350,10 +358,10 @@ class CalculateMainForceRallyIntent:
         a_v_s = mtf_signals.get('ACCEL_5_volume_trend', pd.Series(0.0, index=df_index))
         s_val = s_v_s.values[-1] if hasattr(s_v_s, 'values') else s_v_s[-1]
         a_val = a_v_s.values[-1] if hasattr(a_v_s, 'values') else a_v_s[-1]
-        self._probe_print(f"=== [PHYSICS_DIAGNOSIS] Vol_SAJ_Chain ===")
-        self._probe_print(f"  > Raw_Volume: {vol_val:.0f}")
-        self._probe_print(f"  > S/A/J_Raw: S={s_val:.2f}, A={a_val:.2f}, J={v_j_raw:.2f}")
-        self._probe_print(f"  > MAD_Audit: Median={med:.2f}, MAD={mad:.2f}, Z-Score={(v_j_raw-med)/(mad*1.4826+1e-9):.2f}")
+        # self._probe_print(f"=== [PHYSICS_DIAGNOSIS] Vol_SAJ_Chain ===")
+        # self._probe_print(f"  > Raw_Volume: {vol_val:.0f}")
+        # self._probe_print(f"  > S/A/J_Raw: S={s_val:.2f}, A={a_val:.2f}, J={v_j_raw:.2f}")
+        # self._probe_print(f"  > MAD_Audit: Median={med:.2f}, MAD={mad:.2f}, Z-Score={(v_j_raw-med)/(mad*1.4826+1e-9):.2f}")
 
     def _calculate_mtf_fused_signals(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
@@ -417,7 +425,7 @@ class CalculateMainForceRallyIntent:
             norm_val = np.float32(self.strategy.atomic_states.get(v_key, 0.0))
             # 反向还原逻辑: val = arctanh(norm) * scale
             states[k] = np.arctanh(np.clip(norm_val, -0.99, 0.99)) * scale
-        if any(v != 0 for v in states.values()): self._probe_print(f"[HAB_LOAD_V1.2] 成功物理还原历史存量: Cap={states['capital_hab']:.2e}")
+        # if any(v != 0 for v in states.values()): self._probe_print(f"[HAB_LOAD_V1.2] 成功物理还原历史存量: Cap={states['capital_hab']:.2e}")
         return states
 
     def _persist_hab_states(self, historical_context: Dict, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series]):
@@ -436,7 +444,7 @@ class CalculateMainForceRallyIntent:
                 new_norm_val = float(np.tanh((buf.values[-1] if len(buf) > 0 else 0.0) / np.float32(scale)))
                 old_val = float(self.strategy.atomic_states.get(s_key, 0.0))
                 self.strategy.atomic_states[s_key] = old_val * (1.0 - update_weight) + new_norm_val * update_weight
-            if self._is_probe_enabled(pd.DataFrame()): self._probe_print(f"[HAB_PERSIST_V1.3] 自适应持久化完成 (Weight: {update_weight:.4f}, Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
+            # if self._is_probe_enabled(pd.DataFrame()): self._probe_print(f"[HAB_PERSIST_V1.3] 自适应持久化完成 (Weight: {update_weight:.4f}, Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
         except Exception as e: self._probe_print(f"[HAB_PERSIST_ERROR] 自适应持久化失败: {str(e)}")
 
     def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
@@ -496,8 +504,8 @@ class CalculateMainForceRallyIntent:
         raw_period = 21.0 * (1.0 + er * 0.4 - vol_pos * 0.3) * (1.0 - burst_score * 0.4)
         # 5. 最终平滑与类型转换
         final_period = pd.Series(raw_period, index=df_index).ewm(span=5).mean().clip(5, 55).round().fillna(21).astype(np.int32)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[PERIOD_BURST_PROBE] ER: {er[-1]:.2f} | Burst: {burst_score[-1]:.2f} -> Final: {final_period.iloc[-1]}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     self._probe_print(f"[PERIOD_BURST_PROBE] ER: {er[-1]:.2f} | Burst: {burst_score[-1]:.2f} -> Final: {final_period.iloc[-1]}")
         return final_period
 
     def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
@@ -760,9 +768,9 @@ class CalculateMainForceRallyIntent:
         for name, series in proxy_cores.items():
             final_proxy_signals[f"{name}_hab_score"] = series.mask(series < 0.6, 0).diff(1).clip(lower=0).rolling(21).sum().fillna(0).rolling(55).rank(pct=True).fillna(0.5)
 
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Fisher Proxy-SNR Consistency Fix Probe ---")
-            self._probe_print(f"  > Fisher_Sync: {fisher_norm.iloc[-1]:.4f} | Burst: {sync_burst_score.iloc[-1]:.4f}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     self._probe_print(f"--- Fisher Proxy-SNR Consistency Fix Probe ---")
+        #     self._probe_print(f"  > Fisher_Sync: {fisher_norm.iloc[-1]:.4f} | Burst: {sync_burst_score.iloc[-1]:.4f}")
         return final_proxy_signals
 
     def _calculate_enhanced_rs_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
@@ -928,8 +936,8 @@ class CalculateMainForceRallyIntent:
         result = {"comprehensive_proxy": final_series}
         for i, key in enumerate(signal_keys):
             result[f"{key}_weight"] = pd.Series(weights[:, i], index=df_index)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[WEIGHT_PROBE] Temp: {temperature[-1, 0]:.2f}, RS_Weight: {weights[-1, 0]:.4f}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     self._probe_print(f"[WEIGHT_PROBE] Temp: {temperature[-1, 0]:.2f}, RS_Weight: {weights[-1, 0]:.4f}")
         return result
 
     def _assess_signal_quality(self, rs_proxy: Dict, capital_proxy: Dict, sentiment_proxy: Dict, liquidity_proxy: Dict, volatility_proxy: Dict, risk_preference_proxy: Dict) -> pd.Series:
@@ -1070,8 +1078,8 @@ class CalculateMainForceRallyIntent:
         cols = df_weights.columns
         for i, col in enumerate(cols):
             final_weights[col] = pd.Series(norm_vals[:, i], index=df_index)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[WEIGHT_BURST_PROBE] Burst: {burst_score[-1]:.4f} | Final_Temp: {final_temp[-1]:.4f}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     self._probe_print(f"[WEIGHT_BURST_PROBE] Burst: {burst_score[-1]:.4f} | Final_Temp: {final_temp[-1]:.4f}")
         return final_weights
 
     def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -1102,9 +1110,9 @@ class CalculateMainForceRallyIntent:
         factors['divergence_pressure'] = pd.Series(np.tanh(div_raw), index=df_index).astype(np.float32)
         factors['volatility_state'] = (1.0 - pd.Series(normalized_signals.get('ATR_norm', 0.5), index=df_index)).clip(0, 1).astype(np.float32)
         factors['sentiment_state'] = pd.Series(normalized_signals.get('market_sentiment_norm', 0.5), index=df_index).clip(0, 1).astype(np.float32)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Market State Numba Probe V6.0 ---")
-            self._probe_print(f"  > State HAB: {factors['state_hab_score'].iloc[-1]:.4f} | Div_Pressure: {factors['divergence_pressure'].iloc[-1]:.4f}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     self._probe_print(f"--- Market State Numba Probe V6.0 ---")
+        #     self._probe_print(f"  > State HAB: {factors['state_hab_score'].iloc[-1]:.4f} | Div_Pressure: {factors['divergence_pressure'].iloc[-1]:.4f}")
         return factors
 
     def _identify_market_phase(self, df_index: pd.Index, market_state_factors: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series]) -> pd.Series:
@@ -1335,8 +1343,8 @@ class CalculateMainForceRallyIntent:
         mem_rank = pd.Series(int_mem).rolling(55, min_periods=1).rank(pct=True).fillna(0.5).values
         # 应用熔断门控：阻断所有多头输出
         final_intent = (bullish_base * (1.0 + enhancement * 0.25) * (0.9 + mem_rank * 0.1)) * circuit_breaker
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[CIRCUIT_BREAKER_PROBE] Risk_Penalty: {risk_v[-1]:.4f} | Status: {'SHUTDOWN' if circuit_breaker[-1] == 0 else 'NORMAL'}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     self._probe_print(f"[CIRCUIT_BREAKER_PROBE] Risk_Penalty: {risk_v[-1]:.4f} | Status: {'SHUTDOWN' if circuit_breaker[-1] == 0 else 'NORMAL'}")
         return pd.Series(final_intent, index=df_index).clip(0, 1).astype(np.float32)
 
     def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any], factors: Dict[str, pd.Series]) -> pd.Series:
@@ -1366,9 +1374,9 @@ class CalculateMainForceRallyIntent:
         base_bear = np.exp(log_bear)
         # 5. 最终修正：诱多增强
         final_bear = (base_bear * (1.0 + bull_trap * 0.4)).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Bearish Intent Physics Probe V7.2 ---")
-            self._probe_print(f"  > Panic_Impulse: {panic_impulse[-1]:.4f} | Div_Pressure: {div_p[-1]:.4f} | Final_Bear: {-final_bear[-1]:.4f}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     self._probe_print(f"--- Bearish Intent Physics Probe V7.2 ---")
+        #     self._probe_print(f"  > Panic_Impulse: {panic_impulse[-1]:.4f} | Div_Pressure: {div_p[-1]:.4f} | Final_Bear: {-final_bear[-1]:.4f}")
         return pd.Series(-final_bear, index=df_index).astype(np.float32)
 
     def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, params: Dict, market_phase: pd.Series, factors: Dict[str, pd.Series]) -> pd.Series:
@@ -1395,9 +1403,9 @@ class CalculateMainForceRallyIntent:
         risk_sens = np.float32(get_param_value(params.get('risk_sensitivity'), 4.0))
         # 此处 final_penalty 为 numpy.ndarray
         final_penalty = 1.0 / (1.0 + np.exp(-risk_sens * (penalty - 0.7)))
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            # 核心修复点：将 .iloc[-1] 修改为 [-1]
-            self._probe_print(f"[RISK_ADAPT_PROBE] Div_P: {div_pressure[-1]:.4f} | Dyn_Thresh: {dynamic_threshold[-1]:.4f} | Penalty: {final_penalty[-1]:.4f}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     # 核心修复点：将 .iloc[-1] 修改为 [-1]
+        #     self._probe_print(f"[RISK_ADAPT_PROBE] Div_P: {div_pressure[-1]:.4f} | Dyn_Thresh: {dynamic_threshold[-1]:.4f} | Penalty: {final_penalty[-1]:.4f}")
         return pd.Series(final_penalty, index=df_index).clip(0, 1).astype(np.float32)
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], market_phase: pd.Series, aggressiveness_score: pd.Series) -> pd.Series:
@@ -1428,8 +1436,8 @@ class CalculateMainForceRallyIntent:
         spec_mod[is_reversal] = reversal_penalty[is_reversal]
         # 3. 合成最终意图
         final_intent_v = intent_v * modulator * spec_mod
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[CONTEXT_MOD_PROBE] Phase: {p_v[-1]} | Mod: {modulator[-1]:.4f} | Spec_Mod: {spec_mod[-1]:.4f}")
+        # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+        #     self._probe_print(f"[CONTEXT_MOD_PROBE] Phase: {p_v[-1]} | Mod: {modulator[-1]:.4f} | Spec_Mod: {spec_mod[-1]:.4f}")
         return pd.Series(final_intent_v, index=df_index).clip(-1, 1).astype(np.float32)
 
     def _output_probe_info(self, df_index: pd.Index, final_rally_intent: pd.Series):
