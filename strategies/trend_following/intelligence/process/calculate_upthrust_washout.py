@@ -29,41 +29,36 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V34.0.0 · 跨时序母盘总控]
-        - 升级说明: 引入 55日周期资金母盘与协同攻击指纹。
+        [V35.0.0 · 协同取证执行总控]
+        - 变更说明: 修复 AttributeError 并引入主力意图取证层。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_20, c_mean, peak_mig, conv_mig, raw_f, jerk_f, smart_n, smart_d, f_acc13, f_acc34, f_acc55, t_acc55, vpa_eff, och_acc, hm_att, sm_att, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, is_multi, peak_cnt, chip_ent, dw_sync, clustering, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
+        (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_20, c_mean, peak_mig, conv_mig, raw_f, jerk_f, smart_n, smart_d, f_acc13, f_acc34, f_acc55, t_acc55, vpa_eff, hm_att, sm_att, p_trap, p_rel, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, peak_cnt, chip_ent, dw_sync, clustering, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp=pd.Series(0.5, index=df_index))
-        # [V34 资金层核心]
-        f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_div=smart_d)
-        f_split = self._assess_split_order_accumulation(volume, trade_count, clustering, raw_f, total_net)
+        k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc=pd.Series(0, index=df_index), bbp=pd.Series(0.5, index=df_index))
         f_base = self._assess_multi_cycle_fund_reservoir(f_acc13, f_acc34, f_acc55, t_acc55, hm_att, sm_att)
-        fund_score = np.maximum(f_resonance, f_split) * f_base
-        chip_migration = self._assess_chip_holographic_migration(close_p, c_mean, peak_mig, conv_mig)
         chip_order = self._assess_chip_entropy_ordered_collapse(chip_ent, peak_cnt)
-        forensics = (chip_migration * 0.4 + chip_order * 0.4 + np.tanh(clustering) * 0.2)
-        final_score = (k_trap * fund_score * forensics).clip(0, 1)
-        self._print_debug_probe(df_index, {"Final": final_score, "Base55": f_base, "Attack": hm_att, "Acc55": f_acc55, "TAcc55": t_acc55})
+        # [V35] 意图取证层
+        intent_score = self._assess_coordinated_intent_forensics(hm_att, sm_att, p_trap, p_rel)
+        # 综合评分: 资金母盘 * 筹码有序度 * 取证意图
+        final_score = (k_trap * f_base * chip_order * intent_score).clip(0, 1)
+        self._print_debug_probe(df_index, {"Final": final_score, "Intent": intent_score, "Trap": p_trap, "HMAttack": hm_att})
         return final_score.astype(np.float32).fillna(0.0)
 
     def _print_debug_probe(self, idx: pd.Index, ctx: Dict[str, Any]):
         """
-        [V34.0.0 · 母盘溯源探针]
+        [V35.0.0 · 意图取证探针]
         """
         if len(idx) > 0:
             i = -1
             dt = idx[i].strftime('%Y-%m-%d')
-            print(f"--- [PROBE_V34_STRATEGIC] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
-            print(f"  [Strategic] FundBase: {ctx['Base55'].iloc[i]:.4f} (Accum55: {ctx['Acc55'].iloc[i]:.0f}, TotalAcc55: {ctx['TAcc55'].iloc[i]:.0f})")
-            print(f"  [Intent]    CoordinatedAttack: {ctx['Attack'].iloc[i]}")
+            print(f"--- [PROBE_V35_INTENT] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            print(f"  [Forensics] IntentScore: {ctx['Intent'].iloc[i]:.4f} (HMAttack: {ctx['HMAttack'].iloc[i]}, Trapped: {ctx['Trap'].iloc[i]:.2f})")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
-        [V34.0.0 · 跨时序母盘数据接入]
-        - 变更说明: 接入 55日战略资金累积及协同攻击指纹指标。
-        - 核心指标: HM_COORDINATED_ATTACK_D, SMART_MONEY_HM_COORDINATED_ATTACK_D 。
+        [V35.0.0 · 意图取证与压力数据接入]
+        - 变更说明: 接入 HM_COORDINATED_ATTACK_D 与 pressure_trapped_D 识别协同诱多。
         """
         open_p = self.helper._get_safe_series(df, 'open_D', np.nan, method_name=method_name)
         high_p = self.helper._get_safe_series(df, 'high_D', np.nan, method_name=method_name)
@@ -82,17 +77,17 @@ class CalculateUpthrustWashoutRelationship:
         jerk_f = self.helper._get_safe_series(df, 'JERK_3_tick_large_order_net_D', np.nan, method_name=method_name)
         smart_n = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', np.nan, method_name=method_name)
         smart_d = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', np.nan, method_name=method_name)
-        # [V34] 跨时序累积 net_amount_D [cite: 3]
         total_net = self.helper._get_safe_series(df, 'net_amount_D', np.nan, method_name=method_name)
         f_acc13 = raw_fund.rolling(13, min_periods=1).sum()
         f_acc34 = raw_fund.rolling(34, min_periods=1).sum()
-        f_acc55 = raw_fund.rolling(55, min_periods=1).sum() # 战略母盘 
+        f_acc55 = raw_fund.rolling(55, min_periods=1).sum()
         t_acc55 = total_net.rolling(55, min_periods=1).sum()
         vpa_eff = self.helper._get_safe_series(df, 'VPA_MF_ADJUSTED_EFF_D', np.nan, method_name=method_name)
-        och_acc = self.helper._get_safe_series(df, 'OCH_ACCELERATION_D', np.nan, method_name=method_name)
-        # [V34] 协同攻击指纹 
+        # [V35] 协同攻击与压力指标 
         hm_attack = self.helper._get_safe_series(df, 'HM_COORDINATED_ATTACK_D', 0, method_name=method_name)
-        smart_attack = self.helper._get_safe_series(df, 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 0, method_name=method_name)
+        sm_attack = self.helper._get_safe_series(df, 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 0, method_name=method_name)
+        p_trapped = self.helper._get_safe_series(df, 'pressure_trapped_D', np.nan, method_name=method_name)
+        p_release = self.helper._get_safe_series(df, 'pressure_release_index_D', np.nan, method_name=method_name)
         winner = self.helper._get_safe_series(df, 'winner_rate_D', np.nan, method_name=method_name)
         acc_win = self.helper._get_safe_series(df, 'ACCEL_5_winner_rate_D', np.nan, method_name=method_name)
         chip_stab = self.helper._get_safe_series(df, 'chip_stability_D', np.nan, method_name=method_name)
@@ -100,7 +95,6 @@ class CalculateUpthrustWashoutRelationship:
         cost_diff = self.helper._get_safe_series(df, 'chip_cost_to_ma21_diff_D', np.nan, method_name=method_name)
         chip_kurt = self.helper._get_safe_series(df, 'chip_kurtosis_D', np.nan, method_name=method_name)
         chip_conv = self.helper._get_safe_series(df, 'chip_convergence_ratio_D', np.nan, method_name=method_name)
-        is_multi = self.helper._get_safe_series(df, 'is_multi_peak_D', 0.0, method_name=method_name)
         peak_cnt = self.helper._get_safe_series(df, 'peak_count_D', 1.0, method_name=method_name)
         chip_ent = self.helper._get_safe_series(df, 'chip_entropy_D', np.nan, method_name=method_name)
         dw_sync = self.helper._get_safe_series(df, 'daily_weekly_sync_D', 0, method_name=method_name)
@@ -109,7 +103,7 @@ class CalculateUpthrustWashoutRelationship:
         trade_count = self.helper._get_safe_series(df, 'trade_count_D', np.nan, method_name=method_name)
         ma_res = self.helper._get_safe_series(df, 'MA_COHERENCE_RESONANCE_D', np.nan, method_name=method_name)
         slope_t = self.helper._get_safe_series(df, 'GEOM_REG_SLOPE_D', np.nan, method_name=method_name)
-        return (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_20, c_mean, peak_mig, conv_mig, raw_fund, jerk_f, smart_n, smart_d, f_acc13, f_acc34, f_acc55, t_acc55, vpa_eff, och_acc, hm_attack, smart_attack, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, is_multi, peak_cnt, chip_ent, dw_sync, clustering, volume, trade_count, total_net, ma_res, slope_t)
+        return (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_20, c_mean, peak_mig, conv_mig, raw_fund, jerk_f, smart_n, smart_d, f_acc13, f_acc34, f_acc55, t_acc55, vpa_eff, hm_attack, sm_attack, p_trapped, p_release, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, peak_cnt, chip_ent, dw_sync, clustering, volume, trade_count, total_net, ma_res, slope_t)
 
     def _assess_multi_period_volatility_hedge(self, s5: pd.Series, s20: pd.Series, s60: pd.Series, m5: pd.Series, m20: pd.Series, m60: pd.Series) -> pd.Series:
         """
@@ -167,6 +161,34 @@ class CalculateUpthrustWashoutRelationship:
         # 拆单吸筹 = 单子碎 * 有规律 * 暗中买
         split_score = (n_frag * 0.3 + n_clustering * 0.3 + stealth_flow * 0.4).clip(0, 1)
         return split_score.fillna(0)
+
+    def _assess_chip_entropy_ordered_collapse(self, entropy: pd.Series, peak_cnt: pd.Series) -> pd.Series:
+        """
+        [V35.0.0 · 缺失方法修复]
+        - 核心逻辑: 监控筹码从高熵向低熵的有序坍塌。
+        """
+        ent_delta = entropy.diff(5).fillna(0)
+        entropy_decay = np.where(ent_delta < 0, ent_delta.abs() / (entropy + 1e-9), 0.0)
+        order_score = (np.tanh(entropy_decay * 5) * np.where(peak_cnt <= 2, 1.2, 0.8)).clip(0, 1)
+        return pd.Series(order_score, index=entropy.index).astype(np.float32)
+
+    def _assess_coordinated_intent_forensics(self, hm_attack: pd.Series, sm_attack: pd.Series, trapped: pd.Series, release: pd.Series) -> pd.Series:
+        """
+        [V35.0.0 · 主力协同意图取证]
+        - 核心逻辑: 识别协同攻击是真实突破还是联合诱多。
+        - 判定维度: 
+            1. 协同强度: HM与SmartMoney攻击指纹的加权。 
+            2. 压力背离: 攻击时套牢盘(pressure_trapped_D)必须处于低位。 
+        - 效果: 若套牢压力高且协同攻击强, 视为诱多; 若压力低且协同强, 视为真强。
+        """
+        co_strength = (hm_attack * 0.4 + sm_attack * 0.6).clip(0, 1)
+        t_scale = trapped.rolling(60, min_periods=1).max().replace(0, 1e-9)
+        low_pressure_gate = (1.0 - np.tanh(trapped / t_scale)).clip(0, 1)
+        # 真强逻辑: 协同攻击 * 低套牢压力
+        intent_score = (co_strength * low_pressure_gate)
+        # 释放修正: 如果近期有大量压力释放(pressure_release_index_D) 
+        release_bonus = np.tanh(release.rolling(5).mean()).clip(0, 1)
+        return (intent_score + release_bonus * 0.3).clip(0, 1).fillna(0)
 
     def _assess_multi_cycle_fund_reservoir(self, f_acc13: pd.Series, f_acc34: pd.Series, f_acc55: pd.Series, t_acc55: pd.Series, hm_attack: pd.Series, smart_attack: pd.Series) -> pd.Series:
         """
