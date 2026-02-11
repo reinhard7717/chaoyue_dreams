@@ -2,7 +2,6 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
-
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score,
     get_adaptive_mtf_normalized_bipolar_score, normalize_score, _robust_geometric_mean
@@ -11,26 +10,16 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateUpthrustWashoutRelationship:
     """
-    【V2.9.4 · 净洗盘意图背离放大版】上冲回落洗盘甄别器
-    - 核心职责: 识别主力利用“上冲回落”阴线进行的洗盘行为。
-    - 核心升级:
-        1. 明确区分“中长期趋势上下文”与“短期动量”。
-        2. “上升波段”的判断现在基于 `trend_form_score` 的中长期累积上下文分数，
-           使其在短期回调日也能正确识别出整体上升趋势。
-        3. 主力资金门控升级为基于“主力日度净买卖股数”的累积评估，
-           该股数直接来源于高频tick数据中识别出的主力交易，更直接地衡量主力对筹码的控制力，
-           解决金额累积受股价影响的问题。
-        4. 主力资金累积流向计算周期调整为55日。
-        5. 修正 `lower_shadow_strength` 的归一化逻辑，从相对排名归一化改为绝对值映射归一化，
-           确保高吸收强度原始值能正确反映为高归一化分数。
-        6. 优化 `_assess_selling_pressure` 方法，引入“吸收强度缓解因子”，
-           当 `lower_shadow_strength` 较高时，适当降低负收盘价对卖压分数的贡献，
-           以更好地捕捉洗盘中“卖压被吸收”的本质。
-        7. **新增 `_calculate_net_washout_intent` 方法，并在其中实现“净洗盘意图背离放大”机制。**
-           当承接力量大于卖压且股价下跌时，非线性放大净洗盘意图分数，以更准确地识别洗盘特征。
-    - 版本: 2.9.4
+    PROCESS_META_UPTHRUST_WASHOUT
+    【V6.0.0 · 时空博弈全息版】上冲回落洗盘甄别器
+    - 核心职责: 在“物理-博弈-结构”三元基础上，叠加“时序欺骗”与“筹码代谢”验证，识别高精度的洗盘信号。
+    - 维度升级:
+        1. **时域欺骗 (Chronological Deception)**: 利用 `morning_flow_ratio_D` 识别“早盘诱多、尾盘杀跌”的典型洗盘时序特征。
+        2. **筹码代谢 (Chip Metabolism)**: 引入 `pressure_release_index_D` 验证洗盘是否有效清洗了浮筹（有效洗盘必须伴随压力释放）。
+        3. **异动操控 (Anomaly Manipulation)**: 使用 `tick_abnormal_volume_ratio_D` 确认下跌是由异常大单主导的“人造行情”。
+    - 继承逻辑: 保留V5.0.0的物理陷阱(Trap)、逆流背离(Divergence)和结构韧性(Resilience)。
+    - 版本: 6.0.0
     """
-
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
         self.helper = helper_instance
@@ -39,570 +28,404 @@ class CalculateUpthrustWashoutRelationship:
         self.probe_dates = self.helper.probe_dates
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        [V19.0.0 · 全链路白盒总控]
+        - 升级: 增强探针数据流，支持从原料到结果的完整溯源。
+        - 架构: Trap(4D) -> Resonance(Stratified) -> Meta(Anchor) -> Solidity(Stress) -> Deception(Skew) -> Anomaly(Fractal)
+        """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
-        debug_output = {}
-        _temp_debug_values = {}
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {probe_ts.strftime('%Y-%m-%d')}: 正在计算上冲回落洗盘..."] = ""
-        required_signals = [
-            'BIAS_21_D', 'pct_change_D', 'upward_impulse_purity_D', 'upper_shadow_selling_pressure_D',
-            'active_buying_support_D', 'open_D', 'high_D', 'close_D', 'low_D',
-            'main_force_net_flow_calibrated_D', 'trend_vitality_index_D', 'lower_shadow_absorption_strength_D',
-            'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
-            'net_xl_amount_calibrated_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
-            'deception_index_D', 'main_force_intraday_intent_D', 'main_force_net_amount_from_hf_D',
-            'main_force_net_volume_from_hf_D'
-        ]
-        if not self.helper._validate_required_signals(df, required_signals, method_name):
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
-                self.helper._print_debug_output(debug_output)
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 1. 全量数据提取
+        (open_p, high_p, low_p, close_p, pct_chg, 
+         slope_p, accel_p, jerk_p,                                   
+         raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, f_volat, 
+         vpa_eff, och_acc, bbp_pos,                                  
+         test_cnt, cost_mig, sr_ratio, acc_supp, 
+         morning, stealth, high_lock, skew,
+         pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, cost_diff, 
+         abnormal_vol, clustering, order_anomaly, acc_abnormal,
+         ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        (bias_21, pct_change, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
-         open_price, high_price, close_price, low_price, main_force_net_flow,
-         trend_vitality_index_raw, lower_shadow_absorption_strength_raw,
-         net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
-         main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw,
-         main_force_intraday_intent, main_force_net_amount_from_hf,
-         main_force_net_volume_from_hf) = self._get_raw_signals(df, method_name)
-        _temp_debug_values["原始信号值"] = {
-            "bias_21": bias_21, "pct_change": pct_change, "upward_purity_raw": upward_purity_raw,
-            "upper_shadow_pressure_raw": upper_shadow_pressure_raw, "active_buying_raw": active_buying_raw,
-            "open_price": open_price, "high_price": high_price, "close_price": close_price,
-            "low_price": low_price, "main_force_net_flow": main_force_net_flow,
-            "trend_vitality_index_raw": trend_vitality_index_raw,
-            "lower_shadow_absorption_strength_raw": lower_shadow_absorption_strength_raw,
-            "net_sm_amount": net_sm_amount, "net_md_amount": net_md_amount,
-            "net_lg_amount": net_lg_amount, "net_elg_amount": net_elg_amount,
-            "main_force_conviction_raw": main_force_conviction_raw,
-            "wash_trade_intensity_raw": wash_trade_intensity_raw,
-            "deception_index_raw": deception_index_raw,
-            "main_force_intraday_intent": main_force_intraday_intent,
-            "main_force_net_amount_from_hf": main_force_net_amount_from_hf,
-            "main_force_net_volume_from_hf": main_force_net_volume_from_hf
-        }
-        trend_form_score = self._derive_trend_form_score_from_raw(df_index, trend_vitality_index_raw, method_name)
-        cumulative_trend_periods = [55]
-        cumulative_trend_weights = {"55": 1.0}
-        long_term_trend_context_score = self.helper._get_cumulative_context_score(
-            series=trend_form_score,
-            df_index=df_index,
-            periods=cumulative_trend_periods,
-            weights=cumulative_trend_weights,
-            bipolar=True,
-            signal_name="long_term_trend_context_score",
-            is_debug_enabled_for_method=is_debug_enabled_for_method,
-            probe_ts=probe_ts,
-            debug_output=debug_output
-        )
-        lower_shadow_strength = self._derive_lower_shadow_absorption_score_from_raw(df_index, lower_shadow_absorption_strength_raw, method_name, is_debug_enabled_for_method, probe_ts, debug_output)
-        power_transfer = self._derive_power_transfer_score_from_raw(
-            df_index, net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
-            main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw, method_name
-        )
-        (upward_purity_norm, upper_shadow_pressure_norm, active_buying_norm,
-         power_transfer_norm) = self._normalize_signals(
-            df_index, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
-            power_transfer, method_name
-        )
-        upward_purity_norm_rolling_mean = upward_purity_norm.rolling(3).mean()
-        _temp_debug_values["归一化处理"] = {
-            "upward_purity_norm": upward_purity_norm,
-            "upper_shadow_pressure_norm": upper_shadow_pressure_norm,
-            "active_buying_norm": active_buying_norm,
-            "power_transfer_norm": power_transfer_norm,
-            "trend_form_score": trend_form_score,
-            "upward_purity_norm_rolling_mean": upward_purity_norm_rolling_mean,
-            "long_term_trend_context_score": long_term_trend_context_score,
-            "lower_shadow_strength": lower_shadow_strength,
-        }
-        context_mask = self._evaluate_market_context(long_term_trend_context_score, bias_21, upward_purity_norm_rolling_mean)
-        _temp_debug_values["市场上下文"] = {"context_mask": context_mask}
-        is_upthrust_kline = self._identify_kline_pattern(open_price, high_price, close_price, low_price, pct_change)
-        _temp_debug_values["K线形态门控"] = {"is_upthrust_kline": is_upthrust_kline}
-        selling_pressure_score = self._assess_selling_pressure(upper_shadow_pressure_norm, pct_change, lower_shadow_strength)
-        _temp_debug_values["卖压审判分"] = {"selling_pressure_score": selling_pressure_score}
-        absorption_rebuttal_score = self._assess_absorption_rebuttal(active_buying_norm, lower_shadow_strength, power_transfer_norm)
-        _temp_debug_values["承接审判分"] = {"absorption_rebuttal_score": absorption_rebuttal_score}
-        # 调用新的方法计算净洗盘意图，并传递调试参数
-        # 这一行是关键，请确保它与以下代码完全一致
-        net_washout_intent = self._calculate_net_washout_intent(
-            absorption_rebuttal_score, selling_pressure_score, pct_change, df_index,
-            is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values
-        )
-        _temp_debug_values["净洗盘意图"] = {"net_washout_intent": net_washout_intent}
-        mf_cumulative_flow_gate = self._validate_main_force_inflow(df_index, main_force_net_volume_from_hf, is_debug_enabled_for_method, probe_ts, debug_output)
-        _temp_debug_values["主力资金累积流向门控"] = {"mf_cumulative_flow_gate": mf_cumulative_flow_gate}
-        final_score = self._fuse_final_score(net_washout_intent, context_mask, is_upthrust_kline, mf_cumulative_flow_gate)
-        _temp_debug_values["最终分数"] = {"final_score": final_score}
-        # if is_debug_enabled_for_method and probe_ts:
-        #     self._print_debug_output_for_upthrust_washout(debug_output, probe_ts, _temp_debug_values, final_score)
-        return final_score.astype(np.float32)
-
-    def _evaluate_market_context(self, trend_form_score: pd.Series, bias_21: pd.Series, upward_purity_norm_rolling_mean: pd.Series) -> pd.Series:
-        """
-        【V1.2.0 · 市场情境评估器】
-        - 核心职责: 评估当前市场是否处于适合洗盘反弹的上下文。
-        - 核心升级: 移除对 `bias_21` 的严格限制，仅关注趋势向上和上涨纯度。
-        参数:
-            trend_form_score (pd.Series): 派生出的趋势形态分数。
-            bias_21 (pd.Series): 21日乖离率 (不再作为硬性门槛)。
-            upward_purity_norm_rolling_mean (pd.Series): 归一化后的上涨纯度3日滚动平均值。
-        返回:
-            pd.Series: 市场情境掩码 (布尔Series)。
-        """
-        # 趋势向上，上涨纯度良好
-        # trend_form_score 是双极性，大于0.2表示趋势向上且有一定强度
-        # 移除 bias_21 < 0.2 的限制
-        context_mask = (trend_form_score > 0.2) & (upward_purity_norm_rolling_mean > 0.3)
-        return context_mask
+        # 2. 物理层 (4D Trap)
+        k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
+        # 3. 资金层 (Stratified Resonance & HAB)
+        f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
+        f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, slope_f_21, accel_f_21, vpa_eff, f_volat)
+        fund_score = f_resonance * f_hab
+        # 4. 筹码层 (Dynamic Metabolism)
+        chip_meta = self._assess_dynamic_chip_metabolism(hab_release, turnover, winner, acc_win, chip_stab, cost_diff)
+        # 5. 防御层 (Structural Stress Test)
+        solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
+        # 6. 取证与融合
+        chrono_dec = self._assess_skewed_deception_narrative(morning, stealth, high_lock, skew, pct_chg)
+        fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
+        context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
+        forensics = (chrono_dec * 0.4 + chip_meta * 0.3 + fractal_man * 0.3)
+        final_score = (k_trap * fund_score * forensics * solidity * context).clip(0, 1)
+        # 7. 全链路探针调用
+        self._print_debug_probe(df_index, final_score, 
+                                k_trap, och_acc, vpa_eff,                   # 物理维度
+                                f_resonance, f_hab, smart_n, jerk_f, f_accum_34, # 资金维度
+                                chip_meta, hab_rel, turnover,               # 筹码维度
+                                solidity, test_cnt,                         # 防御维度
+                                chrono_dec, skew, fractal_man, clustering)  # 取证维度
+        return final_score.astype(np.float32).fillna(0.0)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
-        bias_21 = self.helper._get_safe_series(df, 'BIAS_21_D', 0.0, method_name=method_name)
-        pct_change = self.helper._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
-        upward_purity_raw = self.helper._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
-        upper_shadow_pressure_raw = self.helper._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name=method_name)
-        active_buying_raw = self.helper._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
-        open_price = self.helper._get_safe_series(df, 'open_D', 0.0, method_name=method_name)
-        high_price = self.helper._get_safe_series(df, 'high_D', 0.0, method_name=method_name)
-        close_price = self.helper._get_safe_series(df, 'close_D', 0.0, method_name=method_name)
-        low_price = self.helper._get_safe_series(df, 'low_D', 0.0, method_name=method_name)
-        main_force_net_flow = self.helper._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
-        trend_vitality_index_raw = self.helper._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name=method_name)
-        lower_shadow_absorption_strength_raw = self.helper._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name=method_name)
-        net_sm_amount = self.helper._get_safe_series(df, 'net_sh_amount_calibrated_D', 0.0, method_name=method_name)
-        net_md_amount = self.helper._get_safe_series(df, 'net_md_amount_calibrated_D', 0.0, method_name=method_name)
-        net_lg_amount = self.helper._get_safe_series(df, 'net_lg_amount_calibrated_D', 0.0, method_name=method_name)
-        net_elg_amount = self.helper._get_safe_series(df, 'net_xl_amount_calibrated_D', 0.0, method_name=method_name)
-        main_force_conviction_raw = self.helper._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
-        wash_trade_intensity_raw = self.helper._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name=method_name)
-        deception_index_raw = self.helper._get_safe_series(df, 'deception_index_D', 0.0, method_name=method_name)
-        main_force_intraday_intent = self.helper._get_safe_series(df, 'main_force_intraday_intent_D', 0.0, method_name=method_name)
-        main_force_net_amount_from_hf = self.helper._get_safe_series(df, 'main_force_net_amount_from_hf_D', 0.0, method_name=method_name)
-        main_force_net_volume_from_hf = self.helper._get_safe_series(df, 'main_force_net_volume_from_hf_D', 0.0, method_name=method_name)
-        return (bias_21, pct_change, upward_purity_raw, upper_shadow_pressure_raw, active_buying_raw,
-                open_price, high_price, close_price, low_price, main_force_net_flow,
-                trend_vitality_index_raw, lower_shadow_absorption_strength_raw,
-                net_sm_amount, net_md_amount, net_lg_amount, net_elg_amount,
-                main_force_conviction_raw, wash_trade_intensity_raw, deception_index_raw,
-                main_force_intraday_intent, main_force_net_amount_from_hf,
-                main_force_net_volume_from_hf)
+        """
+        [V18.0.0 · 分形操控指纹数据接入]
+        - 核心职责: 提取微观结构的聚类、离群与运动学特征，用于识别"人造行情"。
+        - 新增列:
+            1. tick_clustering_index_D: Tick聚类指数，识别算法/拆单痕迹。
+            2. large_order_anomaly_D: 大单异常度，识别偏离统计规律的挂单。
+            3. ACCEL_5_tick_abnormal_volume_ratio_D: 异常成交的加速度，捕捉操控力度的变化。
+        """
+        # 基础行情
+        open_p = self.helper._get_safe_series(df, 'open_D', 0.0, method_name=method_name)
+        high_p = self.helper._get_safe_series(df, 'high_D', 0.0, method_name=method_name)
+        low_p = self.helper._get_safe_series(df, 'low_D', 0.0, method_name=method_name)
+        close_p = self.helper._get_safe_series(df, 'close_D', 0.0, method_name=method_name)
+        pct_chg = self.helper._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+        # 价格运动学
+        slope_price = self.helper._get_safe_series(df, 'SLOPE_3_close_D', 0.0, method_name=method_name)
+        accel_price = self.helper._get_safe_series(df, 'ACCEL_5_close_D', 0.0, method_name=method_name)
+        jerk_price = self.helper._get_safe_series(df, 'JERK_3_close_D', 0.0, method_name=method_name)
+        # 资金分层运动学
+        raw_fund = self.helper._get_safe_series(df, 'tick_large_order_net_D', 0.0, method_name=method_name)
+        jerk_fund = self.helper._get_safe_series(df, 'JERK_3_tick_large_order_net_D', 0.0, method_name=method_name)
+        smart_net = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', 0.0, method_name=method_name)
+        smart_div = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0, method_name=method_name)
+        slope_fund_21 = self.helper._get_safe_series(df, 'SLOPE_21_tick_large_order_net_D', 0.0, method_name=method_name)
+        accel_fund_21 = self.helper._get_safe_series(df, 'ACCEL_21_tick_large_order_net_D', 0.0, method_name=method_name)
+        fund_accum_34 = raw_fund.rolling(window=34, min_periods=1).sum().fillna(0)
+        fund_volat = self.helper._get_safe_series(df, 'flow_volatility_20d_D', 0.0, method_name=method_name)
+        # 陷阱结构与环境
+        vpa_eff = self.helper._get_safe_series(df, 'VPA_MF_ADJUSTED_EFF_D', 0.0, method_name=method_name)
+        och_acc = self.helper._get_safe_series(df, 'OCH_ACCELERATION_D', 0.0, method_name=method_name)
+        bbp_pos = self.helper._get_safe_series(df, 'BBP_21_2.0_D', 0.0, method_name=method_name)
+        # 结构压力测试
+        test_cnt = self.helper._get_safe_series(df, 'intraday_support_test_count_D', 0.0, method_name=method_name)
+        cost_mig = self.helper._get_safe_series(df, 'intraday_cost_center_migration_D', 0.0, method_name=method_name)
+        sr_ratio = self.helper._get_safe_series(df, 'support_resistance_ratio_D', 1.0, method_name=method_name)
+        acc_supp = self.helper._get_safe_series(df, 'ACCEL_5_support_strength_D', 0.0, method_name=method_name)
+        # 时空欺骗
+        morning = self.helper._get_safe_series(df, 'morning_flow_ratio_D', 0.5, method_name=method_name)
+        stealth = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', 0.0, method_name=method_name)
+        high_lock = self.helper._get_safe_series(df, 'intraday_high_lock_ratio_D', 0.0, method_name=method_name)
+        skew = self.helper._get_safe_series(df, 'intraday_price_distribution_skewness_D', 0.0, method_name=method_name)
+        # 筹码代谢
+        pres_rel = self.helper._get_safe_series(df, 'pressure_release_index_D', 0.0, method_name=method_name)
+        hab_rel = pres_release.rolling(window=5, min_periods=1).sum().fillna(0)
+        winner = self.helper._get_safe_series(df, 'winner_rate_D', 0.0, method_name=method_name)
+        acc_win = self.helper._get_safe_series(df, 'ACCEL_5_winner_rate_D', 0.0, method_name=method_name)
+        turnover = self.helper._get_safe_series(df, 'turnover_rate_D', 0.0, method_name=method_name)
+        chip_stab = self.helper._get_safe_series(df, 'chip_stability_D', 0.0, method_name=method_name)
+        cost_diff = self.helper._get_safe_series(df, 'chip_cost_to_ma21_diff_D', 0.0, method_name=method_name)
+        # 分形操控 [V18 新增 Source 2, 3]
+        abnormal_vol = self.helper._get_safe_series(df, 'tick_abnormal_volume_ratio_D', 0.0, method_name=method_name)
+        clustering = self.helper._get_safe_series(df, 'tick_clustering_index_D', 0.0, method_name=method_name)
+        order_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', 0.0, method_name=method_name)
+        acc_abnormal = self.helper._get_safe_series(df, 'ACCEL_5_tick_abnormal_volume_ratio_D', 0.0, method_name=method_name)
+        # 趋势辅助
+        ma_res = self.helper._get_safe_series(df, 'MA_COHERENCE_RESONANCE_D', 0.0, method_name=method_name)
+        slope_trend = self.helper._get_safe_series(df, 'GEOM_REG_SLOPE_D', 0.0, method_name=method_name)
+        return (open_p, high_p, low_p, close_p, pct_chg, slope_price, accel_price, jerk_price, 
+                raw_fund, jerk_fund, smart_net, smart_div, slope_fund_21, accel_fund_21, fund_accum_34, fund_volat, 
+                vpa_eff, och_acc, bbp_pos, 
+                test_cnt, cost_mig, sr_ratio, acc_supp, 
+                morning, stealth, high_lock, skew,
+                pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, cost_diff, 
+                abnormal_vol, clustering, order_anomaly, acc_abnormal, # V18 返回
+                ma_res, slope_trend)
 
-    def _derive_trend_form_score_from_raw(self, df_index: pd.Index, trend_vitality_index_raw: pd.Series, method_name: str) -> pd.Series:
+    def _assess_fund_reservoir_buffer(self, daily: pd.Series, accum_34: pd.Series, slope_f: pd.Series, accel_f: pd.Series, vpa_eff: pd.Series, volat: pd.Series) -> pd.Series:
         """
-        【V1.0.0 · 趋势形态派生器】
-        - 核心职责: 从原始的 `trend_vitality_index_D` 派生出趋势形态分数。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            trend_vitality_index_raw (pd.Series): 原始的趋势活力指数。
-            method_name (str): 调用此方法的名称，用于日志输出。
-        返回:
-            pd.Series: 派生出的趋势形态分数 (双极性)。
+        [V12.0.0 · 运动学增强型 HAB 系统]
+        - 核心逻辑: 洗盘的前提是"蓄水池稳固"。不仅看存量(Accum)，更看存量的动量(Slope)与惯性(Accel)。
+        - 数学模型: Buffer = (存量分 * 趋势分 * 质量分) * 损耗容忍度因子。
+        - 趋势分判定: 若 Slope > 0 且 Accel > 0，蓄水池处于扩张态，洗盘置信度极高。
         """
-        # 趋势活力指数本身就是衡量趋势强度和方向的，直接归一化为双极性分数即可。
-        # 假设 trend_vitality_index_D 越高代表趋势越强劲，越低代表趋势越弱或反向。
-        trend_form_score = self.helper._normalize_series(trend_vitality_index_raw, df_index, bipolar=True)
-        return trend_form_score
+        # 1. 内部自适应映射：存量强度 (基于滚动分位数映射)
+        accum_median = accum_34.rolling(120).median().replace(0, 1e-9)
+        reservoir_strength = np.tanh(accum_34 / accum_median.abs()).clip(0, 1)
+        # 2. 蓄水池动态趋势 (Kinematics) [Source 1]
+        # 斜率映射：反映近期资金流入速度
+        s_scale = slope_f.rolling(60).std().replace(0, 1e-9)
+        norm_s = np.tanh(slope_f / (s_scale * 1.5))
+        # 加速度映射：反映资金流入的惯性
+        a_scale = accel_f.rolling(60).std().replace(0, 1e-9)
+        norm_a = np.tanh(accel_f / (a_scale * 1.5))
+        # 趋势得分：速度与加速度的加权叠加，捕捉"减速流出"与"加速流入"的差异
+        trend_score = (norm_s * 0.6 + norm_a * 0.4 + 1.0) / 2.0
+        # 3. 质量因子与损耗控制 [Source 1, 2]
+        # VPA 效率越高，资金累积的含金量越高
+        quality_f = (vpa_eff.rolling(5).mean().clip(0, 1) + 0.5).clip(0.5, 1.5)
+        # 损耗比率：基于资金波动率的动态阈值。若 volat 极高，允许更大的单日流出。
+        dynamic_threshold = (volat * 2.0).clip(0.05, 0.25) 
+        attrition = daily.abs() / (accum_34.abs() + 1e-9)
+        tolerance = (1.0 - (attrition / dynamic_threshold)).clip(0, 1)
+        # 4. 最终合成：暴露蓄水池的动态风险
+        # 如果趋势分为负（大撤退），即便存量再大，Buffer 也会被剧烈压低
+        hab_score = (reservoir_strength * trend_score * quality_f * tolerance).clip(0, 1)
+        return hab_score.astype(np.float32)
 
-    def _derive_lower_shadow_absorption_score_from_raw(self, df_index: pd.Index, lower_shadow_absorption_strength_raw: pd.Series, method_name: str, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict) -> pd.Series:
+    def _assess_dynamic_chip_metabolism(self, hab_release: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, stability: pd.Series, cost_diff: pd.Series) -> pd.Series:
         """
-        【V1.0.2 · 下影线吸收强度派生器 - 绝对值校准版】
-        - 核心职责: 从原始的 `lower_shadow_absorption_strength_D` 派生出下影线吸收强度分数。
-        - 核心升级: 修正归一化逻辑，将原始值直接映射到 [0, 1] 范围，假设原始值最大为100。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            lower_shadow_absorption_strength_raw (pd.Series): 原始的下影线吸收强度。
-            method_name (str): 调用此方法的名称，用于日志输出。
-            is_debug_enabled_for_method (bool): 是否启用调试。
-            probe_ts (Optional[pd.Timestamp]): 探针日期。
-            debug_output (Dict): 调试输出字典。
-        返回:
-            pd.Series: 派生出的下影线吸收强度分数 (单极性)。
+        [V13.0.0 · 动态筹码代谢与成本锚定]
+        - 核心逻辑: 真正的洗盘是"低换手下的高压力释放"(高效率) 且 "筹码结构极度稳定"(主力锁仓)。
+        - 判定维度:
+            1. 代谢效率 (Efficiency): HAB_Release / Turnover。缩量洗盘是最高境界。
+            2. 结构稳固 (Integrity): Winner * Stability。剔除虚假的获利盘。
+            3. 成本锚定 (Anchor): 股价回落不应击穿成本防线 (Cost_Diff)。
+            4. 运动学熔断: Accel_Winner < 0 时强制降分。
         """
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"      -- [DEBUG_LOWER_SHADOW_ABSORPTION] Signal: 'lower_shadow_absorption_strength_D' @ {probe_ts.strftime('%Y-%m-%d')} --"] = ""
-            val_raw = lower_shadow_absorption_strength_raw.loc[probe_ts] if probe_ts in lower_shadow_absorption_strength_raw.index else np.nan
-            debug_output[f"        原始 lower_shadow_absorption_strength_raw (探针日期): {val_raw:.4f}"] = ""
-            # 打印探针日期前几天的原始值，帮助理解归一化窗口内的分布
-            debug_output[f"        --- 原始 lower_shadow_absorption_strength_raw 探针日期附近数据 (前5天) ---"] = ""
-            if probe_ts in df_index:
-                probe_ts_idx = df_index.get_loc(probe_ts)
-                start_idx = max(0, probe_ts_idx - 5) # 打印前5天
-                dates_to_display = df_index[start_idx : probe_ts_idx + 1]
-                for current_date in dates_to_display:
-                    raw_val = lower_shadow_absorption_strength_raw.loc[current_date] if current_date in lower_shadow_absorption_strength_raw.index else np.nan
-                    debug_output[f"            {current_date.strftime('%Y-%m-%d')}: 原始值={raw_val:.4f}"] = ""
-        # 核心修正：直接将原始值除以100进行归一化，并裁剪到 [0, 1] 范围
-        # 假设 lower_shadow_absorption_strength_raw 的范围是 0-100
-        lower_shadow_absorption_score = (lower_shadow_absorption_strength_raw / 100.0).clip(0, 1)
-        if is_debug_enabled_for_method and probe_ts:
-            val_norm = lower_shadow_absorption_score.loc[probe_ts] if probe_ts in lower_shadow_absorption_score.index else np.nan
-            debug_output[f"        归一化后 lower_shadow_strength (探针日期): {val_norm:.4f}"] = ""
-        return lower_shadow_absorption_score
+        # 1. 代谢效率计算 (Metabolic Efficiency)
+        # 逻辑: 分子是累积释放的套牢盘，分母是消耗的换手率。
+        # 加上 epsilon 防止除零。
+        eff_ratio = hab_release / (turnover + 0.5)
+        # 自适应归一化：通过滚动最大值来评估当前的效率水平
+        eff_scale = eff_ratio.rolling(60).max().replace(0, 1e-9)
+        efficiency_score = (eff_ratio / eff_scale).clip(0, 1)
 
-    def _derive_power_transfer_score_from_raw(self, df_index: pd.Index,
-                                               net_sm_amount: pd.Series, net_md_amount: pd.Series,
-                                               net_lg_amount: pd.Series, net_elg_amount: pd.Series,
-                                               main_force_conviction: pd.Series, wash_trade_intensity: pd.Series,
-                                               deception_index: pd.Series, method_name: str) -> pd.Series:
+        # 2. 结构稳固性 (Structural Integrity) [Source 2, 4]
+        # 逻辑: 只有当获利盘比例高(Winner) 且 筹码稳定性高(Stability) 时，才是主力控盘
+        norm_winner = winner.rolling(20).rank(pct=True).clip(0, 1) # 使用分位数排名
+        norm_stab = stability.rolling(20).rank(pct=True).clip(0, 1)
+        integrity_score = (norm_winner * 0.4 + norm_stab * 0.6).clip(0, 1)
+
+        # 3. 成本锚定修正 (Cost Anchor) [Source 2]
+        # logic: Cost_Diff (价格与成本均线的距离) 应该在合理范围内。
+        # 如果跌破成本线太远 (diff < -5%)，说明防线崩溃。
+        # 归一化: 我们希望 diff 维持在 -0.05 到 +0.1 之间。
+        anchor_score = np.where(cost_diff < -0.05, 0.2, 1.0) # 简单熔断
+
+        # 4. 运动学熔断 (Kinematic Circuit Breaker)
+        # 逻辑: 获利盘加速逃离 (acc_win < 0) 是致命信号
+        w_scale = acc_win.rolling(60).std().replace(0, 1e-9)
+        n_acc_win = np.tanh(acc_win / w_scale)
+        # 如果加速为负，系数迅速从 1.0 降至 0.0
+        breaker = (1.0 + n_acc_win).clip(0, 1)
+
+        # 5. 最终合成
+        # 效率是基础，稳固是核心，锚定是底线，加速度是开关
+        final_meta = (efficiency_score * 0.4 + integrity_score * 0.6) * anchor_score * breaker
+        return final_meta.astype(np.float32)
+
+    def _assess_kinematic_trap_physics(self, close: pd.Series, high: pd.Series, slope: pd.Series, jerk: pd.Series, vpa_eff: pd.Series, och_acc: pd.Series, bbp: pd.Series) -> pd.Series:
         """
-        【V1.0.0 · 权力转移派生器】
-        - 核心职责: 从原始资金流、主力信念、对倒和欺骗信号派生出权力转移分数。
-        - 核心逻辑: 融合“主力信念”、“战场清晰度”（由对倒和欺骗构成）来计算资金转移的真实性，
-                      并对最终结果进行非线性放大，以捕捉市场的极端博弈。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            net_sm_amount (pd.Series): 小单净额。
-            net_md_amount (pd.Series): 中单净额。
-            net_lg_amount (pd.Series): 大单净额。
-            net_elg_amount (pd.Series): 特大单净额。
-            main_force_conviction (pd.Series): 主力信念指数。
-            wash_trade_intensity (pd.Series): 对倒强度。
-            deception_index (pd.Series): 欺骗指数。
-            method_name (str): 调用此方法的名称，用于日志输出。
-        返回:
-            pd.Series: 派生出的权力转移分数 (双极性)。
+        [V14.0.0 · 四维全息陷阱模型]
+        - 核心逻辑: 物理陷阱 = 运动学力竭(Jerk) * VPA低效(Eff) * 日内结构溃败(OCH) * 阻力位环境(BBP)。
+        - 升级维度:
+            1. Jerk: 引入急动度，捕捉动能的瞬时反转 (Slope>0但Jerk<0)。
+            2. VPA: 引入做功效率，识别"放量滞涨"或"诱多量价"。
+            3. Context: 引入布林位置(BBP)，只在天花板附近(>0.8)判定Trap。
         """
-        # 归一化辅助信号
-        wash_trade_norm = self.helper._normalize_series(wash_trade_intensity, df_index, bipolar=False)
-        deception_norm = self.helper._normalize_series(deception_index, df_index, bipolar=True)
-        conviction_norm = self.helper._normalize_series(main_force_conviction, df_index, bipolar=True)
-        # 计算战场清晰度因子
-        clarity_from_noise = (1 - wash_trade_norm) * 0.4
-        clarity_from_deception = (1 + deception_norm) / 2 * 0.6
-        clarity_factor = (clarity_from_noise + clarity_from_deception).clip(0, 1)
-        # 计算转移真实性因子
-        transfer_authenticity_factor = (conviction_norm * clarity_factor).clip(-1, 1)
-        # 计算有效主力资金流和有效散户资金流
-        md_to_main_force = net_md_amount * transfer_authenticity_factor
-        sm_to_main_force = net_sm_amount * transfer_authenticity_factor
-        effective_main_force_flow = net_lg_amount + net_elg_amount + md_to_main_force + sm_to_main_force
-        effective_retail_flow = (net_sm_amount - sm_to_main_force) + (net_md_amount - md_to_main_force)
-        # 计算原始权力转移
-        power_transfer_raw = effective_main_force_flow.diff(1) - effective_retail_flow.diff(1)
-        # 归一化并进行非线性放大
-        normalized_score = self.helper._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
-        final_score = np.sign(normalized_score) * normalized_score.abs().pow(1.2)
-        final_score = final_score.clip(-1, 1)
+        # 1. 运动学力竭 (Kinematic Exhaustion)
+        # Slope 归一化: 我们需要正向速度(冲高诱多)
+        s_scale = slope.rolling(60).std().replace(0, 1e-9)
+        n_slope = np.tanh(slope / s_scale).clip(0, 1)
+        # Jerk 归一化: 我们需要负向急动度(突发力竭)
+        j_scale = jerk.rolling(60).std().replace(0, 1e-9)
+        n_jerk = np.tanh(jerk / j_scale)
+        exhaustion = (-n_jerk).clip(0, 1) # Jerk越负，力竭越明显
+        
+        # 2. VPA 效率背离 (Efficiency Divergence) [Source 1]
+        # VPA 效率低 (effort > result) 意味着主力在利用高成交量出货或压盘
+        # vpa_eff 通常在 -100 到 100 之间，需自适应处理
+        vpa_scale = vpa_eff.abs().rolling(60).max().replace(0, 1e-9)
+        # 我们寻找 VPA 效率低下的时刻 (Eff < 0 或 极小)
+        inefficiency = (1.0 - np.tanh(vpa_eff / vpa_scale)).clip(0, 1)
+
+        # 3. 日内结构溃败 (Intraday Failure) [Source 1]
+        # OCH_ACCELERATION < 0 代表 开盘->高点->收盘 的过程中动能衰减
+        och_scale = och_acc.abs().rolling(60).max().replace(0, 1e-9)
+        structure_fail = (-np.tanh(och_acc / och_scale)).clip(0, 1)
+
+        # 4. 阻力位环境 (Resistance Context) [Source 1]
+        # BBP > 0.8 表示股价处于布林通道上轨区域，这里是"诱多"的最佳场所
+        # 如果在底部震荡(BBP < 0.5)，则不太可能是 Upthrust Trap
+        context_gate = np.tanh((bbp - 0.5) * 3).clip(0, 1)
+
+        # 5. 回落幅度 (Retracement) - 经典定义
+        range_hl = (high - close) / high.replace(0, 1e-9)
+        retracement = (range_hl * 10).clip(0, 1)
+
+        # 6. 四维融合
+        # 基础陷阱分 = 速度 * 力竭
+        base_trap = (n_slope * 0.4 + exhaustion * 0.6)
+        # 质量加权 = VPA低效 * 结构溃败 * 回落幅度
+        quality = (inefficiency * 0.3 + structure_fail * 0.3 + retracement * 0.4)
+        
+        final_trap = (base_trap * quality * context_gate).clip(0, 1)
+        return final_trap.astype(np.float32)
+
+    def _assess_fund_jerk_resonance(self, pct_chg: pd.Series, jerk_large: pd.Series, smart_net: pd.Series, smart_div: pd.Series) -> pd.Series:
+        """
+        [V15.0.0 · 资金分层共振模型]
+        - 核心逻辑: 识别"通用大单恐慌(Jerk < 0)"与"聪明钱从容承接(Smart > 0)"的背离共振。
+        - 升级维度:
+            1. 分层博弈: 区分 Panic Money (Jerk) 与 Smart Money (Net)。
+            2. 弹性系数: 评估股价对资金冲击的抵抗力。
+        """
+        # 1. 通用大单急动度 (The Panic)
+        # 归一化: 我们寻找显著的负向急动度 (抛压突增)
+        j_scale = jerk_large.rolling(60).std().replace(0, 1e-9)
+        panic_impulse = (-np.tanh(jerk_large / j_scale)).clip(0, 1)
+        # 2. 聪明钱承接 (The Absorption) [Source 1]
+        # 归一化: 我们寻找正向的主力净买入
+        s_scale = smart_net.rolling(60).std().replace(0, 1e-9)
+        absorption = np.tanh(smart_net / s_scale).clip(0, 1)
+        # 3. 价格弹性 (The Resilience)
+        # 逻辑: 抛压很大(Jerk大)但跌幅很小(PctChg小) = 强承接
+        # 使用 abs() 处理，关注幅度的不对称性
+        p_scale = pct_chg.abs().rolling(60).mean().replace(0, 1e-9) + 1e-5
+        # 弹性 = 抛压强度 / 跌幅强度。弹性越高，说明承接盘越硬。
+        elasticity = (panic_impulse / (pct_chg.abs() / p_scale)).clip(0, 2) / 2.0
+        # 4. 资金背离验证 (The Divergence) [Source 1]
+        # smart_div > 0 通常暗示机构与游资的博弈有利于洗盘
+        div_bonus = (np.tanh(smart_div) + 1.0) / 2.0
+        # 5. 共振合成
+        # 核心场景: 市场在恐慌(Panic)，主力在买(Absorption)，价格跌不动(Elasticity)
+        resonance_score = (panic_impulse * 0.4 + absorption * 0.3 + elasticity * 0.2 + div_bonus * 0.1).clip(0, 1)
+        # 修正: 如果主力也在跑 (Absorption < 0)，则 resonance 归零，避免误判
+        validity_gate = np.where(smart_net > 0, 1.0, 0.5) 
+        return (resonance_score * validity_gate).astype(np.float32)
+
+    def _assess_structural_stress_test(self, ratio_sr: pd.Series, test_count: pd.Series, cost_mig: pd.Series, acc_supp: pd.Series) -> pd.Series:
+        """
+        [V16.0.0 · 结构压力测试模型]
+        - 核心逻辑: 真正的防线必须经得起炮火洗礼。
+        - 判定维度:
+            1. 攻防比 (Ratio): 支撑/压力。基础厚度。
+            2. 压力测试 (Test): 日内支撑位被测试次数。次数越多且不破，韧性越强。
+            3. 重心引力 (Gravity): 成本重心迁移。不能发生崩塌式下移。
+            4. 动态增强 (Accel): 支撑强度的加速度。测试中是否在加固工事。
+        """
+        # 1. 攻防比率 (Static Base) [Source 3]
+        # ratio > 1 代表支撑强。归一化到 [0, 1]，中心点为 1.0
+        base_solidity = np.tanh(ratio_sr - 0.8).clip(0, 1) # 0.8 为及格线
+        
+        # 2. 压力测试奖励 (Stress Bonus) [Source 3]
+        # test_count 越多越好。比如测试了 5 次，说明主力护盘意愿极强。
+        # 使用 log 衰减，避免次数过多导致溢出
+        test_bonus = np.log1p(test_count).clip(0, 2) / 2.0
+        # 只有在 base_solidity 及格时，测试才有意义。否则是"纸糊的墙被捅了很多次"
+        resilience = base_solidity * (0.5 + 0.5 * test_bonus)
+        
+        # 3. 重心稳定性 (Gravity Stability) [Source 2]
+        # cost_mig (成本迁移) 应该是正的(上升)或者微负(抵抗式下跌)。
+        # 如果大幅为负 (<-0.5)，说明防线在撤退，即使支撑厚也是且战且退。
+        c_scale = cost_mig.abs().rolling(60).mean().replace(0, 1e-9)
+        n_mig = cost_mig / c_scale
+        # 允许微跌 (-0.5)，但严惩暴跌
+        gravity_stable = (np.tanh(n_mig + 0.5) + 1.0) / 2.0
+        
+        # 4. 动态增强趋势 (Kinematic Boost)
+        # 支撑加速度 > 0，说明在测试过程中，主力在不断加单
+        a_scale = acc_supp.rolling(60).std().replace(0, 1e-9)
+        n_acc = np.tanh(acc_supp / a_scale)
+        boost = (1.0 + n_acc * 0.5).clip(0.5, 1.5)
+        
+        # 5. 最终合成
+        # 韧性(经测试的厚度) * 稳定性(重心不崩) * 趋势(动态加固)
+        final_solidity = (resilience * gravity_stable * boost).clip(0, 1)
+        return final_solidity.astype(np.float32)
+
+    def _assess_skewed_deception_narrative(self, morning: pd.Series, stealth: pd.Series, high_lock: pd.Series, skew: pd.Series, pct_chg: pd.Series) -> pd.Series:
+        """
+        [V17.0.0 · 时空偏度欺骗模型]
+        - 核心逻辑: 洗盘是一个"诱饵-囚禁-屠杀"的完整时空叙事。
+        - 判定维度:
+            1. 诱饵 (Lure): 早盘放量(Morning) + 隐蔽运作(Stealth)。
+            2. 囚禁 (Trap): 日内高位锁定率(HighLock)高，大量筹码在高位成交。
+            3. 屠杀 (Kill): 价格分布负偏(Skew < 0)，尾盘快速杀跌。
+        """
+        # 1. 诱饵系数 (The Lure) [Source 2, 3]
+        # 早盘放量且隐蔽资金活跃，说明主力在暗中布局
+        n_morning = np.tanh((morning - 0.4) * 3).clip(0, 1)
+        n_stealth = np.tanh(stealth * 2).clip(0, 1)
+        lure_score = (n_morning * 0.6 + n_stealth * 0.4)
+        
+        # 2. 囚禁系数 (The Trap) [Source 2]
+        # 高位锁定率越高，说明诱多越成功，被套牢的筹码越多
+        # high_lock 通常在 0-1 之间
+        trap_score = np.tanh(high_lock * 3).clip(0, 1)
+        
+        # 3. 屠杀偏度 (The Kill) [Source 3]
+        # 负偏度代表价格在高位停留久，然后快速下跌。正偏度代表在低位停留久(吸筹)。
+        # 洗盘需要负偏度 (Skew < 0)。取反后，值越大越好。
+        s_scale = skew.abs().rolling(60).max().replace(0, 1e-9)
+        kill_score = (-np.tanh(skew / s_scale)).clip(0, 1)
+        
+        # 4. 价格确认 (Price Validation)
+        # 必须是下跌状态，跌幅越深，欺骗性质越恶劣 (但不能跌停，否则是出货)
+        is_drop = (pct_chg < 0).astype(int)
+        
+        # 5. 最终合成
+        # 只有在下跌时，上述欺骗特征才有效
+        deception = (lure_score * 0.4 + trap_score * 0.3 + kill_score * 0.3) * is_drop
+        return deception.astype(np.float32)
+
+    def _assess_fractal_manipulation_fingerprint(self, abnormal: pd.Series, clustering: pd.Series, anomaly: pd.Series, acc_abnormal: pd.Series) -> pd.Series:
+        """
+        [V18.0.0 · 分形操控指纹模型]
+        - 核心逻辑: 洗盘是人为的，自然恐慌是随机的。利用微观结构的非随机性(聚类/离群)识别操控。
+        - 判定维度:
+            1. 聚类 (Clustering): Tick级交易的规律性。算法交易的痕迹。
+            2. 离群 (Anomaly): 大单分布的统计学异常。人为压盘的痕迹。
+            3. 强度 (Volume): 异常成交比率。
+            4. 动力 (Kinematics): 异常行为的加速度。
+        """
+        # 1. 强度指纹 (Volume) [Source 3]
+        n_abnormal = np.tanh(abnormal * 2).clip(0, 1)
+        # 2. 聚类指纹 (Clustering) [Source 3]
+        # 聚类指数越高，说明交易越有组织(非随机散户)
+        n_clustering = np.tanh(clustering * 3).clip(0, 1)
+        # 3. 离群指纹 (Anomaly) [Source 2]
+        # 异常度越高，说明盘口挂单越诡异
+        n_anomaly = np.tanh(anomaly).clip(0, 1)
+        # 4. 动力增强 (Kinematics)
+        # 如果异常成交在加速 (acc > 0)，说明主力在加力
+        a_scale = acc_abnormal.rolling(60).std().replace(0, 1e-9)
+        n_acc = np.tanh(acc_abnormal / a_scale)
+        boost = (1.0 + n_acc * 0.5).clip(0.8, 1.5)
+        # 5. 指纹合成
+        # 只有当 量大(Volume) + 有组织(Clustering) + 诡异(Anomaly) 同时出现，才是主力操控
+        base_manipulation = (n_abnormal * 0.4 + n_clustering * 0.4 + n_anomaly * 0.2)
+        final_score = (base_manipulation * boost).clip(0, 1)
         return final_score.astype(np.float32)
 
-    def _normalize_signals(self, df_index: pd.Index, upward_purity_raw: pd.Series,
-                           upper_shadow_pressure_raw: pd.Series, active_buying_raw: pd.Series,
-                           power_transfer: pd.Series, method_name: str) -> Tuple[pd.Series, ...]:
-        upward_purity_norm = self.helper._normalize_series(upward_purity_raw, df_index, bipolar=False)
-        upper_shadow_pressure_norm = self.helper._normalize_series(upper_shadow_pressure_raw, df_index, bipolar=False)
-        active_buying_norm = self.helper._normalize_series(active_buying_raw, df_index, bipolar=False)
-        power_transfer_norm = power_transfer.clip(lower=0)
-        return (upward_purity_norm, upper_shadow_pressure_norm, active_buying_norm,
-                power_transfer_norm)
-
-    def _evaluate_market_context(self, long_term_trend_context_score: pd.Series, bias_21: pd.Series, upward_purity_norm_rolling_mean: pd.Series) -> pd.Series:
+    def _print_debug_probe(self, idx: pd.Index, final: pd.Series, 
+                           trap: pd.Series, och: pd.Series, vpa: pd.Series,
+                           f_res: pd.Series, f_hab: pd.Series, smart: pd.Series, jerk: pd.Series, accum: pd.Series,
+                           meta: pd.Series, hab_rel: pd.Series, turnover: pd.Series,
+                           solid: pd.Series, test: pd.Series,
+                           dec: pd.Series, skew: pd.Series, man: pd.Series, cluster: pd.Series):
         """
-        【V1.3.0 · 市场情境评估器 - 趋势上下文分离版】
-        - 核心职责: 评估当前市场是否处于适合洗盘反弹的上下文。
-        - 核心升级: “趋势向上”的判断现在基于 `long_term_trend_context_score` (中长期累积趋势分数)，
-                      使其在短期回调日也能正确识别出整体上升趋势。
-        参数:
-            long_term_trend_context_score (pd.Series): 中长期累积趋势分数。
-            bias_21 (pd.Series): 21日乖离率 (不再作为硬性门槛)。
-            upward_purity_norm_rolling_mean (pd.Series): 归一化后的上涨纯度3日滚动平均值。
-        返回:
-            pd.Series: 市场情境掩码 (布尔Series)。
+        [V19.0.0 · 全链路白盒探针]
+        - 职责: 输出从"原料(Raw)"到"节点(Node)"再到"结果(Result)"的完整逻辑链。
+        - 格式: [层级] NodeScore <- RawData1, RawData2...
         """
-        # 趋势向上 (使用中长期累积趋势分数判断)，上涨纯度良好
-        # long_term_trend_context_score 是双极性，大于0.2表示中长期趋势向上且有一定强度
-        context_mask = (long_term_trend_context_score > 0.2) & (upward_purity_norm_rolling_mean > 0.3)
-        return context_mask
-
-    def _identify_kline_pattern(self, open_price: pd.Series, high_price: pd.Series,
-                                close_price: pd.Series, low_price: pd.Series, pct_change: pd.Series) -> pd.Series:
-        """
-        【V1.2.0 · K线形态识别器】
-        - 核心职责: 识别“上冲回落”的K线形态。
-        - 核心升级: 增加“收盘价低于高点3%以上”的条件，使其对上冲回落的定义更加灵活。
-        参数:
-            open_price (pd.Series): 开盘价。
-            high_price (pd.Series): 最高价。
-            close_price (pd.Series): 收盘价。
-            low_price (pd.Series): 最低价。
-            pct_change (pd.Series): 涨跌幅。
-        返回:
-            pd.Series: K线形态门控 (布尔Series)。
-        """
-        total_range = high_price - low_price
-        total_range_safe = total_range.replace(0, 1e-9) # 避免除以零
-        upper_shadow = high_price - np.maximum(open_price, close_price)
-        upper_shadow_ratio = (upper_shadow / total_range_safe).fillna(0)
-        # 条件1: 高开低走阴线 (开盘价高于收盘价，且当日下跌)
-        is_high_open_low_close_yin = (open_price > close_price) & (pct_change < 0)
-        # 条件2: 长上影线阴线 (上影线占比超过一定阈值，且收盘价低于开盘价)
-        is_long_upper_shadow_yin = (upper_shadow_ratio > 0.4) & (close_price < open_price)
-        # 新增条件3: 收盘价从高点回落超过3% (无论阴阳线)
-        # 确保 high_price 不为0，避免除以零
-        high_price_safe = high_price.replace(0, np.nan)
-        drop_from_high_pct = ((high_price_safe - close_price) / high_price_safe).fillna(0)
-        is_significant_drop_from_high = (drop_from_high_pct > 0.03)
-        # 只要满足这三种形态之一，就认为是“上冲回落”的 K 线
-        is_upthrust_kline = is_high_open_low_close_yin | is_long_upper_shadow_yin | is_significant_drop_from_high
-        return is_upthrust_kline
-
-    def _assess_selling_pressure(self, upper_shadow_pressure_norm: pd.Series, pct_change: pd.Series, lower_shadow_strength: pd.Series) -> pd.Series:
-        """
-        【V1.0.1 · 卖压审判器 - 吸收强度缓解版】
-        - 核心职责: 评估当日的卖压强度。
-        - 核心升级: 引入 `lower_shadow_strength` 作为缓解因子，当吸收强度高时，适当降低卖压的感知。
-        参数:
-            upper_shadow_pressure_norm (pd.Series): 归一化后的上影线卖压。
-            pct_change (pd.Series): 涨跌幅。
-            lower_shadow_strength (pd.Series): 派生出的下影线吸收强度。
-        返回:
-            pd.Series: 卖压审判分数。
-        """
-        is_down_day = (pct_change < 0).astype(float)
-        # 吸收强度缓解因子：当 lower_shadow_strength 越高，缓解效果越强
-        # 缓解因子 = (1 - lower_shadow_strength * 缓解系数)。
-        # 缓解系数 0.5 意味着当 lower_shadow_strength 为 1 时，is_down_day 的权重会减半。
-        # clip(0.5, 1.0) 确保缓解因子在 0.5 到 1.0 之间，即 is_down_day 的权重最多减半，不会完全消失。
-        mitigation_factor = (1 - lower_shadow_strength * 0.5).clip(0.5, 1.0)
-        # 调整 is_down_day 的权重
-        adjusted_down_day_weight = 0.3 * mitigation_factor
-        # 卖压分数 = 上影线卖压 * 0.7 + (收阴线 * 调整后的权重)
-        selling_pressure_score = (upper_shadow_pressure_norm * 0.7 + is_down_day * adjusted_down_day_weight).clip(0, 1)
-        return selling_pressure_score
-
-    def _calculate_net_washout_intent(self, absorption_rebuttal_score: pd.Series, selling_pressure_score: pd.Series, pct_change: pd.Series, df_index: pd.Index, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict, temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.0.2 · 净洗盘意图计算器 - 背离基础分版】
-        - 核心职责: 计算净洗盘意图，并在承接大于卖压且股价下跌时，将“股价下跌百分比 * 10”作为基础分。
-        - 核心升级:
-            1. 调整 `amplification_multiplier` 的默认值。
-            2. 在背离情境下，计算基于股价下跌幅度的基础分。
-            3. 最终净洗盘意图取“基础分”与“经过放大的承接减卖压差值”的较大者。
-        参数:
-            absorption_rebuttal_score (pd.Series): 承接审判分数。
-            selling_pressure_score (pd.Series): 卖压审判分数。
-            pct_change (pd.Series): 涨跌幅 (百分比)。
-            df_index (pd.Index): DataFrame的索引。
-            is_debug_enabled_for_method (bool): 是否启用调试。
-            probe_ts (Optional[pd.Timestamp]): 探针日期。
-            debug_output (Dict): 调试输出字典。
-            temp_debug_values (Dict): 临时调试值字典，用于存储中间结果。
-        返回:
-            pd.Series: 净洗盘意图分数。
-        """
-        # 从配置中获取放大乘数，如果未配置则使用默认值 5.0
-        amplification_multiplier = get_param_value(self.params.get('washout_amplification_multiplier'), 5.0)
-        # 1. 计算承接与卖压的原始差值
-        raw_washout_diff = absorption_rebuttal_score - selling_pressure_score
-        # 初始化净洗盘意图分数，默认值为 0.0
-        net_washout_intent_series = pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 2. 识别“背离”情境：承接大于卖压 (raw_washout_diff > 0) 且股价下跌 (pct_change < 0)
-        divergence_mask = (raw_washout_diff > 0) & (pct_change < 0)
-        # 3. 计算基于股价下跌幅度的基础分 (仅在背离情境下有意义)
-        # 股价下跌的百分比 * 10 作为基础分，并裁剪到 [0, 1] 范围
-        base_score_from_pct_change = (pct_change.abs() / 100 * 10).clip(0, 1)
-        # 4. 计算放大因子
-        # pct_change 是百分比，所以除以 100 转换为小数
-        # 确保 pct_change.abs() 避免负值
-        amplification_factor = 1 + (pct_change.abs() / 100 * amplification_multiplier)
-        # 确保 amplification_factor 至少为 1 (不缩小)
-        amplification_factor = amplification_factor.clip(lower=1.0)
-        # 5. 计算经过放大的原始净吸收差值
-        amplified_raw_washout_diff = raw_washout_diff * amplification_factor
-        # 6. 在背离情境下，融合基础分和经过放大的原始净吸收差值
-        # 取两者中的较大值，确保洗盘意图分数既能反映下跌幅度，也能反映净吸收强度
-        net_washout_intent_series.loc[divergence_mask] = np.maximum(
-            base_score_from_pct_change.loc[divergence_mask],
-            amplified_raw_washout_diff.loc[divergence_mask]
-        )
-        # 7. 对于非背离情境 (raw_washout_diff <= 0 或 pct_change >= 0)，直接使用原始差值 (但要确保非负)
-        # 如果 raw_washout_diff > 0 但 pct_change >= 0，不应该放大，只取 raw_washout_diff
-        # 如果 raw_washout_diff <= 0，则意图为 0
-        non_divergence_mask = ~divergence_mask
-        net_washout_intent_series.loc[non_divergence_mask] = raw_washout_diff.loc[non_divergence_mask].clip(lower=0)
-        # 8. 最终裁剪到 [0, 1] 范围
-        final_net_washout_intent = net_washout_intent_series.clip(0, 1)
-        # 调试输出
-        if is_debug_enabled_for_method and probe_ts:
-            val_raw_washout_diff = raw_washout_diff.loc[probe_ts] if probe_ts in raw_washout_diff.index else np.nan
-            val_pct_change = pct_change.loc[probe_ts] if probe_ts in pct_change.index else np.nan
-            val_divergence_mask = divergence_mask.loc[probe_ts] if probe_ts in divergence_mask.index else False
-            val_base_score_from_pct_change = base_score_from_pct_change.loc[probe_ts] if probe_ts in base_score_from_pct_change.index else np.nan
-            val_amplification_factor = amplification_factor.loc[probe_ts] if probe_ts in amplification_factor.index else np.nan
-            val_amplified_raw_washout_diff = amplified_raw_washout_diff.loc[probe_ts] if probe_ts in amplified_raw_washout_diff.index else np.nan
-            temp_debug_values["净洗盘意图_详情"] = {
-                "raw_washout_diff": val_raw_washout_diff,
-                "pct_change": val_pct_change,
-                "divergence_mask": val_divergence_mask,
-                "amplification_multiplier": amplification_multiplier,
-                "amplification_factor": val_amplification_factor,
-                "base_score_from_pct_change": val_base_score_from_pct_change,
-                "amplified_raw_washout_diff": val_amplified_raw_washout_diff,
-                "final_net_washout_intent": final_net_washout_intent.loc[probe_ts]
-            }
-        return final_net_washout_intent
-
-    def _assess_absorption_rebuttal(self, active_buying_norm: pd.Series,
-                                    lower_shadow_strength: pd.Series, power_transfer_norm: pd.Series) -> pd.Series:
-        """
-        【V1.1.0 · 承接审判器】
-        - 核心职责: 评估主力承接力量，采用“强证优先”原则。
-        参数:
-            active_buying_norm (pd.Series): 归一化后的主动买盘。
-            lower_shadow_strength (pd.Series): 派生出的下影线吸收强度。
-            power_transfer_norm (pd.Series): 归一化后的权力转移（已裁剪为正向）。
-        返回:
-            pd.Series: 承接审判分数。
-        """
-        absorption_rebuttal_score = pd.concat([
-            active_buying_norm,
-            lower_shadow_strength,
-            power_transfer_norm
-        ], axis=1).max(axis=1)
-        return absorption_rebuttal_score
-
-    def _validate_main_force_inflow(self, df_index: pd.Index, main_force_net_volume_from_hf: pd.Series,
-                                     is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp],
-                                     debug_output: Dict) -> pd.Series:
-        """
-        【V1.6.0 · 主力日度净买卖股数累积门控 - 统一55日周期】
-        - 核心职责: 评估主力资金的累积日度净买卖股数是否支持洗盘信号。
-        - 核心升级: 使用 `_get_cumulative_context_score` 计算“主力日度净买卖股数”的累积分数，
-                      并设定阈值（0.6）来判断是否通过门控。累积周期统一调整为55日。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            main_force_net_volume_from_hf (pd.Series): 原始主力日度净买卖股数。
-            is_debug_enabled_for_method (bool): 是否启用调试。
-            probe_ts (Optional[pd.Timestamp]): 探针日期。
-            debug_output (Dict): 调试输出字典。
-        返回:
-            pd.Series: 主力资金累积流向门控 (布尔Series)。
-        """
-        cumulative_periods = [55]
-        cumulative_weights = {"55": 1.0}
-        mf_cumulative_score = self.helper._get_cumulative_context_score(
-            series=main_force_net_volume_from_hf,
-            df_index=df_index,
-            periods=cumulative_periods,
-            weights=cumulative_weights,
-            bipolar=True,
-            signal_name="main_force_net_volume_from_hf_D",
-            is_debug_enabled_for_method=is_debug_enabled_for_method,
-            probe_ts=probe_ts,
-            debug_output=debug_output
-        )
-        mf_cumulative_flow_gate = (mf_cumulative_score > 0.6).fillna(False)
-        if is_debug_enabled_for_method and probe_ts:
-            val_mf_cumulative_score = mf_cumulative_score.loc[probe_ts] if probe_ts in mf_cumulative_score.index else np.nan
-            debug_output[f"      -> 主力日度净买卖股数累积分数 (55日): {val_mf_cumulative_score:.4f}"] = ""
-            debug_output[f"      -> 主力日度净买卖股数累积门控 (mf_cumulative_score > 0.6): {mf_cumulative_flow_gate.loc[probe_ts]}"] = ""
-        return mf_cumulative_flow_gate
-
-    def _fuse_final_score(self, net_washout_intent: pd.Series, context_mask: pd.Series,
-                          is_upthrust_kline: pd.Series, mf_cumulative_flow_gate: pd.Series) -> pd.Series:
-        """
-        【V1.1.0 · 最终分数融合器】
-        - 核心职责: 结合所有评估维度，计算最终的上冲回落洗盘信号分数。
-        - 核心升级: 调整主力资金门控的判断方式，直接使用布尔型的 `mf_cumulative_flow_gate`。
-        参数:
-            net_washout_intent (pd.Series): 净洗盘意图。
-            context_mask (pd.Series): 市场情境掩码。
-            is_upthrust_kline (pd.Series): K线形态门控。
-            mf_cumulative_flow_gate (pd.Series): 主力资金累积流向门控 (布尔Series)。
-        返回:
-            pd.Series: 最终的上冲回落洗盘信号分数。
-        """
-        # 结合市场上下文、K线形态门控和主力资金累积流向门控
-        final_score = net_washout_intent.where(context_mask & is_upthrust_kline & mf_cumulative_flow_gate, 0.0).fillna(0.0)
-        return final_score
-
-    def _print_debug_output_for_upthrust_washout(self, debug_output: Dict, probe_ts: pd.Timestamp,
-                                                  temp_debug_values: Dict, final_score: pd.Series) -> None:
-        method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-        for key, series in temp_debug_values["原始信号值"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        '{key}': {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-        for key, series in temp_debug_values["归一化处理"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        val_long_term_trend_context_score = temp_debug_values["归一化处理"]["long_term_trend_context_score"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["long_term_trend_context_score"].index else np.nan
-        val_upward_purity_norm_rolling_mean = temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].loc[probe_ts] if probe_ts in temp_debug_values["归一化处理"]["upward_purity_norm_rolling_mean"].index else np.nan
-        debug_output[f"        [Context Condition 1] long_term_trend_context_score ({val_long_term_trend_context_score:.4f}) > 0.2: {val_long_term_trend_context_score > 0.2}"] = ""
-        debug_output[f"        [Context Condition 2] upward_purity_norm_rolling_mean ({val_upward_purity_norm_rolling_mean:.4f}) > 0.3: {val_upward_purity_norm_rolling_mean > 0.3}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场上下文 ---"] = ""
-        for key, series in temp_debug_values["市场上下文"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- K线形态门控 ---"] = ""
-        for key, series in temp_debug_values["K线形态门控"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 卖压审判分 ---"] = ""
-        for key, series in temp_debug_values["卖压审判分"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 承接审判分 ---"] = ""
-        for key, series in temp_debug_values["承接审判分"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        # 新增：打印净洗盘意图的详细调试信息
-        if "净洗盘意图_详情" in temp_debug_values:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 净洗盘意图 (详细计算) ---"] = ""
-            for key, val in temp_debug_values["净洗盘意图_详情"].items():
-                if isinstance(val, (float, np.float32, np.float64)):
-                    debug_output[f"        {key}: {val:.4f}"] = ""
-                else:
-                    debug_output[f"        {key}: {val}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 净洗盘意图 ---"] = ""
-        for key, series in temp_debug_values["净洗盘意图"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 主力资金累积流向门控 ---"] = ""
-        for key, series in temp_debug_values["主力资金累积流向门控"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终分数 ---"] = ""
-        for key, series in temp_debug_values["最终分数"].items():
-            val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-            debug_output[f"        {key}: {val:.4f}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 上冲回落洗盘诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
-        for key, value in debug_output.items():
-            if value:
-                print(f"{key}: {value}")
-            else:
-                print(key)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        if len(idx) > 0:
+            i = -1 # 取最后一天
+            date_str = idx[i].strftime('%Y-%m-%d')
+            print(f"--- [PROBE_V19_WHITEBOX] {date_str} FINAL_SCORE: {final.iloc[i]:.4f} ---")
+            # 1. 物理层: 陷阱形态是否成立?
+            # 逻辑: 陷阱分 <- 日内结构(OCH) + VPA效率(VPA)
+            print(f"  [1.Physics]  Trap: {trap.iloc[i]:.4f} <- OCH_Accel: {och.iloc[i]:.4f}, VPA_Eff: {vpa.iloc[i]:.2f}")
+            # 2. 资金层: 主力是否在承接? 底仓是否够厚?
+            # 逻辑: 资金分 <- (共振分 <- 聪明钱 vs 恐慌急动度) * (HAB分 <- 34日累积)
+            f_total = (f_res * f_hab).iloc[i]
+            print(f"  [2.Funds]    Score: {f_total:.4f} (Res: {f_res.iloc[i]:.4f} * HAB: {f_hab.iloc[i]:.4f})")
+            print(f"               Raw -> SmartNet: {smart.iloc[i]:.2f} vs PanicJerk: {jerk.iloc[i]:.2f} | Accum34: {accum.iloc[i]:.2f}")
+            # 3. 筹码层: 洗盘效率高吗?
+            # 逻辑: 代谢分 <- 5日累积释放 / 换手率
+            print(f"  [3.Chips]    Meta: {meta.iloc[i]:.4f} <- HAB_Rel: {hab_rel.iloc[i]:.2f} / Turnover: {turnover.iloc[i]:.2f}%")
+            # 4. 防御层: 支撑经得起考验吗?
+            # 逻辑: 稳固分 <- 支撑测试次数
+            print(f"  [4.Defense]  Solid: {solid.iloc[i]:.4f} <- TestCount: {test.iloc[i]:.1f}")
+            # 5. 取证层: 是诱多吗? 是操控吗?
+            # 逻辑: 欺骗分 <- 偏度 | 操控分 <- 聚类
+            print(f"  [5.Forensics] Decept: {dec.iloc[i]:.4f} (Skew: {skew.iloc[i]:.4f}) | Manip: {man.iloc[i]:.4f} (Cluster: {cluster.iloc[i]:.4f})")
 
 
 
