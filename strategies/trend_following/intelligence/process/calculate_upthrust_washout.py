@@ -72,12 +72,9 @@ class CalculateUpthrustWashoutRelationship:
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
-        [V18.0.0 · 分形操控指纹数据接入]
-        - 核心职责: 提取微观结构的聚类、离群与运动学特征，用于识别"人造行情"。
-        - 新增列:
-            1. tick_clustering_index_D: Tick聚类指数，识别算法/拆单痕迹。
-            2. large_order_anomaly_D: 大单异常度，识别偏离统计规律的挂单。
-            3. ACCEL_5_tick_abnormal_volume_ratio_D: 异常成交的加速度，捕捉操控力度的变化。
+        [V19.1.0 · Bug修复版]
+        - 修复: 修正 hab_rel 计算时引用的变量名错误 (pres_release -> pres_rel)。
+        - 核心职责: 提取描述"诱饵-关门-屠杀"完整欺骗路径及微观操控的日内结构指标。
         """
         # 基础行情
         open_p = self.helper._get_safe_series(df, 'open_D', 0.0, method_name=method_name)
@@ -114,13 +111,14 @@ class CalculateUpthrustWashoutRelationship:
         skew = self.helper._get_safe_series(df, 'intraday_price_distribution_skewness_D', 0.0, method_name=method_name)
         # 筹码代谢
         pres_rel = self.helper._get_safe_series(df, 'pressure_release_index_D', 0.0, method_name=method_name)
-        hab_rel = pres_release.rolling(window=5, min_periods=1).sum().fillna(0)
+        # [修复点] 使用 pres_rel 而非 pres_release
+        hab_rel = pres_rel.rolling(window=5, min_periods=1).sum().fillna(0)
         winner = self.helper._get_safe_series(df, 'winner_rate_D', 0.0, method_name=method_name)
         acc_win = self.helper._get_safe_series(df, 'ACCEL_5_winner_rate_D', 0.0, method_name=method_name)
         turnover = self.helper._get_safe_series(df, 'turnover_rate_D', 0.0, method_name=method_name)
         chip_stab = self.helper._get_safe_series(df, 'chip_stability_D', 0.0, method_name=method_name)
         cost_diff = self.helper._get_safe_series(df, 'chip_cost_to_ma21_diff_D', 0.0, method_name=method_name)
-        # 分形操控 [V18 新增 Source 2, 3]
+        # 分形操控
         abnormal_vol = self.helper._get_safe_series(df, 'tick_abnormal_volume_ratio_D', 0.0, method_name=method_name)
         clustering = self.helper._get_safe_series(df, 'tick_clustering_index_D', 0.0, method_name=method_name)
         order_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', 0.0, method_name=method_name)
@@ -134,7 +132,7 @@ class CalculateUpthrustWashoutRelationship:
                 test_cnt, cost_mig, sr_ratio, acc_supp, 
                 morning, stealth, high_lock, skew,
                 pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, cost_diff, 
-                abnormal_vol, clustering, order_anomaly, acc_abnormal, # V18 返回
+                abnormal_vol, clustering, order_anomaly, acc_abnormal,
                 ma_res, slope_trend)
 
     def _assess_fund_reservoir_buffer(self, daily: pd.Series, accum_34: pd.Series, slope_f: pd.Series, accel_f: pd.Series, vpa_eff: pd.Series, volat: pd.Series) -> pd.Series:
