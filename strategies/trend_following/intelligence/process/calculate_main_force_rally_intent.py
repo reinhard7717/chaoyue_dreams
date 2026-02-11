@@ -52,48 +52,39 @@ class CalculateMainForceRallyIntent:
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
-        
         # 1. 信号与物理层
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
         if self._is_probe_enabled(df): self._diagnose_vol_jerk_anomaly(df_index, raw_signals, mtf_signals)
-        
         # 2. 状态识别
         factors = self._calculate_market_state_factors(df_index, normalized_signals, mtf_signals)
         phase = self._identify_market_phase(df_index, factors, normalized_signals)
-        
         # 3. 上下文与代理 (第一轮)
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
-        
         # 4. 【核心闭环】利用 Proxy Burst 修正动态周期
         # 虽然内存已计算，但我们更新 context 中的周期值，供后续模块（如风险裁决）使用
         refined_period = self._calculate_dynamic_period(df_index, raw_signals, proxy_signals)
         historical_context['dynamic_memory_period'] = refined_period
-        
         # 5. 权重与分值
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals, factors, phase)
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        
         # 6. 风险与意图
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase)
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        
         # 7. 缝合与审计
         final_rally_intent = (bullish_intent * (1 - total_risk_penalty * 0.8) + bearish_score).fillna(0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, phase, aggressiveness_score)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0).fillna(0)
-        
         self._persist_hab_states(historical_context)
-        
-        if self._is_probe_enabled(df):
-            self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase, dynamic_weights)
-            self._output_probe_info(df_index, final_rally_intent)
+        # if self._is_probe_enabled(df):
+        #     self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase, dynamic_weights)
+        #     self._output_probe_info(df_index, final_rally_intent)
             
         return final_rally_intent.astype(np.float32)
 
@@ -275,23 +266,18 @@ class CalculateMainForceRallyIntent:
         """
         hc_enabled = get_param_value(params.get('enabled'), True)
         if not hc_enabled: return self._get_empty_context(df_index)
-        
         initial_hab_states = self._load_hab_states()
-        
         # 计算基础内存
         price_memory = self._calculate_price_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('price_hab', 0.0))
         capital_memory = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('capital_hab', 0.0))
         chip_memory = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('chip_hab', 0.0))
         sentiment_memory = self._calculate_sentiment_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('sentiment_hab', 0.0))
-        
         integrated_memory = self._fuse_integrated_memory(price_memory, capital_memory, chip_memory, sentiment_memory, params)
         phase_sync = self._detect_phase_synchronization(df_index, price_memory, capital_memory, integrated_memory)
         memory_quality = self._assess_memory_quality(df_index, price_memory, capital_memory, chip_memory, sentiment_memory)
-        
         # 注意：dynamic_memory_period 此时尚未包含 Burst 修正，将在主流程中通过 _calculate_dynamic_period 独立计算并覆盖
         # 但为了保持接口完整性，此处返回基础版
         base_period = self._calculate_dynamic_period(df_index, raw_signals, {}) 
-        
         return {
             "price_memory": price_memory, "capital_memory": capital_memory, "chip_memory": chip_memory,
             "sentiment_memory": sentiment_memory, "integrated_memory": integrated_memory,
@@ -393,27 +379,21 @@ class CalculateMainForceRallyIntent:
         # Vol位置归一化
         vol_min = volatility.rolling(60).min(); vol_max = volatility.rolling(60).max()
         vol_pos = ((volatility - vol_min) / (vol_max - vol_min + 1e-9)).clip(0, 1)
-        
         # 效率比 (ER)
         net_diff = pct_change.rolling(10).sum().abs()
         path_len = pct_change.abs().rolling(10).sum().replace(0, 1e-9)
         er = (net_diff / path_len).clip(0, 1)
-        
         # 2. 提取一致性爆发 (Burst Score)
         # 如果未传入(例如初始化阶段)，默认为0
         burst_score = proxy_signals.get('sync_burst_score', pd.Series(0.0, index=df_index))
-        
         # 3. 周期合成
         # 基础逻辑：ER高 -> 周期长(趋势稳)；Vol高 -> 周期短(避险)
         base_period = 21 * (1 + er * 0.4 - vol_pos * 0.3)
-        
         # 【核心重构】爆发敏感调节
         # 当 Burst > 0.8 时，周期最多缩短 40%，迫使模型关注近期剧烈变化
         final_period_raw = base_period * (1 - burst_score * 0.4)
-        
         # 4. 边界约束与类型转换
         final_period_series = final_period_raw.clip(5, 55).round().fillna(21)
-        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
             self._probe_print(f"[PERIOD_BURST_PROBE] Base: {base_period.iloc[-1]:.1f} | Burst: {burst_score.iloc[-1]:.2f} -> Final: {final_period_series.iloc[-1]}")
             
@@ -717,7 +697,6 @@ class CalculateMainForceRallyIntent:
         corr_cs = c_cap.rolling(window=13, min_periods=5).corr(c_sent).fillna(0)
         # 均值共振度
         avg_sync_raw = (corr_rc + corr_rs + corr_cs) / 3.0
-        
         # 3. Fisher 变换锐化与一致性爆发
         fisher_norm = np.tanh(0.5 * np.log((1 + avg_sync_raw.clip(-0.99, 0.99)) / (1 - avg_sync_raw.clip(-0.99, 0.99)))).clip(0, 1)
         sync_burst_score = np.tanh(fisher_norm.diff(1).diff(1).clip(lower=0).rolling(5).mean().fillna(0) * 50).clip(0, 1)
@@ -729,7 +708,6 @@ class CalculateMainForceRallyIntent:
             signal = series.diff(13).abs().fillna(0)
             snr_raw = (signal / noise).clip(0, 1)
             quality_list.append(np.tanh(0.5 * np.log((1 + snr_raw.clip(0, 0.99)) / (1 - snr_raw.clip(0, 0.99)))))
-        
         individual_quality = pd.concat(quality_list, axis=1).mean(axis=1).fillna(0.7)
         combined_signal_quality = (individual_quality * 0.4 + fisher_norm * 0.4 + sync_burst_score * 0.2).clip(0, 1)
 
@@ -737,7 +715,6 @@ class CalculateMainForceRallyIntent:
         final_proxy_signals = self._dynamic_weighted_synthesis(rs_res, cap_res, sent_res, liq_res, vol_res, risk_res, combined_signal_quality, config)
         final_proxy_signals['combined_signal_quality'] = combined_signal_quality
         final_proxy_signals['sync_burst_score'] = sync_burst_score
-        
         # 6. 各维度 HAB 存量注入
         for name, series in proxy_cores.items():
             final_proxy_signals[f"{name}_hab_score"] = series.mask(series < 0.6, 0).diff(1).clip(lower=0).rolling(21).sum().fillna(0).rolling(55).rank(pct=True).fillna(0.5)
@@ -1171,7 +1148,6 @@ class CalculateMainForceRallyIntent:
         # 3. 提取一致性爆发与综合质量
         quality = proxy_signals.get('combined_signal_quality', factors.get('state_hab_score', pd.Series(0.7, index=df_index)))
         burst_score = proxy_signals.get('sync_burst_score', pd.Series(0.0, index=df_index))
-        
         final_weights_unnorm = {}
         for dim, b_w in base_weights_raw.items():
             boost = (rs_acc * 0.6) if dim == 'aggressiveness' else 0
@@ -1180,7 +1156,6 @@ class CalculateMainForceRallyIntent:
         # 4. 带确定性溢价的 Softmax 归一化
         final_weights = {dim: pd.Series(0.0, index=df_index) for dim in final_weights_unnorm.keys()}
         final_temp = 1.0 # 初始化
-        
         for i in range(len(df_index)):
             raw_vals = np.array([final_weights_unnorm[d].iloc[i] for d in final_weights_unnorm])
             # 基础温度 (0.5 ~ 2.0)
@@ -1195,7 +1170,6 @@ class CalculateMainForceRallyIntent:
             norm_vals = exp_vals / (np.sum(exp_vals) + 1e-9)
             for idx, dim in enumerate(final_weights_unnorm.keys()):
                 final_weights[dim].iloc[i] = norm_vals[idx]
-        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
             # 修复：final_temp 为标量，直接打印
             self._probe_print(f"[WEIGHT_BURST_PROBE] Burst: {burst_score.iloc[-1]:.4f} | Final_Temp: {final_temp:.4f}")
@@ -1375,14 +1349,11 @@ class CalculateMainForceRallyIntent:
         p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).fillna(0.0)
         p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).fillna(0.0)
         dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index).fillna(0.0)
-        
         # 填充后计算微分
         dist_step = dist_score.diff(1).fillna(0.0).clip(lower=0)
-        
         bull_impulse = p_acc.clip(lower=0) * p_jerk.clip(upper=0).abs() * (1 + dist_step * 2)
         trap_intensity = np.tanh(bull_impulse / 0.0020).clip(0, 1)
         final_trap_score = (trap_intensity * dist_hab.fillna(0)).fillna(0)
-        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
             self._probe_print(f"--- Bull Trap Physics Probe ---")
             self._probe_print(f"  > Dist_Step: {dist_step.iloc[-1]:.4f} | Bull_Impulse: {bull_impulse.iloc[-1]:.6f}")
@@ -1548,29 +1519,23 @@ class CalculateMainForceRallyIntent:
         # 运动学计算
         dist_slope = dist_score.diff(1).rolling(3).mean().fillna(0)
         dist_accel = dist_slope.diff(1).fillna(0)
-        
         # HAB 存量
         hab_inc = dist_score * (1 + dist_accel.clip(lower=0))
         dist_hab_buffer = hab_inc.rolling(window=21, min_periods=1).sum().fillna(0) # min_periods=1 关键
         dist_hab = dist_hab_buffer.rolling(34, min_periods=1).rank(pct=True).fillna(0.0)
-        
         # 诱多陷阱
         bull_trap_score = self._detect_bull_trap(df_index, mtf_signals, normalized_signals, dist_hab)
-        
         # 恐慌冲击
         p_acc_down = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).clip(upper=0).abs().fillna(0)
         panic_impulse = (p_acc_down * dist_accel.clip(lower=0)).pow(0.5).fillna(0)
-        
         # 合成
         bear_comp = {'dist': dist_score, 'hab': dist_hab, 'panic': panic_impulse}
         # 使用 1e-6 替换 0 防止 log(-inf)
         log_bear = (0.3 * np.log(bear_comp['dist'].clip(1e-6)) + 
                     0.4 * np.log(bear_comp['hab'].clip(1e-6)) + 
                     0.3 * np.log(bear_comp['panic'].clip(1e-6)))
-        
         base_bear_score = np.exp(log_bear).clip(0, 1)
         final_bear_score = (base_bear_score * (1 + bull_trap_score * 0.3)).clip(0, 1)
-        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
             self._probe_print(f"--- Bearish Intent Synthesis Probe ---")
             self._probe_print(f"  > Bull_Trap: {bull_trap_score.iloc[-1]:.4f} | Final_Bear: {-final_bear_score.iloc[-1]:.4f}")
@@ -1587,36 +1552,27 @@ class CalculateMainForceRallyIntent:
         tech_risk = (pd.Series(normalized_signals.get('RSI_norm', 0.5), index=df_index).fillna(0.5) - 0.75).clip(lower=0) * 2.0
         struct_risk = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index).fillna(0.0)
         p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).abs().fillna(0.0)
-        
         # 2. 稳健HAB水位与底气偏差
         p_hab = pd.Series(normalized_signals.get('absolute_change_strength_norm', 0.5), index=df_index).rolling(21, min_periods=1).mean().fillna(0.5)
         c_hab = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index).rolling(21, min_periods=1).mean().fillna(0.5)
         hab_offset = (p_hab - c_hab).clip(lower=0)
-        
         # 3. Sigmoid 风险软阈值
         hollow_risk_base = 1 / (1 + np.exp(-10 * (hab_offset - 0.65)))
-        
         # 4. 动态物理约束
         p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).fillna(0.0)
         risk_modulator = market_phase.map({"派发初期": 0.2, "主升": 0.3, "横盘": 0.4, "派发末端": 1.2, "反转风险": 1.5}).fillna(1.0)
-        
         # 使用 Pandas 原生操作替代 where/mask 以保持 Series 类型
         acc_factor = pd.Series(1.0, index=df_index)
         acc_factor = acc_factor.mask(p_acc > 0, 0.5)
-        
         final_hollow_risk = (hollow_risk_base * risk_modulator * acc_factor).clip(0, 1)
-        
         # 5. 指数级惩罚映射 (Pandas 原生实现)
         total_risk_raw = (tech_risk * 0.2 + struct_risk * 0.3 + final_hollow_risk * 0.5).clip(0, 1)
-        
         # 核心修复：使用 mask/where 替代 np.where
         # 逻辑：if risk > 0.65 then risk^0.5 else risk^2.5
         penalty = total_risk_raw ** 2.5
         penalty = penalty.mask(total_risk_raw > 0.65, total_risk_raw ** 0.5)
-        
         risk_sens = get_param_value(params.get('risk_sensitivity'), 4.0)
         final_penalty = 1 / (1 + np.exp(-risk_sens * (penalty - 0.7)))
-        
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
             self._probe_print(f"[RISK_SOFT_PROBE] Offset: {hab_offset.iloc[-1]:.4f} | Hollow_Risk: {final_hollow_risk.iloc[-1]:.4f} | Penalty: {final_penalty.iloc[-1]:.4f}")
             
