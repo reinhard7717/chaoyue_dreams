@@ -29,86 +29,97 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V29.0.0 · 多日能量累积总控]
-        - 架构升级: 接入 _assess_cumulative_energy_decay 替代单日能量判定。
-        - 逻辑链: 识别瞬时崩溃(Jerk) -> 识别多日出货(EnergyDecay) -> 判定底仓存量(HAB)。
+        [V30.0.0 · 多周期对冲总控]
+        - 架构升级: 引入 _assess_multi_period_volatility_hedge。
+        - 逻辑链: 识别物理熔断 -> 识别多日能量衰减 -> 注入多周期波动率对冲 -> 最终合成。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, accel_p, jerk_p, raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
+        (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, s5, s20, s60, m5, m20, m60,
+         raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, 
+         vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, 
+         morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, 
+         chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, 
+         abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, 
+         ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
         # 1. 物理层(极限速率熔断)
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
-        # 2. 资金层(多日能量累积背离)
+        # 2. 资金层(多日能量累积 + 影子蓄水池)
         f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
         f_split = self._assess_split_order_accumulation(volume, trade_count, clustering, raw_f, total_net)
-        # [V29 升级] 获取跨时序能量因子
         f_energy_decay = self._assess_cumulative_energy_decay(raw_f, total_net)
         f_active = np.maximum(f_resonance, f_split)
         f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, t_accum_34, f_split, slope_f_21, accel_f_21, vpa_eff, f_volat)
         fund_score = f_active * f_hab * f_energy_decay
-        # 3. 筹码与取证
+        # 3. 波动率对冲层 [V30 新增]
+        v_hedge = self._assess_multi_period_volatility_hedge(s5, s20, s60, m5, m20, m60)
+        # 4. 筹码/取证/防御
         chip_meta = self._assess_chip_holographic_tension(hab_rel, turnover, winner, acc_win, chip_stab, acc_stab_21, chip_kurt, chip_conv, cost_diff)
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
         ssd_dec = self._assess_stealth_shadow_divergence(morning, stealth, high_lock, skew, pct_chg, total_net)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
         e_scale = p_entropy.rolling(60, min_periods=1).mean().replace(0, 1e-9)
         entropy_multiplier = (1.2 - np.tanh(p_entropy / e_scale)).clip(0, 1)
-        # 4. 融合输出
+        # 5. 融合输出
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
         forensics = (ssd_dec * 0.5 + chip_meta * 0.3 + fractal_man * 0.2)
-        final_score = (k_trap * fund_score * forensics * solidity * context * entropy_multiplier).clip(0, 1)
+        final_score = (k_trap * fund_score * v_hedge * forensics * solidity * context * entropy_multiplier).clip(0, 1)
+        # 6. 数据总线封包
         debug_context = {
-            "Final": final_score, "EnergyDecay": f_energy_decay,
+            "Final": final_score, "VHedge": v_hedge, "EnergyDecay": f_energy_decay,
             "Phys": {"Node": k_trap, "Jerk": jerk_p},
-            "Fund": {"Node": fund_score, "Res": f_resonance, "Split": f_split, "AccT": t_accum_34},
+            "Fund": {"Node": fund_score, "AccT": t_accum_34},
             "Chip": {"Node": chip_meta, "C_Diff": cost_diff},
-            "Dfn": {"Node": solidity}, "For": {"SSD": ssd_dec}
+            "Defense": {"Node": solidity}, "For": {"SSD": ssd_dec}
         }
         self._print_debug_probe(df_index, debug_context)
         return final_score.astype(np.float32).fillna(0.0)
 
     def _print_debug_probe(self, idx: pd.Index, ctx: Dict[str, Any]):
         """
-        [V29.0.0 · 能量衰减探针]
-        - 职责: 监控多日能量压力的累积情况。
+        [V30.0.0 · 对冲溯源探针]
+        - 职责: 揭示 Beta 风险与 Alpha 风险的对冲比例。
         """
         if len(idx) > 0:
             i = -1
             dt = idx[i].strftime('%Y-%m-%d')
-            print(f"--- [PROBE_V29_DECAY] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
-            print(f"  [Energy] DecayFactor: {ctx['EnergyDecay'].iloc[i]:.4f}")
-            f = ctx["Fund"]
-            print(f"  [Fund]   Node: {f['Node'].iloc[i]:.4f} (Split: {f['Split'].iloc[i]:.2f}, AccT: {f['AccT'].iloc[i]:.0f})")
+            print(f"--- [PROBE_V30_HEDGE] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            print(f"  [Global] VHedgeFactor: {ctx['VHedge'].iloc[i]:.4f}, EnergyDecay: {ctx['EnergyDecay'].iloc[i]:.4f}")
             print(f"  [Phys]   Node: {ctx['Phys']['Node'].iloc[i]:.4f} (Jerk: {ctx['Phys']['Jerk'].iloc[i]:.2f})")
+            print(f"  [Fund]   Node: {ctx['Fund']['Node'].iloc[i]:.4f} (AccT: {ctx['Fund']['AccT'].iloc[i]:.0f})")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
-        [V26.0.0 · 全维环境数据接入]
-        - 核心职责: 提取描述环境有序度的价格熵及描述成本偏离的动态指标。
-        - 变更说明: 接入 PRICE_ENTROPY_D  与全量资金净额 net_amount_D 。
+        [V30.0.0 · 多周期对冲数据接入]
+        - 核心职责: 提取个股与市场的多周期波动率、熵值及基准动能指标。
+        - 变更说明: 接入市场基准波动率(market_volatility_5d_D等)与个股20日/60日波动率。
         """
         open_p = self.helper._get_safe_series(df, 'open_D', np.nan, method_name=method_name)
         high_p = self.helper._get_safe_series(df, 'high_D', np.nan, method_name=method_name)
         low_p = self.helper._get_safe_series(df, 'low_D', np.nan, method_name=method_name)
         close_p = self.helper._get_safe_series(df, 'close_D', np.nan, method_name=method_name)
         pct_chg = self.helper._get_safe_series(df, 'pct_change_D', np.nan, method_name=method_name)
-        # 价格运动学与环境熵 
         p_entropy = self.helper._get_safe_series(df, 'PRICE_ENTROPY_D', np.nan, method_name=method_name)
-        slope_price = self.helper._get_safe_series(df, 'SLOPE_3_close_D', np.nan, method_name=method_name)
-        accel_price = self.helper._get_safe_series(df, 'ACCEL_5_close_D', np.nan, method_name=method_name)
-        jerk_price = self.helper._get_safe_series(df, 'JERK_3_close_D', np.nan, method_name=method_name)
-        # 资金运动学 
-        total_net = self.helper._get_safe_series(df, 'net_amount_D', np.nan, method_name=method_name)
-        raw_fund = self.helper._get_safe_series(df, 'tick_large_order_net_D', np.nan, method_name=method_name)
-        jerk_fund = self.helper._get_safe_series(df, 'JERK_3_tick_large_order_net_D', np.nan, method_name=method_name)
+        slope_p = self.helper._get_safe_series(df, 'SLOPE_3_close_D', np.nan, method_name=method_name)
+        jerk_p = self.helper._get_safe_series(df, 'JERK_3_close_D', np.nan, method_name=method_name)
+        # 个股多周期波动率 [Source 2]
+        vol_s_5 = self.helper._get_safe_series(df, 'volatility_5d_D', np.nan, method_name=method_name)
+        vol_s_20 = self.helper._get_safe_series(df, 'volatility_20d_D', np.nan, method_name=method_name)
+        vol_s_60 = self.helper._get_safe_series(df, 'volatility_60d_D', np.nan, method_name=method_name)
+        # 市场基准波动率 [Source 3]
+        vol_m_5 = self.helper._get_safe_series(df, 'market_volatility_5d_D', np.nan, method_name=method_name)
+        vol_m_20 = self.helper._get_safe_series(df, 'market_volatility_20d_D', np.nan, method_name=method_name)
+        vol_m_60 = self.helper._get_safe_series(df, 'market_volatility_60d_D', np.nan, method_name=method_name)
+        # 其余资金/筹码/取证指标继承 V29
+        raw_f = self.helper._get_safe_series(df, 'tick_large_order_net_D', np.nan, method_name=method_name)
+        jerk_f = self.helper._get_safe_series(df, 'JERK_3_tick_large_order_net_D', np.nan, method_name=method_name)
         smart_n = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', np.nan, method_name=method_name)
         smart_d = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', np.nan, method_name=method_name)
         slope_f_21 = self.helper._get_safe_series(df, 'SLOPE_21_tick_large_order_net_D', np.nan, method_name=method_name)
         accel_f_21 = self.helper._get_safe_series(df, 'ACCEL_21_tick_large_order_net_D', np.nan, method_name=method_name)
-        f_accum_34 = raw_fund.rolling(window=34, min_periods=1).sum() 
-        t_accum_34 = total_net.rolling(window=34, min_periods=1).sum()
-        f_volat = self.helper._get_safe_series(df, 'flow_volatility_20d_D', np.nan, method_name=method_name)
-        # 物理/结构指标 [cite: 1, 3]
+        f_accum_34 = raw_f.rolling(window=34, min_periods=1).sum() 
+        t_accum_34 = self.helper._get_safe_series(df, 'net_amount_D', np.nan, method_name=method_name).rolling(34, min_periods=1).sum()
+        total_net = self.helper._get_safe_series(df, 'net_amount_D', np.nan, method_name=method_name)
         vpa_eff = self.helper._get_safe_series(df, 'VPA_MF_ADJUSTED_EFF_D', np.nan, method_name=method_name)
         och_acc = self.helper._get_safe_series(df, 'OCH_ACCELERATION_D', np.nan, method_name=method_name)
         bbp_pos = self.helper._get_safe_series(df, 'BBP_21_2.0_D', np.nan, method_name=method_name)
@@ -116,7 +127,6 @@ class CalculateUpthrustWashoutRelationship:
         cost_mig = self.helper._get_safe_series(df, 'intraday_cost_center_migration_D', np.nan, method_name=method_name)
         sr_ratio = self.helper._get_safe_series(df, 'support_resistance_ratio_D', np.nan, method_name=method_name)
         acc_supp = self.helper._get_safe_series(df, 'ACCEL_5_support_strength_D', np.nan, method_name=method_name)
-        # 筹码/代谢指标 [cite: 2, 4]
         winner = self.helper._get_safe_series(df, 'winner_rate_D', np.nan, method_name=method_name)
         acc_win = self.helper._get_safe_series(df, 'ACCEL_5_winner_rate_D', np.nan, method_name=method_name)
         chip_stab = self.helper._get_safe_series(df, 'chip_stability_D', np.nan, method_name=method_name)
@@ -124,7 +134,6 @@ class CalculateUpthrustWashoutRelationship:
         cost_diff = self.helper._get_safe_series(df, 'chip_cost_to_ma21_diff_D', np.nan, method_name=method_name)
         chip_kurt = self.helper._get_safe_series(df, 'chip_kurtosis_D', np.nan, method_name=method_name)
         chip_conv = self.helper._get_safe_series(df, 'chip_convergence_ratio_D', np.nan, method_name=method_name)
-        # 取证指标 [cite: 2, 3]
         morning = self.helper._get_safe_series(df, 'morning_flow_ratio_D', np.nan, method_name=method_name)
         stealth = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', np.nan, method_name=method_name)
         high_lock = self.helper._get_safe_series(df, 'intraday_high_lock_ratio_D', np.nan, method_name=method_name)
@@ -140,13 +149,31 @@ class CalculateUpthrustWashoutRelationship:
         trade_count = self.helper._get_safe_series(df, 'trade_count_D', np.nan, method_name=method_name)
         ma_res = self.helper._get_safe_series(df, 'MA_COHERENCE_RESONANCE_D', np.nan, method_name=method_name)
         slope_t = self.helper._get_safe_series(df, 'GEOM_REG_SLOPE_D', np.nan, method_name=method_name)
-        return (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_price, accel_price, jerk_price, 
-                raw_fund, jerk_fund, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, 
+        f_volat = self.helper._get_safe_series(df, 'flow_volatility_20d_D', np.nan, method_name=method_name)
+        return (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, vol_s_5, vol_s_20, vol_s_60, vol_m_5, vol_m_20, vol_m_60,
+                raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, 
                 vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, 
                 morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, 
                 chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, 
                 abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, 
                 ma_res, slope_t)
+
+    def _assess_multi_period_volatility_hedge(self, s5: pd.Series, s20: pd.Series, s60: pd.Series, m5: pd.Series, m20: pd.Series, m60: pd.Series) -> pd.Series:
+        """
+        [V30.0.0 · 多周期Beta自适应波动对冲]
+        - 核心逻辑: 识别个股波动是否脱离大盘基准。
+        - 判定维度: 个股相对于市场的异常波动张力 (Tension)。
+        - 计算: Tension = Avg(Stock_Vol / Market_Vol)。若 Tension 过高, 判定为 Alpha 风险而非 Beta 波动, 压制分数。
+        """
+        # 计算相对波动比率 (加小量 eps 防止除零)
+        r5 = (s5 / (m5 + 1e-9)).clip(0, 5)
+        r20 = (s20 / (m20 + 1e-9)).clip(0, 5)
+        r60 = (s60 / (m60 + 1e-9)).clip(0, 5)
+        # 综合张力: 赋予中长期更高权重，以识别结构性破位
+        tension = (r5 * 0.2 + r20 * 0.4 + r60 * 0.4)
+        # 映射逻辑: 若张力在 1.0 附近 (同步市场), 对冲系数为 1.0; 若张力 > 2.0 (离群暴走), 系数迅速衰减
+        hedge_factor = (1.2 - np.tanh(tension / 2.0)).clip(0, 1)
+        return hedge_factor.fillna(1.0).astype(np.float32)
 
     def _assess_split_order_accumulation(self, volume: pd.Series, count: pd.Series, clustering: pd.Series, large_net: pd.Series, total_net: pd.Series) -> pd.Series:
         """
