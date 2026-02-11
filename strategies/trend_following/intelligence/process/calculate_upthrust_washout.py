@@ -29,135 +29,84 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V22.0.0 · 上下文总线总控]
-        - 升级: 引入 Context Bus 模式，将数十个散乱的信号打包传输，彻底解决长参数列表问题。
-        - 架构: 保持原有逻辑不变，仅优化数据流转架构。
+        [V24.0.0 · 全息张力执行总控]
+        - 变更: 将筹码层升级为全息张力模型，接入峰度、收敛度与稳定性加速度。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        # 1. 全量数据提取
         (open_p, high_p, low_p, close_p, pct_chg, 
          slope_p, accel_p, jerk_p,                                   
-         raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, f_volat, 
-         vpa_eff, och_acc, bbp_pos,                                  
-         test_cnt, cost_mig, sr_ratio, acc_supp, 
-         morning, stealth, high_lock, skew,
-         pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, cost_diff, 
-         abnormal_vol, clustering, order_anomaly, acc_abnormal,
-         volume, trade_count, total_net,
+         raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, 
+         vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, 
+         morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, 
+         chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_skew, chip_conv, # V24 新增
+         abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, 
          ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        # 2. 物理层 (4D Trap)
+        # 1. 物理/资金/防御/取证 逻辑继承 V23
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
-        # 3. 资金层 (Stratified Resonance & HAB & Split)
         f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
         f_split = self._assess_split_order_accumulation(volume, trade_count, clustering, raw_f, total_net)
         f_active = np.maximum(f_resonance, f_split)
-        f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, slope_f_21, accel_f_21, vpa_eff, f_volat)
+        f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, t_accum_34, f_split, slope_f_21, accel_f_21, vpa_eff, f_volat)
         fund_score = f_active * f_hab
-        # 4. 筹码层 (Dynamic Metabolism)
-        chip_meta = self._assess_dynamic_chip_metabolism(hab_rel, turnover, winner, acc_win, chip_stab, cost_diff)
-        # 5. 防御层 (Stress Test)
+        # 2. 筹码层 [V24 核心升级]
+        chip_meta = self._assess_chip_holographic_tension(hab_rel, turnover, winner, acc_win, chip_stab, acc_stab_21, chip_kurt, chip_conv, cost_diff)
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
-        # 6. 取证与融合
         chrono_dec = self._assess_skewed_deception_narrative(morning, stealth, high_lock, skew, pct_chg)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
         forensics = (chrono_dec * 0.4 + chip_meta * 0.3 + fractal_man * 0.3)
         final_score = (k_trap * fund_score * forensics * solidity * context).clip(0, 1)
-        # 7. 构建上下文总线 (Context Bus)
-        # 将所有关键数据结构化打包，像发送数据包一样传输给探针
+        # 3. 总线打包
         debug_context = {
-            "Final": final_score,
-            "Physics": {
-                "Node": k_trap, "Slope": slope_p, "Jerk": jerk_p, "VPA": vpa_eff, "OCH": och_acc, "BBP": bbp_pos
-            },
-            "Funds": {
-                "Node": fund_score, "Resonance": f_resonance, "Split": f_split, "HAB": f_hab,
-                "RawF": raw_f, "PanicJerk": jerk_f, "SmartNet": smart_n, "Accum34": f_accum_34,
-                "AvgSize": volume / (trade_count + 1e-9), "TotalNet": total_net
-            },
-            "Chips": {
-                "Node": chip_meta, "HAB_Rel": hab_rel, "Turnover": turnover, 
-                "Winner": winner, "AccWin": acc_win, "Stab": chip_stab, "CostDiff": cost_diff
-            },
-            "Defense": {
-                "Node": solidity, "SR_Ratio": sr_ratio, "TestCnt": test_cnt, 
-                "CostMig": cost_mig, "AccSupp": acc_supp
-            },
-            "Forensics": {
-                "Decept": chrono_dec, "Manip": fractal_man,
-                "Morning": morning, "Stealth": stealth, "Lock": high_lock, "Skew": skew, "Pct": pct_chg,
-                "Cluster": clustering, "Anomaly": order_anomaly, "AccAbn": acc_abnormal
-            }
+            "Final": final_score, "Physics": {"Node": k_trap},
+            "Funds": {"Node": fund_score, "Split": f_split},
+            "Chips": {"Node": chip_meta, "Kurt": chip_kurt, "Conv": chip_conv, "AccWin": acc_win, "AccStab": acc_stab_21, "HAB_Rel": hab_rel, "Turnover": turnover},
+            "Defense": {"Node": solidity}, "Forensics": {"Dec": chrono_dec, "Skew": skew}
         }
         self._print_debug_probe(df_index, debug_context)
         return final_score.astype(np.float32).fillna(0.0)
 
     def _print_debug_probe(self, idx: pd.Index, ctx: Dict[str, Any]):
         """
-        [V22.0.0 · 上下文总线探针]
-        - 职责: 接收结构化的 Context 字典，解包并打印全链路数据。
-        - 优点: 接口极其简洁，扩展新指标无需修改方法签名。
+        [V24.0.0 · 全息筹码探针]
+        - 职责: 暴露筹码分布的矩特征(峰度)与结构动量。揭示"洗盘"与"崩溃"的微观差异。
         """
         if len(idx) > 0:
             i = -1
             d_str = idx[i].strftime('%Y-%m-%d')
-            final_val = ctx["Final"].iloc[i]
-            print(f"--- [PROBE_V22_BUS] {d_str} FINAL: {final_val:.4f} ---")
-            # 1. Physics Layer
-            p = ctx["Physics"]
-            print(f"  [1.Physics] Node: {p['Node'].iloc[i]:.4f}")
-            print(f"     > Raw: Slope={p['Slope'].iloc[i]:.2f}, Jerk={p['Jerk'].iloc[i]:.2f}, VPA={p['VPA'].iloc[i]:.2f}, OCH={p['OCH'].iloc[i]:.2f}, BBP={p['BBP'].iloc[i]:.2f}")
-            # 2. Funds Layer
-            f = ctx["Funds"]
-            f_act = max(f['Resonance'].iloc[i], f['Split'].iloc[i])
-            print(f"  [2.Funds]   Node: {f['Node'].iloc[i]:.4f} (Active:{f_act:.2f} * HAB:{f['HAB'].iloc[i]:.2f})")
-            print(f"     > Logic: Reson={f['Resonance'].iloc[i]:.2f} | Split={f['Split'].iloc[i]:.2f}")
-            print(f"     > Raw  : PanicJerk={f['PanicJerk'].iloc[i]:.0f}, SmartNet={f['SmartNet'].iloc[i]:.0f}")
-            print(f"     > Raw  : AvgSize={f['AvgSize'].iloc[i]:.0f}, TotalNet={f['TotalNet'].iloc[i]:.0f}, LargeNet={f['RawF'].iloc[i]:.0f}")
-            print(f"     > Raw  : Accum34={f['Accum34'].iloc[i]:.0f}")
-            # 3. Chips Layer
+            print(f"--- [PROBE_V24_CHIP_HOLOGRAPHIC] {d_str} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            # 筹码层深度溯源
             c = ctx["Chips"]
-            print(f"  [3.Chips]   Node: {c['Node'].iloc[i]:.4f}")
-            print(f"     > Raw: HAB_Rel={c['HAB_Rel'].iloc[i]:.2f}, TO={c['Turnover'].iloc[i]:.2f}%, Win={c['Winner'].iloc[i]:.2f}, AccWin={c['AccWin'].iloc[i]:.2f}")
-            print(f"     > Raw: Stab={c['Stab'].iloc[i]:.2f}, CostDiff={c['CostDiff'].iloc[i]:.2f}")
-            # 4. Defense Layer
-            d = ctx["Defense"]
-            print(f"  [4.Defense] Node: {d['Node'].iloc[i]:.4f}")
-            print(f"     > Raw: SR={d['SR_Ratio'].iloc[i]:.2f}, Test={d['TestCnt'].iloc[i]:.1f}, Mig={d['CostMig'].iloc[i]:.4f}, AccSup={d['AccSupp'].iloc[i]:.4f}")
-            # 5. Forensics Layer
-            x = ctx["Forensics"]
-            print(f"  [5.Forens]  Decept: {x['Decept'].iloc[i]:.4f} | Manip: {x['Manip'].iloc[i]:.4f}")
-            print(f"     > Raw: Morn={x['Morning'].iloc[i]:.2f}, Steal={x['Stealth'].iloc[i]:.2f}, Lock={x['Lock'].iloc[i]:.2f}, Skew={x['Skew'].iloc[i]:.2f}, Pct={x['Pct'].iloc[i]:.2f}%")
-            print(f"     > Raw: Clust={x['Cluster'].iloc[i]:.2f}, Anom={x['Anomaly'].iloc[i]:.2f}, AccAbn={x['AccAbn'].iloc[i]:.2f}")
+            print(f"  [3.Chips] Node: {c['Node'].iloc[i]:.4f}")
+            print(f"     > Structure: Kurtosis={c['Kurt'].iloc[i]:.2f}, Convergence={c['Conv'].iloc[i]:.4f}")
+            print(f"     > Kinematics: WinnerAccel={c['AccWin'].iloc[i]:.4f}, StabAccel21={c['AccStab'].iloc[i]:.4f}")
+            print(f"     > Metabolism: HAB_Rel={c['HAB_Rel'].iloc[i]:.2f}, TO={c['Turnover'].iloc[i]:.1f}%")
+            # 其余维度关键值
+            print(f"  [1.Phys] Trap: {ctx['Physics']['Node'].iloc[i]:.2f}")
+            print(f"  [2.Fund] Node: {ctx['Funds']['Node'].iloc[i]:.2f} (Split: {ctx['Funds']['Split'].iloc[i]:.2f})")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
-        [V21.0.0 · 拆单暗影数据接入]
-        - 核心职责: 提取计算"碎片化"和"暗流"所需的基础量价数据。
+        [V24.0.0 · 筹码全息数据接入]
+        - 核心职责: 提取筹码分布的统计矩指标(峰度/偏度)与收敛特征。
         - 新增列:
-            1. trade_count_D: 成交笔数，计算笔均量的分母。
-            2. volume_D: 成交量，计算笔均量的分子。
-            3. net_amount_D: 全市场资金净额，用于与大单净额做差，提取"中小单净额"。
+            1. chip_kurtosis_D: 筹码峰度，识别筹码是否向主力核心区集中。
+            2. chip_skewness_D: 筹码偏度，识别筹码分布的非对称性。
+            3. chip_convergence_ratio_D: 筹码收敛率，量化筹码结构的紧凑程度。
+            4. ACCEL_21_chip_stability_D: 筹码稳定性的长周期加速度。
         """
-        # 基础行情
         open_p = self.helper._get_safe_series(df, 'open_D', np.nan, method_name=method_name)
         high_p = self.helper._get_safe_series(df, 'high_D', np.nan, method_name=method_name)
         low_p = self.helper._get_safe_series(df, 'low_D', np.nan, method_name=method_name)
         close_p = self.helper._get_safe_series(df, 'close_D', np.nan, method_name=method_name)
         pct_chg = self.helper._get_safe_series(df, 'pct_change_D', np.nan, method_name=method_name)
-        
-        # [V21 新增] 基础量能数据
         volume = self.helper._get_safe_series(df, 'volume_D', np.nan, method_name=method_name)
         trade_count = self.helper._get_safe_series(df, 'trade_count_D', np.nan, method_name=method_name)
         total_net = self.helper._get_safe_series(df, 'net_amount_D', np.nan, method_name=method_name)
-
-        # 价格运动学
         slope_price = self.helper._get_safe_series(df, 'SLOPE_3_close_D', np.nan, method_name=method_name)
         accel_price = self.helper._get_safe_series(df, 'ACCEL_5_close_D', np.nan, method_name=method_name)
         jerk_price = self.helper._get_safe_series(df, 'JERK_3_close_D', np.nan, method_name=method_name)
-        
-        # 资金分层运动学
         raw_fund = self.helper._get_safe_series(df, 'tick_large_order_net_D', np.nan, method_name=method_name)
         jerk_fund = self.helper._get_safe_series(df, 'JERK_3_tick_large_order_net_D', np.nan, method_name=method_name)
         smart_net = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', np.nan, method_name=method_name)
@@ -165,52 +114,43 @@ class CalculateUpthrustWashoutRelationship:
         slope_fund_21 = self.helper._get_safe_series(df, 'SLOPE_21_tick_large_order_net_D', np.nan, method_name=method_name)
         accel_fund_21 = self.helper._get_safe_series(df, 'ACCEL_21_tick_large_order_net_D', np.nan, method_name=method_name)
         fund_accum_34 = raw_fund.rolling(window=34, min_periods=1).sum() 
+        total_accum_34 = total_net.rolling(window=34, min_periods=1).sum()
         fund_volat = self.helper._get_safe_series(df, 'flow_volatility_20d_D', np.nan, method_name=method_name)
-        
-        # 陷阱结构与环境
         vpa_eff = self.helper._get_safe_series(df, 'VPA_MF_ADJUSTED_EFF_D', np.nan, method_name=method_name)
         och_acc = self.helper._get_safe_series(df, 'OCH_ACCELERATION_D', np.nan, method_name=method_name)
         bbp_pos = self.helper._get_safe_series(df, 'BBP_21_2.0_D', np.nan, method_name=method_name)
-        
-        # 结构压力测试
         test_cnt = self.helper._get_safe_series(df, 'intraday_support_test_count_D', np.nan, method_name=method_name)
         cost_mig = self.helper._get_safe_series(df, 'intraday_cost_center_migration_D', np.nan, method_name=method_name)
         sr_ratio = self.helper._get_safe_series(df, 'support_resistance_ratio_D', np.nan, method_name=method_name)
         acc_supp = self.helper._get_safe_series(df, 'ACCEL_5_support_strength_D', np.nan, method_name=method_name)
-        
-        # 时空欺骗
         morning = self.helper._get_safe_series(df, 'morning_flow_ratio_D', np.nan, method_name=method_name)
         stealth = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', np.nan, method_name=method_name)
         high_lock = self.helper._get_safe_series(df, 'intraday_high_lock_ratio_D', np.nan, method_name=method_name)
         skew = self.helper._get_safe_series(df, 'intraday_price_distribution_skewness_D', np.nan, method_name=method_name)
-        
-        # 筹码代谢
+        # [筹码全息维度]
         pres_rel = self.helper._get_safe_series(df, 'pressure_release_index_D', np.nan, method_name=method_name)
         hab_rel = pres_rel.rolling(window=5, min_periods=1).sum()
         winner = self.helper._get_safe_series(df, 'winner_rate_D', np.nan, method_name=method_name)
         acc_win = self.helper._get_safe_series(df, 'ACCEL_5_winner_rate_D', np.nan, method_name=method_name)
         turnover = self.helper._get_safe_series(df, 'turnover_rate_D', np.nan, method_name=method_name)
         chip_stab = self.helper._get_safe_series(df, 'chip_stability_D', np.nan, method_name=method_name)
+        acc_stab_21 = self.helper._get_safe_series(df, 'ACCEL_21_chip_stability_D', np.nan, method_name=method_name)
         cost_diff = self.helper._get_safe_series(df, 'chip_cost_to_ma21_diff_D', np.nan, method_name=method_name)
-        
-        # 分形操控
+        chip_kurt = self.helper._get_safe_series(df, 'chip_kurtosis_D', np.nan, method_name=method_name)
+        chip_skew = self.helper._get_safe_series(df, 'chip_skewness_D', np.nan, method_name=method_name)
+        chip_conv = self.helper._get_safe_series(df, 'chip_convergence_ratio_D', np.nan, method_name=method_name)
         abnormal_vol = self.helper._get_safe_series(df, 'tick_abnormal_volume_ratio_D', np.nan, method_name=method_name)
         clustering = self.helper._get_safe_series(df, 'tick_clustering_index_D', np.nan, method_name=method_name)
         order_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', np.nan, method_name=method_name)
         acc_abnormal = self.helper._get_safe_series(df, 'ACCEL_5_tick_abnormal_volume_ratio_D', np.nan, method_name=method_name)
-        
-        # 趋势辅助
         ma_res = self.helper._get_safe_series(df, 'MA_COHERENCE_RESONANCE_D', np.nan, method_name=method_name)
         slope_trend = self.helper._get_safe_series(df, 'GEOM_REG_SLOPE_D', np.nan, method_name=method_name)
-        
         return (open_p, high_p, low_p, close_p, pct_chg, slope_price, accel_price, jerk_price, 
-                raw_fund, jerk_fund, smart_net, smart_div, slope_fund_21, accel_fund_21, fund_accum_34, fund_volat, 
-                vpa_eff, och_acc, bbp_pos, 
-                test_cnt, cost_mig, sr_ratio, acc_supp, 
-                morning, stealth, high_lock, skew,
-                pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, cost_diff, 
-                abnormal_vol, clustering, order_anomaly, acc_abnormal,
-                volume, trade_count, total_net, # V21 新增
+                raw_fund, jerk_fund, smart_net, smart_div, slope_fund_21, accel_fund_21, fund_accum_34, total_accum_34, fund_volat, 
+                vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, 
+                morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, 
+                chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_skew, chip_conv, # 返回新增筹码指标
+                abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, 
                 ma_res, slope_trend)
 
     def _assess_split_order_accumulation(self, volume: pd.Series, count: pd.Series, clustering: pd.Series, large_net: pd.Series, total_net: pd.Series) -> pd.Series:
@@ -253,22 +193,68 @@ class CalculateUpthrustWashoutRelationship:
         split_score = (n_frag * 0.3 + n_clustering * 0.3 + stealth_flow * 0.4).clip(0, 1)
         return split_score.fillna(0)
 
-    def _assess_fund_reservoir_buffer(self, daily: pd.Series, accum_34: pd.Series, slope_f: pd.Series, accel_f: pd.Series, vpa_eff: pd.Series, volat: pd.Series) -> pd.Series:
-        accum_median = accum_34.rolling(120, min_periods=1).median().replace(0, 1e-9)
-        reservoir_strength = np.tanh(accum_34 / accum_median.abs()).clip(0, 1)
-        
+    def _assess_fund_reservoir_buffer(self, daily_large: pd.Series, accum_large: pd.Series, accum_total: pd.Series, f_split: pd.Series, slope_f: pd.Series, accel_f: pd.Series, vpa_eff: pd.Series, volat: pd.Series) -> pd.Series:
+        """
+        [V23.0.0 · 双轨混合蓄水池评估]
+        - 核心逻辑: 修正"只看大单"导致的拆单误判。若判定为主力拆单吸筹(f_split高)，则切换至全量资金蓄水池(accum_total)。
+        - 判定公式: Final_Accum = Accum_Large * (1 - f_split) + Accum_Total * f_split
+        - 损耗评估: 损耗基准随视角同步切换，确保评估尺度的一致性。
+        """
+        # 1. 混合蓄水池水位计算
+        # 若拆单概率高，则全量累积的参考权重增加
+        mixed_accum = accum_large * (1.0 - f_split) + accum_total * f_split
+        accum_median = mixed_accum.rolling(120, min_periods=1).median().replace(0, 1e-9)
+        reservoir_strength = np.tanh(mixed_accum / accum_median.abs()).clip(0, 1)
+        # 2. 矢量动量与质量
         s_scale = slope_f.rolling(60, min_periods=1).std().replace(0, 1e-9)
         norm_s = np.tanh(slope_f / (s_scale * 1.5))
         a_scale = accel_f.rolling(60, min_periods=1).std().replace(0, 1e-9)
         norm_a = np.tanh(accel_f / (a_scale * 1.5))
         trend_score = (norm_s * 0.6 + norm_a * 0.4 + 1.0) / 2.0
-        
         quality_f = (vpa_eff.rolling(5, min_periods=1).mean().clip(0, 1) + 0.5).clip(0.5, 1.5)
+        # 3. 动态损耗评估 (关键修复)
+        # 损耗比率 = 当日大单流出 / 混合蓄水池深度
+        # 这种设计允许主力在大单出货(假象)但拆单买入(真相)时，损耗率依然保持在安全区间
         dynamic_threshold = (volat * 2.0).clip(0.05, 0.25)
-        attrition = daily.abs() / (accum_34.abs() + 1e-9)
+        attrition = daily_large.abs() / (mixed_accum.abs() + 1e-9)
         tolerance = (1.0 - (attrition / dynamic_threshold)).clip(0, 1)
-        
-        return (reservoir_strength * trend_score * quality_f * tolerance).clip(0, 1).fillna(0)
+        # 4. 合成 HAB 信号
+        hab_score = (reservoir_strength * trend_score * quality_f * tolerance).clip(0, 1)
+        return hab_score.fillna(0).astype(np.float32)
+
+    def _assess_chip_holographic_tension(self, hab_rel: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, 
+                                        stability: pd.Series, acc_stab: pd.Series, kurtosis: pd.Series, convergence: pd.Series, cost_diff: pd.Series) -> pd.Series:
+        """
+        [V24.0.0 · 筹码全息张力判定]
+        - 核心逻辑: 识别筹码结构的"向心力"与"张力"。洗盘成功的标志是峰度上升、收敛度提高，且主力稳定性未加速恶化。
+        - 判定维度:
+            1. 代谢效率 (Efficiency): HAB_Rel / Turnover。
+            2. 结构厚度 (Thickness): Kurtosis(峰度) * Convergence(收敛)。峰度越高，主力成本区筹码越厚。
+            3. 运动学熔断 (Circuit Breaker): 获利盘加速度(AccWin)与稳定性加速度(AccStab)双重校验。
+            4. 弹性张力 (Elasticity): 成本偏差(CostDiff)与收敛度的负相关背离。
+        """
+        # 1. 代谢效率与结构厚度 [Source 2]
+        efficiency = (hab_rel / (turnover + 0.5)).clip(0, 1)
+        # 峰度映射：峰度越大，代表单峰越尖锐，筹码越向主力靠拢
+        k_scale = kurtosis.rolling(60, min_periods=1).std().replace(0, 1e-9)
+        n_kurt = np.tanh(k_urtosis / k_scale).clip(0, 1)
+        thickness_score = (n_kurt * 0.6 + convergence.clip(0, 1) * 0.4).clip(0, 1)
+        # 2. 运动学安全门控 [Source 2]
+        # 获利盘加速度与稳定性加速度必须处于受控状态
+        w_scale = acc_win.rolling(60, min_periods=1).std().replace(0, 1e-9)
+        s_scale = acc_stab.rolling(60, min_periods=1).std().replace(0, 1e-9)
+        n_acc_win = np.tanh(acc_win / w_scale)
+        n_acc_stab = np.tanh(acc_stab / s_scale)
+        # 若稳定性在长周期(21日)内加速下降，则视为结构性崩溃
+        stability_gate = (1.0 + n_acc_stab).clip(0, 1)
+        # 3. 弹性张力评分 [Source 2]
+        # 逻辑：股价跌破成本(CostDiff < 0)时，如果收敛度提高，说明主力在承接，张力增加
+        tension = np.where(cost_diff < 0, convergence * 1.2, convergence * 0.8)
+        n_tension = np.tanh(tension).clip(0, 1)
+        # 4. 最终合成
+        # 逻辑: (效率 * 0.3 + 厚度 * 0.4 + 张力 * 0.3) * 安全门控
+        final_meta = (efficiency * 0.3 + thickness_score * 0.4 + n_tension * 0.3) * stability_gate
+        return final_meta.fillna(0).astype(np.float32)
 
     def _assess_dynamic_chip_metabolism(self, hab_release: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, stability: pd.Series, cost_diff: pd.Series) -> pd.Series:
         eff_ratio = hab_release / (turnover + 0.5)
