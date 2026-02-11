@@ -329,8 +329,6 @@ class CalculatePriceVolumeDynamics:
         if raw_signals['winner_rate_D'].max() > 1.1: raw_signals['winner_rate_D'] /= 100.0
         sm_v = raw_signals['SMART_MONEY_HM_NET_BUY_D'].values
         if np.abs(sm_v).sum() < 1e-5: sm_v = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).values
-        print(f"raw_signals['cost_50pct_D']: {raw_signals['cost_50pct_D']}")
-        print(f"raw_signals['winner_rate_D']: {raw_signals['winner_rate_D']}")
         # 使用自适应窗口计算 HAB
         raw_signals['ACCUM_13_SMART_MONEY'] = pd.Series(_numba_rolling_accumulation(sm_v.astype(np.float32), w_s), index=df.index, dtype=np.float32)
         raw_signals['ACCUM_21_SMART_MONEY'] = pd.Series(_numba_rolling_accumulation(sm_v.astype(np.float32), w_l), index=df.index, dtype=np.float32)
@@ -712,31 +710,38 @@ class CalculatePriceVolumeDynamics:
         return final_series
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V90.0 · 筹码锁定效率：引入成本均线校正(Cost Correction)，解决获利盘数据滞后导致的误杀，清除空行"""
+        """V92.0 · 筹码锁定效率：引入趋势缓冲(Trend Buffer)与平缓衰减曲线，防止良性分歧被误杀，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         win = raw['winner_rate_D'].values
         turn = raw['turnover_rate_f_D'].values
         c_s, p_s = raw['cost_50pct_D'].values, raw['close_D'].values
-        # 1. 有效获利盘修正 (Effective Winner Rate)
-        # 如果当前价格高于市场平均成本(Cost_50)，说明大概率是多头主导
-        # 此时即便 win 数据显示低(可能滞后)，也强制给予 0.6 的保底获利盘比例
+        # 1. 有效获利盘 (保持 V90 逻辑)
         c_50 = np.where(c_s == 0, p_s, c_s)
         is_above_cost = (p_s > c_50)
         eff_win = np.maximum(win, np.where(is_above_cost, 0.6, 0.0)).astype(np.float32)
         # 2. 相对换手率
         turn_median = pd.Series(turn, index=df_index).rolling(21).median().replace(0, 0.01).values
         rel_turn = turn / (turn_median + 1e-9)
-        # 3. 承接力豁免
+        # 3. 趋势缓冲 (Trend Buffer)
+        # 如果价格在 21日均线之上，说明趋势完好，高换手容忍度提升
+        ma21 = raw['close_D'].rolling(21).mean().values
+        is_trend_safe = (raw['close_D'].values > ma21)
+        # 缓冲系数: 趋势安全 -> 0.6 (衰减打6折); 趋势破位 -> 1.0 (全额衰减)
+        buffer_rate = np.where(is_trend_safe, 0.6, 1.0).astype(np.float32)
+        # 承接力进一步豁免
         absorb = raw['absorption_energy_D'].values
-        absorb_bonus = np.where(absorb > 0, 0.4, 0.0).astype(np.float32)
-        # 4. 动态衰减
-        # 使用修正后的 eff_win 判断良性换手
-        base_decay = np.where(eff_win > 0.8, 0.5, 1.0).astype(np.float32)
-        final_decay = np.clip(base_decay - absorb_bonus, 0.4, 1.2)
-        # 5. 锁定系数
-        lock_factor = np.clip(np.exp(-(rel_turn - 1.0) * final_decay), 0.25, 1.8).astype(np.float32)
+        final_decay = np.clip(buffer_rate - np.where(absorb > 0, 0.3, 0.0), 0.3, 1.2)
+        # 4. 平缓锁定系数 (Smoother Curve)
+        # 使用 Sigmoid 变体替代陡峭的 exp
+        # x = rel_turn。当 x=1.8, decay=0.6 时: 
+        # (x-1)*decay = 0.8*0.6 = 0.48
+        # Score = 2 / (1 + exp(0.48)) = 2 / 2.61 ≈ 0.76 (及格)
+        # 相比 V91 的 0.27 大幅改善
+        lock_factor = 2.0 / (1.0 + np.exp((rel_turn - 1.0) * 2.0 * final_decay))
+        # 限制范围，避免过度奖励缩量
+        lock_factor = np.clip(lock_factor, 0.3, 1.5).astype(np.float32)
         s_lock = eff_win * lock_factor
-        # 6. 动力学与 HAB
+        # 5. 动力学与 HAB
         a_w, a_t, j_w = raw['ACCEL_5_winner_rate_D'].values, raw['ACCEL_5_turnover_rate_f_D'].values, raw['JERK_3_winner_rate_D'].values
         k_bonus = 1.0 + np.where((a_w > 0) & (a_t < 0), 0.3, 0.0) + np.where(j_w > 0.1, 0.2, 0.0)
         high_win_days = raw['ACCUM_13_HIGH_WINNER'].values
@@ -745,14 +750,14 @@ class CalculatePriceVolumeDynamics:
         final_eff = pd.Series(s_lock * k_bonus * deep_lock_mult * (0.8 + b_c * 0.2), index=df_index, dtype=np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[筹码校正探针 V90.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    原始获利: {win[p_i]:.2f}, 成本上方: {is_above_cost[p_i]}")
-            print(f"    有效获利: {eff_win[p_i]:.2f} (修正后)")
+            print(f"\n[筹码缓冲探针 V92.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    相对换手: {rel_turn[p_i]:.2f}x, 趋势安全: {is_trend_safe[p_i]}")
+            print(f"    衰减力度: {final_decay[p_i]:.2f} -> 锁定系数: {lock_factor[p_i]:.2f}")
             print(f"    >>> 最终筹码效率: {final_eff.loc[probe_ts]:.4f}")
         return final_eff
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V91.0 · 微观矢量：引入隐蔽吸筹(Stealth Accumulation)识别，豁免强趋势下的负向资金流，清除空行"""
+        """V92.0 · 微观矢量：引入良性回调判定(Dip Guard)，保护趋势中的缩量回吐，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values)
         l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values)
@@ -764,16 +769,21 @@ class CalculatePriceVolumeDynamics:
         ratio_std = ratio_s.rolling(21).std().replace(0, 1e-6).values
         z_score_flow = (net_ratio - ratio_mean) / ratio_std
         base_score = 0.5 + (1.0 / (1.0 + np.exp(-z_score_flow)))
-        # 2. 隐蔽吸筹豁免 (Stealth Exemption)
-        # 条件：资金流为负 + 价格站稳均线 + 价格呈加速态势 (Jerk > 0)
-        # 说明主力用小单推升，或者在洗盘
+        # 2. 隐蔽吸筹与良性回调 (Stealth & Dip Guard)
         close = raw['close_D'].values
         ma5 = pd.Series(close, index=df_index).rolling(5).mean().values
+        ma21 = raw['close_D'].rolling(21).mean().values
         p_jerk = raw['JERK_3_close_D'].values
+        # 隐蔽吸筹: 资金负 + 价格强 (Jerk>0) + 站稳短均线
         is_stealth = (net_ratio < 0) & (close > ma5) & (p_jerk > 0)
-        # 如果判定为隐蔽吸筹，强制给予 1.0 中性分，不惩罚
-        final_base = np.where(is_stealth, np.maximum(base_score, 1.0), base_score).astype(np.float32)
-        # 3. 协同性与动力学 (保持不变)
+        #良性回调: 资金微负 (Z > -1.0) + 趋势向上 (Close > MA21) + 价格无崩塌 (Jerk > -2.0)
+        is_benign_dip = (z_score_flow > -1.0) & (close > ma21) & (p_jerk > -2.0)
+        # 只要满足任一条件，基础分至少给到 1.0 (中性)，避免误杀
+        adjusted_base = base_score
+        if np.any(is_stealth) or np.any(is_benign_dip):
+            guard_mask = (is_stealth | is_benign_dip)
+            adjusted_base = np.where(guard_mask, np.maximum(base_score, 1.0), base_score).astype(np.float32)
+        # 3. 协同性与动力学
         e_r, l_r = e_n / t_a, l_n / t_a
         sync_score = np.where((e_r > 0) & (l_r > 0), 1.1, np.where((e_r * l_r) < 0, 0.9, 1.0)).astype(np.float32)
         s_j = raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32)
@@ -781,11 +791,11 @@ class CalculatePriceVolumeDynamics:
         d_sm = (e_n + l_n).astype(np.float32)
         a13 = raw['ACCUM_13_SMART_MONEY'].values.astype(np.float32)
         h_s = np.where((d_sm < 0) & (a13 > np.abs(d_sm) * 10.0), 1.1, 1.0).astype(np.float32)
-        final_v = pd.Series(final_base * sync_score * jerk_bonus * h_s, index=df_index, dtype=np.float32).clip(0.4, 2.0)
+        final_v = pd.Series(adjusted_base * sync_score * jerk_bonus * h_s, index=df_index, dtype=np.float32).clip(0.4, 2.0)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[微观隐蔽探针 V91.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    原始分: {base_score[p_i]:.4f}, 隐蔽状态: {'是' if is_stealth[p_i] else '否'}")
+            print(f"\n[微观护盾探针 V92.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    原始分: {base_score[p_i]:.4f}, 状态: {'隐蔽吸筹' if is_stealth[p_i] else ('良性回调' if is_benign_dip[p_i] else '正常')}")
             print(f"    >>> 最终攻击矢量: {final_v.loc[probe_ts]:.4f}")
         return final_v
 
