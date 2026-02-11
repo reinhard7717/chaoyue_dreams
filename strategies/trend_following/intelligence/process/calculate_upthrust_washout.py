@@ -29,34 +29,36 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V28.0.0 · 极限熔断总控]
-        - 架构升级: 接入物理速率熔断与资金能量背离因子。
-        - 目的: 在崩盘发生的第一个微秒内切断信号。
+        [V29.0.0 · 多日能量累积总控]
+        - 架构升级: 接入 _assess_cumulative_energy_decay 替代单日能量判定。
+        - 逻辑链: 识别瞬时崩溃(Jerk) -> 识别多日出货(EnergyDecay) -> 判定底仓存量(HAB)。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
         (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, accel_p, jerk_p, raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        # 1. 物理层(带物理熔断)
+        # 1. 物理层(极限速率熔断)
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
-        # 2. 资金层(带能量背离)
+        # 2. 资金层(多日能量累积背离)
         f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
         f_split = self._assess_split_order_accumulation(volume, trade_count, clustering, raw_f, total_net)
-        f_energy = self._assess_fund_energy_divergence(raw_f, total_net)
+        # [V29 升级] 获取跨时序能量因子
+        f_energy_decay = self._assess_cumulative_energy_decay(raw_f, total_net)
         f_active = np.maximum(f_resonance, f_split)
         f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, t_accum_34, f_split, slope_f_21, accel_f_21, vpa_eff, f_volat)
-        fund_score = f_active * f_hab * f_energy
-        # 3. 筹码/防御/取证
+        fund_score = f_active * f_hab * f_energy_decay
+        # 3. 筹码与取证
         chip_meta = self._assess_chip_holographic_tension(hab_rel, turnover, winner, acc_win, chip_stab, acc_stab_21, chip_kurt, chip_conv, cost_diff)
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
         ssd_dec = self._assess_stealth_shadow_divergence(morning, stealth, high_lock, skew, pct_chg, total_net)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
         e_scale = p_entropy.rolling(60, min_periods=1).mean().replace(0, 1e-9)
         entropy_multiplier = (1.2 - np.tanh(p_entropy / e_scale)).clip(0, 1)
+        # 4. 融合输出
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
         forensics = (ssd_dec * 0.5 + chip_meta * 0.3 + fractal_man * 0.2)
         final_score = (k_trap * fund_score * forensics * solidity * context * entropy_multiplier).clip(0, 1)
         debug_context = {
-            "Final": final_score, "Energy": f_energy,
+            "Final": final_score, "EnergyDecay": f_energy_decay,
             "Phys": {"Node": k_trap, "Jerk": jerk_p},
             "Fund": {"Node": fund_score, "Res": f_resonance, "Split": f_split, "AccT": t_accum_34},
             "Chip": {"Node": chip_meta, "C_Diff": cost_diff},
@@ -67,18 +69,17 @@ class CalculateUpthrustWashoutRelationship:
 
     def _print_debug_probe(self, idx: pd.Index, ctx: Dict[str, Any]):
         """
-        [V28.0.0 · 极限熔断溯源探针]
-        - 职责: 揭示物理熔断与能量背离的切断瞬间。
+        [V29.0.0 · 能量衰减探针]
+        - 职责: 监控多日能量压力的累积情况。
         """
         if len(idx) > 0:
             i = -1
             dt = idx[i].strftime('%Y-%m-%d')
-            print(f"--- [PROBE_V28_BREAKER] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
-            p = ctx["Phys"]
-            print(f"  [1.Physics] Node: {p['Node'].iloc[i]:.4f} (PriceJerk: {p['Jerk'].iloc[i]:.4f})")
+            print(f"--- [PROBE_V29_DECAY] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            print(f"  [Energy] DecayFactor: {ctx['EnergyDecay'].iloc[i]:.4f}")
             f = ctx["Fund"]
-            print(f"  [2.Funds]   Node: {f['Node'].iloc[i]:.4f} (EnergyFactor: {ctx['Energy'].iloc[i]:.4f}, AccT: {f['AccT'].iloc[i]:.0f})")
-            print(f"  [3.Chips]   Node: {ctx['Chip']['Node'].iloc[i]:.4f} (CostDiff: {ctx['Chip']['C_Diff'].iloc[i]:.2f})")
+            print(f"  [Fund]   Node: {f['Node'].iloc[i]:.4f} (Split: {f['Split'].iloc[i]:.2f}, AccT: {f['AccT'].iloc[i]:.0f})")
+            print(f"  [Phys]   Node: {ctx['Phys']['Node'].iloc[i]:.4f} (Jerk: {ctx['Phys']['Jerk'].iloc[i]:.2f})")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
@@ -210,6 +211,23 @@ class CalculateUpthrustWashoutRelationship:
         attrition = daily_large.abs() / (mixed_accum.abs() + 1e-9)
         tolerance = (1.0 - (attrition / dynamic_threshold)).clip(0, 1)
         return (reservoir_strength * trend_score * quality_f * tolerance * system_penalty).clip(0, 1).fillna(0)
+
+    def _assess_cumulative_energy_decay(self, raw_f: pd.Series, total_net: pd.Series) -> pd.Series:
+        """
+        [V29.0.0 · 多日能量累积背离模型]
+        - 核心逻辑: 识别"阴跌出货"。单日砸盘不猛, 但连续多日大单强度高于整体。
+        - 算法: 采用指数衰减累积。Pressure = (Large/Total)。Buffer = Press + Prev * 0.8。
+        - 判定: 若 Buffer 超过阈值, 说明近期机构持续撤离, 压力处于过载状态。
+        """
+        # 计算单日能量压力比 (仅关注流出状态)
+        daily_press = np.where((raw_f < 0) & (total_net < 0), (raw_f.abs() / (total_net.abs() + 1e-9)), 0.0)
+        daily_press = pd.Series(daily_press, index=raw_f.index).clip(0, 5) # 封顶5.0倍
+        # 跨时序累积 (采用 0.8 的衰减率, 约 5 日记忆周期)
+        # 使用 ewm 代替手动循环以提升计算效率
+        cum_press = daily_press.ewm(alpha=0.2, adjust=False).mean()
+        # 归一化评分: 压力越大, 分值越低。2.0为压力警戒线
+        energy_decay_factor = (1.0 - np.tanh(cum_press / 2.0)).clip(0, 1)
+        return energy_decay_factor.astype(np.float32)
 
     def _assess_chip_holographic_tension(self, hab_rel: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, stability: pd.Series, acc_stab: pd.Series, kurtosis: pd.Series, convergence: pd.Series, cost_diff: pd.Series) -> pd.Series:
         """
