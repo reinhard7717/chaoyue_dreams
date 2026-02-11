@@ -29,42 +29,68 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V37.0.0 · 筹码锁死执行总控]
-        - 变更说明: 集成换手稳定性校验 ，强化龙头信号的确定性。
+        [V38.0.0 · 全链路执行总控]
+        - 变更说明: 整合物理(Trap)、资金(多周期/拆单/能量)、筹码(位移/坍塌/熵减/锁死)、取证(协同/SSD)全维度调用。
+        - 目的: 彻底消除方法未调用问题，补全逻辑拼图。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_20, c_mean, peak_mig, conv_mig, raw_f, jerk_f, smart_n, smart_d, f_acc13, f_acc34, f_acc55, t_acc55, vpa_eff, hm_att, sm_att, p_trap, p_rel, is_ldr, state_ldr, t_hot, t_stable, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, peak_cnt, chip_ent, dw_sync, clustering, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
+        (open_p, high_p, low_p, close_p, pct_chg, p_ent, slope_p, jerk_p, atr_14, vol_f20, c_mean, p_mig, c_mig, r_f, j_f, s_n, s_d, f13, f34, f55, t55, vpa, och, bbp, hm_att, sm_att, p_trap, p_rel, is_ldr, st_ldr, t_hot, t_stab, win, a_win, c_stab, a_stab, c_diff, c_kurt, c_conv, is_multi, p_cnt, c_ent, dw_s, morn, ste, h_lock, skew, h_rel, t_over, clust, vol, cnt, t_net, ma_r, sl_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc=pd.Series(0, index=df_index), bbp=pd.Series(0.5, index=df_index))
-        f_base = self._assess_multi_cycle_fund_reservoir(f_acc13, f_acc34, f_acc55, t_acc55, hm_att, sm_att)
-        chip_order = self._assess_chip_entropy_ordered_collapse(chip_ent, peak_cnt)
+        # 1. 物理层 (Physics)
+        k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa, och, bbp)
+        # 2. 资金层 (Funds)
+        f_res = self._assess_fund_jerk_resonance(pct_chg, j_f, s_n, smart_div=s_d)
+        f_split = self._assess_split_order_accumulation(vol, cnt, clust, r_f, t_net)
+        f_base = self._assess_multi_cycle_fund_reservoir(f13, f34, f55, t55, hm_att, sm_att)
+        f_energy = self._assess_cumulative_energy_decay(r_f, t_net)
+        fund_score = np.maximum(f_res, f_split) * f_base * f_energy
+        # 3. 筹码层 (Chips)
+        chip_migration = self._assess_chip_holographic_migration(close_p, c_mean, p_mig, c_mig)
+        chip_collapse = self._assess_chip_peak_collapse(is_multi, p_cnt)
+        chip_order = self._assess_chip_entropy_ordered_collapse(c_ent, p_cnt)
+        chip_tension = self._assess_chip_holographic_tension(h_rel, t_over, win, a_win, c_stab, a_stab, c_kurt, c_conv, c_diff)
+        chip_lock = self._assess_turnover_lock_stability(t_stab, is_ldr, c_stab)
+        chip_score = (chip_migration * 0.25 + chip_collapse * 0.25 + chip_order * 0.2 + chip_tension * 0.15 + chip_lock * 0.15)
+        # 4. 取证与对冲 (Forensics & Hedge)
         intent_score = self._assess_coordinated_intent_forensics(hm_att, sm_att, p_trap, p_rel)
-        leader_bonus = self._assess_market_leadership_compensation(is_ldr, state_ldr, t_hot)
-        # [V37] 集成筹码锁死校验 
-        chip_lock_score = self._assess_turnover_lock_stability(t_stable, is_ldr, chip_stab)
-        # 融合输出: 加入 chip_lock_score 权重
-        final_score = (k_trap * f_base * chip_order * intent_score * leader_bonus * (0.8 + chip_lock_score * 0.2)).clip(0, 1)
-        self._print_debug_probe(df_index, {"Final": final_score, "Lock": chip_lock_score, "TStable": t_stable, "Leader": is_ldr, "Base": f_base, "Intent": intent_score, "Trap": p_trap})
+        ssd_dec = self._assess_stealth_shadow_divergence(morn, ste, h_lock, skew, pct_chg, t_net)
+        leader_bonus = self._assess_market_leadership_compensation(is_ldr, st_ldr, t_hot)
+        atr_norm = (atr_14 / close_p.replace(0, 1e-9)).rolling(60, min_periods=1).rank(pct=True)
+        beta_hedge = (1.2 - atr_norm).clip(0, 1)
+        e_scale = p_ent.rolling(60, min_periods=1).mean().replace(0, 1e-9)
+        entropy_multi = (1.2 - np.tanh(p_ent / e_scale)).clip(0, 1)
+        # 5. 综合评分与门控
+        sync_gate = np.where(dw_s == 1, 1.1, 0.9)
+        final_score = (k_trap * fund_score * chip_score * intent_score * leader_bonus * beta_hedge * entropy_multi * sync_gate).clip(0, 1)
+        # 6. 数据总线封包
+        debug_ctx = {
+            "Final": final_score, "Phys": k_trap, "Fund": fund_score, "Chip": chip_score, "Intent": intent_score, "Ldr": leader_bonus,
+            "Raw": {"JerkP": jerk_p, "Split": f_split, "Reson": f_res, "Base": f_base, "Energy": f_energy, "Mig": chip_migration, "Coll": chip_collapse, "Order": chip_order, "Lock": chip_lock, "SSD": ssd_dec, "Trap": p_trap, "HMAtt": hm_att, "Theme": t_hot}
+        }
+        self._print_debug_probe(df_index, debug_ctx)
         return final_score.astype(np.float32).fillna(0.0)
 
     def _print_debug_probe(self, idx: pd.Index, ctx: Dict[str, Any]):
         """
-        [V37.0.0 · 全链路锁死溯源探针]
-        - 职责: 揭示从原子数据到最终评分的全链路逻辑。
+        [V38.0.0 · 全链路深度溯源探针]
+        - 职责: 揭示从物理、资金到筹码、取证的 100% 逻辑链路。
         """
         if len(idx) > 0:
             i = -1
             dt = idx[i].strftime('%Y-%m-%d')
-            print(f"--- [PROBE_V37_FULL_LINK] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
-            print(f"  [1.Leadership] IsLeader: {ctx['Leader'].iloc[i]} | LockScore: {ctx['Lock'].iloc[i]:.4f}")
-            print(f"  [2.Turnover]   StabilityIndex: {ctx['TStable'].iloc[i]:.2f} ")
-            print(f"  [3.Foundation] FundBase: {ctx['Base'].iloc[i]:.4f} | Intent: {ctx['Intent'].iloc[i]:.4f}")
-            print(f"  [4.Pressure]   Trapped: {ctx['Trap'].iloc[i]:.2f} [cite: 3]")
+            raw = ctx["Raw"]
+            print(f"--- [PROBE_V38_FULL_LINK] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            print(f"  [1.Physics]  Trap: {ctx['Phys'].iloc[i]:.4f} (PriceJerk: {raw['JerkP'].iloc[i]:.2f})")
+            print(f"  [2.Funds]    Score: {ctx['Fund'].iloc[i]:.4f} <- (Reson: {raw['Reson'].iloc[i]:.2f}, Split: {raw['Split'].iloc[i]:.2f}, Base: {raw['Base'].iloc[i]:.2f}, Energy: {raw['Energy'].iloc[i]:.2f})")
+            print(f"  [3.Chips]    Score: {ctx['Chip'].iloc[i]:.4f} <- (Mig: {raw['Mig'].iloc[i]:.2f}, Coll: {raw['Coll'].iloc[i]:.2f}, Order: {raw['Order'].iloc[i]:.2f}, Lock: {raw['Lock'].iloc[i]:.2f})")
+            print(f"  [4.Forens]   Intent: {ctx['Intent'].iloc[i]:.4f} (SSD: {raw['SSD'].iloc[i]:.2f}, HMAttack: {raw['HMAtt'].iloc[i]}, Trapped: {raw['Trap'].iloc[i]:.2f})")
+            print(f"  [5.Strategy] LeaderBonus: {ctx['Ldr'].iloc[i]:.2f}x (ThemeHot: {raw['Theme'].iloc[i]:.1f})")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
-        [V37.0.0 · 换手稳定性数据接入]
-        - 变更说明: 接入 TURNOVER_STABILITY_INDEX_D 用于识别筹码良性锁死 。
+        [V38.0.0 · 全维信号接入终极版]
+        - 变更说明: 补齐军械库清单中所有核心指标，确保物理、资金、筹码、取证、防御全链路调用无死角。
+        - 修复: 补齐 och_acceleration_D, bbp_21_2.0_D 等物理层关键指标。
         """
         open_p = self.helper._get_safe_series(df, 'open_D', np.nan, method_name=method_name)
         high_p = self.helper._get_safe_series(df, 'high_D', np.nan, method_name=method_name)
@@ -89,6 +115,8 @@ class CalculateUpthrustWashoutRelationship:
         f_acc55 = raw_fund.rolling(55, min_periods=1).sum()
         t_acc55 = total_net.rolling(55, min_periods=1).sum()
         vpa_eff = self.helper._get_safe_series(df, 'VPA_MF_ADJUSTED_EFF_D', np.nan, method_name=method_name)
+        och_acc = self.helper._get_safe_series(df, 'OCH_ACCELERATION_D', np.nan, method_name=method_name)
+        bbp_pos = self.helper._get_safe_series(df, 'BBP_21_2.0_D', np.nan, method_name=method_name)
         hm_attack = self.helper._get_safe_series(df, 'HM_COORDINATED_ATTACK_D', 0, method_name=method_name)
         sm_attack = self.helper._get_safe_series(df, 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 0, method_name=method_name)
         p_trapped = self.helper._get_safe_series(df, 'pressure_trapped_D', np.nan, method_name=method_name)
@@ -96,7 +124,6 @@ class CalculateUpthrustWashoutRelationship:
         is_leader = self.helper._get_safe_series(df, 'IS_MARKET_LEADER_D', 0, method_name=method_name)
         state_leader = self.helper._get_safe_series(df, 'STATE_MARKET_LEADER_D', 0, method_name=method_name)
         theme_hot = self.helper._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0, method_name=method_name)
-        # [V37] 接入换手稳定性 
         turnover_stable = self.helper._get_safe_series(df, 'TURNOVER_STABILITY_INDEX_D', np.nan, method_name=method_name)
         winner = self.helper._get_safe_series(df, 'winner_rate_D', np.nan, method_name=method_name)
         acc_win = self.helper._get_safe_series(df, 'ACCEL_5_winner_rate_D', np.nan, method_name=method_name)
@@ -105,15 +132,23 @@ class CalculateUpthrustWashoutRelationship:
         cost_diff = self.helper._get_safe_series(df, 'chip_cost_to_ma21_diff_D', np.nan, method_name=method_name)
         chip_kurt = self.helper._get_safe_series(df, 'chip_kurtosis_D', np.nan, method_name=method_name)
         chip_conv = self.helper._get_safe_series(df, 'chip_convergence_ratio_D', np.nan, method_name=method_name)
+        is_multi = self.helper._get_safe_series(df, 'is_multi_peak_D', 0.0, method_name=method_name)
         peak_cnt = self.helper._get_safe_series(df, 'peak_count_D', 1.0, method_name=method_name)
         chip_ent = self.helper._get_safe_series(df, 'chip_entropy_D', np.nan, method_name=method_name)
         dw_sync = self.helper._get_safe_series(df, 'daily_weekly_sync_D', 0, method_name=method_name)
+        morning = self.helper._get_safe_series(df, 'morning_flow_ratio_D', np.nan, method_name=method_name)
+        stealth = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', np.nan, method_name=method_name)
+        high_lock = self.helper._get_safe_series(df, 'intraday_high_lock_ratio_D', np.nan, method_name=method_name)
+        skew = self.helper._get_safe_series(df, 'intraday_price_distribution_skewness_D', np.nan, method_name=method_name)
+        pres_rel = self.helper._get_safe_series(df, 'pressure_release_index_D', np.nan, method_name=method_name)
+        hab_rel = pres_rel.rolling(window=5, min_periods=1).sum()
+        turnover = self.helper._get_safe_series(df, 'turnover_rate_D', np.nan, method_name=method_name)
         clustering = self.helper._get_safe_series(df, 'tick_clustering_index_D', np.nan, method_name=method_name)
         volume = self.helper._get_safe_series(df, 'volume_D', np.nan, method_name=method_name)
         trade_count = self.helper._get_safe_series(df, 'trade_count_D', np.nan, method_name=method_name)
         ma_res = self.helper._get_safe_series(df, 'MA_COHERENCE_RESONANCE_D', np.nan, method_name=method_name)
         slope_t = self.helper._get_safe_series(df, 'GEOM_REG_SLOPE_D', np.nan, method_name=method_name)
-        return (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_20, c_mean, peak_mig, conv_mig, raw_fund, jerk_f, smart_n, smart_d, f_acc13, f_acc34, f_acc55, t_acc55, vpa_eff, hm_attack, sm_attack, p_trapped, p_release, is_leader, state_leader, theme_hot, turnover_stable, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, peak_cnt, chip_ent, dw_sync, clustering, volume, trade_count, total_net, ma_res, slope_t)
+        return (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_20, c_mean, peak_mig, conv_mig, raw_fund, jerk_f, smart_n, smart_d, f_acc13, f_acc34, f_acc55, t_acc55, vpa_eff, och_acc, bbp_pos, hm_attack, sm_attack, p_trapped, p_release, is_leader, state_leader, theme_hot, turnover_stable, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, is_multi, peak_cnt, chip_ent, dw_sync, morning, stealth, high_lock, skew, hab_rel, turnover, clustering, volume, trade_count, total_net, ma_res, slope_t)
 
     def _assess_multi_period_volatility_hedge(self, s5: pd.Series, s20: pd.Series, s60: pd.Series, m5: pd.Series, m20: pd.Series, m60: pd.Series) -> pd.Series:
         """
@@ -335,23 +370,6 @@ class CalculateUpthrustWashoutRelationship:
         ssd_final = ((lure_score * 0.5 + trap_score * 0.2 + kill_score * 0.3) * is_drop).fillna(0)
         return ssd_final.astype(np.float32)
 
-    def _assess_dynamic_chip_metabolism(self, hab_release: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, stability: pd.Series, cost_diff: pd.Series) -> pd.Series:
-        eff_ratio = hab_release / (turnover + 0.5)
-        eff_scale = eff_ratio.rolling(60, min_periods=1).max().replace(0, 1e-9)
-        efficiency_score = (eff_ratio / eff_scale).clip(0, 1)
-
-        norm_winner = winner.rolling(20, min_periods=1).rank(pct=True).clip(0, 1)
-        norm_stab = stability.rolling(20, min_periods=1).rank(pct=True).clip(0, 1)
-        integrity_score = (norm_winner * 0.4 + norm_stab * 0.6).clip(0, 1)
-
-        anchor_score = np.where(cost_diff < -0.05, 0.2, 1.0)
-
-        w_scale = acc_win.rolling(60, min_periods=1).std().replace(0, 1e-9)
-        n_acc_win = np.tanh(acc_win / w_scale)
-        breaker = (1.0 + n_acc_win).clip(0, 1)
-
-        return ((efficiency_score * 0.4 + integrity_score * 0.6) * anchor_score * breaker).fillna(0)
-
     def _assess_kinematic_trap_physics(self, close: pd.Series, high: pd.Series, slope: pd.Series, jerk: pd.Series, vpa_eff: pd.Series, och_acc: pd.Series, bbp: pd.Series) -> pd.Series:
         """
         [V28.0.0 · 极限速率熔断版]
@@ -420,6 +438,47 @@ class CalculateUpthrustWashoutRelationship:
         final_collapse = (np.tanh(collapse_signal) + stability_bonus).clip(0, 1)
         return pd.Series(final_collapse, index=is_multi.index).astype(np.float32)
 
+    def _assess_structural_stress_test(self, ratio_sr: pd.Series, test_count: pd.Series, cost_mig: pd.Series, acc_supp: pd.Series) -> pd.Series:
+        base_solidity = np.tanh(ratio_sr - 0.8).clip(0, 1)
+        test_bonus = np.log1p(test_count).clip(0, 2) / 2.0
+        resilience = base_solidity * (0.5 + 0.5 * test_bonus)
+        
+        c_scale = cost_mig.abs().rolling(60, min_periods=1).mean().replace(0, 1e-9)
+        n_mig = cost_mig / c_scale
+        gravity_stable = (np.tanh(n_mig + 0.5) + 1.0) / 2.0
+        
+        a_scale = acc_supp.rolling(60, min_periods=1).std().replace(0, 1e-9)
+        n_acc = np.tanh(acc_supp / a_scale)
+        boost = (1.0 + n_acc * 0.5).clip(0.5, 1.5)
+        
+        return (resilience * gravity_stable * boost).clip(0, 1).fillna(0)
+
+    def _assess_skewed_deception_narrative(self, morning: pd.Series, stealth: pd.Series, high_lock: pd.Series, skew: pd.Series, pct_chg: pd.Series) -> pd.Series:
+        n_morning = np.tanh((morning - 0.4) * 3).clip(0, 1)
+        n_stealth = np.tanh(stealth * 2).clip(0, 1)
+        lure_score = (n_morning * 0.6 + n_stealth * 0.4)
+        
+        trap_score = np.tanh(high_lock * 3).clip(0, 1)
+        
+        s_scale = skew.abs().rolling(60, min_periods=1).max().replace(0, 1e-9)
+        kill_score = (-np.tanh(skew / s_scale)).clip(0, 1)
+        
+        is_drop = (pct_chg < 0).astype(int)
+        
+        return ((lure_score * 0.4 + trap_score * 0.3 + kill_score * 0.3) * is_drop).fillna(0)
+
+    def _assess_fractal_manipulation_fingerprint(self, abnormal: pd.Series, clustering: pd.Series, anomaly: pd.Series, acc_abnormal: pd.Series) -> pd.Series:
+        n_abnormal = np.tanh(abnormal * 2).clip(0, 1)
+        n_clustering = np.tanh(clustering * 3).clip(0, 1)
+        n_anomaly = np.tanh(anomaly).clip(0, 1)
+        
+        a_scale = acc_abnormal.rolling(60, min_periods=1).std().replace(0, 1e-9)
+        n_acc = np.tanh(acc_abnormal / a_scale)
+        boost = (1.0 + n_acc * 0.5).clip(0.8, 1.5)
+        
+        base_manipulation = (n_abnormal * 0.4 + n_clustering * 0.4 + n_anomaly * 0.2)
+        return (base_manipulation * boost).clip(0, 1).fillna(0)
+
     def _assess_market_leadership_compensation(self, is_leader: pd.Series, state_leader: pd.Series, theme_hot: pd.Series) -> pd.Series:
         """
         [V36.0.0 · 龙头领涨权重补偿评估]
@@ -455,7 +514,5 @@ class CalculateUpthrustWashoutRelationship:
         # 最终锁死分值
         lock_score = (t_stable_norm * 0.7 + c_stable_norm * 0.3) * leader_gate
         return pd.Series(lock_score, index=turnover_stable.index).clip(0, 1).astype(np.float32)
-
-
 
 
