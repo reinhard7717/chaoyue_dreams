@@ -29,59 +29,56 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V27.0.0 · SSD全闭环总控]
-        - 架构升级: 接入 _assess_stealth_shadow_divergence 替代原有的简单欺骗逻辑。
-        - 核心逻辑: 强化了隐蔽流量(Stealth)与总资金加速度(TotalNet Accel)的关联。
+        [V28.0.0 · 极限熔断总控]
+        - 架构升级: 接入物理速率熔断与资金能量背离因子。
+        - 目的: 在崩盘发生的第一个微秒内切断信号。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
         (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, accel_p, jerk_p, raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
+        # 1. 物理层(带物理熔断)
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
+        # 2. 资金层(带能量背离)
         f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
         f_split = self._assess_split_order_accumulation(volume, trade_count, clustering, raw_f, total_net)
+        f_energy = self._assess_fund_energy_divergence(raw_f, total_net)
         f_active = np.maximum(f_resonance, f_split)
         f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, t_accum_34, f_split, slope_f_21, accel_f_21, vpa_eff, f_volat)
-        fund_score = f_active * f_hab
+        fund_score = f_active * f_hab * f_energy
+        # 3. 筹码/防御/取证
         chip_meta = self._assess_chip_holographic_tension(hab_rel, turnover, winner, acc_win, chip_stab, acc_stab_21, chip_kurt, chip_conv, cost_diff)
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
-        # SSD 隐蔽背离升级
         ssd_dec = self._assess_stealth_shadow_divergence(morning, stealth, high_lock, skew, pct_chg, total_net)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
         e_scale = p_entropy.rolling(60, min_periods=1).mean().replace(0, 1e-9)
-        n_entropy = np.tanh(p_entropy / e_scale).clip(0.2, 1.0)
-        entropy_multiplier = (1.2 - n_entropy).clip(0, 1)
+        entropy_multiplier = (1.2 - np.tanh(p_entropy / e_scale)).clip(0, 1)
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
         forensics = (ssd_dec * 0.5 + chip_meta * 0.3 + fractal_man * 0.2)
         final_score = (k_trap * fund_score * forensics * solidity * context * entropy_multiplier).clip(0, 1)
         debug_context = {
-            "Final": final_score, "EntropyM": entropy_multiplier,
-            "Phys": {"Node": k_trap, "OCH": och_acc, "VPA": vpa_eff, "BBP": bbp_pos, "Slope": slope_p, "Jerk": jerk_p},
-            "Fund": {"Node": fund_score, "Res": f_resonance, "Split": f_split, "HAB": f_hab, "S_Net": smart_n, "AccT": t_accum_34},
-            "Chip": {"Node": chip_meta, "C_Diff": cost_diff, "Kurt": chip_kurt, "Conv": chip_conv, "A_Win": acc_win},
-            "Dfn": {"Node": solidity, "SR": sr_ratio, "Test": test_cnt},
-            "For": {"SSD": ssd_dec, "Man": fractal_man, "Skew": skew, "Stealth": stealth}
+            "Final": final_score, "Energy": f_energy,
+            "Phys": {"Node": k_trap, "Jerk": jerk_p},
+            "Fund": {"Node": fund_score, "Res": f_resonance, "Split": f_split, "AccT": t_accum_34},
+            "Chip": {"Node": chip_meta, "C_Diff": cost_diff},
+            "Dfn": {"Node": solidity}, "For": {"SSD": ssd_dec}
         }
         self._print_debug_probe(df_index, debug_context)
         return final_score.astype(np.float32).fillna(0.0)
 
     def _print_debug_probe(self, idx: pd.Index, ctx: Dict[str, Any]):
         """
-        [V27.0.0 · SSD溯源探针]
-        - 职责: 揭示隐蔽流量与全量资金加速度的背离情况。
+        [V28.0.0 · 极限熔断溯源探针]
+        - 职责: 揭示物理熔断与能量背离的切断瞬间。
         """
         if len(idx) > 0:
             i = -1
             dt = idx[i].strftime('%Y-%m-%d')
-            print(f"--- [PROBE_V27_SSD] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
-            print(f"  [Global] EntropyMulti: {ctx['EntropyM'].iloc[i]:.4f}")
+            print(f"--- [PROBE_V28_BREAKER] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            p = ctx["Phys"]
+            print(f"  [1.Physics] Node: {p['Node'].iloc[i]:.4f} (PriceJerk: {p['Jerk'].iloc[i]:.4f})")
             f = ctx["Fund"]
-            print(f"  [2.Funds] Node: {f['Node'].iloc[i]:.4f} <- (Split: {f['Split'].iloc[i]:.2f}, AccT: {f['AccT'].iloc[i]:.0f})")
-            x = ctx["For"]
-            print(f"  [5.Forens] SSD_Dec: {x['SSD'].iloc[i]:.4f} <- (Stealth: {x['Stealth'].iloc[i]:.2f}, Skew: {x['Skew'].iloc[i]:.4f})")
-            c = ctx["Chip"]
-            print(f"  [3.Chips] Node: {c['Node'].iloc[i]:.4f} <- (CostDiff: {c['C_Diff'].iloc[i]:.2f}, Kurt: {c['Kurt'].iloc[i]:.2f}, AWin: {c['A_Win'].iloc[i]:.2f})")
-            d = ctx["Dfn"]
-            print(f"  [4.Dfn]   Node: {d['Node'].iloc[i]:.4f} <- (SR: {d['SR'].iloc[i]:.2f}, Test: {d['Test'].iloc[i]:.1f})")
+            print(f"  [2.Funds]   Node: {f['Node'].iloc[i]:.4f} (EnergyFactor: {ctx['Energy'].iloc[i]:.4f}, AccT: {f['AccT'].iloc[i]:.0f})")
+            print(f"  [3.Chips]   Node: {ctx['Chip']['Node'].iloc[i]:.4f} (CostDiff: {ctx['Chip']['C_Diff'].iloc[i]:.2f})")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
@@ -277,28 +274,41 @@ class CalculateUpthrustWashoutRelationship:
         return ((efficiency_score * 0.4 + integrity_score * 0.6) * anchor_score * breaker).fillna(0)
 
     def _assess_kinematic_trap_physics(self, close: pd.Series, high: pd.Series, slope: pd.Series, jerk: pd.Series, vpa_eff: pd.Series, och_acc: pd.Series, bbp: pd.Series) -> pd.Series:
-        # 使用 min_periods=1 确保即使只有1个数据也能计算 std/max
+        """
+        [V28.0.0 · 极限速率熔断版]
+        - 核心逻辑: 识别价格运动的非线性崩溃。
+        - 变更说明: 引入 Jerk 极端负值熔断。若下行急动度过大，判定为自由落体，不再视为洗盘。
+        """
         s_scale = slope.rolling(60, min_periods=1).std().replace(0, 1e-9)
         n_slope = np.tanh(slope / s_scale).clip(0, 1)
         j_scale = jerk.rolling(60, min_periods=1).std().replace(0, 1e-9)
-        n_jerk = np.tanh(jerk / j_scale)
-        exhaustion = (-n_jerk).clip(0, 1)
-        
+        # 物理熔断: 如果负向 Jerk 超过 2.5 倍标准差，认定为崩盘
+        v_breaker = np.where(jerk < -2.5 * j_scale, 0.0, 1.0)
+        exhaustion = (-np.tanh(jerk / j_scale)).clip(0, 1)
         vpa_scale = vpa_eff.abs().rolling(60, min_periods=1).max().replace(0, 1e-9)
         inefficiency = (1.0 - np.tanh(vpa_eff / vpa_scale)).clip(0, 1)
-        
         och_scale = och_acc.abs().rolling(60, min_periods=1).max().replace(0, 1e-9)
         structure_fail = (-np.tanh(och_acc / och_scale)).clip(0, 1)
-        
         context_gate = np.tanh((bbp - 0.5) * 3).clip(0, 1)
-        
         range_hl = (high - close) / high.replace(0, 1e-9)
         retracement = (range_hl * 10).clip(0, 1)
-        
         base_trap = (n_slope * 0.4 + exhaustion * 0.6)
         quality = (inefficiency * 0.3 + structure_fail * 0.3 + retracement * 0.4)
-        
-        return (base_trap * quality * context_gate).clip(0, 1).fillna(0)
+        return (base_trap * quality * context_gate * v_breaker).clip(0, 1).fillna(0)
+
+    def _assess_fund_energy_divergence(self, raw_f: pd.Series, total_net: pd.Series) -> pd.Series:
+        """
+        [V28.0.0 · 资金能量背离判定]
+        - 核心逻辑: 识别"机构逃生门"现象。
+        - 判定维度: 如果大单砸盘力度远超市场整体承接能力，则判定为机构不计成本撤离。
+        """
+        f_ma = raw_f.rolling(5, min_periods=1).mean()
+        t_ma = total_net.rolling(5, min_periods=1).mean()
+        # 能量比: 机构砸盘强度 / 市场总强度
+        energy_ratio = (f_ma.abs() / (t_ma.abs() + 1e-9))
+        # 惩罚项: 比率越高(>2.0)且大单为负，则分值越低
+        punishment = np.where((raw_f < 0) & (energy_ratio > 2.0), 1.0 / energy_ratio, 1.0)
+        return pd.Series(punishment, index=raw_f.index).clip(0, 1).fillna(1)
 
     def _assess_fund_jerk_resonance(self, pct_chg: pd.Series, jerk_large: pd.Series, smart_net: pd.Series, smart_div: pd.Series) -> pd.Series:
         j_scale = jerk_large.rolling(60, min_periods=1).std().replace(0, 1e-9)
