@@ -746,38 +746,40 @@ class CalculatePriceVolumeDynamics:
         return final_eff
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V83.0 · 微观矢量：采用资金流 Z-Score 自适应归一化，识别异常攻击，清除空行"""
+        """V86.0 · 微观矢量：修正'零值陷阱'，采用 Sigmoid 软映射确保常态下得分为中性(1.0)，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 计算主力净买入占比
         e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values)
         l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values)
         t_a = (raw['amount_D'].values + 1e-9)
         net_ratio = (e_n + l_n) / t_a
-        # 2. 自适应归一化 (Z-Score)
-        # 计算该股主力资金流的历史常态分布
+        # 1. 资金流 Z-Score
         ratio_s = pd.Series(net_ratio, index=df_index)
         ratio_mean = ratio_s.rolling(21).mean().fillna(0).values
         ratio_std = ratio_s.rolling(21).std().replace(0, 1e-6).values
-        # Z-Score: 当前净买入偏离均值多少个标准差
         z_score_flow = (net_ratio - ratio_mean) / ratio_std
-        # 映射攻击矢量：Z > 1.0 开始加分，Z > 3.0 满分
-        attack_vector = np.clip((z_score_flow - 0.5) * 0.5, 0.0, 1.5)
-        # 3. 协同性修正 (保持原逻辑，但转为 float32)
+        # 2. 软映射攻击矢量 (Soft Mapping)
+        # 使用 Logistic 函数将 Z 分数映射到 [0.5, 1.5] 区间
+        # Z = 0 (常态) -> 1.0 (不奖不罚)
+        # Z = -2 (流出) -> 0.6 (降权)
+        # Z = +2 (流入) -> 1.4 (加权)
+        base_score = 0.5 + (1.0 / (1.0 + np.exp(-z_score_flow)))
+        # 3. 协同性修正
         e_r, l_r = e_n / t_a, l_n / t_a
-        sync_score = np.where((e_r > 0) & (l_r > 0), 1.2, np.where((e_r * l_r) < 0, 0.8, 1.0)).astype(np.float32)
+        sync_score = np.where((e_r > 0) & (l_r > 0), 1.1, np.where((e_r * l_r) < 0, 0.9, 1.0)).astype(np.float32)
         # 4. 动力学增强
         s_j = raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32)
-        jerk_bonus = np.where(s_j > 0.5, 1.3, 1.0).astype(np.float32)
-        # 5. HAB 护盾
+        jerk_bonus = np.where(s_j > 0.5, 1.2, 1.0).astype(np.float32)
+        # 5. HAB 护盾 (Deep Base Shield)
         d_sm = (e_n + l_n).astype(np.float32)
         a13 = raw['ACCUM_13_SMART_MONEY'].values.astype(np.float32)
-        h_s = np.where((d_sm < 0) & (a13 > np.abs(d_sm) * 10.0), 1.2, 1.0).astype(np.float32)
-        final_v = pd.Series(attack_vector * sync_score * jerk_bonus * h_s, index=df_index, dtype=np.float32).clip(0, 2.5)
+        # 如果单日流出但 13日累积底仓丰厚，给予护盾支持 (不降分)
+        h_s = np.where((d_sm < 0) & (a13 > np.abs(d_sm) * 10.0), 1.1, 1.0).astype(np.float32)
+        final_v = pd.Series(base_score * sync_score * jerk_bonus * h_s, index=df_index, dtype=np.float32).clip(0.4, 2.0)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[微观攻击自适应探针 V83.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    资金流占比: {net_ratio[p_i]:.4f}, Z-Score: {z_score_flow[p_i]:.2f}σ")
-            print(f"    基础攻击分: {attack_vector[p_i]:.4f}")
+            print(f"\n[微观攻击修正探针 V86.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    Z-Score: {z_score_flow[p_i]:.2f}σ -> 基础分: {base_score[p_i]:.4f}")
+            print(f"    >>> 最终攻击矢量: {final_v.loc[probe_ts]:.4f}")
         return final_v
 
     def _calculate_vpa_elasticity_reflexivity(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -924,37 +926,33 @@ class CalculatePriceVolumeDynamics:
         return final_ctx
 
     def _calculate_entry_accessibility_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V83.0 · 入场可获得性：采用相对流动性归一化，评估真实拥堵度，清除空行"""
+        """V86.0 · 入场可获得性：设定 0.2 保底阈值，防止极端情况下得分为零，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         turnover = raw['turnover_rate_f_D'].values
-        # 1. 相对流动性 (Relative Liquidity)
-        # 计算 21 日均换手
+        # 1. 相对流动性
         turn_ma = pd.Series(turnover, index=df_index).rolling(21).mean().replace(0, 0.1).values
-        # 相对比率
         rel_liq = turnover / turn_ma
-        # 2. 流动性评分曲线
-        # 最佳区间 [1.0, 2.5]: 流动性充沛，进出自由 -> 1.0
-        # 拥堵区间 [0.0, 0.5]: 流动性枯竭，买入困难 -> 降分
-        # 疯狂区间 [3.0, inf]: 换手过高，可能见顶 -> 降分
-        base_access = np.where(rel_liq < 0.5, 0.4 + rel_liq,  # 0.4~0.9
-                      np.where(rel_liq <= 2.5, 1.0,           # 1.0
-                               np.clip(2.5/rel_liq, 0.5, 1.0))) # 衰减
-        # 3. 封板硬约束
+        # 2. 流动性评分 (保底 0.4)
+        base_access = np.where(rel_liq < 0.5, 0.4 + rel_liq * 0.5,
+                      np.where(rel_liq <= 2.5, 1.0,
+                               np.clip(2.5/rel_liq, 0.5, 1.0)))
+        # 3. 封板硬约束 (保底 0.2)
         up_limit = raw['up_limit_D'].values
         close = raw['close_D'].values
         intensity = raw['closing_flow_intensity_D'].values
         sealing = np.clip(intensity, 0.0, 1.0)
-        limit_penalty = np.where(close >= up_limit * 0.999, 0.4 * (1.0 - sealing), 1.0).astype(np.float32)
-        # 4. 抢筹拥堵修正 (HAB)
+        # 如果封死涨停，得分为 0.2 (仍有机会排板成交，不完全杀死)，否则为 1.0
+        limit_penalty = np.where(close >= up_limit * 0.999, 0.2 + 0.3 * (1.0 - sealing), 1.0).astype(np.float32)
+        # 4. 抢筹拥堵
         tc_accel = raw['ACCEL_5_trade_count_D'].values
         lock_days = raw['ACCUM_5_LIQUIDITY_LOCK'].values
         congestion = np.where((tc_accel > 0.1) & (lock_days >= 3), 0.6, 1.0).astype(np.float32)
-        final_access = pd.Series(base_access * limit_penalty * congestion, index=df_index, dtype=np.float32).clip(0.0, 1.0)
+        final_access = pd.Series(base_access * limit_penalty * congestion, index=df_index, dtype=np.float32).clip(0.1, 1.2)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[入场自适应探针 V83.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    相对流动性: {rel_liq[p_i]:.2f}x (当前/均值)")
-            print(f"    基础可获得性: {base_access[p_i]:.2f}, 拥堵修正: {congestion[p_i]:.2f}")
+            print(f"\n[入场保底探针 V86.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    相对流动性: {rel_liq[p_i]:.2f}, 封板惩罚: {limit_penalty[p_i]:.2f}")
+            print(f"    >>> 最终可获得性: {final_access.loc[probe_ts]:.4f}")
         return final_access
 
     def _calculate_entropic_ordering_bonus(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -1025,22 +1023,25 @@ class CalculatePriceVolumeDynamics:
         return final_score
 
     def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], scores: Dict[str, pd.Series], final_score: float):
-        """V80.0 · 全息探针：新增动力学健康度评分，识别脆性上涨与底仓虚浮，清除空行"""
+        """V86.0 · 全息探针：优化健康度显示，使用 Z-Score 替代 Raw Jerk，清除空行"""
         if probe_ts not in raw['close_D'].index: return
         idx = raw['close_D'].index.get_loc(probe_ts)
         p_str = probe_ts.strftime('%Y-%m-%d')
         w_s, w_l = int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[0]), int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1])
-        # 计算动力学健康度 (Kinematic Health)
-        # 逻辑：脉冲 (Impulse) 必须有 底仓 (Foundation) 支撑
-        impulse_score = raw['JERK_3_close_D'].values[idx] * 10.0 + raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values[idx] / 1000.0
+        # 临时计算 Jerk Z-Score 用于展示
+        raw_jerk = raw['JERK_3_close_D']
+        jerk_mean = raw_jerk.rolling(21).mean().fillna(0).values[idx]
+        jerk_std = raw_jerk.rolling(21).std().replace(0, 1e-6).values[idx]
+        jerk_z = (raw_jerk.values[idx] - jerk_mean) / jerk_std
+        # 健康度计算
+        impulse_score = jerk_z * 0.5 + raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values[idx] / 1000.0
         foundation_score = raw['ACCUM_21_SMART_MONEY'].values[idx] / 10000.0 + raw['ACCUM_21_ABOVE_VWAP'].values[idx] / 5.0
-        # 脆性罚分：如果脉冲很强 (>0.5) 但底仓为负或很低 (<0.5)，则是脆性上涨
         fragility = 0.0
-        if impulse_score > 0.5 and foundation_score < 0.5:
-            fragility = (impulse_score - foundation_score) * 0.8
+        if impulse_score > 1.0 and foundation_score < 0.5:
+            fragility = (impulse_score - foundation_score) * 0.5
         health_score = np.clip((1.0 + foundation_score) * (1.0 - np.clip(fragility, 0, 0.8)) * 10.0, 0, 100)
         health_status = "健康" if health_score > 60 else ("脆性" if fragility > 0.3 else "虚浮")
-        print(f"\n{'='*30} [全息动力学探针 V80.0 @ {p_str}] {'='*30}")
+        print(f"\n{'='*30} [全息动力学探针 V86.0 @ {p_str}] {'='*30}")
         print(f"【自适应配置】市值窗口: 短周期 {w_s}d / 长周期 {w_l}d")
         print(f"【基础物理】收盘: {raw['close_D'].values[idx]:.2f} | VWAP: {raw['VWAP_D'].values[idx]:.2f} | 换手: {raw['turnover_rate_f_D'].values[idx]:.2f}%")
         print(f"【HAB 缓冲】")
@@ -1049,16 +1050,16 @@ class CalculatePriceVolumeDynamics:
         print(f"  └─ 波动紧致: {raw['HIST_VOL_SQUEEZE'].values[idx]:.1f} | 趋势厚度: {raw['ACCUM_21_ABOVE_VWAP'].values[idx]:.0f}d")
         print(f"【动力学特征】")
         print(f"  ├─ 价格 (S/A/J): {raw['SLOPE_5_close_D'].values[idx]:.4f} / {raw['ACCEL_5_close_D'].values[idx]:.4f} / {raw['JERK_3_close_D'].values[idx]:.4f}")
-        print(f"  └─ 主力 (S/A/J): {raw['SLOPE_5_SMART_MONEY_HM_NET_BUY_D'].values[idx]:.1f} / {raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values[idx]:.1f} / {raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values[idx]:.1f}")
+        print(f"  └─ 价格脉冲强度: {jerk_z:.2f}σ (Sigma)")
         print(f"【健康度诊断】")
-        print(f"  ★ 综合评分: {health_score:.1f} ({health_status}) | 脉冲: {impulse_score:.2f} vs 底仓: {foundation_score:.2f} | 脆性惩罚: {fragility:.2f}")
+        print(f"  ★ 综合评分: {health_score:.1f} ({health_status}) | 脉冲Z: {jerk_z:.2f} vs 底仓: {foundation_score:.2f}")
         print(f"【核心引擎评分】")
         print(f"  [物理] {scores['physical'].values[idx]:.3f} | [几何] {scores['geo'].values[idx]:.3f} | [VWAP] {scores['vwap'].values[idx]:.3f}")
         print(f"  [结构] 筹码:{scores['chip'].values[idx]:.3f} 熵序:{scores['entropy'].values[idx]:.3f} 威科夫:{scores['wyckoff'].values[idx]:.3f}")
         print(f"  [环境] 渗透:{scores['perm'].values[idx]:.3f} 惯性:{scores['inertia'].values[idx]:.3f} HMM:{scores['hmm'].values[idx]:.3f}")
         print(f"  [微观] 攻击:{scores['micro'].values[idx]:.3f} 反身:{scores['reflex'].values[idx]:.3f} 分形:{scores['fractal'].values[idx]:.3f}")
         print(f"【安全阀调节】")
-        print(f"  风险:{scores['risk'].values[idx]:.2f} x 衰减:{scores['decay'].values[idx]:.2f} x 板块:{scores['sector_decay'].values[idx]:.2f} x 伽马:{scores['vol_gamma'].values[idx]:.2f}")
+        print(f"  风险:{scores['risk'].values[idx]:.2f} x 衰减:{scores['decay'].values[idx]:.2f} x 板块:{scores['sector_decay'].values[idx]:.2f} x 伽马:{scores['vol_gamma'].values[idx]:.2f} x 入场:{scores['access'].values[idx]:.2f}")
         print(f"{'-'*75}")
         print(f" >>> PROCESS_META_POWER_TRANSFER 最终得分: {final_score:.4f}")
         print(f"{'='*75}\n")
