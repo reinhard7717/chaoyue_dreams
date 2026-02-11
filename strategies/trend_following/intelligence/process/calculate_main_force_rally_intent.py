@@ -474,33 +474,51 @@ class CalculateMainForceRallyIntent:
 
     def _fuse_integrated_memory(self, price_memory: Dict, capital_memory: Dict, chip_memory: Dict, sentiment_memory: Dict, params: Dict) -> pd.Series:
         """
-        【V5.1 · 矩阵融合加速版】综合记忆融合算法
-        修改说明：将加权融合、偏移分析及溢价惩罚逻辑全部向量化。通过矩阵预乘法替代Series逐个运算，提升复杂记忆系统的合成效率。
-        版本号：2026.02.11.09
+        【V5.2 · 矩阵融合稳健加速版】综合记忆融合算法
+        修改说明：修复.get()返回默认值0导致的'int' object has no attribute 'values'报错。增强矩阵构建时的类型安全保护。
+        版本号：2026.02.11.20
         """
         df_index = price_memory["integrated_price_memory"].index
+        n_len = len(df_index)
+        # 1. 提取基础内存数组 (float32)
         p_base = price_memory["integrated_price_memory"].values.astype(np.float32)
         c_base = capital_memory["integrated_capital_memory"].values.astype(np.float32)
         ch_base = chip_memory["integrated_chip_memory"].values.astype(np.float32)
         s_base = sentiment_memory["integrated_sentiment_memory"].values.astype(np.float32)
+        # 2. 提取水位数组并计算偏移
         p_hab = price_memory.get("hab_score", pd.Series(0.5, index=df_index)).values.astype(np.float32)
         c_hab = capital_memory.get("hab_score", pd.Series(0.5, index=df_index)).values.astype(np.float32)
         ch_hab = chip_memory.get("hab_score", pd.Series(0.5, index=df_index)).values.astype(np.float32)
         s_hab = sentiment_memory.get("hab_score", pd.Series(0.5, index=df_index)).values.astype(np.float32)
         integrated_hab = (p_hab * 0.2 + c_hab * 0.3 + ch_hab * 0.3 + s_hab * 0.2)
+        # 3. 向量化权重计算
         w_p = 0.2 + integrated_hab * 0.2
         w_c = 0.4 - integrated_hab * 0.1
         w_ch = 0.3 - integrated_hab * 0.1
         w_s = 0.1 + integrated_hab * 0.1
         base_fusion = p_base * w_p + c_base * w_c + ch_base * w_ch + s_base * w_s
+        # 4. 矩阵化运动学审计 (核心修复点)
+        def _get_arr(mem_dict, key):
+            return pd.Series(mem_dict.get(key, 0.0), index=df_index).values.astype(np.float32)
+        slopes_mat = np.column_stack([
+            _get_arr(price_memory, "trend_memory"),
+            _get_arr(capital_memory, "composite_capital_flow"),
+            _get_arr(chip_memory, "chip_slope"),
+            _get_arr(sentiment_memory, "sentiment_slope")
+        ])
+        accels_mat = np.column_stack([
+            _get_arr(price_memory, "accel_memory"),
+            _get_arr(capital_memory, "cap_accel"),
+            _get_arr(chip_memory, "chip_accel"),
+            _get_arr(sentiment_memory, "sentiment_accel")
+        ])
+        # 5. 向量化共振与增强
+        slope_consistency = (np.all(slopes_mat > 0, axis=1) | np.all(slopes_mat < 0, axis=1)).astype(np.float32)
+        accel_synergy = (accels_mat > 0).sum(axis=1) / 4.0
         cap_price_offset = c_hab - p_hab
         chip_price_offset = ch_hab - p_hab
         latent_premium = (np.clip(cap_price_offset, 0, 1) * 0.3 + np.clip(chip_price_offset, 0, 1) * 0.2) * (1.0 - p_hab)
         distribution_penalty = np.abs(np.clip(cap_price_offset, -1, 0)) * 0.4 * p_hab
-        slopes_mat = np.column_stack([price_memory.get("trend_memory", 0).values, capital_memory.get("composite_capital_flow", 0).values, chip_memory.get("chip_slope", 0).values, sentiment_memory.get("sentiment_slope", 0).values])
-        slope_consistency = (np.all(slopes_mat > 0, axis=1) | np.all(slopes_mat < 0, axis=1)).astype(np.float32)
-        accels_mat = np.column_stack([price_memory.get("accel_memory", 0).values, capital_memory.get("cap_accel", 0).values, chip_memory.get("chip_accel", 0).values, sentiment_memory.get("sentiment_accel", 0).values])
-        accel_synergy = (accels_mat > 0).sum(axis=1) / 4.0
         synergy_boost = (slope_consistency * 0.15 + accel_synergy * 0.15)
         final_mem = (base_fusion * (0.85 + integrated_hab * 0.3) * (1.0 + synergy_boost + latent_premium - distribution_penalty))
         return pd.Series(final_mem, index=df_index).clip(0, 1).astype(np.float32)
