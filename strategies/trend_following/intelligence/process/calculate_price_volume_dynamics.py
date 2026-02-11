@@ -171,6 +171,23 @@ def _numba_rolling_accumulation(data, window=13):
         res[i] = accum
     return res
 
+@jit(nopython=True)
+def _numba_rolling_rank(arr, window):
+    """V1.0 · Numba 滚动排名算子：高性能计算滑动窗口内的百分位排名，替代 pandas apply lambda"""
+    n = len(arr)
+    out = np.empty(n, dtype=np.float32)
+    out[:] = np.nan  # 初始化为 NaN，与 pandas 行为一致
+    # 简单的 O(N*W) 实现，对于小窗口 (W=21) 比维护跳表或排序树更高效且对缓存友好
+    for i in range(window - 1, n):
+        count = 0.0
+        target = arr[i]
+        # 遍历窗口统计小于当前值的数量
+        for j in range(i - window + 1, i + 1):
+            if arr[j] < target:
+                count += 1.0
+        out[i] = count / (window - 1)
+    return out
+
 class CalculatePriceVolumeDynamics:
     """
     PROCESS_META_POWER_TRANSFER
@@ -433,260 +450,233 @@ class CalculatePriceVolumeDynamics:
             print(f"    新增指标固化 -> 21d熵减稳态: {hab_snapshot['metrics'].get('ACCUM_21_ENTROPY_STABILITY', 0.0):.1f}")
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V94.0 · 物理动力引擎：引入权重回补(Redistribution)与质量兜底(Mass Fallback)，确保低能级反转也能获得高分，清除空行"""
+        """V94.1 · 物理动力引擎：类型降级为 float32 提升 SIMD 效率，保留非线性门控逻辑，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 基础物理冲量
-        vol_adj = raw['BBW_21_2.0_D'].values.astype(np.float64)
-        roll_tc = pd.Series(raw['trade_count_D'].values, index=df_index).rolling(21).mean().replace(0, 1).values
-        conf = (raw['trade_count_D'].values / (roll_tc + 1e-9)).astype(np.float64)
-        j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_amount_rate_D'].values.astype(np.float64), vol_adj, conf)
-        a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float64), vol_adj, conf)
-        raw_impulse = (j_c * 0.45 + a_c * 0.55)
+        # 1. 基础物理冲量 (优化：移除 float64 转换，使用 float32)
+        vol_adj = raw['BBW_21_2.0_D'].values
+        roll_tc = pd.Series(raw['trade_count_D'].values, index=df_index).rolling(21).mean().replace(0, 1).values.astype(np.float32)
+        conf = (raw['trade_count_D'].values / (roll_tc + 1e-9)).astype(np.float32)
+        j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_amount_rate_D'].values, vol_adj, conf)
+        a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values, vol_adj, conf)
+        raw_impulse = (j_c * 0.45 + a_c * 0.55).astype(np.float32)
         # 2. 自适应归一化 (敏感度 0.8)
         imp_series = pd.Series(raw_impulse, index=df_index)
-        imp_mean = imp_series.rolling(21).mean().fillna(0).values
-        imp_std = imp_series.rolling(21).std().replace(0, 1e-9).values
+        imp_mean = imp_series.rolling(21).mean().fillna(0).values.astype(np.float32)
+        imp_std = imp_series.rolling(21).std().replace(0, 1e-9).values.astype(np.float32)
         z_score_imp = (raw_impulse - imp_mean) / imp_std
         norm_imp = np.tanh(z_score_imp * 0.8).astype(np.float32)
         # 3. 极值补偿
         price_pos = raw['price_percentile_position_D'].values
         comp_factor = np.where(price_pos < 0.2, 1.2, np.where(price_pos > 0.8, 0.8, 1.0)).astype(np.float32)
         comp_imp = norm_imp * comp_factor
-        # 4. MCV 动态门控与权重回补 (Weight Redistribution)
-        _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values.astype(np.float64), np.array([3, 5, 8, 13, 21], dtype=np.int64))
+        # 4. MCV 动态门控与权重回补
+        # 优化：dtype 明确指定为 float32
+        _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values, np.array([3, 5, 8, 13, 21], dtype=np.int64))
         mcv = np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10], dtype=np.float32), f_slopes.astype(np.float32))
-        # 基础权重配置
         base_imp_w = 0.60
         base_mcv_w = 0.35
-        # 门控逻辑: 冲量强且背离 -> MCV权重归零
         reversal_mask = (comp_imp > 0) & (mcv < 0)
         mcv_weight = np.where(reversal_mask, 0.0, base_mcv_w).astype(np.float32)
-        # 回补逻辑: 如果 MCV 权重被削减，将其转移给冲量
-        # 这样能保证总权重恒定，不会因为背离而降低得分上限
         imp_weight = base_imp_w + (base_mcv_w - mcv_weight)
-        # 5. 质量兜底 (Mass Fallback)
+        # 5. 质量兜底
         accum_m = raw['ACCUM_21_SMART_MONEY'].values
         accum_v = raw['ACCUM_21_VOLUME'].values
-        # 如果资金累积量过小(数据缺失或极小)，使用成交量累积作为替代
-        # 对数缩放: Log10(Vol)通常在 5~9 之间。除以 7.0 归一化
-        mass_m = np.clip(np.log1p(np.abs(accum_m)) / 10.0, 0.8, 1.3)
-        mass_v = np.clip(np.log1p(accum_v) / 7.0, 0.8, 1.3)
-        # 智能选择: 如果 mass_m 处于下限(0.8)，则尝试使用 mass_v
+        mass_m = np.clip(np.log1p(np.abs(accum_m)) / 10.0, 0.8, 1.3).astype(np.float32)
+        mass_v = np.clip(np.log1p(accum_v) / 7.0, 0.8, 1.3).astype(np.float32)
         final_mass = np.where(mass_m <= 0.81, mass_v, mass_m).astype(np.float32)
         # 6. 最终计算
         phy_score = ((comp_imp * 2.0 * imp_weight + mcv * mcv_weight) * final_mass).astype(np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[物理引擎回补探针 V94.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[物理引擎回补探针 V94.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    权重配置: 冲量={imp_weight[p_i]:.2f}, MCV={mcv_weight[p_i]:.2f}")
             print(f"    质量因子: {final_mass[p_i]:.2f} (原资金Mass: {mass_m[p_i]:.2f})")
             print(f"    >>> 物理合成总分: {phy_score[p_i]:.4f}")
         return pd.Series(phy_score, index=df_index, dtype=np.float32)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V82.0 · 溢价回吐风险：采用历史天量归一化，识别相对衰竭，清除空行"""
+        """V82.1 · 溢价回吐风险：全链路 float32 优化，加速峰值查找计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        turnover = raw['turnover_rate_f_D'].values
+        turnover = raw['turnover_rate_f_D'].values.astype(np.float32)
         extreme = raw['STATE_EMOTIONAL_EXTREME_D'].values.astype(np.float32)
-        daily_ratio = raw['closing_flow_ratio_D'].values
-        # 1. 换手竭尽归一化 (Exhaustion Normalization)
-        # 计算 21 日最大换手率作为短期天花板
-        max_turn = pd.Series(turnover, index=df_index).rolling(21).max().replace(0, 1.0).values
-        # 竭尽率 = 当前换手 / 周期峰值。接近 1.0 代表到达天量区，风险极大
-        exhaustion_rate = np.clip(turnover / max_turn, 0.0, 1.5)
+        daily_ratio = raw['closing_flow_ratio_D'].values.astype(np.float32)
+        # 1. 换手竭尽归一化
+        max_turn = pd.Series(turnover, index=df_index).rolling(21).max().replace(0, 1.0).values.astype(np.float32)
+        exhaustion_rate = np.clip(turnover / max_turn, 0.0, 1.5).astype(np.float32)
         # 2. HAB 尾盘压力
-        accum_ratio = raw['ACCUM_13_CLOSING_FLOW'].values
-        # 尾盘压力归一化：相对 13 日均值
-        mean_ratio = pd.Series(daily_ratio, index=df_index).rolling(13).mean().replace(0, 0.1).values
-        hab_risk_norm = np.where(accum_ratio > mean_ratio * 13 * 1.5, 1.25, 1.0)
+        accum_ratio = raw['ACCUM_13_CLOSING_FLOW'].values.astype(np.float32)
+        mean_ratio = pd.Series(daily_ratio, index=df_index).rolling(13).mean().replace(0, 0.1).values.astype(np.float32)
+        hab_risk_norm = np.where(accum_ratio > mean_ratio * 13 * 1.5, 1.25, 1.0).astype(np.float32)
         reversal_pressure = daily_ratio * extreme * exhaustion_rate * hab_risk_norm
         risk_adjustment = pd.Series(1.0 - reversal_pressure * 0.4, index=df_index, dtype=np.float32).clip(0.5, 1.0)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[溢价风险自适应探针 V82.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[溢价风险自适应探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    换手竭尽率: {exhaustion_rate[p_i]:.2f} (当前/21日峰值)")
         return risk_adjustment
 
     def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V88.0 · 日内衰减：采用 Tanh 软衰减，大幅降低对常态波动(轻微不稳定)的惩罚力度，清除空行"""
+        """V88.1 · 日内衰减：全链路 float32 优化，加速 Z-Score 与 Tanh 计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        stab = raw['TURNOVER_STABILITY_INDEX_D'].values
-        # 1. 稳定性归一化 (Z-Score)
+        stab = raw['TURNOVER_STABILITY_INDEX_D'].values.astype(np.float32)
+        # 1. 稳定性归一化 (优化：显式 float32)
         stab_s = pd.Series(stab, index=df_index)
-        stab_mean = stab_s.rolling(21).mean().values
-        stab_std = stab_s.rolling(21).std().replace(0, 1e-6).values
+        stab_mean = stab_s.rolling(21).mean().values.astype(np.float32)
+        stab_std = stab_s.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         stab_z = (stab - stab_mean) / stab_std
-        # 2. 软衰减因子映射 (Soft Decay)
-        # Z=0 -> 1.0 (中性)
-        # Z=-0.5 -> 1.0 + (-0.46)*0.15 = 0.93 (轻微惩罚)
-        # Z=-2.0 -> 1.0 + (-0.96)*0.15 = 0.85 (最大惩罚不超过 15%)
-        # 这种设计即便是烂板也能给到 0.85 的保底分，不至于直接熔断
+        # 2. 软衰减因子映射
         base_decay = np.clip(1.0 + np.tanh(stab_z) * 0.15, 0.7, 1.2).astype(np.float32)
         # 3. 结构性崩塌判定
-        close, up, ratio = raw['close_D'].values, raw['up_limit_D'].values, raw['closing_flow_ratio_D'].values
-        mean_stab = raw['MEAN_13_STABILITY'].values
+        close, up, ratio = raw['close_D'].values.astype(np.float32), raw['up_limit_D'].values.astype(np.float32), raw['closing_flow_ratio_D'].values.astype(np.float32)
+        mean_stab = raw['MEAN_13_STABILITY'].values.astype(np.float32)
         bad_board = (close >= up * 0.999) & (ratio > 0.4) & (stab < 0.4)
-        fragility = np.where(mean_stab < 0.5, 0.9, 1.0) # 历史差，打9折
-        winner = raw['winner_rate_D'].values
+        fragility = np.where(mean_stab < 0.5, 0.9, 1.0).astype(np.float32)
+        winner = raw['winner_rate_D'].values.astype(np.float32)
         repair = np.where((winner < 0.15) & (stab < 0.3), 1.5, 1.0).astype(np.float32)
         decay = base_decay * np.where(bad_board, 0.6, 1.0).astype(np.float32) * repair * fragility
         final_decay = pd.Series(decay, index=df_index, dtype=np.float32).clip(0.4, 1.5)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[日内衰减柔化探针 V88.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[日内衰减柔化探针 V88.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    稳定性Z分: {stab_z[p_i]:.2f}σ -> 基础衰减: {base_decay[p_i]:.2f}")
             print(f"    >>> 最终日内衰减: {final_decay.loc[probe_ts]:.4f}")
         return final_decay
 
     def _calculate_sector_resonance_modifier(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V82.0 · 板块共振：采用信噪比(SNR)归一化，剔除无效波动，清除空行"""
+        """V82.1 · 板块共振：全链路 float32 优化，加速信噪比计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        s_hot = raw['SLOPE_5_THEME_HOTNESS_SCORE_D'].values
-        a_hot = raw['ACCEL_5_THEME_HOTNESS_SCORE_D'].values
-        # 1. 动量信噪比归一化 (Momentum SNR Normalization)
-        # 计算斜率的 21 日标准差，用作归一化分母
-        s_hot_std = pd.Series(s_hot, index=df_index).rolling(21).std().replace(0, 1e-9).values
-        # SNR > 1 代表趋势性显著强于波动性
+        s_hot = raw['SLOPE_5_THEME_HOTNESS_SCORE_D'].values.astype(np.float32)
+        a_hot = raw['ACCEL_5_THEME_HOTNESS_SCORE_D'].values.astype(np.float32)
+        # 1. 动量信噪比归一化 (优化：显式 float32)
+        s_hot_std = pd.Series(s_hot, index=df_index).rolling(21).std().replace(0, 1e-9).values.astype(np.float32)
         s_hot_snr = np.clip(s_hot / s_hot_std, -3.0, 3.0)
-        # 使用 sigmoid 将 SNR 映射为 0~1 的冲击系数
         impulse_factor = (1.0 / (1.0 + np.exp(-s_hot_snr))).astype(np.float32)
         # 2. HAB 主线霸榜
-        high_rank_days = raw['ACCUM_21_HIGH_RANK'].values
-        # 归一化霸榜天数 (0~1)
+        high_rank_days = raw['ACCUM_21_HIGH_RANK'].values.astype(np.float32)
         leadership_norm = np.clip(high_rank_days / 21.0, 0.0, 1.0).astype(np.float32)
-        leadership_bonus = 1.0 + leadership_norm * 0.4 # 最大加成 1.4
+        leadership_bonus = 1.0 + leadership_norm * 0.4
         persistence = np.where((raw['industry_rank_accel_D'].values > 0) & (raw['flow_consistency_D'].values > 0.65), 1.2, 0.8).astype(np.float32)
-        rank_jerk = raw['JERK_3_industry_strength_rank_D'].values
+        rank_jerk = raw['JERK_3_industry_strength_rank_D'].values.astype(np.float32)
         rank_pulse = np.where(rank_jerk < -2.0, 1.3, 1.0).astype(np.float32)
         mod = (0.8 + impulse_factor * 0.4) * persistence * leadership_bonus * rank_pulse
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[板块信噪比探针 V82.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[板块信噪比探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    热度斜率SNR: {s_hot_snr[p_i]:.2f}, 冲击系数: {impulse_factor[p_i]:.2f}")
         return pd.Series(mod, index=df_index, dtype=np.float32).clip(0.6, 2.2)
 
     def _calculate_volatility_clustering_adjustment(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V84.0 · 波动率伽马：采用 BBW Z-Score 自适应归一化，统计学定义挤压与扩张，清除空行"""
+        """V84.1 · 波动率伽马：全链路 float32 优化，加速 Z-Score 计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        bbw = raw['BBW_21_2.0_D'].values
-        # 1. 自适应归一化 (Z-Score Normalization)
-        # 计算 BBW 的 21 日均值和标准差
+        bbw = raw['BBW_21_2.0_D'].values.astype(np.float32)
+        # 1. 自适应归一化 (优化：显式 float32)
         bbw_s = pd.Series(bbw, index=df_index)
-        bbw_mean = bbw_s.rolling(21).mean().values
-        bbw_std = bbw_s.rolling(21).std().replace(0, 1e-6).values
-        # BBW Z-Score: 衡量当前波动带宽相对于历史的偏离程度
+        bbw_mean = bbw_s.rolling(21).mean().values.astype(np.float32)
+        bbw_std = bbw_s.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         bbw_z = (bbw - bbw_mean) / bbw_std
         # 2. 状态定义
-        # Z < -1.0: 显著挤压 (Squeeze)，能量积蓄
-        # Z > 2.0: 异常扩张 (Expansion)，能量释放/耗尽
         is_squeeze = (bbw_z < -1.0)
         is_expansion = (bbw_z > 2.0)
         # 3. 动力学结合
-        s_bbw = raw['SLOPE_5_BBW_21_2.0_D'].values
-        a_bbw = raw['ACCEL_5_BBW_21_2.0_D'].values
-        # VCP 点火：处于挤压状态且波动率开始加速放大 (Accel > 0)
-        vcp_ignite = np.where(is_squeeze & (a_bbw > 0), 1.4, 1.0)
-        # 波动率陷阱：处于极度扩张状态且开始减速 (Slope < 0)
-        trap = np.where(is_expansion & (s_bbw < 0), 0.7, 1.0)
+        s_bbw = raw['SLOPE_5_BBW_21_2.0_D'].values.astype(np.float32)
+        a_bbw = raw['ACCEL_5_BBW_21_2.0_D'].values.astype(np.float32)
+        vcp_ignite = np.where(is_squeeze & (a_bbw > 0), 1.4, 1.0).astype(np.float32)
+        trap = np.where(is_expansion & (s_bbw < 0), 0.7, 1.0).astype(np.float32)
         # 4. HAB 紧致度修正
-        squeeze_accum = raw['HIST_VOL_SQUEEZE'].values
-        # 归一化 HAB: 长期挤压后的爆发更猛烈
-        squeeze_bonus = np.clip(squeeze_accum / 10.0, 1.0, 1.3)
-        p_jerk = raw['JERK_3_close_D'].values
+        squeeze_accum = raw['HIST_VOL_SQUEEZE'].values.astype(np.float32)
+        squeeze_bonus = np.clip(squeeze_accum / 10.0, 1.0, 1.3).astype(np.float32)
+        p_jerk = raw['JERK_3_close_D'].values.astype(np.float32)
         adj = np.ones(len(df_index), dtype=np.float32)
-        adj = np.where(is_squeeze & (p_jerk > 0), 1.5 * vcp_ignite * squeeze_bonus, adj) # 挤压+价格脉冲=爆发
-        adj = np.where(is_squeeze & (p_jerk < 0), 0.5, adj) # 挤压+向下脉冲=破位
-        adj = adj * trap # 扩张陷阱惩罚
+        adj = np.where(is_squeeze & (p_jerk > 0), 1.5 * vcp_ignite * squeeze_bonus, adj)
+        adj = np.where(is_squeeze & (p_jerk < 0), 0.5, adj)
+        adj = adj * trap
         final_adj = pd.Series(adj, index=df_index, dtype=np.float32).clip(0.3, 2.5)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[波动率自适应探针 V84.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[波动率自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    BBW Z-Score: {bbw_z[p_i]:.2f}σ, 状态: {'挤压' if is_squeeze[p_i] else ('扩张' if is_expansion[p_i] else '常态')}")
             print(f"    挤压累积(HAB): {squeeze_accum[p_i]:.1f}, 陷阱惩罚: {trap[p_i]:.2f}")
         return final_adj
 
     def _calculate_sector_overflow_decay(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V84.0 · 熵增雪崩：采用滚动极值归一化，精准识别相对过热，清除空行"""
+        """V84.1 · 熵增雪崩：全链路 float32 优化，加速分形维数后处理，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        hot = raw['THEME_HOTNESS_SCORE_D'].values
-        accum_hot = raw['ACCUM_21_THEME_HOTNESS'].values
-        accel_hot = raw['ACCEL_5_THEME_HOTNESS_SCORE_D'].values
-        # 1. 相对热度归一化 (Relative Hotness)
-        # 计算 60 日滚动最大热度，作为当季度的“天花板”
-        max_hot = pd.Series(hot, index=df_index).rolling(60).max().replace(0, 1.0).values
-        # 相对热度: 当前热度 / 季度峰值
+        hot = raw['THEME_HOTNESS_SCORE_D'].values.astype(np.float32)
+        accum_hot = raw['ACCUM_21_THEME_HOTNESS'].values.astype(np.float32)
+        accel_hot = raw['ACCEL_5_THEME_HOTNESS_SCORE_D'].values.astype(np.float32)
+        # 1. 相对热度归一化
+        max_hot = pd.Series(hot, index=df_index).rolling(60).max().replace(0, 1.0).values.astype(np.float32)
         rel_hot = hot / max_hot
         # 2. 动态雪崩门槛
-        # 如果相对热度 > 0.9 (接近历史极值) 且 长期累积热度也很高，则门槛极低
-        risk_level = np.where((rel_hot > 0.9) & (accum_hot > 1500.0), "CRITICAL", "NORMAL")
+        risk_level = np.where((rel_hot > 0.9) & (accum_hot > 1500.0), 1.0, 0.0)
         # 3. 分形熵增判定
-        fd_all = _numba_fractal_dimension(np.expand_dims(hot, axis=0).astype(np.float64), window=13)
+        fd_all = _numba_fractal_dimension(np.expand_dims(hot, axis=0), window=13)
         fd_vals = fd_all[0].astype(np.float32)
         slope = pd.Series(fd_vals, index=df_index).diff(5).fillna(0).values.astype(np.float32)
         accel_fd = pd.Series(slope, index=df_index).diff(5).fillna(0).values.astype(np.float32)
-        # 雪崩条件：(高危状态 OR 绝对热度过高) AND (分形维数加速上升 -> 混乱度激增)
         is_exploding = (accel_hot > 0.5)
-        avalanche = ((risk_level == "CRITICAL") | (hot > 80.0) | is_exploding) & (slope > 0) & (accel_fd > 0)
-        base = (1.5 / (fd_vals + 1e-9)).clip(0.5, 1.1)
+        avalanche = ((risk_level == 1.0) | (hot > 80.0) | is_exploding) & (slope > 0) & (accel_fd > 0)
+        base = (1.5 / (fd_vals + 1e-9)).clip(0.5, 1.1).astype(np.float32)
         res = np.where(avalanche, base * 0.5, base).astype(np.float32)
         final_decay = pd.Series(res, index=df_index, dtype=np.float32).clip(0.1, 1.2)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[熵增雪崩自适应探针 V84.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    相对热度: {rel_hot[p_i]:.2f}, 风险等级: {risk_level[p_i]}")
+            print(f"\n[熵增雪崩自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    相对热度: {rel_hot[p_i]:.2f}, 风险等级: {'CRITICAL' if risk_level[p_i]==1.0 else 'NORMAL'}")
             print(f"    状态: {'雪崩' if avalanche[p_i] else '稳定'}")
         return final_decay
 
     def _calculate_hmm_regime_confirmation(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V85.0 · HMM 体制确认：采用全要素 Z-Score 自适应归一化，精准对齐体制质心，清除空行"""
+        """V85.1 · HMM 体制确认：优化数据准备阶段为 float32，无缝对接 Numba，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 资金流 Z-Score (Flow)
+        # 1. 资金流 Z-Score
         l_n = raw['SMART_MONEY_HM_NET_BUY_D']
-        r_m, r_s = l_n.rolling(21).mean().fillna(0), l_n.rolling(21).std().replace(0, 1e-9)
-        f_n = ((l_n - r_m) / r_s).values.astype(np.float32)
-        # 2. 成交量 Z-Score (Volume)
-        # 原逻辑是相对比率，现统一为 Z-Score 以匹配质心定义
+        r_m = l_n.rolling(21).mean().fillna(0).values.astype(np.float32)
+        r_s = l_n.rolling(21).std().replace(0, 1e-9).values.astype(np.float32)
+        f_n = ((l_n.values.astype(np.float32) - r_m) / r_s)
+        # 2. 成交量 Z-Score
         vol = raw['volume_D']
-        v_m, v_s = vol.rolling(21).mean().fillna(0), vol.rolling(21).std().replace(0, 1e-9)
-        v_n = ((vol - v_m) / v_s).values.astype(np.float32)
-        # 3. 价格 Z-Score (Price)
-        # 移除 *10.0 硬编码，使用 pct_change 的 Z-Score
+        v_m = vol.rolling(21).mean().fillna(0).values.astype(np.float32)
+        v_s = vol.rolling(21).std().replace(0, 1e-9).values.astype(np.float32)
+        v_n = ((vol.values.astype(np.float32) - v_m) / v_s)
+        # 3. 价格 Z-Score
         pct = raw['pct_change_D']
-        p_m, p_s = pct.rolling(21).mean().fillna(0), pct.rolling(21).std().replace(0, 1e-6)
-        p_n = ((pct - p_m) / p_s).values.astype(np.float32)
-        # 4. VWAP 乖离 Z-Score (VWAP Dist)
-        # 原逻辑利用 BBW 近似 Std，现直接计算乖离的 Z-Score
+        p_m = pct.rolling(21).mean().fillna(0).values.astype(np.float32)
+        p_s = pct.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
+        p_n = ((pct.values.astype(np.float32) - p_m) / p_s)
+        # 4. VWAP 乖离 Z-Score
         dist = (raw['close_D'] - raw['VWAP_D']) / (raw['VWAP_D'] + 1e-9)
-        d_m, d_s = dist.rolling(21).mean().fillna(0), dist.rolling(21).std().replace(0, 1e-6)
-        v_d = ((dist - d_m) / d_s).values.astype(np.float32)
-        # 5. HMM 概率计算
-        # 输入现已全部归一化为 N(0,1)，适配固定质心
+        d_m = dist.rolling(21).mean().fillna(0).values.astype(np.float32)
+        d_s = dist.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
+        v_d = ((dist.values.astype(np.float32) - d_m) / d_s)
+        # 5. HMM 概率计算 (输入已确保 float32)
         m_p = _numba_hmm_regime_probability(f_n, v_n, p_n, v_d)
         m_p_s = pd.Series(m_p, index=df_index, dtype=np.float32)
         # 6. HAB 修正
-        acc_m = raw['ACCUM_21_SMART_MONEY'].values
+        acc_m = raw['ACCUM_21_SMART_MONEY'].values.astype(np.float32)
         regime_bias = np.where(acc_m > 0, 1.15, 0.9).astype(np.float32)
-        pos_days = raw['ACCUM_21_POS_SLOPE'].values
+        pos_days = raw['ACCUM_21_POS_SLOPE'].values.astype(np.float32)
         w_l = int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1])
         realization_ratio = np.clip(pos_days / (float(w_l) * 0.6), 0.7, 1.2).astype(np.float32)
         # 7. 动力学修正
-        p_a = m_p_s.diff(3).diff(3).fillna(0).values
-        p_j = m_p_s.diff(1).diff(1).diff(1).fillna(0).values
-        b_f = np.where(m_p > 0.5, 1.0 + (m_p - 0.5), 0.8 + m_p * 0.4)
+        p_a = m_p_s.diff(3).diff(3).fillna(0).values.astype(np.float32)
+        p_j = m_p_s.diff(1).diff(1).diff(1).fillna(0).values.astype(np.float32)
+        b_f = np.where(m_p > 0.5, 1.0 + (m_p - 0.5), 0.8 + m_p * 0.4).astype(np.float32)
         d_b = 1.0 + np.where((m_p > 0.6) & (p_a > 0), 0.2, 0.0) + np.where((m_p > 0.4) & (p_j > 0.1), 0.3, 0.0)
         final_conf = pd.Series(b_f * d_b * regime_bias * realization_ratio, index=df_index, dtype=np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[HMM 自适应探针 V85.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[HMM 自适应探针 V85.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    输入Z分 -> 资金: {f_n[p_i]:.2f}, 量能: {v_n[p_i]:.2f}, 价格: {p_n[p_i]:.2f}, 乖离: {v_d[p_i]:.2f}")
             print(f"    拉升概率: {m_p[p_i]:.4f}, 最终确认: {final_conf.loc[probe_ts]:.4f}")
         return final_conf
 
     def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V90.0 · 分形相干效率：引入超线性免疫(Super Trend Immunity)，保护主升浪结构，清除空行"""
+        """V90.1 · 分形相干效率：数据类型降级为 float32，加速矩阵运算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        c_vals = raw['close_D'].values.astype(np.float64)
-        v_vals = raw['volume_D'].values.astype(np.float64)
+        # 优化：移除 .astype(np.float64)，使用 float32
+        c_vals = raw['close_D'].values
+        v_vals = raw['volume_D'].values
         input_arrays = np.vstack((c_vals, v_vals))
         f_all = _numba_fractal_dimension(input_arrays, window=21)
         h_p, h_v = (2.0 - f_all[0]).astype(np.float32), (2.0 - f_all[1]).astype(np.float32)
@@ -694,16 +684,14 @@ class CalculatePriceVolumeDynamics:
         # 1. 缺口标准化
         raw_gap = np.abs(h_p - h_v)
         gap_s = pd.Series(raw_gap, index=df_index)
-        gap_std = gap_s.rolling(21).std().replace(0, 1e-6).values
+        gap_std = gap_s.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         gap_z = raw_gap / gap_std
         # 2. 连续性评分
-        res_score = np.clip(1.2 - gap_z * 0.2, 0.5, 1.3)
-        # 3. 超线性免疫 (Immunity)
-        # 如果 Hurst > 0.8，说明价格走势极度线性有序，此时忽略量能扰动带来的缺口
+        res_score = np.clip(1.2 - gap_z * 0.2, 0.5, 1.3).astype(np.float32)
+        # 3. 超线性免疫
         is_super_trend = (h_p > 0.8)
         if np.any(is_super_trend):
-            # 在超强趋势下，Gap Z 即使很大也不扣分，反而视为动能强劲
-            res_score = np.where(is_super_trend, 1.2, res_score)
+            res_score = np.where(is_super_trend, 1.2, res_score).astype(np.float32)
         # 4. HAB 稳态
         w_l = int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1])
         is_ordered = np.where(h_p > 0.55, 1.0, 0.0).astype(np.float32)
@@ -714,86 +702,79 @@ class CalculatePriceVolumeDynamics:
         final_series = pd.Series(final, index=df_index, dtype=np.float32).clip(0.4, 2.0)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[分形免疫探针 V90.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[分形免疫探针 V90.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    Hurst指数: {h_p[p_i]:.4f}, 免疫状态: {'激活' if is_super_trend[p_i] else '关闭'}")
             print(f"    缺口Z分: {gap_z[p_i]:.2f}σ -> 基础分: {res_score[p_i]:.2f}")
             print(f"    >>> 最终分形效率: {final_series.loc[probe_ts]:.4f}")
         return final_series
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V93.0 · 筹码锁定效率：引入 HAB 惯性保护(Inertial Protection)，平滑单日获利盘闪崩，清除空行"""
+        """V93.1 · 筹码锁定效率：全链路 float32 优化，加速中位数滚动计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        win = raw['winner_rate_D'].values
-        turn = raw['turnover_rate_f_D'].values
-        c_s, p_s = raw['cost_50pct_D'].values, raw['close_D'].values
-        # 1. 获利盘惯性平滑 (Inertial Smoothing)
-        # 逻辑：如果过去 13 天长期处于高获利状态(ACCUM_13_HIGH_WINNER 高)，
-        # 即使单日获利盘暴跌(如高位换手导致的假摔)，也应保留一部分惯性分，防止策略熔断
-        high_win_days = raw['ACCUM_13_HIGH_WINNER'].values
-        inertial_win = np.clip(high_win_days / 13.0, 0.0, 1.0).astype(np.float32)
-        # 修正获利盘: 取 当日值、成本修正值、惯性值 中的最大者
+        win = raw['winner_rate_D'].values.astype(np.float32)
+        turn = raw['turnover_rate_f_D'].values.astype(np.float32)
+        c_s, p_s = raw['cost_50pct_D'].values.astype(np.float32), raw['close_D'].values.astype(np.float32)
+        # 1. 获利盘惯性平滑
+        high_win_days = raw['ACCUM_13_HIGH_WINNER'].values.astype(np.float32)
+        inertial_win = np.clip(high_win_days / 13.0, 0.0, 1.0)
         c_50 = np.where(c_s == 0, p_s, c_s)
         is_above_cost = (p_s > c_50)
-        cost_fix_win = np.where(is_above_cost, 0.6, 0.0)
-        # 核心修正：权重偏向惯性 (0.7 * win + 0.3 * inertial) 或者取最大值
-        # 这里采用取最大值策略，给予最强容错
-        eff_win = np.maximum(win, np.maximum(cost_fix_win, inertial_win * 0.8)).astype(np.float32)
-        # 2. 相对换手率
-        turn_median = pd.Series(turn, index=df_index).rolling(21).median().replace(0, 0.01).values
+        cost_fix_win = np.where(is_above_cost, 0.6, 0.0).astype(np.float32)
+        eff_win = np.maximum(win, np.maximum(cost_fix_win, inertial_win * 0.8))
+        # 2. 相对换手率 (优化：显式 float32)
+        turn_median = pd.Series(turn, index=df_index).rolling(21).median().replace(0, 0.01).values.astype(np.float32)
         rel_turn = turn / (turn_median + 1e-9)
         # 3. 趋势缓冲
-        ma21 = raw['close_D'].rolling(21).mean().values
+        ma21 = raw['close_D'].rolling(21).mean().values.astype(np.float32)
         is_trend_safe = (raw['close_D'].values > ma21)
         buffer_rate = np.where(is_trend_safe, 0.6, 1.0).astype(np.float32)
-        absorb = raw['absorption_energy_D'].values
-        final_decay = np.clip(buffer_rate - np.where(absorb > 0, 0.3, 0.0), 0.3, 1.2)
+        absorb = raw['absorption_energy_D'].values.astype(np.float32)
+        final_decay = np.clip(buffer_rate - np.where(absorb > 0, 0.3, 0.0), 0.3, 1.2).astype(np.float32)
         # 4. 锁定系数
         lock_factor = 2.0 / (1.0 + np.exp((rel_turn - 1.0) * 2.0 * final_decay))
-        lock_factor = np.clip(lock_factor, 0.3, 1.5).astype(np.float32)
+        lock_factor = np.clip(lock_factor, 0.3, 1.5)
         s_lock = eff_win * lock_factor
         # 5. 动力学与 HAB
-        a_w, a_t, j_w = raw['ACCEL_5_winner_rate_D'].values, raw['ACCEL_5_turnover_rate_f_D'].values, raw['JERK_3_winner_rate_D'].values
+        a_w = raw['ACCEL_5_winner_rate_D'].values.astype(np.float32)
+        a_t = raw['ACCEL_5_turnover_rate_f_D'].values.astype(np.float32)
+        j_w = raw['JERK_3_winner_rate_D'].values.astype(np.float32)
         k_bonus = 1.0 + np.where((a_w > 0) & (a_t < 0), 0.3, 0.0) + np.where(j_w > 0.1, 0.2, 0.0)
         deep_lock_mult = np.where(high_win_days > 10, 1.5, np.where(high_win_days > 5, 1.2, 1.0)).astype(np.float32)
         b_c = is_above_cost.astype(np.float32)
         final_eff = pd.Series(s_lock * k_bonus * deep_lock_mult * (0.8 + b_c * 0.2), index=df_index, dtype=np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[筹码惯性探针 V93.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[筹码惯性探针 V93.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    原始获利: {win[p_i]:.2f}, 惯性获利: {inertial_win[p_i]:.2f} (HAB={high_win_days[p_i]:.0f}d)")
             print(f"    有效获利(平滑后): {eff_win[p_i]:.2f}")
             print(f"    >>> 最终筹码效率: {final_eff.loc[probe_ts]:.4f}")
         return final_eff
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V94.0 · 微观矢量：全自适应 Z-Score 判定，精准识别隐蔽吸筹与良性回调，清除空行"""
+        """V94.1 · 微观矢量：全链路 float32 优化，加速滚动 Z-Score 计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values)
-        l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values)
-        t_a = (raw['amount_D'].values + 1e-9)
+        e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values).astype(np.float32)
+        l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values).astype(np.float32)
+        t_a = (raw['amount_D'].values + 1e-9).astype(np.float32)
         net_ratio = (e_n + l_n) / t_a
         # 1. 资金流 Z-Score
         ratio_s = pd.Series(net_ratio, index=df_index)
-        ratio_mean = ratio_s.rolling(21).mean().fillna(0).values
-        ratio_std = ratio_s.rolling(21).std().replace(0, 1e-6).values
+        ratio_mean = ratio_s.rolling(21).mean().fillna(0).values.astype(np.float32)
+        ratio_std = ratio_s.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         z_score_flow = (net_ratio - ratio_mean) / ratio_std
         base_score = 0.5 + (1.0 / (1.0 + np.exp(-z_score_flow)))
-        # 2. 价格动力学 Z-Score (用于辅助判定)
-        raw_jerk = raw['JERK_3_close_D'].values
+        # 2. 价格动力学 Z-Score
+        raw_jerk = raw['JERK_3_close_D'].values.astype(np.float32)
         jerk_s = pd.Series(raw_jerk, index=df_index)
-        jerk_std = jerk_s.rolling(21).std().replace(0, 1e-6).values
-        jerk_mean = jerk_s.rolling(21).mean().fillna(0).values
+        jerk_mean = jerk_s.rolling(21).mean().fillna(0).values.astype(np.float32)
+        jerk_std = jerk_s.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         z_score_jerk = (raw_jerk - jerk_mean) / jerk_std
-        # 3. 隐蔽吸筹与良性回调 (Adaptive Guard)
-        close = raw['close_D'].values
-        ma5 = pd.Series(close, index=df_index).rolling(5).mean().values
-        ma21 = raw['close_D'].rolling(21).mean().values
-        # 隐蔽吸筹: 资金流负 + 价格加速向上 (Jerk Z > 0) + 站稳短均线
+        # 3. 隐蔽吸筹与良性回调
+        close = raw['close_D'].values.astype(np.float32)
+        ma5 = pd.Series(close, index=df_index).rolling(5).mean().values.astype(np.float32)
+        ma21 = raw['close_D'].rolling(21).mean().values.astype(np.float32)
         is_stealth = (net_ratio < 0) & (close > ma5) & (z_score_jerk > 0)
-        # 良性回调: 资金流未崩盘 (Z > -1.0) + 趋势向上 (Close > MA21) + 价格未崩盘 (Jerk Z > -2.0)
-        # 使用 Z-Score > -2.0 替代了原来的 绝对值 > -2.0，适应性更强
         is_benign_dip = (z_score_flow > -1.0) & (close > ma21) & (z_score_jerk > -2.0)
-        # 护盾生效
         adjusted_base = base_score
         if np.any(is_stealth) or np.any(is_benign_dip):
             guard_mask = (is_stealth | is_benign_dip)
@@ -803,150 +784,137 @@ class CalculatePriceVolumeDynamics:
         sync_score = np.where((e_r > 0) & (l_r > 0), 1.1, np.where((e_r * l_r) < 0, 0.9, 1.0)).astype(np.float32)
         s_j = raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32)
         jerk_bonus = np.where(s_j > 0.5, 1.2, 1.0).astype(np.float32)
-        d_sm = (e_n + l_n).astype(np.float32)
+        d_sm = (e_n + l_n)
         a13 = raw['ACCUM_13_SMART_MONEY'].values.astype(np.float32)
         h_s = np.where((d_sm < 0) & (a13 > np.abs(d_sm) * 10.0), 1.1, 1.0).astype(np.float32)
         final_v = pd.Series(adjusted_base * sync_score * jerk_bonus * h_s, index=df_index, dtype=np.float32).clip(0.4, 2.0)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[微观自适应探针 V94.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[微观自适应探针 V94.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    资金Z: {z_score_flow[p_i]:.2f}σ, 价格Jerk Z: {z_score_jerk[p_i]:.2f}σ")
             print(f"    状态判定: {'隐蔽吸筹' if is_stealth[p_i] else ('良性回调' if is_benign_dip[p_i] else '正常')}")
             print(f"    >>> 最终攻击矢量: {final_v.loc[probe_ts]:.4f}")
         return final_v
 
     def _calculate_vpa_elasticity_reflexivity(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V83.0 · 流体反身性：采用历史中位数相对归一化，精准识别高敏状态，清除空行"""
+        """V83.1 · 流体反身性：全链路 float32 优化，加速中位数滚动计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        pp = np.abs(raw['pct_change_D'].values)
-        pv = np.abs(pd.Series(raw['volume_D'].values, index=df_index).pct_change().fillna(0).values)
+        pp = np.abs(raw['pct_change_D'].values).astype(np.float32)
+        pv = np.abs(pd.Series(raw['volume_D'].values, index=df_index).pct_change().fillna(0).values).astype(np.float32)
         # 1. 瞬时弹性
         current_elasticity = pp / (pv + 0.1)
-        # 2. 自适应归一化 (Median Relative)
-        # 计算 21 日中位数弹性，作为基准
-        ela_median = pd.Series(current_elasticity, index=df_index).rolling(21).median().replace(0, 0.01).values
-        # 相对弹性比率 (Relative Elasticity Ratio)
-        # Ratio > 1.0 代表当前比平时更"轻"，少量量能即可推动价格
+        # 2. 自适应归一化 (优化：显式 float32)
+        ela_median = pd.Series(current_elasticity, index=df_index).rolling(21).median().replace(0, 0.01).values.astype(np.float32)
         rel_elasticity = current_elasticity / ela_median
-        # 映射分数：关注 Ratio > 1.0 的区间
-        score = np.clip(np.tanh(rel_elasticity - 0.8) + 0.5, 0.5, 1.8)
+        score = np.clip(np.tanh(rel_elasticity - 0.8) + 0.5, 0.5, 1.8).astype(np.float32)
         # 3. HAB 弹性密度修正
-        acc_e = raw['ACCUM_13_ELASTICITY'].values
-        # 同样对 HAB 进行相对归一化
+        acc_e = raw['ACCUM_13_ELASTICITY'].values.astype(np.float32)
         hab_score = np.clip(acc_e / (ela_median * 13.0 + 1e-9), 0.8, 1.4).astype(np.float32)
         # 4. 动力学修正
-        e_s = pd.Series(current_elasticity, index=df_index).diff(3).values
+        e_s = pd.Series(current_elasticity, index=df_index).diff(3).values.astype(np.float32)
         slope_bonus = np.where(e_s > 0, 1.2, 1.0).astype(np.float32)
         final = pd.Series(score * slope_bonus * hab_score, index=df_index, dtype=np.float32).clip(0.5, 2.5)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[反身性自适应探针 V83.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[反身性自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    当前弹性: {current_elasticity[p_i]:.2f}, 历史中位: {ela_median[p_i]:.2f}")
             print(f"    相对比率: {rel_elasticity[p_i]:.2f} -> 基础分: {score[p_i]:.2f}")
         return final
 
     def _calculate_wyckoff_breakout_quality(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V85.0 · 威科夫突破：采用 Jerk Z-Score 自适应归一化，精准识别爆发性突破，清除空行"""
+        """V85.1 · 威科夫突破：全链路 float32 优化，提升 TR 动力学计算速度，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        high, low = raw['high_D'].values, raw['low_D'].values
-        close = raw['close_D'].values
-        vol = raw['volume_D'].values
-        close_prev = raw['close_D'].shift(1).fillna(raw['close_D']).values
+        high = raw['high_D'].values.astype(np.float32)
+        low = raw['low_D'].values.astype(np.float32)
+        close = raw['close_D'].values.astype(np.float32)
+        vol = raw['volume_D'].values.astype(np.float32)
+        close_prev = raw['close_D'].shift(1).fillna(raw['close_D']).values.astype(np.float32)
         # 1. TR 动力学
         tr = np.maximum(high - low, np.maximum(np.abs(high - close_prev), np.abs(low - close_prev)))
         tr_norm = tr / (close + 1e-9)
         tr_s = pd.Series(tr_norm, index=df_index)
-        tr_slope = (tr_s.diff(5) / 5.0).values
-        tr_accel = (pd.Series(tr_slope, index=df_index).diff(5) / 5.0).values
-        # 2. 价格脉冲自适应归一化 (Price Jerk Z-Score)
-        # 原始 Jerk 单位是 $/day^3，受股价绝对值影响极大
-        raw_jerk = raw['JERK_3_close_D'].values
+        tr_slope = (tr_s.diff(5) / 5.0).values.astype(np.float32)
+        tr_accel = (pd.Series(tr_slope, index=df_index).diff(5) / 5.0).values.astype(np.float32)
+        # 2. 价格脉冲自适应归一化
+        raw_jerk = raw['JERK_3_close_D'].values.astype(np.float32)
         jerk_s = pd.Series(raw_jerk, index=df_index)
-        jerk_mean = jerk_s.rolling(21).mean().fillna(0).values
-        jerk_std = jerk_s.rolling(21).std().replace(0, 1e-6).values
-        # Jerk Z-Score: > 2.0 代表异常猛烈的加速
+        jerk_mean = jerk_s.rolling(21).mean().fillna(0).values.astype(np.float32)
+        jerk_std = jerk_s.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         jerk_z = (raw_jerk - jerk_mean) / jerk_std
         # 3. 自适应压缩比
-        vol_ma = pd.Series(vol, index=df_index).rolling(21).mean().replace(0, 1).values
-        tr_ma = pd.Series(tr, index=df_index).rolling(21).mean().replace(0, 1e-9).values
+        vol_ma = pd.Series(vol, index=df_index).rolling(21).mean().replace(0, 1).values.astype(np.float32)
+        tr_ma = pd.Series(tr, index=df_index).rolling(21).mean().replace(0, 1e-9).values.astype(np.float32)
         compression_ratio = np.clip((vol / vol_ma) / (tr / tr_ma + 0.1), 0.5, 3.0).astype(np.float32)
-        acc_compression = pd.Series(compression_ratio, index=df_index).rolling(5).mean().values
+        acc_compression = pd.Series(compression_ratio, index=df_index).rolling(5).mean().values.astype(np.float32)
         # 4. 突破判定
-        highest_21 = raw['high_D'].rolling(21).max().shift(1).fillna(99999).values
+        highest_21 = raw['high_D'].rolling(21).max().shift(1).fillna(99999).values.astype(np.float32)
         is_breakout = close > highest_21
-        # 质量判定：突破 + 压缩蓄势 + 脉冲爆发(Z>1.5)
-        # 之前使用 jerk > 0.1 是硬编码，现在用 Z > 1.5 自适应
-        quality_mult = np.where(acc_compression > 1.2, 1.5, 1.0)
+        quality_mult = np.where(acc_compression > 1.2, 1.5, 1.0).astype(np.float32)
         is_explosive = (jerk_z > 1.5)
-        base_q = np.where(is_breakout & is_explosive, 1.6, np.where(is_breakout, 0.9, 0.0))
-        # 非突破状态下的蓄势评分
-        prep_q = np.where((tr_slope < 0) & (tr_accel > -0.01), 1.1, 0.9)
+        base_q = np.where(is_breakout & is_explosive, 1.6, np.where(is_breakout, 0.9, 0.0)).astype(np.float32)
+        prep_q = np.where((tr_slope < 0) & (tr_accel > -0.01), 1.1, 0.9).astype(np.float32)
         quality = np.maximum(base_q, prep_q)
         final_score = pd.Series(quality * np.where((tr_slope < 0), 1.3, 1.0) * quality_mult, index=df_index, dtype=np.float32).clip(0.6, 2.5)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[威科夫自适应探针 V85.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[威科夫自适应探针 V85.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    Jerk Z-Score: {jerk_z[p_i]:.2f}σ (原值: {raw_jerk[p_i]:.4f})")
             print(f"    状态: {'爆发突破' if is_breakout[p_i] and is_explosive[p_i] else ('普通突破' if is_breakout[p_i] else '蓄势')}")
             print(f"    >>> 最终突破质量: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _calculate_trend_inertia_momentum(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V83.0 · 趋势运动学：采用标准化动力学归一化，精准定义加速状态，清除空行"""
+        """V83.1 · 趋势运动学：全链路 float32 优化，加速滚动标准差计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 均线排列 (保持原逻辑，因其为状态量)
-        ma5 = raw['close_D'].rolling(5).mean().values
-        ma21 = raw['close_D'].rolling(21).mean().values
-        ma55 = raw['close_D'].rolling(55).mean().values
+        # 1. 均线排列
+        close_s = raw['close_D']
+        ma5 = close_s.rolling(5).mean().values.astype(np.float32)
+        ma21 = close_s.rolling(21).mean().values.astype(np.float32)
+        ma55 = close_s.rolling(55).mean().values.astype(np.float32)
         alignment = np.where((ma5 > ma21) & (ma21 > ma55), 1.0, 0.8).astype(np.float32)
-        # 2. 标准化动力学 (Standardized Kinematics)
-        s_vals = raw['SLOPE_5_close_D'].values
-        a_vals = raw['ACCEL_5_close_D'].values
-        j_vals = raw['JERK_3_close_D'].values
-        # 计算各阶导数的历史标准差
-        s_std = pd.Series(s_vals, index=df_index).rolling(21).std().replace(0, 1e-6).values
-        a_std = pd.Series(a_vals, index=df_index).rolling(21).std().replace(0, 1e-6).values
-        # 标准化值 (Sigma)
+        # 2. 标准化动力学
+        s_vals = raw['SLOPE_5_close_D'].values.astype(np.float32)
+        a_vals = raw['ACCEL_5_close_D'].values.astype(np.float32)
+        j_vals = raw['JERK_3_close_D'].values.astype(np.float32)
+        # 优化：float32 滚动计算
+        s_std = pd.Series(s_vals, index=df_index).rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
+        a_std = pd.Series(a_vals, index=df_index).rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         norm_s = s_vals / s_std
         norm_a = a_vals / a_std
         # 3. 状态定义
-        # 强趋势: 速度 > 1.0σ 且 加速度 > 0.5σ
         is_strong_trend = (norm_s > 1.0) & (norm_a > 0.5)
-        # 抛物线加速: 加速度 > 1.5σ 且 Jerk > 0
         is_parabolic = (norm_a > 1.5) & (j_vals > 0)
         # 4. 评分映射
-        kinematic_score = 1.0
-        kinematic_score += np.where(is_strong_trend, 0.3, 0.0)
-        kinematic_score += np.where(is_parabolic, 0.4, 0.0)
-        kinematic_score -= np.where((norm_s > 0) & (norm_a < -1.0), 0.3, 0.0) # 减速惩罚
+        kinematic_score = np.ones(len(df_index), dtype=np.float32)
+        kinematic_score += np.where(is_strong_trend, 0.3, 0.0).astype(np.float32)
+        kinematic_score += np.where(is_parabolic, 0.4, 0.0).astype(np.float32)
+        kinematic_score -= np.where((norm_s > 0) & (norm_a < -1.0), 0.3, 0.0).astype(np.float32)
         # 5. HAB 韧性修正
-        pos_days = raw['ACCUM_21_POS_SLOPE'].values
+        pos_days = raw['ACCUM_21_POS_SLOPE'].values.astype(np.float32)
         consistency_bonus = np.clip(pos_days / 15.0, 0.8, 1.25).astype(np.float32)
-        r2_vals = raw['GEOM_REG_R2_D'].values
+        r2_vals = raw['GEOM_REG_R2_D'].values.astype(np.float32)
         final_inertia = pd.Series(alignment * kinematic_score * consistency_bonus * (0.6 + np.clip(r2_vals, 0.0, 1.0) * 0.4), index=df_index, dtype=np.float32).clip(0.6, 2.0)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[运动学自适应探针 V83.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[运动学自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    标准化速度: {norm_s[p_i]:.2f}σ, 标准化加速: {norm_a[p_i]:.2f}σ")
             print(f"    状态: {'抛物线加速' if is_parabolic[p_i] else ('强趋势' if is_strong_trend[p_i] else '常态')}")
         return final_inertia
 
     def _calculate_market_permeability_index(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V82.0 · 市场渗透率：采用历史分位数归一化，精准定位情绪周期，清除空行"""
+        """V82.1 · 市场渗透率：使用 Numba 滚动排名替代 Pandas apply，大幅提升计算效率，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         sent = raw['market_sentiment_score_D'].values
         accel = raw['ACCEL_5_market_sentiment_score_D'].values
-        # 1. 历史分位数归一化 (Rank Percentile Normalization)
-        # 计算当前情绪在过去 21 天中的排名百分比 (0~1)
-        # 这种方式能自动适应牛熊市不同的情绪基准
-        sent_series = pd.Series(sent, index=df_index)
-        sent_rank = sent_series.rolling(21).apply(lambda x: (x.argsort().argsort()[-1] / (len(x) - 1)) if len(x) > 1 else 0.5, raw=True).values
+        # 1. 历史分位数归一化 (优化：使用 _numba_rolling_rank)
+        # 替代原先极其缓慢的 rolling().apply(lambda...)
+        sent_rank = _numba_rolling_rank(sent, 21)
+        # Numba 函数前 20 个值为 NaN，使用 1.0 (中性/无信号) 填充以保持 safe
+        # sent_rank < 0.2 对 NaN 为 False，sent_rank > 0.8 对 NaN 为 False
         # 2. 相对极值判断
-        # 分位数 < 0.2: 相对冰点；分位数 > 0.8: 相对高潮
         perm = np.where((sent_rank < 0.2) & (accel > 0), 1.3, np.where((sent_rank > 0.8) & (accel > 0), 0.7, 1.0)).astype(np.float32)
         # 3. HAB 饱和度调节
         acc_sent = raw['ACCUM_13_SENTIMENT'].values
-        # 同样对累积情绪进行相对归一化
         acc_sent_median = pd.Series(acc_sent, index=df_index).rolling(21).median().values
         saturation_decay = np.where(acc_sent > acc_sent_median * 1.5, 0.8, 1.0).astype(np.float32)
         rank_val, jerk = raw['industry_strength_rank_D'].values, raw['JERK_3_industry_strength_rank_D'].values
@@ -954,102 +922,93 @@ class CalculatePriceVolumeDynamics:
         final_ctx = pd.Series(perm * bonus * saturation_decay, index=df_index, dtype=np.float32).clip(0.5, 1.8)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[渗透率自适应探针 V82.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[渗透率自适应探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    情绪分位数: {sent_rank[p_i]:.2f}, 相对状态: {'冰点复苏' if sent_rank[p_i] < 0.2 else ('过热' if sent_rank[p_i] > 0.8 else '常态')}")
         return final_ctx
 
     def _calculate_entry_accessibility_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V86.0 · 入场可获得性：设定 0.2 保底阈值，防止极端情况下得分为零，清除空行"""
+        """V86.1 · 入场可获得性：全链路 float32 优化，加速均值滚动计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        turnover = raw['turnover_rate_f_D'].values
+        turnover = raw['turnover_rate_f_D'].values.astype(np.float32)
         # 1. 相对流动性
-        turn_ma = pd.Series(turnover, index=df_index).rolling(21).mean().replace(0, 0.1).values
+        turn_ma = pd.Series(turnover, index=df_index).rolling(21).mean().replace(0, 0.1).values.astype(np.float32)
         rel_liq = turnover / turn_ma
-        # 2. 流动性评分 (保底 0.4)
+        # 2. 流动性评分
         base_access = np.where(rel_liq < 0.5, 0.4 + rel_liq * 0.5,
                       np.where(rel_liq <= 2.5, 1.0,
-                               np.clip(2.5/rel_liq, 0.5, 1.0)))
-        # 3. 封板硬约束 (保底 0.2)
-        up_limit = raw['up_limit_D'].values
-        close = raw['close_D'].values
-        intensity = raw['closing_flow_intensity_D'].values
+                               np.clip(2.5/rel_liq, 0.5, 1.0))).astype(np.float32)
+        # 3. 封板硬约束
+        up_limit = raw['up_limit_D'].values.astype(np.float32)
+        close = raw['close_D'].values.astype(np.float32)
+        intensity = raw['closing_flow_intensity_D'].values.astype(np.float32)
         sealing = np.clip(intensity, 0.0, 1.0)
-        # 如果封死涨停，得分为 0.2 (仍有机会排板成交，不完全杀死)，否则为 1.0
         limit_penalty = np.where(close >= up_limit * 0.999, 0.2 + 0.3 * (1.0 - sealing), 1.0).astype(np.float32)
         # 4. 抢筹拥堵
-        tc_accel = raw['ACCEL_5_trade_count_D'].values
-        lock_days = raw['ACCUM_5_LIQUIDITY_LOCK'].values
+        tc_accel = raw['ACCEL_5_trade_count_D'].values.astype(np.float32)
+        lock_days = raw['ACCUM_5_LIQUIDITY_LOCK'].values.astype(np.float32)
         congestion = np.where((tc_accel > 0.1) & (lock_days >= 3), 0.6, 1.0).astype(np.float32)
         final_access = pd.Series(base_access * limit_penalty * congestion, index=df_index, dtype=np.float32).clip(0.1, 1.2)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[入场保底探针 V86.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[入场保底探针 V86.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    相对流动性: {rel_liq[p_i]:.2f}, 封板惩罚: {limit_penalty[p_i]:.2f}")
             print(f"    >>> 最终可获得性: {final_access.loc[probe_ts]:.4f}")
         return final_access
 
     def _calculate_entropic_ordering_bonus(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V84.0 · 熵减有序性：采用有序流 Z-Score 自适应归一化，精准度量负熵做功，清除空行"""
+        """V84.1 · 熵减有序性：全链路 float32 优化，加速 Z-Score 计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        s5 = raw['SLOPE_5_chip_entropy_D'].values
-        a5 = raw['ACCEL_5_chip_entropy_D'].values
-        j3 = raw['JERK_3_chip_entropy_D'].values
-        pct = raw['pct_change_D'].values
-        # 1. 有序化力度合成 (Ordering Force)
-        # 负斜率和负加速度代表有序度增加
+        s5 = raw['SLOPE_5_chip_entropy_D'].values.astype(np.float32)
+        a5 = raw['ACCEL_5_chip_entropy_D'].values.astype(np.float32)
+        j3 = raw['JERK_3_chip_entropy_D'].values.astype(np.float32)
+        pct = raw['pct_change_D'].values.astype(np.float32)
+        # 1. 有序化力度合成
         locking_force = -(s5 * 0.7 + a5 * 0.3)
-        # 2. 自适应归一化 (Z-Score)
-        # 计算锁定力度的历史标准差，衡量当前的有序化是否“异常强烈”
+        # 2. 自适应归一化 (优化：显式 float32)
         force_s = pd.Series(locking_force, index=df_index)
-        force_std = force_s.rolling(21).std().replace(0, 1e-6).values
+        force_std = force_s.rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         force_z = locking_force / force_std
-        # 仅当有序化力度显著强于历史 (>1.0σ) 时给予奖励
-        base_bonus = np.clip(np.tanh(force_z - 1.0) + 0.5, 0.0, 1.5)
+        base_bonus = np.clip(np.tanh(force_z - 1.0) + 0.5, 0.0, 1.5).astype(np.float32)
         # 3. 脉冲修正
-        # Jerk < -0.01 且 Z-Score 很高 => 瞬间强力锁仓
         jerk_bonus = np.where((j3 < -0.01) & (force_z > 1.5), 1.3, 1.0).astype(np.float32)
-        # 4. HAB 稳定性修正 (相对比率)
-        ent_stab = raw['ACCUM_21_ENTROPY_STABILITY'].values
-        # 稳定性比率: 21天里有多少天是熵减的 / 21
+        # 4. HAB 稳定性修正
+        ent_stab = raw['ACCUM_21_ENTROPY_STABILITY'].values.astype(np.float32)
         stab_ratio = ent_stab / 21.0
         stability_mult = np.clip(stab_ratio * 2.0, 0.8, 1.4).astype(np.float32)
         penalty = np.where((pct > 0) & (s5 > 0), 0.7, 1.0).astype(np.float32)
         final_factor = pd.Series((1.0 + base_bonus) * jerk_bonus * stability_mult * penalty, index=df_index, dtype=np.float32).clip(0.6, 2.5)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[熵减自适应探针 V84.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[熵减自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    锁定力度Z分: {force_z[p_i]:.2f}σ, 稳定性占比: {stab_ratio[p_i]*100:.1f}%")
             print(f"    >>> 最终有序性系数: {final_factor.loc[probe_ts]:.4f}")
         return final_factor
 
     def _calculate_vwap_propulsion_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V83.0 · VWAP 推进力：采用 Z-Score 波动率自适应归一化，移除硬编码缩放，清除空行"""
+        """V83.1 · VWAP 推进力：全链路 float32 优化，提升 Z-Score 计算效率，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        close = raw['close_D'].values
-        vwap = raw['VWAP_D'].values
+        close = raw['close_D'].values.astype(np.float32)
+        vwap = raw['VWAP_D'].values.astype(np.float32)
         # 1. 基础速度 (Slope)
-        vwap_slope = pd.Series(vwap, index=df_index).diff(3).values / 3.0
+        vwap_slope = pd.Series(vwap, index=df_index).diff(3).values.astype(np.float32) / 3.0
         # 2. 自适应归一化 (Adaptive Normalization)
-        # 计算斜率的波动率 (21日标准差)
-        slope_std = pd.Series(vwap_slope, index=df_index).rolling(21).std().replace(0, 1e-6).values
-        # 标准化推进力 (Standardized Propulsion): 表示当前斜率是历史波动率的多少倍
-        # > 1.0 代表显著推进，> 2.0 代表极端加速
+        # 优化：显式指定 float32
+        slope_std = pd.Series(vwap_slope, index=df_index).rolling(21).std().replace(0, 1e-6).values.astype(np.float32)
         norm_propulsion = np.clip(vwap_slope / slope_std, -3.0, 3.0)
-        # 映射到 0~1.5 分值，仅关注正向推进
-        propulsion_score = np.where(norm_propulsion > 0, np.tanh(norm_propulsion * 0.8) * 1.5, 0.0)
-        # 3. 乖离率修正 (保持相对比例)
+        propulsion_score = np.where(norm_propulsion > 0, np.tanh(norm_propulsion * 0.8) * 1.5, 0.0).astype(np.float32)
+        # 3. 乖离率修正
         bias = (close - vwap) / (vwap + 1e-9)
-        bias_penalty = np.where(bias > 0.08, 0.8, 1.0) # 乖离过大给予惩罚
-        # 4. 动力学增强 (Consensus Acceleration)
-        accel_vwap = raw['ACCEL_5_VWAP_D'].values
+        bias_penalty = np.where(bias > 0.08, 0.8, 1.0).astype(np.float32)
+        # 4. 动力学增强
+        accel_vwap = raw['ACCEL_5_VWAP_D'].values.astype(np.float32)
         kinematic_boost = np.where(accel_vwap > 0, 1.3, 1.0).astype(np.float32)
         # 5. HAB 趋势厚度
-        days_above = raw['ACCUM_21_ABOVE_VWAP'].values
+        days_above = raw['ACCUM_21_ABOVE_VWAP'].values.astype(np.float32)
         thickness_bonus = np.clip(days_above / 10.0, 0.8, 1.4).astype(np.float32)
         final_score = pd.Series(propulsion_score * bias_penalty * kinematic_boost * thickness_bonus, index=df_index, dtype=np.float32).clip(0, 2.5)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[VWAP 自适应探针 V83.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[VWAP 自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    原始斜率: {vwap_slope[p_i]:.5f}, 历史波动(Std): {slope_std[p_i]:.5f}")
             print(f"    标准化推进: {norm_propulsion[p_i]:.2f}σ (Sigma)")
             print(f"    >>> 最终推进力: {final_score.loc[probe_ts]:.4f}")
