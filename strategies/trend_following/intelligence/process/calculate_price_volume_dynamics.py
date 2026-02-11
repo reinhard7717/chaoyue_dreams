@@ -286,7 +286,7 @@ class CalculatePriceVolumeDynamics:
         # --- 市值自适应逻辑修正 (Market Value Robustness) ---
         mv_source = "RAW"
         print(f"DEBUG: 原始数据是否包含市值列: {has_mv_col}")
-        print(f"DEBUG: 原始数据市值列均值: {raw_signals.get('circ_mv_D', pd.Series([0])).mean():.2e}")
+        print(f"DEBUG: 原始数据市值列: {raw_signals.get('circ_mv_D')}")
         if not has_mv_col or raw_signals.get('circ_mv_D', pd.Series([0])).mean() < 1e5: # 阈值过小视为无效
             # 尝试通过 (成交额 / 换手率) 反推市值
             amt = raw_signals['amount_D']
