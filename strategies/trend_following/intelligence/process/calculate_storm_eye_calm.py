@@ -241,6 +241,95 @@ class CalculateStormEyeCalm:
             'ambiguity_components_weights': get_param_value(params.get('ambiguity_components_weights'), {}),
         }
 
+    def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> List[str]:
+        """
+        V1.7: 动态构建所有计算“风暴眼中的寂静”所需的原始信号和原子信号列表。
+        新增 price_volume_entropy_D、volume_profile_entropy_D、main_force_slippage_index_D、micro_impact_elasticity_D、loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度信号。
+        """
+        required_signals = [
+            # 替换 SCORE_STRUCT_AXIOM_TENSION
+            'MA_POTENTIAL_TENSION_INDEX_D',
+            # 替换 SCORE_BEHAVIOR_VOLUME_ATROPHY
+            'volume_D', 'turnover_rate_f_D',
+            # 替换 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 为 covert_accumulation_signal_D
+            'covert_accumulation_signal_D',
+            # 替换 SCORE_MICRO_STRATEGY_STEALTH_OPS
+            'main_force_flow_gini_D', # covert_accumulation_signal_D 已经包含在上面
+            # 替换 SCORE_FOUNDATION_AXIOM_MARKET_TENSION
+            'equilibrium_compression_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            # 替换 SCORE_DYN_AXIOM_STABILITY
+            'mean_reversion_frequency_D', # 反向代理稳定性
+            'control_solidity_index_D', # 控盘稳固度也反映稳定性
+            'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D',
+            'counterparty_exhaustion_index_D', 'main_force_conviction_index_D',
+            'main_force_net_flow_calibrated_D',
+            'market_sentiment_score_D', 'SLOPE_5_close_D', 'pct_change_D',
+            'order_book_liquidity_supply_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
+            'main_force_cost_advantage_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
+            'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'loser_pain_index_D',
+            'breakout_readiness_score_D', # 直接使用数据层提供的指标
+            'main_force_activity_ratio_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'ADX_14_D',
+            'SAMPLE_ENTROPY_13d_D', 'price_volume_entropy_D', 'FRACTAL_DIMENSION_89d_D',
+            'bid_side_liquidity_D', 'ask_side_liquidity_D', 'vpin_score_D', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D',
+            'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D', 'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
+            'observed_large_order_size_avg_D', 'market_impact_cost_D', 'main_force_flow_directionality_D',
+            'HURST_144d_D', 'turnover_rate_D',
+            'volume_structure_skew_D', 'volume_profile_entropy_D',
+            'deception_index_D', 'wash_trade_intensity_D',
+            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
+            'covert_distribution_signal_D',
+            'main_force_slippage_index_D',
+            'price_reversion_velocity_D', 'structural_entropy_change_D',
+            'micro_impact_elasticity_D', 'order_flow_imbalance_score_D', 'liquidity_authenticity_score_D',
+            'trend_alignment_index_D',
+            'is_consolidating_D',
+            'dynamic_consolidation_duration_D',
+            'goodness_of_fit_score_D',
+            'platform_conviction_score_D',
+            # 增加 Level 5 订单流动态指标，丰富判断
+            'main_force_level5_ofi_dynamic_D',
+            'retail_level5_ofi_dynamic_D',
+            # 增加更多指标的斜率/加速度判断
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_market_sentiment_score_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_market_sentiment_score_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_order_book_liquidity_supply_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_order_book_liquidity_supply_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_tension_index_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_tension_index_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_entropy_change_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_entropy_change_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_reversion_velocity_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_reversion_velocity_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D',
+            # 新增 price_volume_entropy_D 和 volume_profile_entropy_D 的斜率和加速度
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_volume_entropy_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_volume_entropy_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_volume_profile_entropy_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_volume_profile_entropy_D',
+            # 新增 main_force_slippage_index_D 和 micro_impact_elasticity_D 的斜率和加速度
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_slippage_index_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_slippage_index_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_micro_impact_elasticity_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_micro_impact_elasticity_D',
+            # 新增 loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_loser_pain_index_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_loser_pain_index_D',
+            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_retail_panic_surrender_index_D',
+            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_retail_panic_surrender_index_D',
+        ]
+        # 动态添加MTF斜率和加速度信号到required_signals
+        for base_sig in mtf_cohesion_base_signals:
+            for period_str in get_param_value(mtf_slope_accel_weights.get('slope_periods'), {}).keys():
+                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
+            for period_str in get_param_value(mtf_slope_accel_weights.get('accel_periods'), {}).keys():
+                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+        return required_signals
+
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
         V6.0: 从DataFrame提取并在逻辑上映射原始数据。
