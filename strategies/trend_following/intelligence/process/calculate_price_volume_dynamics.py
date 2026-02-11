@@ -433,7 +433,7 @@ class CalculatePriceVolumeDynamics:
             print(f"    新增指标固化 -> 21d熵减稳态: {hab_snapshot['metrics'].get('ACCUM_21_ENTROPY_STABILITY', 0.0):.1f}")
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V91.0 · 物理动力引擎：重构为非线性门控逻辑，彻底消除滞后 MCV 对反转启动的拖累，清除空行"""
+        """V94.0 · 物理动力引擎：引入权重回补(Redistribution)与质量兜底(Mass Fallback)，确保低能级反转也能获得高分，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         # 1. 基础物理冲量
         vol_adj = raw['BBW_21_2.0_D'].values.astype(np.float64)
@@ -452,23 +452,34 @@ class CalculatePriceVolumeDynamics:
         price_pos = raw['price_percentile_position_D'].values
         comp_factor = np.where(price_pos < 0.2, 1.2, np.where(price_pos > 0.8, 0.8, 1.0)).astype(np.float32)
         comp_imp = norm_imp * comp_factor
-        # 4. MCV 非线性门控 (Non-linear Gating)
+        # 4. MCV 动态门控与权重回补 (Weight Redistribution)
         _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values.astype(np.float64), np.array([3, 5, 8, 13, 21], dtype=np.int64))
         mcv = np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10], dtype=np.float32), f_slopes.astype(np.float32))
-        # 逻辑重构：
-        # Case A: 冲量 > 0, MCV > 0 -> 共振 (Resonance), 全额叠加
-        # Case B: 冲量 > 0, MCV < 0 -> 背离 (Divergence), 忽略 MCV (权重=0)
-        # Case C: 冲量 < 0 -> 下跌或震荡, 正常叠加 MCV (权重=0.35)
-        mcv_weight = np.where((comp_imp > 0) & (mcv < 0), 0.0, 0.35).astype(np.float32)
-        # 5. 合成
+        # 基础权重配置
+        base_imp_w = 0.60
+        base_mcv_w = 0.35
+        # 门控逻辑: 冲量强且背离 -> MCV权重归零
+        reversal_mask = (comp_imp > 0) & (mcv < 0)
+        mcv_weight = np.where(reversal_mask, 0.0, base_mcv_w).astype(np.float32)
+        # 回补逻辑: 如果 MCV 权重被削减，将其转移给冲量
+        # 这样能保证总权重恒定，不会因为背离而降低得分上限
+        imp_weight = base_imp_w + (base_mcv_w - mcv_weight)
+        # 5. 质量兜底 (Mass Fallback)
         accum_m = raw['ACCUM_21_SMART_MONEY'].values
-        m_mass = np.clip(np.log1p(np.abs(accum_m)) / 10.0, 0.8, 1.3).astype(np.float32)
-        phy_score = ((comp_imp * 2.0 * 0.30 + mcv * mcv_weight) * m_mass).astype(np.float32)
+        accum_v = raw['ACCUM_21_VOLUME'].values
+        # 如果资金累积量过小(数据缺失或极小)，使用成交量累积作为替代
+        # 对数缩放: Log10(Vol)通常在 5~9 之间。除以 7.0 归一化
+        mass_m = np.clip(np.log1p(np.abs(accum_m)) / 10.0, 0.8, 1.3)
+        mass_v = np.clip(np.log1p(accum_v) / 7.0, 0.8, 1.3)
+        # 智能选择: 如果 mass_m 处于下限(0.8)，则尝试使用 mass_v
+        final_mass = np.where(mass_m <= 0.81, mass_v, mass_m).astype(np.float32)
+        # 6. 最终计算
+        phy_score = ((comp_imp * 2.0 * imp_weight + mcv * mcv_weight) * final_mass).astype(np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[物理引擎门控探针 V91.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    冲量: {comp_imp[p_i]:.4f}, MCV: {mcv[p_i]:.4f}")
-            print(f"    模式: {'背离启动(忽略MCV)' if mcv_weight[p_i] == 0 else '正常叠加'}")
+            print(f"\n[物理引擎回补探针 V94.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    权重配置: 冲量={imp_weight[p_i]:.2f}, MCV={mcv_weight[p_i]:.2f}")
+            print(f"    质量因子: {final_mass[p_i]:.2f} (原资金Mass: {mass_m[p_i]:.2f})")
             print(f"    >>> 物理合成总分: {phy_score[p_i]:.4f}")
         return pd.Series(phy_score, index=df_index, dtype=np.float32)
 
@@ -755,7 +766,7 @@ class CalculatePriceVolumeDynamics:
         return final_eff
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V92.0 · 微观矢量：引入良性回调判定(Dip Guard)，保护趋势中的缩量回吐，清除空行"""
+        """V94.0 · 微观矢量：全自适应 Z-Score 判定，精准识别隐蔽吸筹与良性回调，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values)
         l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values)
@@ -767,21 +778,27 @@ class CalculatePriceVolumeDynamics:
         ratio_std = ratio_s.rolling(21).std().replace(0, 1e-6).values
         z_score_flow = (net_ratio - ratio_mean) / ratio_std
         base_score = 0.5 + (1.0 / (1.0 + np.exp(-z_score_flow)))
-        # 2. 隐蔽吸筹与良性回调 (Stealth & Dip Guard)
+        # 2. 价格动力学 Z-Score (用于辅助判定)
+        raw_jerk = raw['JERK_3_close_D'].values
+        jerk_s = pd.Series(raw_jerk, index=df_index)
+        jerk_std = jerk_s.rolling(21).std().replace(0, 1e-6).values
+        jerk_mean = jerk_s.rolling(21).mean().fillna(0).values
+        z_score_jerk = (raw_jerk - jerk_mean) / jerk_std
+        # 3. 隐蔽吸筹与良性回调 (Adaptive Guard)
         close = raw['close_D'].values
         ma5 = pd.Series(close, index=df_index).rolling(5).mean().values
         ma21 = raw['close_D'].rolling(21).mean().values
-        p_jerk = raw['JERK_3_close_D'].values
-        # 隐蔽吸筹: 资金负 + 价格强 (Jerk>0) + 站稳短均线
-        is_stealth = (net_ratio < 0) & (close > ma5) & (p_jerk > 0)
-        #良性回调: 资金微负 (Z > -1.0) + 趋势向上 (Close > MA21) + 价格无崩塌 (Jerk > -2.0)
-        is_benign_dip = (z_score_flow > -1.0) & (close > ma21) & (p_jerk > -2.0)
-        # 只要满足任一条件，基础分至少给到 1.0 (中性)，避免误杀
+        # 隐蔽吸筹: 资金流负 + 价格加速向上 (Jerk Z > 0) + 站稳短均线
+        is_stealth = (net_ratio < 0) & (close > ma5) & (z_score_jerk > 0)
+        # 良性回调: 资金流未崩盘 (Z > -1.0) + 趋势向上 (Close > MA21) + 价格未崩盘 (Jerk Z > -2.0)
+        # 使用 Z-Score > -2.0 替代了原来的 绝对值 > -2.0，适应性更强
+        is_benign_dip = (z_score_flow > -1.0) & (close > ma21) & (z_score_jerk > -2.0)
+        # 护盾生效
         adjusted_base = base_score
         if np.any(is_stealth) or np.any(is_benign_dip):
             guard_mask = (is_stealth | is_benign_dip)
             adjusted_base = np.where(guard_mask, np.maximum(base_score, 1.0), base_score).astype(np.float32)
-        # 3. 协同性与动力学
+        # 4. 协同性与动力学
         e_r, l_r = e_n / t_a, l_n / t_a
         sync_score = np.where((e_r > 0) & (l_r > 0), 1.1, np.where((e_r * l_r) < 0, 0.9, 1.0)).astype(np.float32)
         s_j = raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32)
@@ -792,8 +809,9 @@ class CalculatePriceVolumeDynamics:
         final_v = pd.Series(adjusted_base * sync_score * jerk_bonus * h_s, index=df_index, dtype=np.float32).clip(0.4, 2.0)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[微观护盾探针 V92.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    原始分: {base_score[p_i]:.4f}, 状态: {'隐蔽吸筹' if is_stealth[p_i] else ('良性回调' if is_benign_dip[p_i] else '正常')}")
+            print(f"\n[微观自适应探针 V94.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    资金Z: {z_score_flow[p_i]:.2f}σ, 价格Jerk Z: {z_score_jerk[p_i]:.2f}σ")
+            print(f"    状态判定: {'隐蔽吸筹' if is_stealth[p_i] else ('良性回调' if is_benign_dip[p_i] else '正常')}")
             print(f"    >>> 最终攻击矢量: {final_v.loc[probe_ts]:.4f}")
         return final_v
 
