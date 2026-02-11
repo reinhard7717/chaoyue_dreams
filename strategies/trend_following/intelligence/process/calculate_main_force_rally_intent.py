@@ -66,11 +66,9 @@ class CalculateMainForceRallyIntent:
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 核心缝合：确保各分量为 float32 且已处理 NaN
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase).astype(np.float32)
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params']).astype(np.float32)
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context).astype(np.float32)
-        # 意图缝合与保护逻辑
         final_rally_intent = (bullish_intent * (1.0 - total_risk_penalty * 0.8) + bearish_score).fillna(0.0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, phase, aggressiveness_score)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0).fillna(0.0)
@@ -253,70 +251,49 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 周期感知升级版】历史上下文计算调度中心
-        修改说明：由于Proxy Signals计算依赖Historical Context，而Dynamic Period现在依赖Proxy Signals，
-        这里存在依赖环。解决方案：在此阶段使用简化的周期计算（不含Burst），或在Calculate主流程中二次更新周期。
-        本版本采用策略：先使用基础周期，待Proxy计算完成后，在下一帧或后续逻辑中修正。
-        但在本架构中，为保持流式计算，我们将_calculate_dynamic_period移出此方法，改为在主流程计算后注入。
-        此处仅计算基础内存。
+        【V5.4 · 调度效率优化版】历史上下文计算调度中心
+        修改说明：优化内存对象创建逻辑，统一调度 float32 计算分量，确保状态评估链条的最低时延。
+        版本号：2026.02.11.48
         """
-        hc_enabled = get_param_value(params.get('enabled'), True)
-        if not hc_enabled: return self._get_empty_context(df_index)
-        initial_hab_states = self._load_hab_states()
-        # 计算基础内存
-        price_memory = self._calculate_price_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('price_hab', 0.0))
-        capital_memory = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('capital_hab', 0.0))
-        chip_memory = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('chip_hab', 0.0))
-        sentiment_memory = self._calculate_sentiment_memory(df_index, raw_signals, mtf_signals, params, initial_hab_states.get('sentiment_hab', 0.0))
-        integrated_memory = self._fuse_integrated_memory(price_memory, capital_memory, chip_memory, sentiment_memory, params)
-        phase_sync = self._detect_phase_synchronization(df_index, price_memory, capital_memory, integrated_memory)
-        memory_quality = self._assess_memory_quality(df_index, price_memory, capital_memory, chip_memory, sentiment_memory)
-        # 注意：dynamic_memory_period 此时尚未包含 Burst 修正，将在主流程中通过 _calculate_dynamic_period 独立计算并覆盖
-        # 但为了保持接口完整性，此处返回基础版
-        base_period = self._calculate_dynamic_period(df_index, raw_signals, {}) 
+        if not get_param_value(params.get('enabled'), True): return self._get_empty_context(df_index)
+        h_init = self._load_hab_states()
+        p_mem = self._calculate_price_memory(df_index, raw_signals, mtf_signals, params, h_init.get('price_hab', 0.0))
+        c_mem = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params, h_init.get('capital_hab', 0.0))
+        ch_mem = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params, h_init.get('chip_hab', 0.0))
+        s_mem = self._calculate_sentiment_memory(df_index, raw_signals, mtf_signals, params, h_init.get('sentiment_hab', 0.0))
+        int_mem = self._fuse_integrated_memory(p_mem, c_mem, ch_mem, s_mem, params)
         return {
-            "price_memory": price_memory, "capital_memory": capital_memory, "chip_memory": chip_memory,
-            "sentiment_memory": sentiment_memory, "integrated_memory": integrated_memory,
-            "phase_sync": phase_sync, "memory_quality": memory_quality, "hc_enabled": hc_enabled,
-            "dynamic_memory_period": base_period
+            "price_memory": p_mem, "capital_memory": c_mem, "chip_memory": ch_mem, "sentiment_memory": s_mem,
+            "integrated_memory": int_mem, "phase_sync": self._detect_phase_synchronization(df_index, p_mem, c_mem, int_mem),
+            "memory_quality": self._assess_memory_quality(df_index, p_mem, c_mem, ch_mem, s_mem),
+            "hc_enabled": True, "dynamic_memory_period": self._calculate_dynamic_period(df_index, raw_signals, {})
         }
 
     def _load_hab_states(self) -> Dict[str, float]:
         """
-        【V1.0】从原子状态机载入HAB历史状态
-        修改说明：从atomic_states恢复四个核心维度的累积水位，支持实时增量计算的物理延续。
-        版本号：2026.02.10.173
+        【V1.1 · 效率优化版】从原子状态机载入HAB历史状态
+        修改说明：利用字典推导式优化读取速度，显式强制转换为 float32。
+        版本号：2026.02.11.43
         """
-        states = {
-            'price_hab': self.strategy.atomic_states.get('_HAB_STATE_PRICE', 0.0),
-            'capital_hab': self.strategy.atomic_states.get('_HAB_STATE_CAPITAL', 0.0),
-            'chip_hab': self.strategy.atomic_states.get('_HAB_STATE_CHIP', 0.0),
-            'sentiment_hab': self.strategy.atomic_states.get('_HAB_STATE_SENTIMENT', 0.0)
-        }
-        if any(v > 0 for v in states.values()):
-            self._probe_print(f"[HAB_LOAD] 成功恢复历史存量: Price={states['price_hab']:.4f}, Cap={states['capital_hab']:.4f}")
+        keys = {'price_hab': '_HAB_STATE_PRICE', 'capital_hab': '_HAB_STATE_CAPITAL', 'chip_hab': '_HAB_STATE_CHIP', 'sentiment_hab': '_HAB_STATE_SENTIMENT'}
+        states = {k: np.float32(self.strategy.atomic_states.get(v, 0.0)) for k, v in keys.items()}
+        if any(v > 0 for v in states.values()): self._probe_print(f"[HAB_LOAD] 成功恢复历史存量: Price={states['price_hab']:.4f}, Cap={states['capital_hab']:.4f}")
         return states
 
     def _persist_hab_states(self, historical_context: Dict):
         """
-        【V1.1 · 数值安全持久化版】将HAB最新状态持久化
-        修改说明：修复水位溢出问题。持久化前对原始Buffer进行Tanh标准化压缩，确保存储在状态机中的存量水位具有稳定的物理量纲。
-        版本号：2026.02.10.247
+        【V1.2 · 标量加速持久化版】将HAB最新状态持久化
+        修改说明：使用 .values[-1] 替代 .iloc[-1] 显著提升标量提取速度，优化 tanh 标准化链路。
+        版本号：2026.02.11.44
         """
         try:
-            p_mem = historical_context.get('price_memory', {})
-            c_mem = historical_context.get('capital_memory', {})
-            ch_mem = historical_context.get('chip_memory', {})
-            s_mem = historical_context.get('sentiment_memory', {})
-            # 采用tanh压缩后再持久化，防止原始量纲溢出 (5e7为资金量纲缩放基准)
-            self.strategy.atomic_states['_HAB_STATE_PRICE'] = float(np.tanh(p_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1]))
-            self.strategy.atomic_states['_HAB_STATE_CAPITAL'] = float(np.tanh(c_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1] / 5e7))
-            self.strategy.atomic_states['_HAB_STATE_CHIP'] = float(np.tanh(ch_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1]))
-            self.strategy.atomic_states['_HAB_STATE_SENTIMENT'] = float(np.tanh(s_mem.get('hab_buffer_raw', pd.Series([0.0])).iloc[-1]))
-            if self._is_probe_enabled(pd.DataFrame()):
-                self._probe_print(f"[HAB_PERSIST] 存量水位标准化持久化完成 (Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
-        except Exception as e:
-            self._probe_print(f"[HAB_PERSIST_ERROR] 持久化失败: {str(e)}")
+            m_keys = [('price_memory', '_HAB_STATE_PRICE', 1.0), ('capital_memory', '_HAB_STATE_CAPITAL', 5e7), ('chip_memory', '_HAB_STATE_CHIP', 1.0), ('sentiment_memory', '_HAB_STATE_SENTIMENT', 1.0)]
+            for m_key, s_key, scale in m_keys:
+                buf = historical_context.get(m_key, {}).get('hab_buffer_raw', pd.Series([0.0]))
+                val = buf.values[-1] if len(buf) > 0 else 0.0
+                self.strategy.atomic_states[s_key] = float(np.tanh(val / np.float32(scale)))
+            if self._is_probe_enabled(pd.DataFrame()): self._probe_print(f"[HAB_PERSIST] 存量水位标准化持久化完成 (Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
+        except Exception as e: self._probe_print(f"[HAB_PERSIST_ERROR] 持久化失败: {str(e)}")
 
     def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
         """
@@ -868,35 +845,31 @@ class CalculateMainForceRallyIntent:
 
     def _weighted_geometric_mean(self, components: Dict[str, pd.Series], weights: Dict[str, float], df_index: pd.Index) -> pd.Series:
         """
-        【V5.0 · 自包含几何平均版】加权几何平均
-        修改说明：内部实现带精度保护的对数加权合成算法，废弃外部utils依赖，确保多因子合成的一致性。
-        版本号：2026.02.10.134
+        【V5.1 · 矩阵几何平均版】加权几何平均
+        修改说明：移除字典迭代，利用矩阵乘法一次性完成多因子对数合成，统一使用 float32 提升吞吐量。
+        版本号：2026.02.11.45
         """
-        log_sum = pd.Series(0.0, index=df_index)
-        total_w = 0.0
-        for name, weight in weights.items():
-            if name in components:
-                # 局部精度保护：避免ln(0)
-                log_sum += weight * np.log(components[name].clip(lower=1e-7))
-                total_w += weight
-        res = np.exp(log_sum / (total_w + 1e-9))
-        return res.clip(0, 1)
+        v_keys = [k for k in weights.keys() if k in components]
+        if not v_keys: return pd.Series(0.5, index=df_index).astype(np.float32)
+        data_mat = np.column_stack([components[k].values.astype(np.float32) for k in v_keys])
+        w_vec = np.array([weights[k] for k in v_keys], dtype=np.float32)
+        log_sum = np.dot(np.log(np.clip(data_mat, 1e-7, 1.0)), w_vec)
+        res = np.exp(log_sum / (np.sum(w_vec) + 1e-9))
+        return pd.Series(res, index=df_index).clip(0, 1).astype(np.float32)
 
     def _nonlinear_synthesis(self, components: Dict[str, pd.Series], weights: Dict[str, float], df_index: pd.Index) -> pd.Series:
         """
-        【V5.0 · 自包含Sigmoid合成版】非线性加权合成
-        修改说明：内部实现带陡峭度控制的Sigmoid归一化合成，废弃通用helper方法，强化极端分值的权重贡献。
-        版本号：2026.02.10.135
+        【V5.1 · 矩阵 Sigmoid 加速版】非线性加权合成
+        修改说明：矩阵化非线性映射引擎，利用广播机制加速逻辑回归合成，强制 float32 处理。
+        版本号：2026.02.11.46
         """
-        sum_val = pd.Series(0.0, index=df_index)
-        total_w = 0.0
-        for name, weight in weights.items():
-            if name in components:
-                # 局部定制：Sigmoid 映射 (k=10, x0=0.5)
-                sig_val = 1 / (1 + np.exp(-10 * (components[name] - 0.5)))
-                sum_val += weight * sig_val
-                total_w += weight
-        return (sum_val / (total_w + 1e-9)).clip(0, 1)
+        v_keys = [k for k in weights.keys() if k in components]
+        if not v_keys: return pd.Series(0.5, index=df_index).astype(np.float32)
+        data_mat = np.column_stack([components[k].values.astype(np.float32) for k in v_keys])
+        w_vec = np.array([weights[k] for k in v_keys], dtype=np.float32)
+        sig_mat = 1.0 / (1.0 + np.exp(-10.0 * (data_mat - 0.5)))
+        weighted_sum = np.dot(sig_mat, w_vec)
+        return pd.Series(weighted_sum / (np.sum(w_vec) + 1e-9), index=df_index).clip(0, 1).astype(np.float32)
 
     def _calculate_dynamic_weights(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], factors: Dict[str, pd.Series], phase: pd.Series) -> Dict[str, pd.Series]:
         """
@@ -1292,20 +1265,28 @@ class CalculateMainForceRallyIntent:
         final_intent_v = final_rally_intent.values.astype(np.float32) * modulator * spec_boost
         return pd.Series(final_intent_v, index=df_index).clip(-1, 1).astype(np.float32)
 
-    def _output_probe_info(self, df_index: pd.Index, final_rally_intent: pd.Series):
+    def _persist_hab_states(self, historical_context: Dict):
         """
-        【V2.0】输出探针信息
+        【V1.2 · 标量加速持久化版】将HAB最新状态持久化
+        修改说明：使用 .values[-1] 替代 .iloc[-1] 显著提升标量提取速度，优化 tanh 标准化链路。
+        版本号：2026.02.11.44
         """
-        probe_ts = None
-        if self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df_index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts:
-            print(f"\n=== 主力拉升意图探针报告 @ {probe_ts.strftime('%Y-%m-%d')} ===")
-            for line in self._probe_output:
-                print(line)
-            print(f"最终拉升意图分值: {final_rally_intent.loc[probe_ts]:.4f}")
-            print("=== 探针报告结束 ===\n")
+        try:
+            m_keys = [('price_memory', '_HAB_STATE_PRICE', 1.0), ('capital_memory', '_HAB_STATE_CAPITAL', 5e7), ('chip_memory', '_HAB_STATE_CHIP', 1.0), ('sentiment_memory', '_HAB_STATE_SENTIMENT', 1.0)]
+            for m_key, s_key, scale in m_keys:
+                buf = historical_context.get(m_key, {}).get('hab_buffer_raw', pd.Series([0.0]))
+                val = buf.values[-1] if len(buf) > 0 else 0.0
+                self.strategy.atomic_states[s_key] = float(np.tanh(val / np.float32(scale)))
+            if self._is_probe_enabled(pd.DataFrame()): self._probe_print(f"[HAB_PERSIST] 存量水位标准化持久化完成 (Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
+        except Exception as e: self._probe_print(f"[HAB_PERSIST_ERROR] 持久化失败: {str(e)}")
+
+
+
+
+
+
+
+
+
+
+
