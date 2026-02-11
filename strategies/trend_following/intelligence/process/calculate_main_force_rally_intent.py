@@ -150,9 +150,9 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V13.0 · 风险背离缝合版】主力拉升意图主计算流程
-        修改说明：将 divergence_pressure 因子从 factors 字典注入 _adjudicate_risk，实现风险裁决层对诱多环境的自适应感知。
-        版本号：2026.02.11.81
+        【V13.1 · 持久化闭环版】主力拉升意图主计算流程
+        修改说明：同步更新 _persist_hab_states 调用接口。将意图分值与共振信号注入持久化模块，完成状态自适应记忆闭环，提升物理惯性捕获精度。
+        版本号：2026.02.11.96
         """
         self._probe_output = []
         params = self._get_parameters(config)
@@ -172,14 +172,13 @@ class CalculateMainForceRallyIntent:
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 核心缝合：注入 factors 以支持基于背离压力的风险自适应裁决
         total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase, factors).astype(np.float32)
-        bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params']).astype(np.float32)
+        bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'], proxy_signals).astype(np.float32)
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context).astype(np.float32)
         final_rally_intent = (bullish_intent * (1.0 - total_risk_penalty * 0.8) + bearish_score).fillna(0.0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, phase, aggressiveness_score)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0).fillna(0.0)
-        self._persist_hab_states(historical_context)
+        self._persist_hab_states(historical_context, final_rally_intent, proxy_signals)
         if self._is_probe_enabled(df):
             self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase, dynamic_weights)
             self._output_probe_info(df_index, final_rally_intent)
@@ -326,18 +325,18 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_mtf_fused_signals(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
-        【V8.5 · Numba 全链路加速版】MTF 跨周期信号融合
-        修改说明：整合 _numba_rolling_std 并行算子。移除所有 Series 窗口化逻辑，实现从原始 Array 到 Tanh 归一化的全流程机器码加速。
-        版本号：2026.02.11.70
+        【V8.6 · 容器转换修复版】MTF 跨周期信号融合
+        修改说明：修复 'numpy.ndarray' object has no attribute 'ewm' 报错。强制将 SLOPE/ACCEL/JERK 归一化结果封装回 pd.Series，确保内存记忆计算模块可调用 Pandas 扩展方法。
+        版本号：2026.02.11.85
         """
         mtf_signals = {}
         for key, series in raw_signals.items():
             if any(p in key for p in ['SLOPE_', 'ACCEL_', 'JERK_']):
                 s_f32 = series.values.astype(np.float32)
-                # 此处仍保留部分中值逻辑，但已通过 values 直接操作
                 med = pd.Series(s_f32).rolling(60, min_periods=5).median().values
                 mad = pd.Series(np.abs(s_f32 - med)).rolling(60, min_periods=5).median().values
-                mtf_signals[key] = np.tanh((s_f32 - med) / (mad * 4.4478 + 1e-9))
+                # 核心修复：封装回 pd.Series 以支持下游模块的 .ewm() 调用
+                mtf_signals[key] = pd.Series(np.tanh((s_f32 - med) / (mad * 4.4478 + 1e-9)), index=df_index).astype(np.float32)
         weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         for sig_name, col_name in {'price_trend': 'close_D', 'volume_trend': 'volume_D', 'net_amount_trend': 'net_amount_D'}.items():
             fused_score = np.zeros(len(df_index), dtype=np.float32)
@@ -345,7 +344,6 @@ class CalculateMainForceRallyIntent:
             for win, w in weights.items():
                 diff_v = np.zeros_like(col_v)
                 diff_v[win:] = col_v[win:] - col_v[:-win]
-                # 核心加速：调用 Numba 并行标准差算子
                 std_v = self._numba_rolling_std(diff_v, win * 3)
                 fused_score += np.tanh(diff_v / (std_v * 2.0 + 1e-9)) * w
             mtf_signals[f'mtf_{sig_name}'] = pd.Series(fused_score, index=df_index).clip(-1, 1)
@@ -390,33 +388,43 @@ class CalculateMainForceRallyIntent:
         if any(v != 0 for v in states.values()): self._probe_print(f"[HAB_LOAD_V1.2] 成功物理还原历史存量: Cap={states['capital_hab']:.2e}")
         return states
 
-    def _persist_hab_states(self, historical_context: Dict):
+    def _persist_hab_states(self, historical_context: Dict, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series]):
         """
-        【V1.2 · 标量加速持久化版】将HAB最新状态持久化
-        修改说明：使用 .values[-1] 替代 .iloc[-1] 显著提升标量提取速度，优化 tanh 标准化链路。
-        版本号：2026.02.11.44
+        【V1.3 · 状态自适应持久化版】将HAB最新状态持久化
+        修改说明：引入 State-Adaptive Persistence 机制。当意图强烈且信号共振时，动态提升 atomic_states 更新权重，实现对主力拉升物理惯性的加速记忆固化。
+        版本号：2026.02.11.95
         """
         try:
+            intent_val = float(final_rally_intent.values[-1])
+            burst_val = float(proxy_signals.get('sync_burst_score', pd.Series([0.0])).values[-1])
+            update_weight = np.clip(0.6 + intent_val * 0.15 + burst_val * 0.2, 0.6, 0.95)
             m_keys = [('price_memory', '_HAB_STATE_PRICE', 1.0), ('capital_memory', '_HAB_STATE_CAPITAL', 5e7), ('chip_memory', '_HAB_STATE_CHIP', 1.0), ('sentiment_memory', '_HAB_STATE_SENTIMENT', 1.0)]
             for m_key, s_key, scale in m_keys:
                 buf = historical_context.get(m_key, {}).get('hab_buffer_raw', pd.Series([0.0]))
-                val = buf.values[-1] if len(buf) > 0 else 0.0
-                self.strategy.atomic_states[s_key] = float(np.tanh(val / np.float32(scale)))
-            if self._is_probe_enabled(pd.DataFrame()): self._probe_print(f"[HAB_PERSIST] 存量水位标准化持久化完成 (Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
-        except Exception as e: self._probe_print(f"[HAB_PERSIST_ERROR] 持久化失败: {str(e)}")
+                new_norm_val = float(np.tanh((buf.values[-1] if len(buf) > 0 else 0.0) / np.float32(scale)))
+                old_val = float(self.strategy.atomic_states.get(s_key, 0.0))
+                self.strategy.atomic_states[s_key] = old_val * (1.0 - update_weight) + new_norm_val * update_weight
+            if self._is_probe_enabled(pd.DataFrame()): self._probe_print(f"[HAB_PERSIST_V1.3] 自适应持久化完成 (Weight: {update_weight:.4f}, Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
+        except Exception as e: self._probe_print(f"[HAB_PERSIST_ERROR] 自适应持久化失败: {str(e)}")
 
     def _detect_phase_synchronization(self, df_index: pd.Index, price_memory: Dict, capital_memory: Dict, integrated_memory: pd.Series) -> pd.Series:
         """
-        【V5.1 · 向量化加速同步版】相位同步检测
-        修改说明：引入 float32 矩阵计算，利用 Numpy 向量化算子实现 Fisher 变换与 Jerk 稳定性约束，消除 Series 逐个对齐的开销。
-        版本号：2026.02.11.34
+        【V5.2 · 向量化安全加固版】相位同步检测
+        修改说明：强化输入类型检查，确保在调用 .corr() 前输入严格为 pd.Series。优化 Fisher 变换的向量化执行路径，提升同步强度感知的鲁棒性。
+        版本号：2026.02.11.86
         """
-        p_trend = price_memory.get("trend_memory", pd.Series(0.0, index=df_index)).astype(np.float32).ewm(span=3).mean()
-        c_flow = capital_memory.get("composite_capital_flow", pd.Series(0.0, index=df_index)).astype(np.float32).ewm(span=3).mean()
+        # 显式转换为 Series 确保安全
+        p_trend_raw = pd.Series(price_memory.get("trend_memory", 0.0), index=df_index).astype(np.float32)
+        c_flow_raw = pd.Series(capital_memory.get("composite_capital_flow", 0.0), index=df_index).astype(np.float32)
+        p_trend = p_trend_raw.ewm(span=3).mean()
+        c_flow = c_flow_raw.ewm(span=3).mean()
+        # 向量化计算滚动相关性
         corr = p_trend.rolling(window=21, min_periods=5).corr(c_flow).fillna(0.0).values
+        # 向量化 Fisher 变换
         fisher = 0.5 * np.log((1.0 + np.clip(corr, -0.99, 0.99)) / (1.0 - np.clip(corr, -0.99, 0.99)))
         sync_strength = np.tanh(fisher)
-        p_jerk = price_memory.get("jerk_memory", pd.Series(0.0, index=df_index)).astype(np.float32).abs().values
+        # 提取物理稳定性约束
+        p_jerk = pd.Series(price_memory.get("jerk_memory", 0.0), index=df_index).astype(np.float32).abs().values
         stability = 1.0 / (1.0 + p_jerk * 10.0)
         return pd.Series(sync_strength * stability, index=df_index).clip(-1, 1).astype(np.float32)
 
@@ -599,29 +607,31 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_memory_consistency(self, price_mem: Dict, capital_mem: Dict, chip_mem: Dict, sentiment_memory: Dict) -> pd.Series:
         """
-        【V5.3 · 矩阵共振稳健加速版】记忆一致性深度计算
-        修改说明：修复.get(..., 0).values导致的类型报错。引入内部安全提取算子，确保在Key缺失时依然返回正确维度的float32零矩阵。
-        版本号：2026.02.11.21
+        【V5.4 · 矩阵运算提速版】记忆一致性深度计算
+        修改说明：移除高开销的 unstack().mean() 逻辑。改用矩阵求和法计算 4x4 相关性矩阵的非对角线均值，显著提升多维信号共振审计的效率。
+        版本号：2026.02.11.87
         """
         df_index = price_mem["integrated_price_memory"].index
         def _safe_arr(m_dict, key):
             return pd.Series(m_dict.get(key, 0.0), index=df_index).values.astype(np.float32)
-        accel_mat = np.column_stack([
-            _safe_arr(price_mem, "accel_memory"),
-            _safe_arr(capital_mem, "cap_accel"),
-            _safe_arr(chip_mem, "chip_accel"),
-            _safe_arr(sentiment_memory, "sentiment_accel")
-        ])
+        # 构建加速度矩阵 (N, 4)
+        accel_mat = np.column_stack([_safe_arr(price_mem, "accel_memory"), _safe_arr(capital_mem, "cap_accel"), _safe_arr(chip_mem, "chip_accel"), _safe_arr(sentiment_memory, "sentiment_accel")])
         res_count = (accel_mat > 0).sum(axis=1)
         res_map = np.array([0.0, 0.1, 0.3, 0.7, 1.0], dtype=np.float32)
         instant_resonance = res_map[res_count]
+        # 物理 HAB 增量
         hab_inc = instant_resonance * np.abs(accel_mat).mean(axis=1)
         hab_raw = pd.Series(hab_inc, index=df_index).rolling(window=13).sum().fillna(0.0).astype(np.float32)
+        # HAB 归一化
         roll_med = hab_raw.rolling(60).median()
         roll_std = hab_raw.rolling(60).std().replace(0, 1e-9)
         consistency_hab = (np.tanh((hab_raw - roll_med) / roll_std) * 0.5 + 0.5).fillna(0.5)
-        rolling_corr = pd.DataFrame(accel_mat).rolling(window=10).corr().unstack().mean(axis=1).fillna(0.5).clip(0, 1)
-        return (pd.Series(rolling_corr.values, index=df_index) * 0.2 + instant_resonance * 0.3 + consistency_hab * 0.5).clip(0, 1).astype(np.float32)
+        # 效率重构：计算相关性矩阵均值 (排除自相关1.0)
+        df_accel = pd.DataFrame(accel_mat)
+        # 矩阵元素总和减去对角线的4个1.0，除以12个非对角线元素
+        rolling_corr_sum = df_accel.rolling(window=10).corr().groupby(level=0).sum().sum(axis=1)
+        avg_corr = (rolling_corr_sum.values - 4.0) / 12.0
+        return (pd.Series(avg_corr, index=df_index).fillna(0.5) * 0.2 + instant_resonance * 0.3 + consistency_hab * 0.5).clip(0, 1).astype(np.float32)
 
     def _get_empty_context(self, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
@@ -1267,26 +1277,41 @@ class CalculateMainForceRallyIntent:
         hab_score = pd.Series(hab_inc, index=df_index).rolling(window=34, min_periods=5).sum().fillna(0.0).rolling(89, min_periods=20).rank(pct=True).fillna(0.5).astype(np.float32)
         return pd.Series(support_rebound * 0.3 + hab_score.values * 0.7, index=df_index).clip(0, 1).astype(np.float32)
 
-    def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, obstacle_clearance_score: pd.Series, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], historical_context: Dict[str, Any], params: Dict) -> pd.Series:
+    def _synthesize_bullish_intent(self, df_index: pd.Index, aggressiveness_score: pd.Series, control_score: pd.Series, obstacle_clearance_score: pd.Series, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], historical_context: Dict[str, Any], params: Dict, proxy_signals: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V6.2 · 向量化加速版】主力多头意图深度合成
-        修改说明：对数空间几何平均全量矩阵化，利用 float32 提升合成精度与速度的平衡。
-        版本号：2026.02.11.17
+        【V6.3 · 动态 Softmax 融合版】主力多头意图深度合成
+        修改说明：引入基于 sync_burst_score 的 Softmax 锐化机制替代几何平均。当信号一致性爆发时，自动聚焦优势维度，提升突破瞬间的决策果断度。
+        版本号：2026.02.11.90
         """
-        agg = aggressiveness_score.values.astype(np.float32)
-        ctrl = control_score.values.astype(np.float32)
-        obs = obstacle_clearance_score.values.astype(np.float32)
-        w_agg = dynamic_weights.get('aggressiveness', pd.Series(0.35, index=df_index)).values.astype(np.float32)
-        w_ctrl = dynamic_weights.get('control', pd.Series(0.35, index=df_index)).values.astype(np.float32)
-        w_obs = dynamic_weights.get('obstacle_clearance', pd.Series(0.30, index=df_index)).values.astype(np.float32)
-        log_intent = (w_agg * np.log(np.clip(agg, 1e-6, 1)) + w_ctrl * np.log(np.clip(ctrl, 1e-6, 1)) + w_obs * np.log(np.clip(obs, 1e-6, 1)))
-        bullish_base = np.exp(log_intent)
+        # 1. 准备组件矩阵 (N, 3)
+        comp_mat = np.column_stack([
+            aggressiveness_score.values.astype(np.float32),
+            control_score.values.astype(np.float32),
+            obstacle_clearance_score.values.astype(np.float32)
+        ])
+        # 2. 准备权重矩阵 (N, 3)
+        w_mat = np.column_stack([
+            dynamic_weights.get('aggressiveness', pd.Series(0.35, index=df_index)).values.astype(np.float32),
+            dynamic_weights.get('control', pd.Series(0.35, index=df_index)).values.astype(np.float32),
+            dynamic_weights.get('obstacle_clearance', pd.Series(0.30, index=df_index)).values.astype(np.float32)
+        ])
+        # 3. 提取共振爆发因子执行 Softmax 锐化
+        burst = proxy_signals.get('sync_burst_score', pd.Series(0.0, index=df_index)).values.astype(np.float32)
+        # 温度调节：Burst 越高，温度越低 (0.2 ~ 1.0)，权重越聚焦
+        temp = (1.0 / (1.0 + burst * 4.0)).reshape(-1, 1)
+        exp_w = np.exp(w_mat / temp)
+        softmax_w = exp_w / (np.sum(exp_w, axis=1, keepdims=True) + 1e-9)
+        # 4. 向量化合成基础意图
+        bullish_base = np.sum(comp_mat * softmax_w, axis=1)
+        # 5. 物理增强与记忆平滑
         res_score = self._calculate_acceleration_resonance(df_index, mtf_signals).values.astype(np.float32)
         trap_score = self._detect_bear_trap(df_index, mtf_signals, normalized_signals, obstacle_clearance_score).values.astype(np.float32)
         enhancement = np.tanh(res_score * 0.4 + trap_score * 0.8)
         int_mem = historical_context.get('integrated_memory', pd.Series(0.5, index=df_index)).astype(np.float32)
-        mem_rank = int_mem.rolling(55).rank(pct=True).fillna(0.5).values
+        mem_rank = int_mem.rolling(55, min_periods=1).rank(pct=True).fillna(0.5).values
         final_intent = bullish_base * (1.0 + enhancement * 0.25) * (0.9 + mem_rank * 0.1)
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"[BULL_SOFTMAX_PROBE] Burst: {burst[-1]:.4f} | Top_Weight: {np.max(softmax_w[-1]):.4f} | Base: {bullish_base[-1]:.4f}")
         return pd.Series(final_intent, index=df_index).clip(0, 1).astype(np.float32)
 
     def _calculate_bearish_intent(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], historical_context: Dict[str, Any]) -> pd.Series:
