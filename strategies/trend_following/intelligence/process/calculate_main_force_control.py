@@ -174,7 +174,6 @@ class CalculateMainForceControlRelationship:
         for p in hab_periods:
             # 资金 HAB: 累积净流入 (Inventory)
             hab_data[f"hab_net_mf_{p}"] = daily_net_mf.rolling(window=p, min_periods=1).sum()
-            
             # 成本 HAB: 累积买入金额与量 (用于计算 Rolling VWAP)
             hab_data[f"hab_buy_amt_{p}"] = daily_buy_amt_weighted.rolling(window=p, min_periods=1).sum()
             hab_data[f"hab_buy_vol_{p}"] = daily_buy_vol_weighted.rolling(window=p, min_periods=1).sum()

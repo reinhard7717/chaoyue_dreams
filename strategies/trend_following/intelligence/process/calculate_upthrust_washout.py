@@ -29,8 +29,8 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V19.2.0 · Bug修复版]
-        - 修复: 修正 _assess_dynamic_chip_metabolism 调用时的变量名错误 (hab_release -> hab_rel)。
+        [V20.0.0 · 全链路溯源总控]
+        - 升级: 将所有原始信号(Raw Signals)透传至探针，实现从原料到结果的完整可视。
         - 架构: Trap(4D) -> Resonance(Stratified) -> Meta(Anchor) -> Solidity(Stress) -> Deception(Skew) -> Anomaly(Fractal)
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
@@ -45,37 +45,35 @@ class CalculateUpthrustWashoutRelationship:
          abnormal_vol, clustering, order_anomaly, acc_abnormal,
          ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        
         # 2. 物理层 (4D Trap)
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
-        
         # 3. 资金层 (Stratified Resonance & HAB)
         f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
         f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, slope_f_21, accel_f_21, vpa_eff, f_volat)
         fund_score = f_resonance * f_hab
-        
         # 4. 筹码层 (Dynamic Metabolism)
-        # [修复点] 使用 hab_rel 而非 hab_release
         chip_meta = self._assess_dynamic_chip_metabolism(hab_rel, turnover, winner, acc_win, chip_stab, cost_diff)
-        
         # 5. 防御层 (Structural Stress Test)
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
-        
         # 6. 取证与融合
         chrono_dec = self._assess_skewed_deception_narrative(morning, stealth, high_lock, skew, pct_chg)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
-        
         forensics = (chrono_dec * 0.4 + chip_meta * 0.3 + fractal_man * 0.3)
         final_score = (k_trap * fund_score * forensics * solidity * context).clip(0, 1)
-        
-        # 7. 全链路探针调用
-        self._print_debug_probe(df_index, final_score, 
-                                k_trap, och_acc, vpa_eff,                   # 物理维度
-                                f_resonance, f_hab, smart_n, jerk_f, f_accum_34, # 资金维度
-                                chip_meta, hab_rel, turnover,               # 筹码维度
-                                solidity, test_cnt,                         # 防御维度
-                                chrono_dec, skew, fractal_man, clustering)  # 取证维度
+        # 7. 全链路探针调用 (传入所有 Raw 数据)
+        self._print_debug_probe(df_index, final_score,
+                                # 物理层
+                                k_trap, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos,
+                                # 资金层
+                                f_resonance, f_hab, raw_f, jerk_f, smart_n, smart_d, f_accum_34, slope_f_21, accel_f_21, f_volat,
+                                # 筹码层
+                                chip_meta, hab_rel, turnover, winner, acc_win, chip_stab, cost_diff,
+                                # 防御层
+                                solidity, sr_ratio, test_cnt, cost_mig, acc_supp,
+                                # 取证层
+                                chrono_dec, fractal_man, morning, stealth, high_lock, skew, pct_chg,
+                                abnormal_vol, clustering, order_anomaly, acc_abnormal)
         return final_score.astype(np.float32).fillna(0.0)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
@@ -400,38 +398,51 @@ class CalculateUpthrustWashoutRelationship:
         final_score = (base_manipulation * boost).clip(0, 1)
         return final_score.astype(np.float32)
 
-    def _print_debug_probe(self, idx: pd.Index, final: pd.Series, 
-                           trap: pd.Series, och: pd.Series, vpa: pd.Series,
-                           f_res: pd.Series, f_hab: pd.Series, smart: pd.Series, jerk: pd.Series, accum: pd.Series,
-                           meta: pd.Series, hab_rel: pd.Series, turnover: pd.Series,
-                           solid: pd.Series, test: pd.Series,
-                           dec: pd.Series, skew: pd.Series, man: pd.Series, cluster: pd.Series):
+    def _print_debug_probe(self, idx: pd.Index, final: pd.Series,
+                           # 物理参数
+                           k_trap: pd.Series, slope_p: pd.Series, jerk_p: pd.Series, vpa: pd.Series, och: pd.Series, bbp: pd.Series,
+                           # 资金参数
+                           f_res: pd.Series, f_hab: pd.Series, raw_f: pd.Series, jerk_f: pd.Series, smart_n: pd.Series, smart_d: pd.Series, 
+                           accum_34: pd.Series, slope_f_21: pd.Series, accel_f_21: pd.Series, f_volat: pd.Series,
+                           # 筹码参数
+                           c_meta: pd.Series, hab_rel: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, stab: pd.Series, cost_diff: pd.Series,
+                           # 防御参数
+                           solid: pd.Series, sr_ratio: pd.Series, test_cnt: pd.Series, cost_mig: pd.Series, acc_supp: pd.Series,
+                           # 取证参数
+                           dec: pd.Series, man: pd.Series, morning: pd.Series, stealth: pd.Series, lock: pd.Series, skew: pd.Series, pct: pd.Series,
+                           abnormal: pd.Series, cluster: pd.Series, order_anom: pd.Series, acc_abn: pd.Series):
         """
-        [V19.0.0 · 全链路白盒探针]
-        - 职责: 输出从"原料(Raw)"到"节点(Node)"再到"结果(Result)"的完整逻辑链。
-        - 格式: [层级] NodeScore <- RawData1, RawData2...
+        [V20.0.0 · 全链路溯源探针]
+        - 职责: 提供 [结果] <- [逻辑节点] <- [原始数据] 的三层溯源视图。
+        - 目的: 彻底解决数据黑盒，快速定位 nan 或 0 分的根源。
         """
         if len(idx) > 0:
-            i = -1 # 取最后一天
-            date_str = idx[i].strftime('%Y-%m-%d')
-            print(f"--- [PROBE_V19_WHITEBOX] {date_str} FINAL_SCORE: {final.iloc[i]:.4f} ---")
-            # 1. 物理层: 陷阱形态是否成立?
-            # 逻辑: 陷阱分 <- 日内结构(OCH) + VPA效率(VPA)
-            print(f"  [1.Physics]  Trap: {trap.iloc[i]:.4f} <- OCH_Accel: {och.iloc[i]:.4f}, VPA_Eff: {vpa.iloc[i]:.2f}")
-            # 2. 资金层: 主力是否在承接? 底仓是否够厚?
-            # 逻辑: 资金分 <- (共振分 <- 聪明钱 vs 恐慌急动度) * (HAB分 <- 34日累积)
+            i = -1
+            d_str = idx[i].strftime('%Y-%m-%d')
+            print(f"--- [PROBE_V20_FULL_LINK] {d_str} FINAL: {final.iloc[i]:.4f} ---")
+            # 1. 物理层
+            print(f"  [1.Physics] Node: {k_trap.iloc[i]:.4f}")
+            print(f"     > Logic: Kinematics(Slope/Jerk) * VPA * OCH * BBP")
+            print(f"     > Raw  : Slope={slope_p.iloc[i]:.4f}, Jerk={jerk_p.iloc[i]:.4f}, VPA={vpa.iloc[i]:.2f}, OCH={och.iloc[i]:.4f}, BBP={bbp.iloc[i]:.2f}")
+            # 2. 资金层
             f_total = (f_res * f_hab).iloc[i]
-            print(f"  [2.Funds]    Score: {f_total:.4f} (Res: {f_res.iloc[i]:.4f} * HAB: {f_hab.iloc[i]:.4f})")
-            print(f"               Raw -> SmartNet: {smart.iloc[i]:.2f} vs PanicJerk: {jerk.iloc[i]:.2f} | Accum34: {accum.iloc[i]:.2f}")
-            # 3. 筹码层: 洗盘效率高吗?
-            # 逻辑: 代谢分 <- 5日累积释放 / 换手率
-            print(f"  [3.Chips]    Meta: {meta.iloc[i]:.4f} <- HAB_Rel: {hab_rel.iloc[i]:.2f} / Turnover: {turnover.iloc[i]:.2f}%")
-            # 4. 防御层: 支撑经得起考验吗?
-            # 逻辑: 稳固分 <- 支撑测试次数
-            print(f"  [4.Defense]  Solid: {solid.iloc[i]:.4f} <- TestCount: {test.iloc[i]:.1f}")
-            # 5. 取证层: 是诱多吗? 是操控吗?
-            # 逻辑: 欺骗分 <- 偏度 | 操控分 <- 聚类
-            print(f"  [5.Forensics] Decept: {dec.iloc[i]:.4f} (Skew: {skew.iloc[i]:.4f}) | Manip: {man.iloc[i]:.4f} (Cluster: {cluster.iloc[i]:.4f})")
+            print(f"  [2.Funds]   Node: {f_total:.4f} (Reson: {f_res.iloc[i]:.4f} * HAB: {f_hab.iloc[i]:.4f})")
+            print(f"     > Logic: (PanicJerk vs SmartNet) & (Accum34 & Vector21)")
+            print(f"     > Raw(R): PanicJerk={jerk_f.iloc[i]:.2f}, SmartNet={smart_n.iloc[i]:.2f}, SmartDiv={smart_d.iloc[i]:.2f}, DailyF={raw_f.iloc[i]:.0f}")
+            print(f"     > Raw(H): Accum34={accum_34.iloc[i]:.0f}, Slope21={slope_f_21.iloc[i]:.2f}, Accel21={accel_f_21.iloc[i]:.2f}, Volat={f_volat.iloc[i]:.4f}")
+            # 3. 筹码层
+            print(f"  [3.Chips]   Node: {c_meta.iloc[i]:.4f}")
+            print(f"     > Logic: Efficiency(HAB/TO) * Integrity(Win/Stab) * Anchor(Cost) * Accel")
+            print(f"     > Raw  : HAB_Rel={hab_rel.iloc[i]:.2f}, Turnover={turnover.iloc[i]:.2f}%, Winner={winner.iloc[i]:.2f}, AccWin={acc_win.iloc[i]:.4f}")
+            print(f"     > Raw  : Stab={stab.iloc[i]:.2f}, CostDiff={cost_diff.iloc[i]:.4f}")
+            # 4. 防御层
+            print(f"  [4.Defense] Node: {solid.iloc[i]:.4f}")
+            print(f"     > Logic: SR_Ratio * TestCount * CostMig * AccelSupp")
+            print(f"     > Raw  : SR_Ratio={sr_ratio.iloc[i]:.2f}, TestCnt={test_cnt.iloc[i]:.1f}, CostMig={cost_mig.iloc[i]:.4f}, AccSupp={acc_supp.iloc[i]:.4f}")
+            # 5. 取证层
+            print(f"  [5.Forensics] Decept: {dec.iloc[i]:.4f} | Manip: {man.iloc[i]:.4f}")
+            print(f"     > Raw(D): Morning={morning.iloc[i]:.2f}, Stealth={stealth.iloc[i]:.2f}, Lock={lock.iloc[i]:.2f}, Skew={skew.iloc[i]:.4f}, Pct={pct.iloc[i]:.2f}%")
+            print(f"     > Raw(M): Abnormal={abnormal.iloc[i]:.2f}, Cluster={cluster.iloc[i]:.4f}, OrderAnom={order_anom.iloc[i]:.4f}, AccAbn={acc_abn.iloc[i]:.4f}")
 
 
 
