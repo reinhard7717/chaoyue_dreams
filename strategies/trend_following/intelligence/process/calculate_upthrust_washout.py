@@ -29,9 +29,9 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V26.0.2 · 总线全对齐版]
-        - 核心修复: 彻底解决 debug_context 与探针引用之间的 Key 错配问题，补全 Fund 层及各层缺失指标。
-        - 逻辑链: 维持 V26 动态熵校准机制，将所有过程变量(f_resonance, f_split, raw_fund 等)强制压入数据总线。
+        [V27.0.0 · SSD全闭环总控]
+        - 架构升级: 接入 _assess_stealth_shadow_divergence 替代原有的简单欺骗逻辑。
+        - 核心逻辑: 强化了隐蔽流量(Stealth)与总资金加速度(TotalNet Accel)的关联。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
         (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, accel_p, jerk_p, raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
@@ -44,56 +44,44 @@ class CalculateUpthrustWashoutRelationship:
         fund_score = f_active * f_hab
         chip_meta = self._assess_chip_holographic_tension(hab_rel, turnover, winner, acc_win, chip_stab, acc_stab_21, chip_kurt, chip_conv, cost_diff)
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
-        chrono_dec = self._assess_skewed_deception_narrative(morning, stealth, high_lock, skew, pct_chg)
+        # SSD 隐蔽背离升级
+        ssd_dec = self._assess_stealth_shadow_divergence(morning, stealth, high_lock, skew, pct_chg, total_net)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
         e_scale = p_entropy.rolling(60, min_periods=1).mean().replace(0, 1e-9)
         n_entropy = np.tanh(p_entropy / e_scale).clip(0.2, 1.0)
         entropy_multiplier = (1.2 - n_entropy).clip(0, 1)
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
-        forensics = (chrono_dec * 0.4 + chip_meta * 0.3 + fractal_man * 0.3)
+        forensics = (ssd_dec * 0.5 + chip_meta * 0.3 + fractal_man * 0.2)
         final_score = (k_trap * fund_score * forensics * solidity * context * entropy_multiplier).clip(0, 1)
         debug_context = {
-            "Final": final_score, "EntropyMultiplier": entropy_multiplier, "EntropyRaw": p_entropy,
+            "Final": final_score, "EntropyM": entropy_multiplier,
             "Phys": {"Node": k_trap, "OCH": och_acc, "VPA": vpa_eff, "BBP": bbp_pos, "Slope": slope_p, "Jerk": jerk_p},
-            "Fund": {"Node": fund_score, "Res": f_resonance, "Split": f_split, "HAB": f_hab, "S_Net": smart_n, "P_Jerk": jerk_f, "AccL": f_accum_34, "AccT": t_accum_34, "D_Out": raw_f},
-            "Chip": {"Node": chip_meta, "Kurt": chip_kurt, "Conv": chip_conv, "A_Win": acc_win, "A_Stab": acc_stab_21, "H_Rel": hab_rel, "TO": turnover, "C_Diff": cost_diff},
-            "Defense": {"Node": solidity, "SR": sr_ratio, "Test": test_cnt, "Mig": cost_mig, "AccS": acc_supp},
-            "Forensics": {"Dec": chrono_dec, "Man": fractal_man, "Skew": skew, "Lock": high_lock, "Stealth": stealth, "Clust": clustering, "Anom": order_anomaly}
+            "Fund": {"Node": fund_score, "Res": f_resonance, "Split": f_split, "HAB": f_hab, "S_Net": smart_n, "AccT": t_accum_34},
+            "Chip": {"Node": chip_meta, "C_Diff": cost_diff, "Kurt": chip_kurt, "Conv": chip_conv, "A_Win": acc_win},
+            "Dfn": {"Node": solidity, "SR": sr_ratio, "Test": test_cnt},
+            "For": {"SSD": ssd_dec, "Man": fractal_man, "Skew": skew, "Stealth": stealth}
         }
         self._print_debug_probe(df_index, debug_context)
         return final_score.astype(np.float32).fillna(0.0)
 
     def _print_debug_probe(self, idx: pd.Index, ctx: Dict[str, Any]):
         """
-        [V25.0.0 · 全链路溯源深层探针]
-        - 职责: 采用[Module] -> [Node] -> [Raw]的三层缩进格式，完整暴露所有原子数据。
-        - 逻辑: 每一行均包含计算结果及其对应的原始物理参考值。
+        [V27.0.0 · SSD溯源探针]
+        - 职责: 揭示隐蔽流量与全量资金加速度的背离情况。
         """
         if len(idx) > 0:
             i = -1
             dt = idx[i].strftime('%Y-%m-%d')
-            print(f"--- [PROBE_V25_FULL_LINK] {dt} FINAL_SCORE: {ctx['Final'].iloc[i]:.4f} ---")
-            # 1. 物理层 (Trap 形态确认)
-            p = ctx["Phys"]
-            print(f"  [1.Physics]  Trap: {p['Node'].iloc[i]:.4f} <- (OCH: {p['OCH'].iloc[i]:.4f}, VPA: {p['VPA'].iloc[i]:.2f}, BBP: {p['BBP'].iloc[i]:.2f})")
-            print(f"               Raw -> Slope: {p['Slope'].iloc[i]:.4f}, Jerk: {p['Jerk'].iloc[i]:.4f}")
-            # 2. 资金层 (双轨蓄水池博弈)
+            print(f"--- [PROBE_V27_SSD] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            print(f"  [Global] EntropyMulti: {ctx['EntropyM'].iloc[i]:.4f}")
             f = ctx["Fund"]
-            print(f"  [2.Funds]    Node: {f['Node'].iloc[i]:.4f} <- (Reson: {f['Res'].iloc[i]:.2f}, Split: {f['Split'].iloc[i]:.2f}, HAB: {f['HAB'].iloc[i]:.2f})")
-            print(f"               Raw -> SmartNet: {f['S_Net'].iloc[i]:.0f}, PanicJerk: {f['P_Jerk'].iloc[i]:.0f}, DailyOut: {f['D_Out'].iloc[i]:.0f}")
-            print(f"               HAB -> Accum_Large: {f['AccL'].iloc[i]:.0f}, Accum_Total: {f['AccT'].iloc[i]:.0f}")
-            # 3. 筹码层 (全息张力代谢)
+            print(f"  [2.Funds] Node: {f['Node'].iloc[i]:.4f} <- (Split: {f['Split'].iloc[i]:.2f}, AccT: {f['AccT'].iloc[i]:.0f})")
+            x = ctx["For"]
+            print(f"  [5.Forens] SSD_Dec: {x['SSD'].iloc[i]:.4f} <- (Stealth: {x['Stealth'].iloc[i]:.2f}, Skew: {x['Skew'].iloc[i]:.4f})")
             c = ctx["Chip"]
-            print(f"  [3.Chips]    Node: {c['Node'].iloc[i]:.4f} <- (Efficiency: {c['H_Rel'].iloc[i]:.2f}/{c['TO'].iloc[i]:.1f}%, Thickness: K={c['Kurt'].iloc[i]:.2f}/C={c['Conv'].iloc[i]:.4f})")
-            print(f"               Raw -> WinAccel: {c['A_Win'].iloc[i]:.4f}, StabAccel21: {c['A_Stab'].iloc[i]:.4f}, CostDiff: {c['C_Diff'].iloc[i]:.2f}")
-            # 4. 防御层 (结构压力测试)
-            d = ctx["Defense"]
-            print(f"  [4.Defense]  Node: {d['Node'].iloc[i]:.4f} <- (SR_Ratio: {d['SR'].iloc[i]:.2f}, TestCount: {d['Test'].iloc[i]:.1f})")
-            print(f"               Raw -> CostMig: {d['Mig'].iloc[i]:.4f}, SuppAccel: {d['AccS'].iloc[i]:.4f}")
-            # 5. 取证层 (时空欺骗指纹)
-            x = ctx["Forensics"]
-            print(f"  [5.Forens]   Decept: {x['Dec'].iloc[i]:.4f}, Manip: {x['Man'].iloc[i]:.4f} <- (Skew: {x['Skew'].iloc[i]:.4f}, Lock: {x['Lock'].iloc[i]:.2f})")
-            print(f"               Raw -> Stealth: {x['Stealth'].iloc[i]:.2f}, Cluster: {x['Clust'].iloc[i]:.2f}, Anom: {x['Anom'].iloc[i]:.2f}")
+            print(f"  [3.Chips] Node: {c['Node'].iloc[i]:.4f} <- (CostDiff: {c['C_Diff'].iloc[i]:.2f}, Kurt: {c['Kurt'].iloc[i]:.2f}, AWin: {c['A_Win'].iloc[i]:.2f})")
+            d = ctx["Dfn"]
+            print(f"  [4.Dfn]   Node: {d['Node'].iloc[i]:.4f} <- (SR: {d['SR'].iloc[i]:.2f}, Test: {d['Test'].iloc[i]:.1f})")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
@@ -204,15 +192,16 @@ class CalculateUpthrustWashoutRelationship:
 
     def _assess_fund_reservoir_buffer(self, daily_large: pd.Series, accum_large: pd.Series, accum_total: pd.Series, f_split: pd.Series, slope_f: pd.Series, accel_f: pd.Series, vpa_eff: pd.Series, volat: pd.Series) -> pd.Series:
         """
-        [V26.0.0 · 存量负反馈强化版]
-        - 核心逻辑: 引入全量资金池负向惩罚机制。
-        - 判定公式: $$Penalty_{fund} = \mathbb{I}(Accum_{Total} < 0) \times 0.5 + 0.5$$ 
-        - 变更说明: 若全量资金池处于流出态，即便是拆单吸筹，也会被怀疑为"护盘式出货"。
+        [V27.0.0 · 影子存量补偿版]
+        - 核心逻辑: 允许连续的拆单吸筹(f_split)对枯竭的蓄水池进行"信用额度"补偿。
+        - 变更说明: 针对 Accum_Total < 0 的情况, 若拆单分值持续强劲, 提供 Max 0.2 的分值补偿。
         """
         mixed_accum = accum_large * (1.0 - f_split) + accum_total * f_split
         accum_median = mixed_accum.rolling(120, min_periods=1).median().replace(0, 1e-9)
         reservoir_strength = np.tanh(mixed_accum / accum_median.abs()).clip(0, 1)
-        # 系统性流出惩罚: 若 Accum_Total < 0，置信度减半 
+        # 拆单信用补偿: 连续3天拆单高分, 则补偿蓄水池分值
+        split_credit = f_split.rolling(3, min_periods=1).min().clip(0, 1) * 0.2
+        reservoir_strength = (reservoir_strength + split_credit).clip(0, 1)
         system_penalty = np.where(accum_total < 0, 0.5, 1.0)
         s_scale = slope_f.rolling(60, min_periods=1).std().replace(0, 1e-9)
         norm_s = np.tanh(slope_f / (s_scale * 1.5))
@@ -223,8 +212,7 @@ class CalculateUpthrustWashoutRelationship:
         dynamic_threshold = (volat * 2.0).clip(0.05, 0.25)
         attrition = daily_large.abs() / (mixed_accum.abs() + 1e-9)
         tolerance = (1.0 - (attrition / dynamic_threshold)).clip(0, 1)
-        hab_score = (reservoir_strength * trend_score * quality_f * tolerance * system_penalty).clip(0, 1)
-        return hab_score.fillna(0).astype(np.float32)
+        return (reservoir_strength * trend_score * quality_f * tolerance * system_penalty).clip(0, 1).fillna(0)
 
     def _assess_chip_holographic_tension(self, hab_rel: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, stability: pd.Series, acc_stab: pd.Series, kurtosis: pd.Series, convergence: pd.Series, cost_diff: pd.Series) -> pd.Series:
         """
@@ -249,6 +237,27 @@ class CalculateUpthrustWashoutRelationship:
         n_tension = np.tanh(tension).clip(0, 1)
         final_meta = (efficiency * 0.3 + thickness_score * 0.4 + n_tension * 0.3) * stability_gate * cost_gate
         return final_meta.fillna(0).astype(np.float32)
+
+    def _assess_stealth_shadow_divergence(self, morning: pd.Series, stealth: pd.Series, high_lock: pd.Series, skew: pd.Series, pct_chg: pd.Series, total_net: pd.Series) -> pd.Series:
+        """
+        [V27.0.0 · SSD隐蔽背离识别]
+        - 核心逻辑: 识别大单砸盘掩护下的隐蔽小单匀速吸筹。
+        - 判定维度:
+            1. 隐蔽动量 (Stealth Momentum): stealth_flow_ratio_D 与全量资金加速度的共振。
+            2. 偏度背离 (Skew Div): 价格分布左偏(Skew>0)时, 隐蔽资金反而流入。
+        """
+        n_morning = np.tanh((morning - 0.4) * 3).clip(0, 1)
+        # 计算总资金流的二阶加速度
+        net_accel = total_net.diff().diff().rolling(5, min_periods=1).mean().fillna(0)
+        n_stealth = (np.tanh(stealth * 3) * (np.tanh(net_accel) + 1.0) / 2.0).clip(0, 1)
+        lure_score = (n_morning * 0.4 + n_stealth * 0.6)
+        trap_score = np.tanh(high_lock * 3).clip(0, 1)
+        # 屠杀偏度修正：洗盘需要负偏度(杀跌快)，但吸筹需要正偏度(低位磨)
+        s_scale = skew.abs().rolling(60, min_periods=1).max().replace(0, 1e-9)
+        kill_score = (-np.tanh(skew / s_scale)).clip(0, 1)
+        is_drop = (pct_chg < 0).astype(int)
+        ssd_final = ((lure_score * 0.5 + trap_score * 0.2 + kill_score * 0.3) * is_drop).fillna(0)
+        return ssd_final.astype(np.float32)
 
     def _assess_dynamic_chip_metabolism(self, hab_release: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, stability: pd.Series, cost_diff: pd.Series) -> pd.Series:
         eff_ratio = hab_release / (turnover + 0.5)
