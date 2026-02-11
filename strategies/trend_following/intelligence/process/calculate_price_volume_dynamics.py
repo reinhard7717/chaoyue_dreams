@@ -284,69 +284,56 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V86.1 · 原料加载层：修复市值单位(万元->元)及0值干扰，确保自适应窗口正确锚定，清除空行"""
+        """V86.2 · 原料加载层：严格 float32 运算，优化市值与 VWAP 计算性能，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         has_mv_col = 'circ_mv_D' in df.columns
         if has_mv_col: base_cols.append('circ_mv_D')
-        
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D']
         tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D']
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns: raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
             raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
-
-        # --- 市值自适应逻辑修正 V86.1 ---
+        # --- 市值自适应逻辑 ---
         mv_source = "RAW"
-        # 1. 单位修正与有效性检查
-        # 假设 circ_mv_D 单位为万元，转换为元
         if has_mv_col:
-            raw_signals['circ_mv_D'] = raw_signals['circ_mv_D'] * 10000.0
-
-        # 2. 计算代表性市值 (Representative Market Value)
-        # 过滤掉 0 值和异常小值 (< 1000万)，取中位数代表该股的整体体量
-        valid_mv = raw_signals.get('circ_mv_D', pd.Series([0]))
-        valid_mv = valid_mv[valid_mv > 1e7] # 过滤掉 0 和无效值
-        
+            raw_signals['circ_mv_D'] = raw_signals['circ_mv_D'] * np.float32(10000.0)
+        valid_mv = raw_signals.get('circ_mv_D', pd.Series([0], dtype=np.float32))
+        valid_mv = valid_mv[valid_mv > 1e7]
         if len(valid_mv) > 0:
-            avg_mv = valid_mv.median() # 使用中位数更稳健
+            avg_mv = valid_mv.median()
         else:
-            # 3. 估算回退逻辑
             amt = raw_signals['amount_D']
             turn = raw_signals['turnover_rate_f_D']
-            est_mv = (amt / (turn + 0.1) * 100.0).replace([np.inf, -np.inf], 0).fillna(0)
+            est_mv = (amt / (turn + 1e-9) * np.float32(100.0)).replace([np.inf, -np.inf], 0.0).fillna(0.0)
             avg_mv = est_mv[est_mv > 1e7].median()
             if np.isnan(avg_mv): avg_mv = 0.0
             mv_source = "ESTIMATED"
-        
-        # 4. 窗口判定
-        w_s, w_l = 13, 21 # 默认中盘
+        w_s, w_l = 13, 21
         mv_tag = "MID"
-        
         if avg_mv > 0:
-            if avg_mv < 50e8: # < 50亿
+            if avg_mv < 50e8:
                 w_s, w_l = 8, 13
                 mv_tag = "SMALL"
-            elif avg_mv > 500e8: # > 500亿
+            elif avg_mv > 500e8:
                 w_s, w_l = 21, 34
                 mv_tag = "LARGE"
-        
-        # 将窗口参数存入信号流
-        raw_signals['META_HAB_WINDOWS'] = pd.Series([w_s, w_l], index=df.index[:2])
-        
-        # --- 后续计算 ---
+        raw_signals['META_HAB_WINDOWS'] = pd.Series([w_s, w_l], index=df.index[:2], dtype=np.float32)
+        # --- 核心指标预计算 (优化：显式 float32) ---
         raw_vwap = (raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)).fillna(raw_signals['close_D'])
         r_c, r_v = raw_signals['close_D'].values[-60:], raw_vwap.values[-60:]
-        v_m, s_f = r_v > 0, 1.0
+        v_m, s_f = r_v > 0, np.float32(1.0)
         if np.any(v_m):
             m_r = np.median(r_v[v_m] / r_c[v_m])
-            if m_r < 0.5 or m_r > 2.0: s_f = 10.0 ** (-np.round(np.log10(m_r)))
+            if m_r < 0.5 or m_r > 2.0: s_f = np.float32(10.0 ** (-np.round(np.log10(m_r))))
         raw_signals['VWAP_D'] = (raw_vwap * s_f).astype(np.float32)
-        if raw_signals['winner_rate_D'].max() > 1.1: raw_signals['winner_rate_D'] /= 100.0
+        if raw_signals['winner_rate_D'].max() > 1.1: raw_signals['winner_rate_D'] *= np.float32(0.01)
         sm_v = raw_signals['SMART_MONEY_HM_NET_BUY_D'].values
-        if np.abs(sm_v).sum() < 1e-5: sm_v = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).values
-        # 使用自适应窗口计算 HAB
+        if np.sum(np.abs(sm_v)) < 1e-5:
+            sm_v = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + 
+                    raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).values
+        # 基础指标 HAB
         raw_signals['ACCUM_13_SMART_MONEY'] = pd.Series(_numba_rolling_accumulation(sm_v.astype(np.float32), w_s), index=df.index, dtype=np.float32)
         raw_signals['ACCUM_21_SMART_MONEY'] = pd.Series(_numba_rolling_accumulation(sm_v.astype(np.float32), w_l), index=df.index, dtype=np.float32)
         raw_signals['ACCUM_21_VOLUME'] = pd.Series(_numba_rolling_accumulation(raw_signals['volume_D'].values, w_l), index=df.index, dtype=np.float32)
@@ -371,6 +358,7 @@ class CalculatePriceVolumeDynamics:
         raw_signals['ACCUM_5_LIQUIDITY_LOCK'] = pd.Series(_numba_rolling_accumulation(liq_lock, 5), index=df.index, dtype=np.float32)
         hi_rank = np.where(raw_signals['industry_strength_rank_D'].values <= 20, 1.0, 0.0).astype(np.float32)
         raw_signals['ACCUM_21_HIGH_RANK'] = pd.Series(_numba_rolling_accumulation(hi_rank, w_l), index=df.index, dtype=np.float32)
+        # 动力学衍生
         threshold_map = {'net_amount_rate_D': (0.01, 0.005), 'winner_rate_D': (0.01, 0.005), 'SMART_MONEY_HM_NET_BUY_D': (10, 10), 'VPA_EFFICIENCY_D': (0.01, 0.01), 'BBW_21_2.0_D': (0.001, 0.0001), 'THEME_HOTNESS_SCORE_D': (0.1, 0.1), 'chip_entropy_D': (0.01, 0.001), 'volume_D': (100, 10), 'pct_change_D': (0.0001, 0.0001), 'close_D': (0.1, 0.01), 'market_sentiment_score_D': (0.1, 0.1), 'industry_strength_rank_D': (0.001, 0.001), 'turnover_rate_f_D': (0.01, 0.01), 'trade_count_D': (10, 5), 'VWAP_D': (0.1, 0.01), 'closing_flow_ratio_D': (0.01, 0.01)}
         fib_wins = [3, 5, 8, 13, 21]
         for col, (abs_th, chg_th) in threshold_map.items():
@@ -381,14 +369,14 @@ class CalculatePriceVolumeDynamics:
                 raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index, dtype=np.float32)
                 raw_signals[f"JERK_{win}_{col}"] = pd.Series(j, index=df.index, dtype=np.float32)
         if is_debug and probe_ts in df.index:
-            print(f"\n[原料 V86.1 修正 HAB 探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[原料 V86.2 修正 HAB 探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    原始市值包含0值: {'是' if (raw_signals['circ_mv_D']==0).any() else '否'}")
             print(f"    代表性市值: {avg_mv/1e8:.1f}亿 ({mv_source}), 类型: {mv_tag}")
             print(f"    窗口配置: 短 {w_s}d / 长 {w_l}d")
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V77.0 · 全局动力学总线：集成全息探针与 HAB 持久化，实现从原料到最终分值的全链路可视化与状态保存，清除空行"""
+        """V77.1 · 全局动力学总线：向量化合成计算优化，移除 Series 算术开销，直接操作 float32 数组，清除空行"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
@@ -397,7 +385,9 @@ class CalculatePriceVolumeDynamics:
         # 1. 核心计算链路 (保持 float32 向量化)
         scores = {}
         scores['physical'] = self._calculate_power_transfer_raw_score(df_index, raw, method_name)
-        scores['geo'] = pd.Series(_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0), index=df_index) * (1.0 - raw['GEOM_REG_R2_D']) * (raw['STATE_ROUNDING_BOTTOM_D'].astype(np.float32) * 1.2 + 0.5)
+        # 几何评分：直接使用 numpy 运算
+        s_geo = (_numba_power_activation(raw['GEOM_ARC_CURVATURE_D'].values, gain=2.0) * (1.0 - raw['GEOM_REG_R2_D'].values) * (raw['STATE_ROUNDING_BOTTOM_D'].values.astype(np.float32) * 1.2 + 0.5))
+        scores['geo'] = pd.Series(s_geo, index=df_index, dtype=np.float32)
         scores['vwap'] = self._calculate_vwap_propulsion_score(raw, df_index, method_name)
         scores['inertia'] = self._calculate_trend_inertia_momentum(raw, df_index, method_name)
         scores['perm'] = self._calculate_market_permeability_index(raw, df_index, method_name)
@@ -415,13 +405,19 @@ class CalculatePriceVolumeDynamics:
         scores['vol_gamma'] = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name)
         scores['sector_decay'] = self._calculate_sector_overflow_decay(raw, df_index, method_name)
         scores['access'] = self._calculate_entry_accessibility_score(raw, df_index, method_name)
-        # 3. 最终合成
-        unadjusted = scores['physical'] * 0.50 + scores['geo'] * 0.25 + scores['vwap'] * 0.25
-        final_vals = unadjusted * scores['inertia'] * scores['perm'] * scores['entropy'] * scores['fractal'] * \
-                     scores['hmm'] * scores['chip'] * scores['micro'] * scores['reflex'] * scores['wyckoff'] * \
-                     scores['risk'] * scores['decay'] * scores['sector_mod'] * scores['vol_gamma'] * \
-                     scores['sector_decay'] * scores['access']
-        final_score = final_vals.clip(-3.5, 6.0).astype(np.float32)
+        # 3. 最终合成 (Numpy float32 向量化，性能优化点)
+        # 提取所有 values，避免 pandas 索引对齐检查
+        s_phy = scores['physical'].values
+        s_vwap = scores['vwap'].values
+        # 基础得分
+        unadjusted = s_phy * 0.50 + s_geo * 0.25 + s_vwap * 0.25
+        # 连乘合成
+        final_vals = unadjusted * scores['inertia'].values * scores['perm'].values * scores['entropy'].values * scores['fractal'].values * \
+                     scores['hmm'].values * scores['chip'].values * scores['micro'].values * scores['reflex'].values * scores['wyckoff'].values * \
+                     scores['risk'].values * scores['decay'].values * scores['sector_mod'].values * scores['vol_gamma'].values * \
+                     scores['sector_decay'].values * scores['access'].values
+        # 封装结果
+        final_score = pd.Series(final_vals, index=df_index, dtype=np.float32).clip(-3.5, 6.0)
         # 4. 执行 HAB 状态持久化
         self._persist_hab_state(raw, df_index, method_name)
         # 5. 触发全息探针
@@ -450,28 +446,32 @@ class CalculatePriceVolumeDynamics:
             print(f"    新增指标固化 -> 21d熵减稳态: {hab_snapshot['metrics'].get('ACCUM_21_ENTROPY_STABILITY', 0.0):.1f}")
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V94.1 · 物理动力引擎：类型降级为 float32 提升 SIMD 效率，保留非线性门控逻辑，清除空行"""
+        """V94.2 · 物理动力引擎：采用 Numba 快速滚动算子替代 Pandas Rolling，全链路 float32 计算，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
-        # 1. 基础物理冲量 (优化：移除 float64 转换，使用 float32)
-        vol_adj = raw['BBW_21_2.0_D'].values
-        roll_tc = pd.Series(raw['trade_count_D'].values, index=df_index).rolling(21).mean().replace(0, 1).values.astype(np.float32)
-        conf = (raw['trade_count_D'].values / (roll_tc + 1e-9)).astype(np.float32)
-        j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_amount_rate_D'].values, vol_adj, conf)
-        a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values, vol_adj, conf)
+        # 1. 基础物理冲量 (优化：使用 Numba 计算 rolling mean)
+        vol_adj = raw['BBW_21_2.0_D'].values.astype(np.float32)
+        tc_values = raw['trade_count_D'].values.astype(np.float32)
+        # _numba_fast_rolling_dynamics 返回 (n_windows, n_samples)
+        tc_means, _ = _numba_fast_rolling_dynamics(tc_values, np.array([21], dtype=np.int64))
+        roll_tc = tc_means[0]
+        # 避免除零，替换 0 为 1.0 (保持 float32)
+        roll_tc = np.where(np.abs(roll_tc) < 1e-9, 1.0, roll_tc).astype(np.float32)
+        conf = (tc_values / roll_tc).astype(np.float32)
+        j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_amount_rate_D'].values.astype(np.float32), vol_adj, conf)
+        a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32), vol_adj, conf)
         raw_impulse = (j_c * 0.45 + a_c * 0.55).astype(np.float32)
-        # 2. 自适应归一化 (敏感度 0.8)
+        # 2. 自适应归一化
         imp_series = pd.Series(raw_impulse, index=df_index)
         imp_mean = imp_series.rolling(21).mean().fillna(0).values.astype(np.float32)
         imp_std = imp_series.rolling(21).std().replace(0, 1e-9).values.astype(np.float32)
         z_score_imp = (raw_impulse - imp_mean) / imp_std
         norm_imp = np.tanh(z_score_imp * 0.8).astype(np.float32)
         # 3. 极值补偿
-        price_pos = raw['price_percentile_position_D'].values
+        price_pos = raw['price_percentile_position_D'].values.astype(np.float32)
         comp_factor = np.where(price_pos < 0.2, 1.2, np.where(price_pos > 0.8, 0.8, 1.0)).astype(np.float32)
         comp_imp = norm_imp * comp_factor
-        # 4. MCV 动态门控与权重回补
-        # 优化：dtype 明确指定为 float32
-        _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values, np.array([3, 5, 8, 13, 21], dtype=np.int64))
+        # 4. MCV 动态门控
+        _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values.astype(np.float32), np.array([3, 5, 8, 13, 21], dtype=np.int64))
         mcv = np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10], dtype=np.float32), f_slopes.astype(np.float32))
         base_imp_w = 0.60
         base_mcv_w = 0.35
@@ -479,8 +479,8 @@ class CalculatePriceVolumeDynamics:
         mcv_weight = np.where(reversal_mask, 0.0, base_mcv_w).astype(np.float32)
         imp_weight = base_imp_w + (base_mcv_w - mcv_weight)
         # 5. 质量兜底
-        accum_m = raw['ACCUM_21_SMART_MONEY'].values
-        accum_v = raw['ACCUM_21_VOLUME'].values
+        accum_m = raw['ACCUM_21_SMART_MONEY'].values.astype(np.float32)
+        accum_v = raw['ACCUM_21_VOLUME'].values.astype(np.float32)
         mass_m = np.clip(np.log1p(np.abs(accum_m)) / 10.0, 0.8, 1.3).astype(np.float32)
         mass_v = np.clip(np.log1p(accum_v) / 7.0, 0.8, 1.3).astype(np.float32)
         final_mass = np.where(mass_m <= 0.81, mass_v, mass_m).astype(np.float32)
@@ -488,7 +488,7 @@ class CalculatePriceVolumeDynamics:
         phy_score = ((comp_imp * 2.0 * imp_weight + mcv * mcv_weight) * final_mass).astype(np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[物理引擎回补探针 V94.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[物理引擎回补探针 V94.2 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    权重配置: 冲量={imp_weight[p_i]:.2f}, MCV={mcv_weight[p_i]:.2f}")
             print(f"    质量因子: {final_mass[p_i]:.2f} (原资金Mass: {mass_m[p_i]:.2f})")
             print(f"    >>> 物理合成总分: {phy_score[p_i]:.4f}")
@@ -855,12 +855,12 @@ class CalculatePriceVolumeDynamics:
         prep_q = np.where((tr_slope < 0) & (tr_accel > -0.01), 1.1, 0.9).astype(np.float32)
         quality = np.maximum(base_q, prep_q)
         final_score = pd.Series(quality * np.where((tr_slope < 0), 1.3, 1.0) * quality_mult, index=df_index, dtype=np.float32).clip(0.6, 2.5)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[威科夫自适应探针 V85.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    Jerk Z-Score: {jerk_z[p_i]:.2f}σ (原值: {raw_jerk[p_i]:.4f})")
-            print(f"    状态: {'爆发突破' if is_breakout[p_i] and is_explosive[p_i] else ('普通突破' if is_breakout[p_i] else '蓄势')}")
-            print(f"    >>> 最终突破质量: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[威科夫自适应探针 V85.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    Jerk Z-Score: {jerk_z[p_i]:.2f}σ (原值: {raw_jerk[p_i]:.4f})")
+        #     print(f"    状态: {'爆发突破' if is_breakout[p_i] and is_explosive[p_i] else ('普通突破' if is_breakout[p_i] else '蓄势')}")
+        #     print(f"    >>> 最终突破质量: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _calculate_trend_inertia_momentum(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -894,11 +894,11 @@ class CalculatePriceVolumeDynamics:
         consistency_bonus = np.clip(pos_days / 15.0, 0.8, 1.25).astype(np.float32)
         r2_vals = raw['GEOM_REG_R2_D'].values.astype(np.float32)
         final_inertia = pd.Series(alignment * kinematic_score * consistency_bonus * (0.6 + np.clip(r2_vals, 0.0, 1.0) * 0.4), index=df_index, dtype=np.float32).clip(0.6, 2.0)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[运动学自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    标准化速度: {norm_s[p_i]:.2f}σ, 标准化加速: {norm_a[p_i]:.2f}σ")
-            print(f"    状态: {'抛物线加速' if is_parabolic[p_i] else ('强趋势' if is_strong_trend[p_i] else '常态')}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[运动学自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    标准化速度: {norm_s[p_i]:.2f}σ, 标准化加速: {norm_a[p_i]:.2f}σ")
+        #     print(f"    状态: {'抛物线加速' if is_parabolic[p_i] else ('强趋势' if is_strong_trend[p_i] else '常态')}")
         return final_inertia
 
     def _calculate_market_permeability_index(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -948,11 +948,11 @@ class CalculatePriceVolumeDynamics:
         lock_days = raw['ACCUM_5_LIQUIDITY_LOCK'].values.astype(np.float32)
         congestion = np.where((tc_accel > 0.1) & (lock_days >= 3), 0.6, 1.0).astype(np.float32)
         final_access = pd.Series(base_access * limit_penalty * congestion, index=df_index, dtype=np.float32).clip(0.1, 1.2)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[入场保底探针 V86.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    相对流动性: {rel_liq[p_i]:.2f}, 封板惩罚: {limit_penalty[p_i]:.2f}")
-            print(f"    >>> 最终可获得性: {final_access.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[入场保底探针 V86.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    相对流动性: {rel_liq[p_i]:.2f}, 封板惩罚: {limit_penalty[p_i]:.2f}")
+        #     print(f"    >>> 最终可获得性: {final_access.loc[probe_ts]:.4f}")
         return final_access
 
     def _calculate_entropic_ordering_bonus(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:

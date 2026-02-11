@@ -417,79 +417,123 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V8.6.0 · 背离溢价与博弈强化版 · 逻辑深化】
-        引入量价背离溢价(dissonance_premium)，反向修正主力在负动能下的扫盘行为。
-        - 核心修正: 当筹码锁定力强且吸筹爆发但动能为负时，将其识别为高置信度的拆单吸筹，赋予 20% 溢价。
-        - 逻辑穿透: 结合长周期环境尺度与日内博弈强度，解决大盘股环境钝化问题。
+        【V9.2.0 · 自适应归一化穿透版 · 初步评分】
+        使用内部归一化逻辑重构初步评分计算，确保所有输入信号的物理量纲一致。
+        - 核心修正: 行业预热使用 internal_normalize(unipolar) 处理。
+        - 逻辑适配: 适配上游 Bipolar 信号，利用 clip(lower=0) 精确提取正向动能。
         """
         preliminary_debug_values = {}
+        # 1. 提取环境信号 (Context signals 已经在 _get_and_normalize_signals 中经过内部归一化)
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
         vpa_accel = context_signals.get("vpa_accel_5d", pd.Series(0.0, index=df_index))
         anomaly_intensity = context_signals.get("anomaly_intensity", pd.Series(0.0, index=df_index))
         flow_accel = context_signals.get("flow_accel", pd.Series(0.0, index=df_index))
         flow_mom = context_signals.get("flow_mom", pd.Series(0.0, index=df_index))
-        ind_preheat = self.helper._normalize_series(self.helper._get_safe_series(df, 'industry_preheat_score_D', 0.0), df_index, bipolar=False)
+        # 2. 行业预热归一化 (迁移至内部逻辑)
+        # 行业预热是 0-100 的分数，使用 Unipolar 归一化
+        ind_preheat_raw = self.helper._get_safe_series(df, 'industry_preheat_score_D', 0.0)
+        ind_preheat = self._internal_normalize(ind_preheat_raw, mode='unipolar', window=21)
+        # 3. 结构锁定力 (Locking Force)
+        # chip_accel_13 和 entropy_slope_13 来自 normalized_signals，是 Bipolar (-1~1)
         chip_accel_13 = normalized_signals.get('clean_ACCEL_13_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
         entropy_slope_13 = normalized_signals.get('clean_SLOPE_13_chip_entropy_D', pd.Series(0.0, index=df_index))
-        locking_force = pd.concat([chip_accel_13, (-1 * entropy_slope_13).clip(0, 1)], axis=1).max(axis=1)
-        # 背离溢价逻辑: 锁定力强 + 动量微负 = 隐秘扫盘证据
+        # 逻辑适配:
+        # chip_accel > 0 代表集中度加速 (好)
+        # entropy_slope < 0 代表熵减 (好) -> -1 * slope > 0
+        # max 算子会自动忽略负值 (扩散/熵增)，除非两者都为负 (那就没锁定力)
+        locking_force = pd.concat([chip_accel_13, (-1 * entropy_slope_13)], axis=1).max(axis=1).clip(lower=0)
+        # 4. 背离溢价 (Dissonance Premium)
+        # flow_mom 是 Bipolar，< 0 代表流出。
         dissonance_mask = (locking_force > 0.7) & (flow_mom < 0)
-        dissonance_premium = dissonance_mask.astype(float) * flow_mom.abs() * 0.2
-        # 奇点模型整合溢价
+        dissonance_premium = dissonance_mask.astype(float) * flow_mom.abs() * 0.25
+        # 5. 五维奇点模型 (Intent Singularity)
+        hm_attack_slope = context_signals.get("hm_attack_slope", pd.Series(0.0, index=df_index)) # Bipolar
+        phase_transition_boost = (locking_force > 0.6).astype(float) * hm_attack_slope.clip(lower=0) * 0.5
         inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', normalized_signals.get('clean_proxy_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
-        intent_singularity = (inst_jerk.clip(lower=0) * 0.2 + stealth_jerk.clip(lower=0) * 0.2 + flow_accel.clip(lower=0) * 0.15 + ind_preheat * 0.25 + flow_mom.clip(lower=0) * 0.2 + dissonance_premium)
+        # Bipolar 信号通过 clip(lower=0) 提取正向爆发力
+        intent_singularity = (
+            inst_jerk.clip(lower=0) * 0.2 + 
+            stealth_jerk.clip(lower=0) * 0.2 + 
+            flow_accel.clip(lower=0) * 0.15 + 
+            ind_preheat * 0.25 + 
+            flow_mom.clip(lower=0) * 0.2 + 
+            dissonance_premium
+        )
+        # 6. 爆发真实性 (Burst Authenticity)
+        # vpa_accel 是 Bipolar 映射到 0~1 的 (in context), anomaly 是 Unipolar
+        # locking_force 已经 clip 到 0~1 (近似)
         base_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4 + is_leader * 0.3).clip(0, 1)
         burst_authenticity = (base_authenticity + (locking_force > 0.8).astype(float) * 0.4).clip(0, 1)
-        singularity_multiplier = 1 + (intent_singularity * burst_authenticity) * 0.3
-        print(f"  -- [V8.6.0 背离溢价探针] Flow Mom: {flow_mom.loc[df_index[-1]]:.4f}, Dissonance Premium: {dissonance_premium.loc[df_index[-1]]:.4f}")
+        singularity_multiplier = 1 + (intent_singularity * burst_authenticity + phase_transition_boost) * 0.35
+        # 7. 能量维度增强
+        energy_raw = normalized_signals.get("data_energy_outcome", pd.Series(0.0, index=df_index))
+        vpa_quality = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
+        # 重新归一化以确保维度对齐
+        vpa_quality_norm = self._internal_normalize(vpa_quality, mode='bipolar', window=21) * 0.5 + 0.5
+        energy_boosted = pd.concat([energy_raw, vpa_quality_norm * 0.8], axis=1).max(axis=1).clip(0, 1)
+        # 8. 综合几何平均
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
             "intent_outcome": normalized_signals.get("data_intent_outcome", pd.Series(0.0, index=df_index)),
             "locking_force": locking_force,
-            "energy_boost": normalized_signals.get("data_energy_outcome", pd.Series(0.0, index=df_index))
+            "energy_boost": energy_boosted
         }
         preliminary_score_base = _robust_geometric_mean(preliminary_components, {"mtf_intensity": 0.3, "intent_outcome": 0.3, "locking_force": 0.2, "energy_boost": 0.2}, df_index).fillna(0.0)
         final_score = (preliminary_score_base * singularity_multiplier * (1 + is_leader * 0.2)).clip(0, 1)
-        preliminary_debug_values.update({"intent_singularity_boost": intent_singularity, "burst_authenticity": burst_authenticity, "locking_force_component": locking_force, "dissonance_premium": dissonance_premium})
+        preliminary_debug_values.update({
+            "intent_singularity_boost": intent_singularity,
+            "burst_authenticity": burst_authenticity,
+            "locking_force_component": locking_force,
+            "energy_boost_final": energy_boosted,
+            "dissonance_premium": dissonance_premium
+        })
+        print(f"  -- [V9.2.0 初步评分探针] Base: {preliminary_score_base.loc[df_index[-1]]:.4f}, Multiplier: {singularity_multiplier.loc[df_index[-1]]:.4f}")
         return final_score, preliminary_debug_values
 
     def _apply_quality_efficiency_calibration(self, dynamic_preliminary_score: pd.Series, holographic_validation_score: pd.Series, dynamic_efficiency_baseline: pd.Series, probe_ts: Optional[pd.Timestamp], context_signals: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V6.9.0 · 散户共识过滤版 · EPC 模型深化】
-        应用基于聪明钱背离的弹性幂次校准。
-        - 核心逻辑: 引入 sm_divergence 惩罚项。如果吸筹信号伴随散户买入机构卖出的背离，则大幅调高校准幂次。
-        - 判定思路: 散机构背离(sm_divergence)与背离斜率(slope)共振时，视为高度确定性的伪信号。
+        【V9.2.0 · 自适应归一化穿透版 · 质效校准】
+        使用内部归一化逻辑处理校准因子，确保惩罚项与增益项的物理意义准确。
+        - 核心修正: 处理 Bipolar 类型的散户背离(sm_divergence)，确保负值(机构买入)产生正向增益。
+        - 行业位次: 确保 industry_strength_rank 经过 Rank 模式处理。
         """
         final_score_debug_values = {}
         df_index = dynamic_preliminary_score.index
-        # 1. 基础质效偏差与基础因子 
+        # 1. 基础质效偏差
         calibrated_holographic_score = holographic_validation_score - dynamic_efficiency_baseline
-        norm_stability = context_signals.get("turnover_stability", pd.Series(0.5, index=df_index))
-        data_quality = context_signals.get("data_quality", pd.Series(1.0, index=df_index))
-        # 2. 散户合力背离惩罚 (Retail Herd Penalty)
+        # 2. 提取并确认归一化状态
+        norm_stability = context_signals.get("turnover_stability", pd.Series(0.5, index=df_index)) # Unipolar
+        data_quality = context_signals.get("data_quality", pd.Series(1.0, index=df_index)) # Unipolar
+        # 行业强度排名 (在 context 中已经是 Rank 模式)
+        ind_rank = context_signals.get("industry_strength_rank", pd.Series(0.5, index=df_index))
+        # 3. 散户共识惩罚 (Smart Money Divergence Penalty)
+        # sm_divergence 是 Bipolar (-1~1). 
+        # > 0: 机构卖/散户买 (Bad) -> 惩罚
+        # < 0: 机构买/散户卖 (Good) -> 奖励 (负惩罚)
         sm_divergence = context_signals.get("sm_divergence", pd.Series(0.0, index=df_index))
         sm_div_slope = context_signals.get("sm_divergence_slope", pd.Series(0.0, index=df_index))
-        # 惩罚逻辑：基础背离分值 + 斜率增量（背离是否在加速）
-        # 权重 0.4 确保该项能显著影响最终校准幂次 
+        # 逻辑保持: 0.7 * Base + 0.3 * Slope(accelerating divergence)
         sm_divergence_penalty = (sm_divergence * 0.7 + sm_div_slope.clip(lower=0) * 0.3) * 0.4
-        # 3. 综合 EPC 指数计算 (γ)
-        # 惩罚项叠加：稳定性、数据质量、散户背离 
-        penalty_term = (1 - norm_stability) * 0.2 + (1 - data_quality) * 0.3 + sm_divergence_penalty
-        # 增益项：领涨属性、题材热度 
-        theme_hotness = context_signals.get("theme_hotness", pd.Series(0.0, index=df_index))
+        # 4. 综合 EPC 指数 (γ)
+        # Penalty Term: 稳定性差(+), 质量差(+), 背离大(+)
+        # sm_divergence_penalty 若为负，会减小 penalty_term，从而减小 gamma，提升分数。符合逻辑。
+        penalty_term = (1 - norm_stability) * 0.2 + (1 - data_quality) * 0.2 + sm_divergence_penalty
+        # Gain Term: 题材热度(+), 领涨(+), 行业位次高(+)
+        theme_hotness = context_signals.get("theme_hotness", pd.Series(0.0, index=df_index)) # Unipolar
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
-        gain_term = theme_hotness * 0.15 + is_leader * 0.1
-        # γ 决定了初步分数被“压制”的剧烈程度
+        # ind_rank 越小越好 (Rank 0 = Top 1). (1 - ind_rank) 越大越好.
+        gain_term = theme_hotness * 0.15 + is_leader * 0.1 + (1 - ind_rank) * 0.1
+        # 计算 gamma
+        # calibration_exponent < 1 -> 提分 (Score^0.5 > Score)
+        # calibration_exponent > 1 -> 压分 (Score^2 < Score)
         calibration_exponent = (1 - calibrated_holographic_score + penalty_term - gain_term).clip(0.05, 5.0)
-        # 4. 执行 EPC 转换并应用 
         final_score = dynamic_preliminary_score.pow(calibration_exponent).clip(0, 1).fillna(0.0)
-        # 5. 探针记录
         if probe_ts is not None and probe_ts in df_index:
             final_score_debug_values.update({
                 "epc_gamma": calibration_exponent.loc[probe_ts],
                 "sm_divergence_penalty": sm_divergence_penalty.loc[probe_ts],
-                "stability_impact": ((1 - norm_stability) * 0.2).loc[probe_ts],
+                "industry_rank_gain": ((1 - ind_rank) * 0.1).loc[probe_ts],
                 "pre_calibrated_val": dynamic_preliminary_score.loc[probe_ts]
             })
         return final_score, final_score_debug_values
