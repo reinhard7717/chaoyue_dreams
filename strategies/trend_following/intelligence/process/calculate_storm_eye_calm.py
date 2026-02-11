@@ -243,213 +243,68 @@ class CalculateStormEyeCalm:
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> List[str]:
         """
-        V1.7: 动态构建所有计算“风暴眼中的寂静”所需的原始信号和原子信号列表。
-        新增 price_volume_entropy_D、volume_profile_entropy_D、main_force_slippage_index_D、micro_impact_elasticity_D、loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度信号。
+        V11.0.0: 基于斐波那契动力学全量更新所需信号。
         """
+        # 基础静态指标
         required_signals = [
-            # 替换 SCORE_STRUCT_AXIOM_TENSION
-            'MA_POTENTIAL_TENSION_INDEX_D',
-            # 替换 SCORE_BEHAVIOR_VOLUME_ATROPHY
-            'volume_D', 'turnover_rate_f_D',
-            # 替换 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 为 covert_accumulation_signal_D
-            'covert_accumulation_signal_D',
-            # 替换 SCORE_MICRO_STRATEGY_STEALTH_OPS
-            'main_force_flow_gini_D', # covert_accumulation_signal_D 已经包含在上面
-            # 替换 SCORE_FOUNDATION_AXIOM_MARKET_TENSION
-            'equilibrium_compression_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            # 替换 SCORE_DYN_AXIOM_STABILITY
-            'mean_reversion_frequency_D', # 反向代理稳定性
-            'control_solidity_index_D', # 控盘稳固度也反映稳定性
-            'BBW_21_2.0_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', 'turnover_rate_f_D',
-            'counterparty_exhaustion_index_D', 'main_force_conviction_index_D',
-            'main_force_net_flow_calibrated_D',
-            'market_sentiment_score_D', 'SLOPE_5_close_D', 'pct_change_D',
-            'order_book_liquidity_supply_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
-            'main_force_cost_advantage_D', 'main_force_buy_ofi_D', 'main_force_t0_buy_efficiency_D',
-            'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'loser_pain_index_D',
-            'breakout_readiness_score_D', # 直接使用数据层提供的指标
-            'main_force_activity_ratio_D', 'order_book_imbalance_D', 'micro_price_impact_asymmetry_D', 'ADX_14_D',
-            'SAMPLE_ENTROPY_13d_D', 'price_volume_entropy_D', 'FRACTAL_DIMENSION_89d_D',
-            'bid_side_liquidity_D', 'ask_side_liquidity_D', 'vpin_score_D', 'BID_LIQUIDITY_SAMPLE_ENTROPY_13d_D',
-            'main_force_vwap_up_guidance_D', 'main_force_vwap_down_guidance_D', 'vwap_buy_control_strength_D', 'vwap_sell_control_strength_D',
-            'observed_large_order_size_avg_D', 'market_impact_cost_D', 'main_force_flow_directionality_D',
-            'HURST_144d_D', 'turnover_rate_D',
-            'volume_structure_skew_D', 'volume_profile_entropy_D',
-            'deception_index_D', 'wash_trade_intensity_D',
-            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
-            'covert_distribution_signal_D',
-            'main_force_slippage_index_D',
-            'price_reversion_velocity_D', 'structural_entropy_change_D',
-            'micro_impact_elasticity_D', 'order_flow_imbalance_score_D', 'liquidity_authenticity_score_D',
-            'trend_alignment_index_D',
-            'is_consolidating_D',
-            'dynamic_consolidation_duration_D',
-            'goodness_of_fit_score_D',
-            'platform_conviction_score_D',
-            # 增加 Level 5 订单流动态指标，丰富判断
-            'main_force_level5_ofi_dynamic_D',
-            'retail_level5_ofi_dynamic_D',
-            # 增加更多指标的斜率/加速度判断
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_market_sentiment_score_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_market_sentiment_score_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_order_book_liquidity_supply_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_order_book_liquidity_supply_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_tension_index_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_tension_index_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_entropy_change_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_entropy_change_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_reversion_velocity_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_reversion_velocity_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_conviction_index_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_structural_leverage_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_cost_gini_coefficient_D',
-            # 新增 price_volume_entropy_D 和 volume_profile_entropy_D 的斜率和加速度
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_volume_entropy_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_price_volume_entropy_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_volume_profile_entropy_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_volume_profile_entropy_D',
-            # 新增 main_force_slippage_index_D 和 micro_impact_elasticity_D 的斜率和加速度
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_slippage_index_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_main_force_slippage_index_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_micro_impact_elasticity_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_micro_impact_elasticity_D',
-            # 新增 loser_pain_index_D 和 retail_panic_surrender_index_D 的斜率和加速度
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_loser_pain_index_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_loser_pain_index_D',
-            f'SLOPE_{params["price_calmness_modulator_params"].get("slope_period", 5)}_retail_panic_surrender_index_D',
-            f'ACCEL_{params["price_calmness_modulator_params"].get("slope_period", 5)}_retail_panic_surrender_index_D',
+            'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
+            'BBW_21_2.0_D', 'chip_concentration_ratio_D', 'concentration_entropy_D',
+            'PRICE_ENTROPY_D', 'GEOM_ARC_CURVATURE_D', 'dynamic_consolidation_duration_D',
+            'turnover_rate_f_D', 'volume_D', 'intraday_trough_filling_degree_D',
+            'tick_abnormal_volume_ratio_D', 'afternoon_flow_ratio_D', 'absorption_energy_D',
+            'stealth_flow_ratio_D', 'tick_clustering_index_D', 'accumulation_signal_score_D',
+            'SMART_MONEY_HM_NET_BUY_D', 'HM_ACTIVE_TOP_TIER_D', 'net_mf_amount_D',
+            'loser_pain_index_D', 'sell_sm_amount_rate_D', 'winner_rate_D',
+            'market_sentiment_score_D', 'breakout_potential_D', 'breakout_confidence_D',
+            'breakout_penalty_score_D', 'resistance_strength_D', 'GEOM_REG_R2_D',
+            'ATR_14_D', 'chip_stability_D', 'ADX_14_D', 'flow_impact_ratio_D',
+            'industry_preheat_score_D', 'industry_rank_accel_D', 'trend_confirmation_score_D',
+            'chip_structure_state_D', 'main_force_activity_index_D'
         ]
-        # 动态添加MTF斜率和加速度信号到required_signals
-        for base_sig in mtf_cohesion_base_signals:
-            for period_str in get_param_value(mtf_slope_accel_weights.get('slope_periods'), {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in get_param_value(mtf_slope_accel_weights.get('accel_periods'), {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
+        # 引入物理导数维度: Slope(13), Accel(8), Jerk(5) 
+        phys_map = {'SLOPE': '13', 'ACCEL': '8', 'JERK': '5'}
+        targets = ['MA_POTENTIAL_COMPRESSION_RATE_D', 'turnover_rate_f_D', 'stealth_flow_ratio_D', 'breakout_potential_D', 'market_sentiment_score_D']
+        for target in targets:
+            for deriv, period in phys_map.items():
+                required_signals.append(f'{deriv}_{period}_{target}')
         return required_signals
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V6.0: 从DataFrame提取并在逻辑上映射原始数据。
-        版本说明：
-            - 实现 HAB (Historical Accumulation Buffer) 的 13/21/34 周期累积计算。
-            - 提取所有动力学指标 (Slope, Accel, Jerk) 并规范化命名。
-            - 提取调节器所需的新核心指标 (ATR, ATR Jerk)。
+        V10.0.1: 映射军械库数据，加入强制探针。
         """
         raw_data = {}
-        # --- [Energy Compression] 能量压缩 ---
-        raw_data['ma_potential_tension_raw'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', np.nan, method_name=method_name)
-        raw_data['bbw_raw'] = self.helper._get_safe_series(df, 'BBW_21_2.0_D', np.nan, method_name=method_name)
-        raw_data['chip_stability_raw'] = self.helper._get_safe_series(df, 'chip_stability_D', np.nan, method_name=method_name)
-        raw_data['chip_concentration_raw'] = self.helper._get_safe_series(df, 'chip_concentration_ratio_D', np.nan, method_name=method_name)
-        raw_data['chip_convergence_raw'] = self.helper._get_safe_series(df, 'chip_convergence_ratio_D', np.nan, method_name=method_name)
-        raw_data['price_entropy_raw'] = self.helper._get_safe_series(df, 'PRICE_ENTROPY_D', np.nan, method_name=method_name)
-        raw_data['price_fractal_raw'] = self.helper._get_safe_series(df, 'PRICE_FRACTAL_DIM_D', np.nan, method_name=method_name)
-        raw_data['chip_skewness_raw'] = self.helper._get_safe_series(df, 'chip_skewness_D', np.nan, method_name=method_name)
-        raw_data['bias_21_raw'] = self.helper._get_safe_series(df, 'BIAS_21_D', np.nan, method_name=method_name)
-        raw_data['ma_compression_raw'] = self.helper._get_safe_series(df, 'MA_POTENTIAL_COMPRESSION_RATE_D', np.nan, method_name=method_name)
-        raw_data['concentration_entropy_raw'] = self.helper._get_safe_series(df, 'concentration_entropy_D', np.nan, method_name=method_name)
-        raw_data['chip_stability_change_raw'] = self.helper._get_safe_series(df, 'chip_stability_change_5d_D', np.nan, method_name=method_name)
-        # --- [Volume Exhaustion] 量能枯竭 ---
-        raw_data['volume_raw'] = self.helper._get_safe_series(df, 'volume_D', np.nan, method_name=method_name)
-        raw_data['turnover_rate_f_raw'] = self.helper._get_safe_series(df, 'turnover_rate_f_D', np.nan, method_name=method_name)
-        raw_data['vpa_efficiency_raw'] = self.helper._get_safe_series(df, 'VPA_EFFICIENCY_D', np.nan, method_name=method_name)
-        raw_data['turnover_stability_raw'] = self.helper._get_safe_series(df, 'turnover_stability_index_D', np.nan, method_name=method_name)
-        raw_data['flow_impact_raw'] = self.helper._get_safe_series(df, 'flow_impact_ratio_D', np.nan, method_name=method_name)
-        raw_data['flow_efficiency_raw'] = self.helper._get_safe_series(df, 'flow_efficiency_D', np.nan, method_name=method_name)
-        raw_data['pressure_release_raw'] = self.helper._get_safe_series(df, 'pressure_release_index_D', np.nan, method_name=method_name)
-        raw_data['tick_chip_flow_raw'] = self.helper._get_safe_series(df, 'tick_level_chip_flow_D', np.nan, method_name=method_name)
-        raw_data['tick_abnormal_vol_raw'] = self.helper._get_safe_series(df, 'tick_abnormal_volume_ratio_D', np.nan, method_name=method_name)
-        raw_data['afternoon_flow_ratio_raw'] = self.helper._get_safe_series(df, 'afternoon_flow_ratio_D', np.nan, method_name=method_name)
-        # --- [Covert Intent] 主力隐蔽意图 ---
-        raw_data['stealth_flow_ratio_raw'] = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', np.nan, method_name=method_name)
-        raw_data['mf_activity_raw'] = self.helper._get_safe_series(df, 'main_force_activity_index_D', np.nan, method_name=method_name)
-        raw_data['net_mf_amount_raw'] = self.helper._get_safe_series(df, 'net_mf_amount_D', np.nan, method_name=method_name)
-        raw_data['cost_advantage_raw'] = self.helper._get_safe_series(df, 'chip_cost_to_ma21_diff_D', np.nan, method_name=method_name)
-        raw_data['tick_transfer_eff_raw'] = self.helper._get_safe_series(df, 'tick_chip_transfer_efficiency_D', np.nan, method_name=method_name)
-        raw_data['buy_lg_rate_raw'] = self.helper._get_safe_series(df, 'buy_lg_amount_rate_D', np.nan, method_name=method_name)
-        raw_data['tick_clustering_raw'] = self.helper._get_safe_series(df, 'tick_clustering_index_D', np.nan, method_name=method_name)
-        raw_data['sm_divergence_raw'] = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', np.nan, method_name=method_name)
-        # --- [HAB Data] 历史累积记忆 ---
-        # 实时计算 13, 21, 34 日主力净买入累积额
-        raw_data['net_mf_sum_13'] = raw_data['net_mf_amount_raw'].rolling(window=13, min_periods=1).sum()
-        raw_data['net_mf_sum_21'] = raw_data['net_mf_amount_raw'].rolling(window=21, min_periods=1).sum()
-        raw_data['net_mf_sum_34'] = raw_data['net_mf_amount_raw'].rolling(window=34, min_periods=1).sum()
-        # --- [Subdued Sentiment] 市场情绪低迷 ---
-        raw_data['market_sentiment_raw'] = self.helper._get_safe_series(df, 'market_sentiment_score_D', np.nan, method_name=method_name)
-        raw_data['pressure_trapped_raw'] = self.helper._get_safe_series(df, 'pressure_trapped_D', np.nan, method_name=method_name)
-        raw_data['profit_ratio_raw'] = self.helper._get_safe_series(df, 'profit_ratio_D', np.nan, method_name=method_name)
-        raw_data['retail_buy_rate_raw'] = self.helper._get_safe_series(df, 'buy_sm_amount_rate_D', np.nan, method_name=method_name)
-        raw_data['retail_sell_rate_raw'] = self.helper._get_safe_series(df, 'sell_sm_amount_rate_D', np.nan, method_name=method_name)
-        raw_data['adx_raw'] = self.helper._get_safe_series(df, 'ADX_14_D', np.nan, method_name=method_name)
-        raw_data['trend_confirm_raw'] = self.helper._get_safe_series(df, 'trend_confirmation_score_D', np.nan, method_name=method_name)
-        raw_data['loser_pain_raw'] = self.helper._get_safe_series(df, 'loser_pain_index_D', np.nan, method_name=method_name)
-        raw_data['winner_rate_raw'] = self.helper._get_safe_series(df, 'winner_rate_D', np.nan, method_name=method_name)
-        # --- [Breakout Readiness] 突破准备度 ---
-        raw_data['breakout_potential_raw'] = self.helper._get_safe_series(df, 'breakout_potential_D', np.nan, method_name=method_name)
-        raw_data['breakout_confidence_raw'] = self.helper._get_safe_series(df, 'breakout_confidence_D', np.nan, method_name=method_name)
-        raw_data['breakout_penalty_raw'] = self.helper._get_safe_series(df, 'breakout_penalty_score_D', np.nan, method_name=method_name)
-        raw_data['resistance_strength_raw'] = self.helper._get_safe_series(df, 'resistance_strength_D', np.nan, method_name=method_name)
-        raw_data['is_consolidating_raw'] = self.helper._get_safe_series(df, 'is_consolidating_D', np.nan, method_name=method_name)
-        raw_data['consolidation_duration_raw'] = self.helper._get_safe_series(df, 'dynamic_consolidation_duration_D', np.nan, method_name=method_name)
-        raw_data['geom_r2_raw'] = self.helper._get_safe_series(df, 'GEOM_REG_R2_D', np.nan, method_name=method_name)
-        raw_data['consolidation_quality_raw'] = self.helper._get_safe_series(df, 'consolidation_quality_score_D', np.nan, method_name=method_name)
-        raw_data['chip_structure_state_raw'] = self.helper._get_safe_series(df, 'chip_structure_state_D', np.nan, method_name=method_name)
-        # --- [Regulator] 调节器 (新增) ---
-        raw_data['atr_raw'] = self.helper._get_safe_series(df, 'ATR_14_D', np.nan, method_name=method_name)
-        # --- [Modulators] 其他调节 ---
-        raw_data['price_slope_raw'] = self.helper._get_safe_series(df, f'SLOPE_5_close_D', np.nan, method_name=method_name)
-        raw_data['pct_change_raw'] = self.helper._get_safe_series(df, 'pct_change_D', np.nan, method_name=method_name)
-        # --- [Dynamics] 高阶动力学数据提取 (Slope/Accel/Jerk) ---
-        fib_windows = {'SLOPE': '13', 'ACCEL': '8', 'JERK': '5'}
-        dynamics_targets = [
-            'MA_POTENTIAL_COMPRESSION_RATE_D', 'chip_concentration_ratio_D', 'PRICE_ENTROPY_D',
-            'stealth_flow_ratio_D', 'turnover_rate_f_D', 'market_sentiment_score_D',
-            'breakout_potential_D', 'ATR_14_D'
-        ]
-        for target in dynamics_targets:
-            base_key = target.replace('_D', '') # 简化键名
-            raw_data[f'{base_key}_slope'] = self.helper._get_safe_series(df, f"SLOPE_{fib_windows['SLOPE']}_{target}", np.nan, method_name=method_name)
-            raw_data[f'{base_key}_accel'] = self.helper._get_safe_series(df, f"ACCEL_{fib_windows['ACCEL']}_{target}", np.nan, method_name=method_name)
-            raw_data[f'{base_key}_jerk']  = self.helper._get_safe_series(df, f"JERK_{fib_windows['JERK']}_{target}", np.nan, method_name=method_name)
-        # 其他零散的斜率 (用于MTF Cohesion等旧逻辑)
-        raw_data['pressure_trapped_slope'] = self.helper._get_safe_series(df, f'SLOPE_5_pressure_trapped_D', np.nan, method_name=method_name)
+        target_columns = self._get_required_signals(params, params.get('mtf_slope_accel_weights', {}), [])
+        for col in target_columns:
+            if col not in df.columns: print(f"[CRITICAL ERROR] 军械库缺失关键列: {col}")
+            raw_data[col] = df[col]
+        raw_data['net_mf_sum_13'] = raw_data['net_mf_amount_D'].rolling(window=13, min_periods=1).sum()
+        raw_data['net_mf_sum_21'] = raw_data['net_mf_amount_D'].rolling(window=21, min_periods=1).sum()
+        raw_data['price_slope_raw'] = df[f'SLOPE_5_market_sentiment_score_D']
+        raw_data['stealth_jerk_raw'] = df[f'JERK_5_stealth_flow_ratio_D']
         return raw_data
 
-    def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55) -> pd.Series:
+    def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False) -> pd.Series:
         """
-        [物理归一化引擎]: 针对不同物理状态的专用归一化。
-        参数:
-            mode:
-                - 'limit_low': 极限趋零 (Tanh)。用于检测'死寂' (如成交量、熵)。
-                - 'limit_high': 极限饱和 (Sigmoid/Tanh)。用于检测'高压' (如集中度、隐蔽意图)。
-                - 'zero_focus': 零度聚焦 (Gaussian)。用于检测'无变化' (如斜率)。
-                - 'relative_rank': 相对分位。用于历史纵向对比。
-            sensitivity: 敏感度。值越大，对极值的捕捉越敏锐。
+        V11.0.1: 物理归一化引擎，包含降噪与零基陷阱过滤。
         """
-        if series.isnull().all():
-            return pd.Series(0.0, index=series.index)
-        # 1. 极限趋零 (Limit Low): 寻找绝对小值
+        # 降噪预处理：计算指标的滚动变异系数，低于门限的视为无效背景 
+        if denoise:
+            noise_floor = series.rolling(window=21).std().fillna(0) * 0.1
+            series = series.where(series.abs() > noise_floor, 0.0)
         if mode == 'limit_low':
-            # x越接近0，分越高。
-            return 1 - np.tanh(series.abs() * sensitivity)
-        # 2. 极限饱和 (Limit High): 寻找绝对大值
+            # 强化型 Tanh：1 - tanh(|x| * k)，专门用于量能枯竭 [cite: 2]
+            return 1.0 - np.tanh(series.abs() * sensitivity)
         elif mode == 'limit_high':
-            # x越大，分越高。使用 Sigmoid 变体或 Tanh。
-            # 假设输入已标准化或量级已知。这里使用 Tanh 映射正向无穷。
-            return np.tanh(series * sensitivity)
-        # 3. 零度聚焦 (Zero Focus): 寻找'不动'的状态
+            # 饱和映射：用于主力意图爆发 
+            return np.tanh(series * sensitivity).clip(0, 1)
         elif mode == 'zero_focus':
-            # 高斯径向基：x=0时为1。
+            # 高斯核锁定：用于价格斜率死寂，物理映射 0 点为 1 
             return np.exp(- (series * sensitivity) ** 2)
-        # 4. 相对分位 (Relative Rank)
         elif mode == 'relative_rank':
             roll_min = series.rolling(window=window, min_periods=1).min()
             roll_max = series.rolling(window=window, min_periods=1).max()
-            denom = (roll_max - roll_min).replace(0, 1.0)
-            return (series - roll_min) / denom
+            return (series - roll_min) / (roll_max - roll_min).replace(0, 1.0)
         return pd.Series(0.0, index=series.index)
 
     def _calculate_mtf_derived_scores(self, df: pd.DataFrame, df_index: pd.Index, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List, method_name: str) -> Dict[str, pd.Series]:
@@ -461,573 +316,183 @@ class CalculateStormEyeCalm:
         mtf_derived_scores['mtf_cohesion_score'] = self.helper._get_mtf_cohesion_score(df, mtf_cohesion_base_signals, mtf_slope_accel_weights, df_index, method_name)
         return mtf_derived_scores
 
-    def _apply_energy_physics_norm(self, series: pd.Series, mode: str, sensitivity: float = 1.0) -> pd.Series:
-        """
-        [能量专用物理映射]: 专为能量压缩组件设计的物理相变归一化。
-        区别于通用归一化，此处强调'绝对物理极限'。
-        参数:
-            mode:
-                - 'limit_high': 极限饱和 (Tanh)。用于检测'高压' (如集中度、压缩率)。
-                - 'limit_low': 极限趋零 (InvTanh)。用于检测'死寂' (如BBW、熵)。
-                - 'zero_focus': 零度聚焦 (Gaussian)。用于检测'绝对稳态' (如分形稳定性)。
-                - 'time_density': 时间密度 (SoftSat)。用于盘整时间积分。
-            sensitivity: 敏感度系数。控制物理相变的陡峭程度。
-        """
-        if series.isnull().all():
-            return pd.Series(0.0, index=series.index)
-        if mode == 'limit_high':
-            # 物理含义: 压力越大越好，直至饱和。
-            # Tanh 映射: x * k -> 0~1
-            return np.tanh(series * sensitivity).clip(0, 1)
-        elif mode == 'limit_low':
-            # 物理含义: 杂波越少越好，直至真空。
-            # 1 - Tanh(|x| * k)
-            return (1.0 - np.tanh(series.abs() * sensitivity)).clip(0, 1)
-        elif mode == 'zero_focus':
-            # 物理含义: 状态必须锁定在 0 点，任何扰动都是破坏。
-            # Gaussian: exp(-(x*k)^2)
-            return np.exp(- (series * sensitivity) ** 2)
-        elif mode == 'time_density':
-            # 物理含义: 时间越长，势能累积越大，但有边际递减。
-            # 假设 input 是天数。Sensitivity=0.03 -> 33天达到 Tanh(1)=0.76。
-            return np.tanh(series * sensitivity).clip(0, 1)
-        return pd.Series(0.0, index=series.index)
-
     def _calculate_energy_compression_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V4.1 [物理极限高压模型 - 独立归一化版]: 计算能量压缩维度。
-        版本说明：
-            - 摒弃 helper 通用归一化，使用专用物理映射 (_apply_energy_physics_norm)。
-            - 核心逻辑：
-                1. 物理空间: 极限饱和的压缩率 + 极限趋零的带宽。
-                2. 筹码相变: 极限饱和的集中度 + 极限趋零的熵。
-                3. 混沌边缘: 零度聚焦的分形稳定性。
-                4. 时空密度: 时间积分效应。
-            - 拒绝 HAB：能量状态是瞬时相变，不可缓冲。
+        V12.0.1: 能量压缩组件升级版。
+        新增：MA_POTENTIAL_COMPRESSION_RATE_D  的斜率与加速度判断。
         """
-        # --- 1. 物理空间压缩 (Physical Compression - Saturation) ---
-        # 均线潜在压缩率: Limit High。越高越好。
-        # Sensitivity=5.0: 假设 raw 约为 0.x，放大后进入饱和区。
-        ma_comp_raw = raw_data['ma_compression_raw']
-        ma_comp_score = self._apply_energy_physics_norm(ma_comp_raw, mode='limit_high', sensitivity=5.0)
-        # 布林带宽 (BBW): Limit Low。带宽越小越好。
-        # BBW通常在 0.1-0.3。Sensitivity=5.0 -> 0.1*5=0.5 -> 1-0.46=0.54; 0.05*5=0.25 -> 1-0.24=0.76.
-        bbw_raw = raw_data['bbw_raw']
-        bbw_score = self._apply_energy_physics_norm(bbw_raw, mode='limit_low', sensitivity=5.0)
-        # 物理分：均线压缩为主(主动)，布林收口为辅(被动)
-        physical_compression = (ma_comp_score * 0.6 + bbw_score * 0.4)
-        # --- 2. 筹码相变 (Chip Phase Transition - Order) ---
-        # 筹码集中度: Limit High。越高越好。
-        chip_conc_raw = raw_data['chip_concentration_raw']
-        chip_conc_score = self._apply_energy_physics_norm(chip_conc_raw, mode='limit_high', sensitivity=3.0)
-        # 筹码熵: Limit Low。越低越好 (结构单一)。
-        chip_entropy_raw = raw_data['concentration_entropy_raw']
-        chip_entropy_score = self._apply_energy_physics_norm(chip_entropy_raw, mode='limit_low', sensitivity=3.0)
-        # 筹码稳定性变化: Limit High。正向变化。
-        # 这是一个动态指标，用来确认筹码是否正在沉淀。
-        chip_stab_change_raw = raw_data['chip_stability_change_raw']
-        chip_stab_score = self._apply_energy_physics_norm(chip_stab_change_raw, mode='limit_high', sensitivity=5.0)
-        chip_final = (chip_conc_score * 0.4 + chip_entropy_score * 0.4 + chip_stab_score * 0.2)
-        # --- 3. 混沌边缘 (Edge of Chaos - Silence) ---
-        # 价格熵: Limit Low。越低代表价格运动越有序。
-        price_ent_raw = raw_data['price_entropy_raw']
-        price_ent_score = self._apply_energy_physics_norm(price_ent_raw, mode='limit_low', sensitivity=5.0)
-        # 分形维数稳定性: Zero Focus。
-        # 必须锁定在 0 点。任何分形维数的剧烈跳动(无论方向)都意味着性质改变。
-        fractal_raw = raw_data['price_fractal_raw']
-        fractal_diff = fractal_raw.diff(3).fillna(0) # 计算变化率
-        # Sensitivity=20.0: 对微小波动极度敏感。
-        fractal_stab = self._apply_energy_physics_norm(fractal_diff, mode='zero_focus', sensitivity=20.0)
-        chaos_final = (price_ent_score * 0.6 + fractal_stab * 0.4)
-        # --- 4. 动力学增益 (Dynamics - Pulse) ---
-        # 压缩率加速度 (Accel): Limit High。
-        # 如果压缩率正在加速上升 (Accel > 0)，说明均线正在以更快的速度粘合。
-        comp_accel_raw = raw_data['MA_POTENTIAL_COMPRESSION_RATE_accel']
-        comp_accel_score = self._apply_energy_physics_norm(comp_accel_raw, mode='limit_high', sensitivity=10.0)
-        dynamics_mult = 1 + (0.2 * comp_accel_score)
-        # --- 5. 时空密度 (Time-Space Density) ---
-        # 盘整时间: Time Density。
-        # 盘整越久，能量密度越大。
-        # Sensitivity=0.03: 约 30-40 天进入高分区。
-        duration_raw = raw_data['consolidation_duration_raw']
-        duration_score = self._apply_energy_physics_norm(duration_raw, mode='time_density', sensitivity=0.03)
-        # --- 6. 探针埋点 ---
-        _temp_debug_values["能量压缩详细探针"] = {
-            "Physical_Sat_Score": physical_compression,
-            "Chip_Order_Score": chip_final,
-            "Chaos_Silence_Score": chaos_final,
-            "Dynamics_Mult": dynamics_mult,
-            "Time_Density_Score": duration_score
-        }
-        # --- 7. 最终融合 ---
-        # 物理公式：能量 = 物理压缩 * 筹码有序 * 混沌寂静 * 动力增益 * (时间密度^0.1)
-        # 时间密度作为修正系数，不作为主导，防止死股得分过高。
-        final_score = (
-            physical_compression.pow(0.3) * chip_final.pow(0.4) * chaos_final.pow(0.3) * dynamics_mult * duration_score.pow(0.1)
-        ).clip(0, 1).fillna(0)
-        _temp_debug_values["能量压缩"]["energy_compression_final"] = final_score
-        return final_score
+        print(f"--- [能量动力学探针] @ {df_index[-1]} ---")
+        comp_rate = raw_data['MA_POTENTIAL_COMPRESSION_RATE_D']
+        # 获取斐波那契周期下的动力学特征
+        slope = raw_data.get('SLOPE_13_MA_POTENTIAL_COMPRESSION_RATE_D', comp_rate.diff(13))
+        accel = raw_data.get('ACCEL_8_MA_POTENTIAL_COMPRESSION_RATE_D', slope.diff(8))
+        # 降噪：零基陷阱过滤逻辑
+        filtered_slope = slope.where(slope.abs() > slope.rolling(21).std() * 0.1, 0.0)
+        # 物理映射：斜率趋近于0 且 压缩率维持在高位
+        slope_score = np.exp(- (filtered_slope * 10.0) ** 2) # 高斯核锁定“静止收敛”
+        accel_score = np.tanh(accel * 5.0).clip(-1, 1)
+        # 结合均线共振度 
+        resonance = self._calculate_physics_score(raw_data['MA_COHERENCE_RESONANCE_D'], mode='limit_high', sensitivity=2.0)
+        print(f"  -- 压缩率: {comp_rate.iloc[-1]:.4f} | 斜率静止度: {slope_score.iloc[-1]:.4f} | 共振分: {resonance.iloc[-1]:.4f}")
+        final_energy = (comp_rate * 0.4 + slope_score * 0.3 + resonance * 0.3)
+        return final_energy.clip(0, 1)
 
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V5.0 [物理极限真空模型 + 压单吸收]: 计算量能枯竭维度。
-        版本说明：
-            - 基础模型: 物理极限真空 (Limit Low)。
-            - 新增维度: [压单吸收] (Suppression & Absorption)。
-        核心逻辑：
-            1. 数量枯竭(Quantity): 换手 + 量比 (Limit Low)。
-            2. 质量控制(Quality): 异常成交 + 午后比例 (Anomaly High)。
-            3. [新增] 压单吸收(Absorption): 阻力测试 + 吸收能量 (Limit High)。
-            4. 动力学(Dynamics): Jerk (Pulse)。
+        V12.0.2: 量能枯竭组件升级版。
+        新增：turnover_rate_f_D  的 Jerk (加加速度) 以识别真空。
         """
-        # --- 1. 数量枯竭 (Limit Low) ---
-        turnover_raw = raw_data['turnover_rate_f_raw']
-        turnover_score = self._calculate_physics_score(turnover_raw, mode='limit_low', sensitivity=20.0)
-        vol_pct_change = raw_data['volume_raw'].pct_change(3).fillna(0)
-        vol_slope_score = self._calculate_physics_score(vol_pct_change, mode='limit_low', sensitivity=5.0)
-        quantity_score = (turnover_score * 0.7 + vol_slope_score * 0.3)
-        # --- 2. 质量控制 (Anomaly High) ---
-        abnormal_raw = raw_data['tick_abnormal_vol_raw']
-        abnormal_score = self._calculate_physics_score(abnormal_raw, mode='limit_high', sensitivity=5.0)
-        afternoon_raw = raw_data['afternoon_flow_ratio_raw']
-        afternoon_centered = (afternoon_raw - 0.5).clip(lower=0)
-        afternoon_score = self._calculate_physics_score(afternoon_centered, mode='limit_high', sensitivity=5.0)
-        # --- 3. [新增] 压单吸收 (Suppression & Absorption - High Quality) ---
-        # 阻力测试次数: 越多越好(Limit High)。主力反复触碰压单。
-        # 假设 raw_data 已提取 intraday_resistance_test_count_D
-        res_test_raw = self.helper._get_safe_series(raw_data, 'resistance_test_count_raw', np.nan)
-        res_test_score = self._calculate_physics_score(res_test_raw, mode='limit_high', sensitivity=0.5) # 次数通常是个位数
-        # 吸收能量: 越大越好(Limit High)。吃单动能。
-        # 假设 raw_data 已提取 absorption_energy_D
-        absorb_energy_raw = self.helper._get_safe_series(raw_data, 'absorption_energy_raw', np.nan)
-        absorb_score = self._calculate_physics_score(absorb_energy_raw, mode='limit_high', sensitivity=3.0)
-        # 压单吸收分: 这是极高质量的'假性枯竭'。
-        absorption_quality = (res_test_score * 0.5 + absorb_score * 0.5)
-        # 综合质量分: 异常成交 + 午后护盘 + 压单吸收
-        # 压单吸收是最高级的质量特征，权重较高。
-        quality_score = (abnormal_score * 0.3 + afternoon_score * 0.2 + absorption_quality * 0.5)
-        # --- 4. 动力学 (Jerk Pulse) ---
-        turnover_jerk_raw = raw_data['turnover_rate_f_jerk']
-        jerk_score = self._calculate_physics_score(turnover_jerk_raw, mode='limit_high', sensitivity=50.0)
-        dynamics_mult = 1 + (0.3 * jerk_score)
-        # --- 5. 探针 ---
-        _temp_debug_values["量能枯竭详细探针"] = {
-            "Quantity_Score": quantity_score,
-            "Quality_Score": quality_score,
-            "Absorption_Score": absorption_quality,
-            "Jerk_Signal": jerk_score
-        }
-        # --- 6. 融合 ---
-        final_score = (quantity_score.pow(0.5) * quality_score.pow(0.5) * dynamics_mult).clip(0, 1).fillna(0)
-        _temp_debug_values["量能枯竭"]["volume_exhaustion_final"] = final_score
-        return final_score
+        print(f"--- [量能真空探针] @ {df_index[-1]} ---")
+        turnover = raw_data['turnover_rate_f_D']
+        jerk = raw_data.get('JERK_5_turnover_rate_f_D', turnover.diff().diff().diff())
+        # 采用逻辑门控去除零基噪音
+        noise_floor = jerk.rolling(34).std() * 0.2
+        clean_jerk = jerk.where(jerk.abs() > noise_floor, 0.0)
+        # Jerk 评分：当加加速度出现负向脉冲后转为死寂，代表流动性彻底锁死
+        jerk_score = 1.0 - np.tanh(clean_jerk.abs() * 50.0)
+        # 结合地量填充度 
+        trough_fill = self._calculate_physics_score(raw_data['intraday_trough_filling_degree_D'], mode='limit_high', sensitivity=3.0)
+        print(f"  -- 换手率: {turnover.iloc[-1]:.4f} | Jerk死寂分: {jerk_score.iloc[-1]:.4f} | 地量填充: {trough_fill.iloc[-1]:.4f}")
+        final_vol = (jerk_score * 0.5 + trough_fill * 0.5) * (1.0 - np.tanh(turnover * 10.0))
+        return final_vol.clip(0, 1)
 
     def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        V5.0 [物理极限暗流模型 + 聪明钱协同]: 计算主力隐蔽意图维度。
-        版本说明：
-            - 基础模型: 物理极限暗流 (Limit High)。
-            - 新增维度: [聪明钱协同] (Smart Money Synergy)。
-        核心逻辑：
-            1. 结构化隐蔽(Structure): 隐形资金 + 聚类 (Limit High)。
-            2. 博弈分歧(Game): 内部筹码交换 (Limit High)。
-            3. [新增] 聪明钱协同(Synergy): 北向 + 顶级机构 (Limit High)。
-            4. 战略纵深(HAB): 历史累积。
-            5. 动力学(Pulse): Jerk。
+        V12.0.3: 主力意图组件 HAB 融合版。
+        逻辑：当日净额 net_mf_amount_D  必须经过历史水库模型校验。
         """
-        # --- 1. 结构化隐蔽 (Structure) ---
-        stealth_raw = raw_data['stealth_flow_ratio_raw']
-        stealth_score = self._calculate_physics_score(stealth_raw, mode='limit_high', sensitivity=5.0)
-        clustering_raw = raw_data['tick_clustering_raw']
-        clustering_score = self._calculate_physics_score(clustering_raw, mode='limit_high', sensitivity=5.0)
-        transfer_eff_raw = raw_data['tick_transfer_eff_raw']
-        transfer_score = self._calculate_physics_score(transfer_eff_raw, mode='limit_high', sensitivity=5.0)
-        structural_intent = (stealth_score * 0.4 + clustering_score * 0.4 + transfer_score * 0.2)
-        # --- 2. 博弈分歧 (Game) ---
-        sm_divergence_raw = raw_data['sm_divergence_raw']
-        divergence_score = self._calculate_physics_score(sm_divergence_raw, mode='limit_high', sensitivity=3.0)
-        abnormal_raw = raw_data['tick_abnormal_vol_raw']
-        abnormal_score = self._calculate_physics_score(abnormal_raw, mode='limit_high', sensitivity=5.0)
-        game_multiplier = 1 + (0.3 * divergence_score + 0.2 * abnormal_score)
-        # --- 3. [新增] 聪明钱协同 (Smart Money Synergy) ---
-        # 北向净买入: Limit High。外资背书。
-        # 假设 raw_data 已提取 hm_net_buy_raw (SMART_MONEY_HM_NET_BUY_D)
-        hm_buy_raw = self.helper._get_safe_series(raw_data, 'hm_net_buy_raw', np.nan)
-        # 资金量级较大，建议先 relative_rank 或 Log 处理。这里使用 relative_rank。
-        hm_score = self._calculate_physics_score(hm_buy_raw, mode='relative_rank', window=55)
-        # 顶级机构活跃: Limit High。内资机构背书。
-        # 假设 raw_data 已提取 top_tier_active_raw (HM_ACTIVE_TOP_TIER_D)
-        top_tier_raw = self.helper._get_safe_series(raw_data, 'top_tier_active_raw', np.nan)
-        top_tier_score = self._calculate_physics_score(top_tier_raw, mode='limit_high', sensitivity=5.0)
-        # 协同乘数: 如果聪明钱都在买，意图的可信度大幅提升。
-        # Synergy = 1 + 0.5 * (HM * TopTier)^0.5
-        synergy_multiplier = 1 + 0.5 * (hm_score * top_tier_score).pow(0.5)
-        # --- 4. 战略纵深 (HAB) ---
-        # (保持 V4.0 逻辑)
-        daily_flow = raw_data['net_mf_amount_raw']
-        def calculate_hab_physics_score(window_sum_col: str, window_days: int) -> pd.Series:
-            hist_sum = raw_data[window_sum_col]
-            base_strength = self._calculate_physics_score(hist_sum, mode='relative_rank', window=89)
-            buffer_coef = pd.Series(1.0, index=df_index, dtype=np.float32)
-            mask_buffer = (hist_sum > 0) & (daily_flow < 0)
-            outflow_ratio = daily_flow.abs() / (hist_sum.replace(0, np.nan).abs() + 1e-9)
-            current_buffer = (1.0 - np.tanh(outflow_ratio * 5.0)).clip(0, 1)
-            return base_strength * buffer_coef.mask(mask_buffer, current_buffer)
-        hab_13 = calculate_hab_physics_score('net_mf_sum_13', 13)
-        hab_21 = calculate_hab_physics_score('net_mf_sum_21', 21)
-        hab_34 = calculate_hab_physics_score('net_mf_sum_34', 34)
-        strategic_depth_score = (hab_13 * 0.5 + hab_21 * 0.3 + hab_34 * 0.2)
-        strategic_multiplier = 1 + (0.4 * strategic_depth_score)
-        # --- 5. 动力学脉冲 (Pulse) ---
-        stealth_jerk = raw_data['stealth_flow_ratio_jerk']
-        jerk_score = self._calculate_physics_score(stealth_jerk, mode='limit_high', sensitivity=20.0)
-        pulse_multiplier = 1 + (0.3 * jerk_score)
-        # --- 6. 探针 ---
-        _temp_debug_values["主力隐蔽意图详细探针"] = {
-            "Structural_Intent": structural_intent,
-            "Synergy_Multiplier": synergy_multiplier,
-            "Game_Multiplier": game_multiplier,
-            "HM_Score": hm_score,
-            "TopTier_Score": top_tier_score
-        }
-        # --- 7. 融合 ---
-        # 物理公式: 意图 = 结构 * (博弈 * 协同 * 战略 * 动力)
-        fused_score = (structural_intent * game_multiplier * synergy_multiplier * strategic_multiplier * pulse_multiplier).clip(0, 1).fillna(0)
-        components = {'structural_intent': structural_intent}
-        _temp_debug_values["主力隐蔽意图融合"] = fused_score
-        return fused_score, components
+        print(f"--- [主力意图 HAB 探针] @ {df_index[-1]} ---")
+        mf_net = raw_data['net_mf_amount_D']
+        # 调用 HAB 系统计算存量缓冲
+        hab_buffer = self._calculate_historical_accumulation_buffer(mf_net, windows=[13, 21, 34])
+        # 隐蔽收集率及其加速度 
+        stealth = raw_data['stealth_flow_ratio_D']
+        stealth_accel = raw_data.get('ACCEL_8_stealth_flow_ratio_D', stealth.diff().diff())
+        # 存量修正逻辑：如果 HAB 缓冲极强，当日小幅负值不影响意图分
+        intent_base = self._calculate_physics_score(stealth, mode='limit_high', sensitivity=4.0)
+        accel_bonus = np.tanh(stealth_accel * 10.0).clip(0, 1)
+        # 最终意图：(基础隐蔽分 + 加速奖赏) * 历史存量置信度
+        fused_intent = (intent_base + accel_bonus * 0.3) * (0.7 + 0.3 * hab_buffer)
+        print(f"  -- HAB缓冲系数: {hab_buffer.iloc[-1]:.4f} | 隐蔽加速度奖赏: {accel_bonus.iloc[-1]:.4f}")
+        return fused_intent.clip(0, 1), {"intent_base": intent_base}
 
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float, _temp_debug_values: Dict) -> pd.Series:
         """
-        V5.0 [动力学熵寂与痛楚悖论模型]: 计算市场情绪低迷维度。
-        核心逻辑：
-            1. 静态悖论: 痛楚(Limit High) * 零卖出(Limit Low)。越痛越不卖，代表极致麻木。
-            2. 动态熵寂: Slope/Accel (Zero Focus)。情绪波动必须被物理锁定。
-            3. 突变惩罚: Jerk (Limit Low)。任何情绪突变都意味着寂静的破坏。
-            4. 拒绝HAB: 情绪是相变状态，一旦破位即终结，不可缓冲。
+        V13.0.0: 基于动力学熵寂与痛楚悖论模型。
+        新增：loser_pain_index_D 的 Jerk 捕捉与情绪 HAB 缓冲。
         """
-        # --- 1. 痛楚麻木悖论 (Pain Numbness Paradox) ---
-        # 输家痛楚指数: 使用 Limit High (物理极限饱和)。
-        # 寻找市场中'最痛'的时刻，这是反转的势能基础。
-        loser_pain_raw = self.helper._get_safe_series(raw_data, 'loser_pain_index_D', np.nan)
-        pain_score = self._calculate_physics_score(loser_pain_raw, mode='limit_high', sensitivity=3.0)
-        # 散户卖出率: 使用 Limit Low (物理极限趋零)。
-        # 在高痛楚下，卖出率趋近于0，代表供给侧彻底枯竭(锁仓/绝望)。
-        retail_sell_raw = raw_data['retail_sell_rate_raw']
-        # Sensitivity=15.0: 对微小卖出极为敏感，必须是死一般的沉寂。
-        retail_sell_score = self._calculate_physics_score(retail_sell_raw, mode='limit_low', sensitivity=15.0)
-        # 痛楚麻木分
-        pain_numbness = (pain_score * retail_sell_score).pow(0.5)
-        # --- 2. 获利盘绝对清洗 (Winner Cleanse) ---
-        # 获利盘比例: Limit Low。
-        # 风暴眼前夕，获利盘应被清洗至物理极限(接近0)。
-        winner_rate_raw = self.helper._get_safe_series(raw_data, 'winner_rate_D', np.nan)
-        winner_cleanse = self._calculate_physics_score(winner_rate_raw, mode='limit_low', sensitivity=10.0)
-        # --- 3. 情绪动力学熵寂 (Sentiment Entropy Silence) ---
-        # 市场情绪分: Slope 和 Accel。
-        # 使用 Zero Focus (高斯核) 寻找绝对静止。任何方向的波动(Slope!=0)或加速(Accel!=0)都是杂音。
-        # 必须使用数据层提供的斐波拉契周期数据 (如 5日或8日)
-        sent_slope = raw_data['market_sentiment_score_slope']
-        sent_accel = raw_data['market_sentiment_score_accel']
-        # Sensitivity=50.0: 高斯带宽极窄，只奖励极致的平滑。
-        slope_silence = self._calculate_physics_score(sent_slope, mode='zero_focus', sensitivity=50.0)
-        accel_silence = self._calculate_physics_score(sent_accel, mode='zero_focus', sensitivity=30.0)
-        entropy_silence = (slope_silence * 0.6 + accel_silence * 0.4)
-        # --- 4. 突变惩罚 (Jerk Penalty) ---
-        # 加加速度 (Jerk): 代表情绪状态的突变。
-        # 在'低迷'组件中，Jerk是破坏者。我们希望 Jerk 越小越好 (Limit Low)。
-        # 如果 Jerk 很大，说明寂静正在崩塌(可能是起爆，也可能是崩盘)，此时'低迷分'应降低。
-        # 假设 raw_data 中已提取 market_sentiment_jerk (需在 _get_raw 中补充提取 JERK_5_market_sentiment_score_D)
-        sent_jerk = self.helper._get_safe_series(raw_data, 'market_sentiment_jerk', np.nan) 
-        # Sensitivity=20.0: 对突变敏感。
-        jerk_stability = self._calculate_physics_score(sent_jerk, mode='limit_low', sensitivity=20.0)
-        # --- 5. 探针埋点 ---
-        _temp_debug_values["市场情绪低迷详细探针"] = {
-            "Pain_Score": pain_score,
-            "Retail_Sell_Zero": retail_sell_score,
-            "Winner_Cleanse": winner_cleanse,
-            "Slope_Silence": slope_silence,
-            "Accel_Silence": accel_silence,
-            "Jerk_Stability": jerk_stability
-        }
-        # --- 6. 最终融合 ---
-        # 物理公式: 低迷 = 麻木 * 清洗 * 熵寂 * (突变惩罚)
-        # Jerk Stability 作为乘数，一旦突变发生，分数归零，不仅无 HAB，反而有熔断机制。
-        final_score = (
-            pain_numbness.pow(0.4) * winner_cleanse.pow(0.2) * entropy_silence.pow(0.2) * jerk_stability.pow(0.2)
-        ).clip(0, 1).fillna(0)
-        _temp_debug_values["市场情绪低迷融合"] = final_score
-        return final_score
+        print(f"--- [市场情绪动力学探针] @ {df_index[-1]} ---")
+        # 1. 痛楚麻木与绝望松动
+        pain_raw = raw_data['loser_pain_index_D']
+        pain_jerk = raw_data.get('JERK_5_loser_pain_index_D', pain_raw.diff().diff().diff())
+        # 降噪处理：过滤微小心理波动
+        pain_noise_floor = pain_jerk.rolling(21).std() * 0.1
+        clean_pain_jerk = pain_jerk.where(pain_jerk.abs() > pain_noise_floor, 0.0)
+        # 物理映射：高痛感 + 痛感突变(Jerk) = 筹码松动临界点
+        pain_score = self._calculate_physics_score(pain_raw, mode='limit_high', sensitivity=3.0)
+        despair_burst = self._calculate_physics_score(clean_pain_jerk, mode='limit_high', sensitivity=20.0)
+        # 2. 情绪熵寂 (Entropy Silence)
+        sent_slope = raw_data.get('SLOPE_13_market_sentiment_score_D', raw_data['market_sentiment_score_D'].diff(13))
+        sent_accel = raw_data.get('ACCEL_8_market_sentiment_score_D', sent_slope.diff(8))
+        # 使用高斯核锁定绝对静止：Slope/Accel 越接近 0，得分越高
+        slope_silence = self._calculate_physics_score(sent_slope, mode='zero_focus', sensitivity=50.0, denoise=True)
+        accel_silence = self._calculate_physics_score(sent_accel, mode='zero_focus', sensitivity=30.0, denoise=True)
+        # 3. 情绪 HAB 缓冲 (存量意识)
+        # 如果历史 21 日情绪极低，当日微幅反弹不应破坏“低迷”判定
+        sent_hab = self._calculate_historical_accumulation_buffer(raw_data['market_sentiment_score_D'], windows=[21])
+        # 4. 获利盘清洗 (Winner Cleanse)
+        winner_rate = raw_data['winner_rate_D']
+        cleanse_score = self._calculate_physics_score(winner_rate, mode='limit_low', sensitivity=15.0)
+        print(f"  -- 痛感分: {pain_score.iloc[-1]:.4f} | 绝望突变(Jerk): {despair_burst.iloc[-1]:.4f} | 情绪静止度: {slope_silence.iloc[-1]:.4f}")
+        # 5. 最终融合：(麻木度 * 熵寂度 * 清洗度) + 绝望突变补偿
+        # 绝望突变 (Despair Burst) 是反转的强力加分项
+        base_subdued = (pain_score.pow(0.4) * slope_silence.pow(0.3) * cleanse_score.pow(0.3))
+        final_sentiment = (base_subdued * (0.8 + 0.2 * sent_hab) + 0.2 * despair_burst)
+        _temp_debug_values["市场情绪低迷详细探针"] = {"pain_score": pain_score, "jerk_burst": despair_burst, "hab_factor": sent_hab}
+        return final_sentiment.clip(0, 1)
 
     def _calculate_breakout_readiness_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V5.1 [临界共振动力学模型]: 计算突破准备度维度。
-        版本说明：
-            - 引入CRD模型：静态共振 + 物理衰减 + 动力学点火。
-            - 必须加入 Slope/Accel/Jerk：捕捉突破潜力的'动量矢量'和'点火脉冲'。
-            - 拒绝 HAB：临界状态不具备历史缓冲性，一触即溃。
-        数据依赖：
-            - breakout_potential_D (及 Slope/Accel/Jerk)
-            - breakout_confidence_D
-            - breakout_penalty_score_D
-            - resistance_strength_D
-            - GEOM_REG_R2_D
+        V14.0.1: 突破准备度动力学升级版。
+        新增：潜力加速度、阻力斜率衰减与累积信号 HAB 缓冲。
         """
-        # --- 1. 临界共振 (Critical Resonance) ---
-        # 突破潜力: Limit High。越高越好。
-        pot_raw = raw_data['breakout_potential_raw']
+        print(f"--- [突破临界探针] @ {df_index[-1]} ---")
+        # 1. 突破潜力及其动力学 (SLOPE_13, ACCEL_8)
+        pot_raw = raw_data['breakout_potential_D']
+        pot_accel = raw_data.get('ACCEL_8_breakout_potential_D', pot_raw.diff().diff())
         pot_score = self._calculate_physics_score(pot_raw, mode='limit_high', sensitivity=5.0)
-        # [cite_start]突破信心: Limit High。信心是资金合力的体现 [cite: 1]。
-        conf_raw = raw_data['breakout_confidence_raw']
-        conf_score = self._calculate_physics_score(conf_raw, mode='limit_high', sensitivity=5.0)
-        # 共振分: 只有当潜力与信心双高时，Ready才有效。
-        resonance_score = (pot_score * conf_score).pow(0.5)
-        # --- 2. 物理衰减 (Physical Decay) ---
-        # [cite_start]突破惩罚分: Limit Low。代表上行过程中的套牢抛压预期 [cite: 1]。
-        penalty_raw = raw_data['breakout_penalty_raw']
-        penalty_score = self._calculate_physics_score(penalty_raw, mode='limit_low', sensitivity=10.0)
-        # [cite_start]阻力强度: Limit Low。明确的技术位阻力 [cite: 3]。
-        # 只有当阻力趋近于0时，才是完美的突破点。
-        res_raw = raw_data['resistance_strength_raw']
-        res_decay_score = self._calculate_physics_score(res_raw, mode='limit_low', sensitivity=10.0)
-        # 衰减分
-        decay_score = (penalty_score * res_decay_score).pow(0.5)
-        # --- 3. 几何结构 (Structure) ---
-        # [cite_start]几何R2: Limit High。形态越标准，突破越可靠 [cite: 1]。
-        geom_raw = raw_data['geom_r2_raw']
-        geom_score = self._calculate_physics_score(geom_raw, mode='limit_high', sensitivity=10.0)
-        # 盘整质量: Limit High。
-        consol_qual_raw = raw_data['consolidation_quality_raw']
-        qual_score = self._calculate_physics_score(consol_qual_raw, mode='limit_high', sensitivity=5.0)
-        struct_score = (geom_score * 0.6 + qual_score * 0.4)
-        # --- 4. 动力学点火 (Kinetic Ignition) ---
-        # 突破潜力的动力学特征：Slope & Accel & Jerk
-        # 必须处于上升通道 (Slope > 0) 且 加速 (Accel > 0)
-        pot_slope = raw_data['breakout_potential_slope']
-        pot_accel = raw_data['breakout_potential_accel']
-        # Sensitivity=20.0: 对潜力的微小变化高度敏感
-        dyn_slope_score = self._calculate_physics_score(pot_slope, mode='limit_high', sensitivity=20.0)
-        dyn_accel_score = self._calculate_physics_score(pot_accel, mode='limit_high', sensitivity=20.0)
-        # Jerk (加加速度): 点火脉冲。
-        # 当 Jerk 出现正向脉冲时，代表潜力加速的'突变'，即主力按下了发射按钮。
-        # 假设 raw_data 中已提取 breakout_potential_jerk
-        pot_jerk = self.helper._get_safe_series(raw_data, 'breakout_potential_jerk', np.nan)
-        ignition_pulse = self._calculate_physics_score(pot_jerk, mode='limit_high', sensitivity=30.0)
-        # 动力学乘数：趋势(Slope) * 加速(Accel) * 脉冲(Jerk)
-        # Jerk作为额外的强力加成
-        dynamics_mult = 1 + (0.15 * dyn_slope_score + 0.15 * dyn_accel_score + 0.2 * ignition_pulse)
-        # --- 5. 探针埋点 ---
-        _temp_debug_values["突破准备度详细探针"] = {
-            "Resonance_Score": resonance_score,
-            "Decay_Score": decay_score,
-            "Structure_Score": struct_score,
-            "Dynamics_Mult": dynamics_mult,
-            "Ignition_Pulse": ignition_pulse,
-            "Penalty_Raw": penalty_raw
-        }
-        # --- 6. 最终融合 ---
-        # 物理公式: 准备度 = (共振 * 衰减 * 结构)^(1/3) * 动力学
-        fused_score = (resonance_score * decay_score * struct_score).pow(0.33) * dynamics_mult
-        _temp_debug_values["突破准备度融合"] = fused_score.clip(0, 1).fillna(0)
-        return fused_score.clip(0, 1).fillna(0)
-
-    def _apply_regulator_penalty(self, series: pd.Series, mode: str, threshold: float = 0.5, steepness: float = 1.0, window: int = 89) -> pd.Series:
-        """
-        [调节器专用]: 环境惩罚函数库。
-        用于计算环境对策略的'压制系数' (0.0 - 1.0)。
-        参数:
-            mode:
-                - 'fermi_suppression': 费米抑制。超过阈值迅速衰减 (ADX, Impact)。
-                - 'quadratic_decay': 二次衰减。针对历史分位 (ATR)。
-                - 'gaussian_cutoff': 高斯熔断。针对突变 (Jerk)。
-                - 'linear_activation': 线性激活。针对正向指标 (Stability)。
-            threshold: 费米函数的拐点，或高斯的带宽。
-            steepness: 衰减的陡峭程度。
-        """
-        if series.isnull().all():
-            return pd.Series(1.0, index=series.index) # 默认不惩罚
-        if mode == 'fermi_suppression':
-            # 费米-狄拉克分布变体：在 threshold 处发生相变。
-            # x < threshold 时接近 1; x > threshold 时迅速降为 0。
-            # steepness 控制相变区的宽度。
-            # 归一化输入量级：假设输入已是绝对值。
-            return 1.0 / (1.0 + np.exp(steepness * (series - threshold)))
-        elif mode == 'quadratic_decay':
-            # 针对历史分位 (Ranking)。
-            # 计算滚动百分位 Rank (0-1)。
-            roll_rank = series.rolling(window=window, min_periods=1).rank(pct=True)
-            # Rank越高(波动越大)，惩罚越重。使用平方函数加速高位衰减。
-            # Rank=0.8 -> Score=1-0.64=0.36; Rank=0.2 -> Score=1-0.04=0.96.
-            return (1.0 - roll_rank.pow(steepness)).clip(0, 1)
-        elif mode == 'gaussian_cutoff':
-            # 高斯函数：x=0 时为 1。
-            # threshold 在此处作为标准差 sigma 的倒数代理。
-            return np.exp(- (series * threshold) ** 2)
-        elif mode == 'linear_activation':
-            # 简单的线性映射，但增加了底噪过滤。
-            # 假设输入 0-1。
-            return ((series - threshold) * steepness).clip(0, 1)
-        return pd.Series(1.0, index=series.index)
+        accel_bonus = self._calculate_physics_score(pot_accel, mode='limit_high', sensitivity=10.0, denoise=True)
+        # 2. 阻力衰减动力学 (SLOPE_13)
+        res_raw = raw_data['resistance_strength_D']
+        res_slope = raw_data.get('SLOPE_13_resistance_strength_D', res_raw.diff(13))
+        # 物理含义：阻力在减小 (Slope < 0) 且当前值低
+        res_decay = self._calculate_physics_score(res_slope, mode='limit_low', sensitivity=15.0)
+        # 3. 筹码底蕴 HAB 缓冲
+        acc_signal = raw_data['accumulation_signal_score_D']
+        acc_hab = self._calculate_historical_accumulation_buffer(acc_signal, windows=[21, 34])
+        print(f"  -- 潜力分: {pot_score.iloc[-1]:.4f} | 加速奖赏: {accel_bonus.iloc[-1]:.4f} | 阻力衰减度: {res_decay.iloc[-1]:.4f}")
+        # 4. 最终准备度：共振分 * 动力学增益 * HAB 缓冲
+        readiness = (pot_score * 0.4 + accel_bonus * 0.3 + res_decay * 0.3) * (0.8 + 0.2 * acc_hab)
+        return readiness.clip(0, 1)
 
     def _calculate_market_regulator_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V7.0 [环境惩罚与宏观共振模型]: 计算市场情境动态调节器。
-        版本说明：
-            - 基础架构：环境惩罚函数 (V6.0)。
-            - 新增维度：[板块预热] (Sector Preheat) 作为环境加分项。
-        核心逻辑：
-            1. 静态环境(Static): ATR + Stability + ADX (基础分, max 1.0)。
-            2. 脆弱性(Stress): Impact (扣分项)。
-            3. 熔断(Circuit): Jerk (一票否决)。
-            4. 宏观共振(Resonance): 板块预热 + 排名加速 (加分项, 可突破 1.0)。
+        V10.0.5: 引入行业预热与Fermi环境抑制。
         """
-        regime_params = params.get('regime_modulator_params', {})
-        if not get_param_value(regime_params.get('enabled'), False):
-            return pd.Series(1.0, index=df_index, dtype=np.float32)
-        # --- 1. 静态环境相态 (Static Environment - Penalty) ---
-        atr_raw = self.helper._get_safe_series(raw_data, 'atr_raw', np.nan)
-        atr_penalty = self._apply_regulator_penalty(atr_raw, mode='quadratic_decay', steepness=2.0, window=89)
-        chip_stab_raw = self.helper._get_safe_series(raw_data, 'chip_stability_raw', np.nan)
-        stab_activation = self._apply_regulator_penalty(chip_stab_raw, mode='linear_activation', threshold=0.4, steepness=1.66)
-        adx_raw = self.helper._get_safe_series(raw_data, 'adx_raw', np.nan)
-        adx_suppression = self._apply_regulator_penalty(adx_raw, mode='fermi_suppression', threshold=25.0, steepness=0.2)
-        static_env_score = (atr_penalty * stab_activation * adx_suppression).pow(0.33)
-        # --- 2. 脆弱性与熔断 (Stress & Circuit - Penalty) ---
-        impact_raw = self.helper._get_safe_series(raw_data, 'flow_impact_raw', np.nan)
-        impact_suppression = self._apply_regulator_penalty(impact_raw, mode='fermi_suppression', threshold=0.05, steepness=100.0)
-        atr_jerk_raw = self.helper._get_safe_series(raw_data, 'atr_jerk', np.nan)
-        jerk_cutoff = self._apply_regulator_penalty(atr_jerk_raw, mode='gaussian_cutoff', threshold=10.0)
-        # --- 3. [新增] 宏观共振 (Sector Preheat - Bonus) ---
-        # 行业预热分: Limit High。板块越热，个股的风暴眼越有效(轮动预期)。
-        # 假设 raw_data 已提取 industry_preheat_score_D
-        sector_preheat_raw = self.helper._get_safe_series(raw_data, 'sector_preheat_raw', np.nan)
-        sector_preheat_score = self._calculate_physics_score(sector_preheat_raw, mode='limit_high', sensitivity=3.0)
-        # 行业排名加速度: Limit High。板块正在加速向上。
-        sector_accel_raw = self.helper._get_safe_series(raw_data, 'sector_rank_accel_raw', np.nan)
-        sector_accel_score = self._calculate_physics_score(sector_accel_raw, mode='limit_high', sensitivity=5.0)
-        # 共振加成系数: 基础为1.0。如果板块环境好，最高可达 1.3 (+30%)。
-        # Bonus = 1 + 0.3 * (Preheat * Accel)^0.5
-        resonance_bonus = 1.0 + 0.3 * (sector_preheat_score * sector_accel_score).pow(0.5)
-        # --- 4. 探针埋点 ---
-        _temp_debug_values["市场调节器详细探针"] = {
-            "Static_Env": static_env_score,
-            "Impact_Suppress": impact_suppression,
-            "Jerk_Cutoff": jerk_cutoff,
-            "Sector_Preheat_Bonus": resonance_bonus
-        }
-        # --- 5. 最终融合 ---
-        min_mod = regime_params.get('min_modulator', 0.2)
-        max_mod = regime_params.get('max_modulator', 1.0)
-        # 基础调节器 (0-1)
-        base_modulator = (static_env_score * impact_suppression * jerk_cutoff)
-        # 映射到 [min, max]
-        scaled_modulator = min_mod + base_modulator * (max_mod - min_mod)
-        # 应用宏观共振加成 (可突破 max_mod)
-        final_modulator = scaled_modulator * resonance_bonus
-        _temp_debug_values["市场情境动态调节器"]["market_regime_modulator"] = final_modulator
-        return final_modulator
-
-    def _apply_fusion_specific_norm(self, series: pd.Series, mode: str, threshold: float = 0.0, sensitivity: float = 1.0) -> pd.Series:
-        """
-        [决策级物理映射]: 专用于最终融合层的归一化逻辑。
-        区别于通用归一化，此处强调'绝对阈值'和'决策边界'。
-        参数:
-            mode:
-                - 'sigmoid_belief': 趋势置信度。将线性分数映射为两极分化的置信概率。
-                - 'gaussian_zero': 绝对死寂。只奖励 0 值，偏离即惩罚。
-                - 'gated_activation': 门控激活。低于阈值归零，高于阈值线性增长。
-                - 'tanh_saturation': 极限饱和。用于捕捉高能脉冲。
-        """
-        if series.isnull().all():
-            return pd.Series(0.0, index=series.index)
-        if mode == 'sigmoid_belief':
-            # 用于 Trend Score (0-100)。
-            # Center at threshold (e.g., 50). Sensitivity 控制相变陡峭度。
-            # x=50 -> 0.5; x=60 -> High; x=40 -> Low.
-            return 1.0 / (1.0 + np.exp(-sensitivity * (series - threshold)))
-        elif mode == 'gaussian_zero':
-            # 用于 Price Slope。
-            # 寻找绝对的 0。任何波动都是噪音。
-            return np.exp(- (series * sensitivity) ** 2)
-        elif mode == 'gated_activation':
-            # 用于 Veto 指标 (如主力活跃度)。
-            # 低于 threshold 直接为 0 (熔断)。高于 threshold 线性映射到 1。
-            # values < threshold -> 0
-            # values > threshold -> (x - threshold) * sensitivity
-            return ((series - threshold) * sensitivity).clip(0, 1)
-        elif mode == 'tanh_saturation':
-            # 用于 Jerk 脉冲。
-            # 捕捉正向的高能信号。
-            return np.tanh(series * sensitivity).clip(0, 1)
-        return pd.Series(0.0, index=series.index)
+        print(f"--- 环境调节节点探针 @ {df_index[-1]} ---")
+        preheat_score = self._calculate_physics_score(raw_data['industry_preheat_score_D'], mode='limit_high', sensitivity=3.0)
+        rank_accel_score = self._calculate_physics_score(raw_data['industry_rank_accel_D'], mode='limit_high', sensitivity=5.0)
+        sector_bonus = 1.0 + 0.3 * (preheat_score * rank_accel_score).pow(0.5)
+        adx_supp = 1.0 / (1.0 + np.exp(0.3 * (raw_data['ADX_14_D'] - 28.0)))
+        atr_rank = raw_data['ATR_14_D'].rolling(window=89, min_periods=1).rank(pct=True)
+        atr_penalty = (1.0 - atr_rank.pow(2.0))
+        print(f"SectorBonus: {sector_bonus.iloc[-1]:.4f} | FermiADX: {adx_supp.iloc[-1]:.4f} | ATR_Penalty: {atr_penalty.iloc[-1]:.4f}")
+        final_modulator = adx_supp * atr_penalty * sector_bonus
+        return final_modulator.clip(0.2, 1.3)
 
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: Dict[str, pd.Series], final_fusion_weights: Dict, price_calmness_params: Dict, main_force_control_params: Dict, raw_data: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        V8.1 [临界压差与动态权重模型 - 独立归一化版]: 执行最终融合。
-        版本说明：
-            - 摒弃 helper 归一化，使用决策级物理映射 (_apply_fusion_specific_norm)。
-            - 逻辑架构：
-                1. 动态权重(Adaptive): 基于趋势置信度(Sigmoid Belief)切换 Bull/Bear 模式。
-                2. 临界压差(Pressure): 外压(Gaussian Zero) vs 内压(Tanh Saturation)。
-                3. 主力否决(Veto): 门控激活(Gated Activation)熔断风险。
+        V14.0.2: 动力学压差与 HAB 全局融合模型。
+        逻辑：利用资金 HAB 修正“流出误判”，通过物理压差确定点火置信度。
         """
-        # --- 1. 动态权重重配 (Adaptive Weighting) ---
-        # 趋势确认分: 0-100。
-        trend_raw = raw_data['trend_confirm_raw']
-        # 使用 Sigmoid 映射：以 50 分为界。Sensitivity=0.1。
-        # 50->0.5; 60->0.73; 40->0.26. 制造清晰的 牛/熊 倾向。
-        trend_belief = self._apply_fusion_specific_norm(trend_raw, mode='sigmoid_belief', threshold=50.0, sensitivity=0.1)
-        # 定义两套权重体系
-        # Bear Mode (左侧): 侧重'情绪低迷'和'能量压缩'
-        weights_bear = final_fusion_weights.copy()
-        weights_bear['subdued_market_sentiment'] = weights_bear.get('subdued_market_sentiment', 0.1) * 2.5
-        weights_bear['energy_compression'] = weights_bear.get('energy_compression', 0.2) * 1.5
-        # Bull Mode (右侧): 侧重'突破准备'和'隐蔽意图'
-        weights_bull = final_fusion_weights.copy()
-        weights_bull['breakout_readiness'] = weights_bull.get('breakout_readiness', 0.2) * 2.5
-        weights_bull['main_force_covert_intent'] = weights_bull.get('main_force_covert_intent', 0.2) * 1.5
-        # 分别计算两种模式下的基础分
-        score_bear = _robust_geometric_mean(component_scores, weights_bear, df_index)
-        score_bull = _robust_geometric_mean(component_scores, weights_bull, df_index)
-        # 线性插值: 根据趋势置信度平滑切换
-        base_calm_score = score_bear * (1 - trend_belief) + score_bull * trend_belief
-        # --- 2. 临界压差 (Pressure Differential) ---
-        # [External Calmness]: 价格波动的死寂。
-        # 使用 Gaussian Zero Focus。严格锁定 Slope=0。
-        # Sensitivity=50.0: 只要 Slope 偏离 0.02，分数即衰减至 <0.3。
-        price_slope = raw_data['price_slope_raw']
-        ext_calmness = self._apply_fusion_specific_norm(price_slope, mode='gaussian_zero', sensitivity=50.0)
-        # [Internal Boiling]: 意图动量的沸腾。
-        # 使用 Tanh Saturation。捕捉 Jerk 的正向脉冲。
-        # 隐形资金突变: stealth_flow_ratio_jerk
-        stealth_jerk = raw_data['stealth_flow_ratio_jerk']
-        int_boiling = self._apply_fusion_specific_norm(stealth_jerk, mode='tanh_saturation', sensitivity=20.0)
-        # 压差乘数: Multiplier = 1 + 0.6 * (Ext_Calm * Int_Boil)
-        # 物理含义: 外表极静(1.0) 且 内核极热(1.0) -> 1.6倍爆发力。
-        pressure_diff_mult = 1 + (0.6 * ext_calmness * int_boiling)
-        # --- 3. 主力一票否决 (Main Force Veto) ---
-        # [Chip Structure]: 筹码结构状态。
-        # 假设 chip_structure_state_D 是评分制 (0-100) 或 分类值。
-        # 这里假设已映射为 0-1 或 0-100 的质量分。设门槛为 30 (0.3)。
-        # 低于 30 直接熔断。
-        struct_raw = raw_data['chip_structure_state_raw']
-        # 假设 raw 是 0-100。Threshold=30, Sensitivity=0.02 (1/50)。
-        # x=20 -> 0; x=80 -> (80-30)*0.02 = 1.0.
-        struct_veto = self._apply_fusion_specific_norm(struct_raw, mode='gated_activation', threshold=30.0, sensitivity=0.02)
-        # [Main Force Activity]: 主力活跃度。
-        # 必须有主力在场。Threshold=10 (假设0-100), Sensitivity=0.05.
-        activity_raw = raw_data['mf_activity_raw']
-        activity_veto = self._apply_fusion_specific_norm(activity_raw, mode='gated_activation', threshold=10.0, sensitivity=0.05)
-        # 综合否决系数
-        control_veto = (struct_veto * activity_veto).pow(0.5)
-        # --- 4. 探针埋点 ---
-        _temp_debug_values["最终融合"]["Trend_Belief_Sigmoid"] = trend_belief
-        _temp_debug_values["最终融合"]["Base_Calm_Adaptive"] = base_calm_score
-        _temp_debug_values["最终融合"]["Ext_Calmness_Gaussian"] = ext_calmness
-        _temp_debug_values["最终融合"]["Int_Boiling_Tanh"] = int_boiling
-        _temp_debug_values["最终融合"]["Pressure_Diff_Mult"] = pressure_diff_mult
-        _temp_debug_values["最终融合"]["Control_Veto_Gated"] = control_veto
-        # --- 5. 计算最终分 ---
-        # Final = Base * PressureDiff * Veto
-        final_score = (base_calm_score * pressure_diff_mult * control_veto).clip(0, 1).fillna(0.0)
-        return final_score
+        print(f"--- [最终融合 HAB 联动探针] @ {df_index[-1]} ---")
+        # 1. 资金水库 HAB 缓冲
+        mf_net = raw_data['net_mf_amount_D']
+        mf_hab = self._calculate_historical_accumulation_buffer(mf_net, windows=[13, 21, 34])
+        # 2. 物理压差：外静 (Price Slope) 内沸 (Intent Jerk)
+        ext_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
+        int_boil = self._calculate_physics_score(raw_data.get('JERK_5_stealth_flow_ratio_D', 0), mode='limit_high', sensitivity=25.0)
+        pressure_mult = 1.0 + 1.2 * (ext_calm * int_boil)
+        # 3. 基础寂静分计算
+        base_score = _robust_geometric_mean(component_scores, final_fusion_weights, df_index)
+        # 4. HAB 修正：如果存量缓冲强，则放大 base_score
+        final_score = base_score * (0.7 + 0.3 * mf_hab) * pressure_mult
+        print(f"  -- 基础分: {base_score.iloc[-1]:.4f} | 资金存量缓冲: {mf_hab.iloc[-1]:.4f} | 最终输出: {final_score.iloc[-1]:.4f}")
+        return final_score.clip(0, 1)
+
+    def _calculate_historical_accumulation_buffer(self, daily_series: pd.Series, windows: list[int] = [13, 21, 34]) -> pd.Series:
+        """
+        V14.0.0: 历史累积记忆缓冲系统 (HAB)。
+        逻辑：计算多周期累积存量对当日信号的缓冲能力，识别“大买小洗”特征。
+        """
+        print(f"--- [HAB 内存探针] 启动累积计算 ---")
+        buffers = []
+        for w in windows:
+            acc_sum = daily_series.rolling(window=w, min_periods=w//2).sum()
+            # 存量/流量比：当日流出占存量的比例。若占比极小，则缓冲系数接近 1.0
+            # 采用 denoise 逻辑：分母加入极小项避免零基陷阱
+            impact_ratio = daily_series / (acc_sum.abs() + 1e-9)
+            # 使用 tanh 映射，当流出方向与存量相反且比例小时，返回高缓冲
+            buffer_factor = 1.0 - np.tanh(impact_ratio.clip(lower=-1, upper=0).abs() * 5.0)
+            buffers.append(buffer_factor)
+            if not acc_sum.empty: print(f"  -- 周期 {w} 存量均值: {acc_sum.iloc[-1]:.2f} | 缓冲状态: {buffer_factor.iloc[-1]:.4f}")
+        final_buffer = pd.concat(buffers, axis=1).mean(axis=1).fillna(1.0)
+        return final_buffer
+
+
+
+
+
+
+
+
