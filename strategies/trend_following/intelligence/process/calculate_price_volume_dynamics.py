@@ -435,7 +435,7 @@ class CalculatePriceVolumeDynamics:
             print(f"    新增指标固化 -> 21d熵减稳态: {hab_snapshot['metrics'].get('ACCUM_21_ENTROPY_STABILITY', 0.0):.1f}")
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V88.1 · 物理动力引擎：修复向量化逻辑中的真值判定错误，采用 np.where 处理反转保护权重，清除空行"""
+        """V89.0 · 物理动力引擎：提升 Tanh 映射敏感度 (0.5->0.8)，强化对中等脉冲的捕捉，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         # 1. 基础物理冲量
         vol_adj = raw['BBW_21_2.0_D'].values.astype(np.float64)
@@ -444,21 +444,20 @@ class CalculatePriceVolumeDynamics:
         j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_amount_rate_D'].values.astype(np.float64), vol_adj, conf)
         a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float64), vol_adj, conf)
         raw_impulse = (j_c * 0.45 + a_c * 0.55)
-        # 2. 自适应归一化
+        # 2. 自适应归一化 (敏感度提升)
         imp_series = pd.Series(raw_impulse, index=df_index)
         imp_mean = imp_series.rolling(21).mean().fillna(0).values
         imp_std = imp_series.rolling(21).std().replace(0, 1e-9).values
         z_score_imp = (raw_impulse - imp_mean) / imp_std
-        norm_imp = np.tanh(z_score_imp * 0.5).astype(np.float32)
+        # 系数从 0.5 提升至 0.8
+        norm_imp = np.tanh(z_score_imp * 0.8).astype(np.float32)
         # 3. 极值补偿
         price_pos = raw['price_percentile_position_D'].values
         comp_factor = np.where(price_pos < 0.2, 1.2, np.where(price_pos > 0.8, 0.8, 1.0)).astype(np.float32)
         comp_imp = norm_imp * comp_factor
-        # 4. MCV 与 反转保护 (Reversal Protection)
+        # 4. MCV 与 反转保护
         _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values.astype(np.float64), np.array([3, 5, 8, 13, 21], dtype=np.int64))
         mcv = np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10], dtype=np.float32), f_slopes.astype(np.float32))
-        # 修复：使用向量化逻辑替代标量 if 判断
-        # 逻辑：如果当前冲量显著为正 (>0.1) 但长期共识 MCV 仍为负（趋势滞后），则减少 MCV 的拖累权重
         reversal_mask = (comp_imp > 0.1) & (mcv < 0)
         mcv_weight = np.where(reversal_mask, 0.15, 0.35).astype(np.float32)
         # 5. 合成
@@ -468,9 +467,8 @@ class CalculatePriceVolumeDynamics:
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
             curr_weight = mcv_weight[p_i]
-            print(f"\n[物理引擎反转保护探针 V88.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    归一化冲量: {norm_imp[p_i]:.4f}, MCV共识: {mcv[p_i]:.4f}")
-            print(f"    权重配置: 冲量=0.6, MCV={curr_weight:.2f} {'(触发保护)' if curr_weight < 0.35 else ''}")
+            print(f"\n[物理引擎敏捷探针 V89.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    Z-Score: {z_score_imp[p_i]:.2f} -> 归一化冲量: {norm_imp[p_i]:.4f}")
             print(f"    >>> 物理合成总分: {phy_score[p_i]:.4f}")
         return pd.Series(phy_score, index=df_index, dtype=np.float32)
 
@@ -713,26 +711,26 @@ class CalculatePriceVolumeDynamics:
         return final_series
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V87.0 · 筹码锁定效率：中枢右移至常态换手，增加高获利盘的放量豁免，清除空行"""
+        """V89.0 · 筹码锁定效率：引入 HAB 承接力豁免，区分良性放量与恶性出货，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         win = raw['winner_rate_D'].values
         turn = raw['turnover_rate_f_D'].values
-        # 1. 相对换手率 (Relative Turnover)
+        # 1. 相对换手率
         turn_median = pd.Series(turn, index=df_index).rolling(21).median().replace(0, 0.01).values
         rel_turn = turn / (turn_median + 1e-9)
-        # 2. 动态衰减系数 (Dynamic Decay)
-        # 如果获利盘 > 80%，视为良性换手/接力，衰减敏感度减半 (allow turnover)
-        # 如果获利盘低，高换手视为出货/抛压，衰减敏感度正常
-        decay_rate = np.where(win > 0.8, 0.5, 1.0).astype(np.float32)
-        # 3. 锁定系数 (Lock Factor)
-        # 锚点调整为 1.0 (中位数)。
-        # rel=1.0 -> exp(0) = 1.0 (中性)
-        # rel=0.5 -> exp(0.5) ≈ 1.6 (锁仓奖励)
-        # rel=2.0 (High Win) -> exp(-1.0 * 0.5) = 0.6 (良性分歧，不杀死)
-        # rel=2.0 (Low Win) -> exp(-1.0 * 1.0) = 0.36 (恶性抛压)
-        lock_factor = np.clip(np.exp(-(rel_turn - 1.0) * decay_rate), 0.2, 1.8).astype(np.float32)
+        # 2. 承接力豁免 (Absorption Exemption)
+        # 如果当日吸收能量为正，说明放量是买盘主导
+        absorb = raw['absorption_energy_D'].values
+        absorb_bonus = np.where(absorb > 0, 0.4, 0.0).astype(np.float32)
+        # 3. 动态衰减系数
+        # 获利盘高(>0.8) 或 承接力强(>0) 均可降低衰减
+        # 原衰减率 1.0 -> 豁免后可降至 0.6
+        base_decay = np.where(win > 0.8, 0.5, 1.0).astype(np.float32)
+        final_decay = np.clip(base_decay - absorb_bonus, 0.4, 1.2)
+        # 4. 锁定系数
+        lock_factor = np.clip(np.exp(-(rel_turn - 1.0) * final_decay), 0.25, 1.8).astype(np.float32)
         s_lock = win * lock_factor
-        # 4. 动力学与 HAB (保持不变)
+        # 5. 动力学与 HAB
         a_w, a_t, j_w = raw['ACCEL_5_winner_rate_D'].values, raw['ACCEL_5_turnover_rate_f_D'].values, raw['JERK_3_winner_rate_D'].values
         k_bonus = 1.0 + np.where((a_w > 0) & (a_t < 0), 0.3, 0.0) + np.where(j_w > 0.1, 0.2, 0.0)
         high_win_days = raw['ACCUM_13_HIGH_WINNER'].values
@@ -743,9 +741,9 @@ class CalculatePriceVolumeDynamics:
         final_eff = pd.Series(s_lock * k_bonus * deep_lock_mult * (0.8 + b_c * 0.2), index=df_index, dtype=np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[筹码柔化探针 V87.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    相对换手: {rel_turn[p_i]:.2f}x, 豁免状态: {'是' if win[p_i]>0.8 else '否'}")
-            print(f"    锁定系数: {lock_factor[p_i]:.2f} (原逻辑约 {np.exp(-(rel_turn[p_i]-0.5)):.2f})")
+            print(f"\n[筹码承接探针 V89.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    相对换手: {rel_turn[p_i]:.2f}x, 吸收能量: {absorb[p_i]:.2f}")
+            print(f"    衰减系数: {final_decay[p_i]:.2f} (含承接豁免: {absorb_bonus[p_i]:.1f})")
             print(f"    >>> 最终筹码效率: {final_eff.loc[probe_ts]:.4f}")
         return final_eff
 
