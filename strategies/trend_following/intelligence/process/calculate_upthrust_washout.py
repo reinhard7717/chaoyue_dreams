@@ -29,11 +29,12 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V26.0.0 · 动态熵校准总控]
-        - 架构升级: 引入 PRICE_ENTROPY_D 对最终输出进行环境敏感性校准 。
-        - 逻辑链: $$Final = Base \times (1.2 - Entropy_{norm})$$
+        [V26.0.1 · 总线补全修复版]
+        - 修复: 补全 debug_context 中 Phys 字典缺失的 OCH/VPA/BBP 键值对，消除 KeyError。
+        - 架构: 维持 V26.0.0 的动态熵校准总控逻辑。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
+        # 1. 提取全量原料
         (open_p, high_p, low_p, close_p, pct_chg, p_entropy,
          slope_p, accel_p, jerk_p,                                   
          raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, 
@@ -43,7 +44,7 @@ class CalculateUpthrustWashoutRelationship:
          abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, 
          ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        # 1. 基础逻辑模块计算 [cite: 1, 2, 3, 4]
+        # 2. 逻辑模块计算
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
         f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
         f_split = self._assess_split_order_accumulation(volume, trade_count, clustering, raw_f, total_net)
@@ -54,20 +55,22 @@ class CalculateUpthrustWashoutRelationship:
         solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
         chrono_dec = self._assess_skewed_deception_narrative(morning, stealth, high_lock, skew, pct_chg)
         fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
-        # 2. 全局熵校准 
+        # 3. 全局熵校准
         e_scale = p_entropy.rolling(60, min_periods=1).mean().replace(0, 1e-9)
         n_entropy = np.tanh(p_entropy / e_scale).clip(0.2, 1.0)
         entropy_multiplier = (1.2 - n_entropy).clip(0, 1)
-        # 3. 融合与输出
+        # 4. 融合
         context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
         forensics = (chrono_dec * 0.4 + chip_meta * 0.3 + fractal_man * 0.3)
         final_score = (k_trap * fund_score * forensics * solidity * context * entropy_multiplier).clip(0, 1)
-        # 4. 数据总线打包
+        # 5. 数据总线封包 [核心修复点: 补全 Phys 字典中的键]
         debug_context = {
             "Final": final_score, "EntropyMultiplier": entropy_multiplier, "EntropyRaw": p_entropy,
-            "Phys": {"Node": k_trap}, "Fund": {"Node": fund_score, "AccT": t_accum_34},
-            "Chip": {"Node": chip_meta, "CostDiff": cost_diff}, "Defense": {"Node": solidity},
-            "Forensics": {"Dec": chrono_dec, "Man": fractal_man}
+            "Phys": {"Node": k_trap, "OCH": och_acc, "VPA": vpa_eff, "BBP": bbp_pos, "Slope": slope_p, "Jerk": jerk_p},
+            "Fund": {"Node": fund_score, "AccT": t_accum_34, "Active": f_active, "HAB": f_hab, "Split": f_split},
+            "Chip": {"Node": chip_meta, "CostDiff": cost_diff, "H_Rel": hab_rel, "TO": turnover, "Kurt": chip_kurt, "Conv": chip_conv, "A_Win": acc_win, "A_Stab": acc_stab_21},
+            "Defense": {"Node": solidity, "SR": sr_ratio, "Test": test_cnt, "Mig": cost_mig, "AccS": acc_supp},
+            "Forensics": {"Dec": chrono_dec, "Man": fractal_man, "Skew": skew, "Lock": high_lock}
         }
         self._print_debug_probe(df_index, debug_context)
         return final_score.astype(np.float32).fillna(0.0)
