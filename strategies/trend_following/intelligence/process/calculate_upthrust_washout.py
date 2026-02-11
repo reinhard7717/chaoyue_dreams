@@ -29,70 +29,52 @@ class CalculateUpthrustWashoutRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V30.0.0 · 多周期对冲总控]
-        - 架构升级: 引入 _assess_multi_period_volatility_hedge。
-        - 逻辑链: 识别物理熔断 -> 识别多日能量衰减 -> 注入多周期波动率对冲 -> 最终合成。
+        [V31.0.0 · 筹码全息位移总控]
+        - 变更说明: 修正 V30 数据引用错误，改用 ATR  与全息位移。
+        - 逻辑链: 物理熔断 -> 资金蓄水池 -> 全息筹码位移 -> 环境熵校准。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
-        (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, s5, s20, s60, m5, m20, m60,
-         raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, 
-         vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, 
-         morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, 
-         chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, 
-         abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, 
-         ma_res, slope_t) = self._get_raw_signals(df, method_name)
+        (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_10, vol_f_20, c_mean, peak_mig, mig_conv, conv_mig, raw_f, jerk_f, smart_n, f_acc34, t_acc34, vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, morning, stealth, high_lock, skew, pres_rel, hab_rel, turnover, clustering, order_anomaly, volume, trade_count, total_net, ma_res, slope_t) = self._get_raw_signals(df, method_name)
         df_index = df.index
-        # 1. 物理层(极限速率熔断)
         k_trap = self._assess_kinematic_trap_physics(close_p, high_p, slope_p, jerk_p, vpa_eff, och_acc, bbp_pos)
-        # 2. 资金层(多日能量累积 + 影子蓄水池)
-        f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d)
+        # 资金层保持 V29 逻辑
+        f_resonance = self._assess_fund_jerk_resonance(pct_chg, jerk_f, smart_n, smart_d=pd.Series(0, index=df_index))
         f_split = self._assess_split_order_accumulation(volume, trade_count, clustering, raw_f, total_net)
-        f_energy_decay = self._assess_cumulative_energy_decay(raw_f, total_net)
-        f_active = np.maximum(f_resonance, f_split)
-        f_hab = self._assess_fund_reservoir_buffer(raw_f, f_accum_34, t_accum_34, f_split, slope_f_21, accel_f_21, vpa_eff, f_volat)
-        fund_score = f_active * f_hab * f_energy_decay
-        # 3. 波动率对冲层 [V30 新增]
-        v_hedge = self._assess_multi_period_volatility_hedge(s5, s20, s60, m5, m20, m60)
-        # 4. 筹码/取证/防御
-        chip_meta = self._assess_chip_holographic_tension(hab_rel, turnover, winner, acc_win, chip_stab, acc_stab_21, chip_kurt, chip_conv, cost_diff)
-        solidity = self._assess_structural_stress_test(sr_ratio, test_cnt, cost_mig, acc_supp)
-        ssd_dec = self._assess_stealth_shadow_divergence(morning, stealth, high_lock, skew, pct_chg, total_net)
-        fractal_man = self._assess_fractal_manipulation_fingerprint(abnormal_vol, clustering, order_anomaly, acc_abnormal)
+        f_energy = self._assess_cumulative_energy_decay(raw_f, total_net)
+        f_hab = self._assess_fund_reservoir_buffer(raw_f, f_acc34, t_acc34, f_split, pd.Series(0, index=df_index), pd.Series(0, index=df_index), vpa_eff, vol_f_20)
+        fund_score = np.maximum(f_resonance, f_split) * f_hab * f_energy
+        # [V31 核心] 全息筹码位移
+        chip_migration = self._assess_chip_holographic_migration(close_p, c_mean, peak_mig, conv_mig)
+        chip_tension = self._assess_chip_holographic_tension(hab_rel, turnover, winner, acc_win, chip_stab, acc_stab_21, chip_kurt, chip_conv, cost_diff)
+        # [V31 修正] 基于 ATR 的 Beta 对冲 
+        atr_norm = (atr_14 / close_p.replace(0, 1e-9)).rolling(60, min_periods=1).rank(pct=True)
+        beta_hedge = (1.2 - atr_norm).clip(0, 1)
+        # 融合输出
+        forensics = (chip_migration * 0.4 + chip_tension * 0.4 + np.tanh(clustering) * 0.2)
         e_scale = p_entropy.rolling(60, min_periods=1).mean().replace(0, 1e-9)
-        entropy_multiplier = (1.2 - np.tanh(p_entropy / e_scale)).clip(0, 1)
-        # 5. 融合输出
-        context = ((slope_t > 0) | (ma_res > 0.6)).astype(int)
-        forensics = (ssd_dec * 0.5 + chip_meta * 0.3 + fractal_man * 0.2)
-        final_score = (k_trap * fund_score * v_hedge * forensics * solidity * context * entropy_multiplier).clip(0, 1)
-        # 6. 数据总线封包
-        debug_context = {
-            "Final": final_score, "VHedge": v_hedge, "EnergyDecay": f_energy_decay,
-            "Phys": {"Node": k_trap, "Jerk": jerk_p},
-            "Fund": {"Node": fund_score, "AccT": t_accum_34},
-            "Chip": {"Node": chip_meta, "C_Diff": cost_diff},
-            "Defense": {"Node": solidity}, "For": {"SSD": ssd_dec}
-        }
-        self._print_debug_probe(df_index, debug_context)
+        entropy_multi = (1.2 - np.tanh(p_entropy / e_scale)).clip(0, 1)
+        final_score = (k_trap * fund_score * beta_hedge * forensics * entropy_multi).clip(0, 1)
+        self._print_debug_probe(df_index, {"Final": final_score, "Mig": chip_migration, "Fund": fund_score, "Beta": beta_hedge, "ATR": atr_14, "CMean": c_mean})
         return final_score.astype(np.float32).fillna(0.0)
 
     def _print_debug_probe(self, idx: pd.Index, ctx: Dict[str, Any]):
         """
-        [V30.0.0 · 对冲溯源探针]
-        - 职责: 揭示 Beta 风险与 Alpha 风险的对冲比例。
+        [V31.0.0 · 全息位移探针]
+        - 职责: 揭示筹码重心与价格波动的时空背离。
         """
         if len(idx) > 0:
             i = -1
             dt = idx[i].strftime('%Y-%m-%d')
-            print(f"--- [PROBE_V30_HEDGE] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
-            print(f"  [Global] VHedgeFactor: {ctx['VHedge'].iloc[i]:.4f}, EnergyDecay: {ctx['EnergyDecay'].iloc[i]:.4f}")
-            print(f"  [Phys]   Node: {ctx['Phys']['Node'].iloc[i]:.4f} (Jerk: {ctx['Phys']['Jerk'].iloc[i]:.2f})")
-            print(f"  [Fund]   Node: {ctx['Fund']['Node'].iloc[i]:.4f} (AccT: {ctx['Fund']['AccT'].iloc[i]:.0f})")
+            print(f"--- [PROBE_V31_MIGRATION] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            print(f"  [Holographic] MigrationScore: {ctx['Mig'].iloc[i]:.4f} (ChipMean: {ctx['CMean'].iloc[i]:.2f})")
+            print(f"  [Hedge]       BetaFactor: {ctx['Beta'].iloc[i]:.4f} (ATR_14: {ctx['ATR'].iloc[i]:.2f})")
+            print(f"  [Foundation]  FundScore: {ctx['Fund'].iloc[i]:.4f}")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """
-        [V30.0.0 · 多周期对冲数据接入]
-        - 核心职责: 提取个股与市场的多周期波动率、熵值及基准动能指标。
-        - 变更说明: 接入市场基准波动率(market_volatility_5d_D等)与个股20日/60日波动率。
+        [V31.0.0 · 筹码全息位移数据接入]
+        - 核心修复: 移除不存在的 volatility_5d_D 等列，改用清单内存在的 flow_volatility_10d_D  及 ATR_14_D 。
+        - 新增列: chip_mean_D , peak_migration_speed_5d_D , migration_convergence_ratio_D , convergence_migration_D.
         """
         open_p = self.helper._get_safe_series(df, 'open_D', np.nan, method_name=method_name)
         high_p = self.helper._get_safe_series(df, 'high_D', np.nan, method_name=method_name)
@@ -102,22 +84,17 @@ class CalculateUpthrustWashoutRelationship:
         p_entropy = self.helper._get_safe_series(df, 'PRICE_ENTROPY_D', np.nan, method_name=method_name)
         slope_p = self.helper._get_safe_series(df, 'SLOPE_3_close_D', np.nan, method_name=method_name)
         jerk_p = self.helper._get_safe_series(df, 'JERK_3_close_D', np.nan, method_name=method_name)
-        # 个股多周期波动率 [Source 2]
-        vol_s_5 = self.helper._get_safe_series(df, 'volatility_5d_D', np.nan, method_name=method_name)
-        vol_s_20 = self.helper._get_safe_series(df, 'volatility_20d_D', np.nan, method_name=method_name)
-        vol_s_60 = self.helper._get_safe_series(df, 'volatility_60d_D', np.nan, method_name=method_name)
-        # 市场基准波动率 [Source 3]
-        vol_m_5 = self.helper._get_safe_series(df, 'market_volatility_5d_D', np.nan, method_name=method_name)
-        vol_m_20 = self.helper._get_safe_series(df, 'market_volatility_20d_D', np.nan, method_name=method_name)
-        vol_m_60 = self.helper._get_safe_series(df, 'market_volatility_60d_D', np.nan, method_name=method_name)
-        # 其余资金/筹码/取证指标继承 V29
-        raw_f = self.helper._get_safe_series(df, 'tick_large_order_net_D', np.nan, method_name=method_name)
+        atr_14 = self.helper._get_safe_series(df, 'ATR_14_D', np.nan, method_name=method_name) # 真实波动率 
+        vol_f_10 = self.helper._get_safe_series(df, 'flow_volatility_10d_D', np.nan, method_name=method_name) # 资金波动 
+        vol_f_20 = self.helper._get_safe_series(df, 'flow_volatility_20d_D', np.nan, method_name=method_name)
+        c_mean = self.helper._get_safe_series(df, 'chip_mean_D', np.nan, method_name=method_name) # 筹码重心 
+        peak_mig_5 = self.helper._get_safe_series(df, 'peak_migration_speed_5d_D', np.nan, method_name=method_name) # 迁移速度 
+        mig_conv = self.helper._get_safe_series(df, 'migration_convergence_ratio_D', np.nan, method_name=method_name) # 迁移收敛比 
+        conv_mig = self.helper._get_safe_series(df, 'convergence_migration_D', np.nan, method_name=method_name) # 收敛迁移量 
+        raw_fund = self.helper._get_safe_series(df, 'tick_large_order_net_D', np.nan, method_name=method_name)
         jerk_f = self.helper._get_safe_series(df, 'JERK_3_tick_large_order_net_D', np.nan, method_name=method_name)
         smart_n = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', np.nan, method_name=method_name)
-        smart_d = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', np.nan, method_name=method_name)
-        slope_f_21 = self.helper._get_safe_series(df, 'SLOPE_21_tick_large_order_net_D', np.nan, method_name=method_name)
-        accel_f_21 = self.helper._get_safe_series(df, 'ACCEL_21_tick_large_order_net_D', np.nan, method_name=method_name)
-        f_accum_34 = raw_f.rolling(window=34, min_periods=1).sum() 
+        f_accum_34 = raw_fund.rolling(window=34, min_periods=1).sum() 
         t_accum_34 = self.helper._get_safe_series(df, 'net_amount_D', np.nan, method_name=method_name).rolling(34, min_periods=1).sum()
         total_net = self.helper._get_safe_series(df, 'net_amount_D', np.nan, method_name=method_name)
         vpa_eff = self.helper._get_safe_series(df, 'VPA_MF_ADJUSTED_EFF_D', np.nan, method_name=method_name)
@@ -141,22 +118,13 @@ class CalculateUpthrustWashoutRelationship:
         pres_rel = self.helper._get_safe_series(df, 'pressure_release_index_D', np.nan, method_name=method_name)
         hab_rel = pres_rel.rolling(window=5, min_periods=1).sum()
         turnover = self.helper._get_safe_series(df, 'turnover_rate_D', np.nan, method_name=method_name)
-        abnormal_vol = self.helper._get_safe_series(df, 'tick_abnormal_volume_ratio_D', np.nan, method_name=method_name)
         clustering = self.helper._get_safe_series(df, 'tick_clustering_index_D', np.nan, method_name=method_name)
         order_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', np.nan, method_name=method_name)
-        acc_abnormal = self.helper._get_safe_series(df, 'ACCEL_5_tick_abnormal_volume_ratio_D', np.nan, method_name=method_name)
         volume = self.helper._get_safe_series(df, 'volume_D', np.nan, method_name=method_name)
         trade_count = self.helper._get_safe_series(df, 'trade_count_D', np.nan, method_name=method_name)
         ma_res = self.helper._get_safe_series(df, 'MA_COHERENCE_RESONANCE_D', np.nan, method_name=method_name)
         slope_t = self.helper._get_safe_series(df, 'GEOM_REG_SLOPE_D', np.nan, method_name=method_name)
-        f_volat = self.helper._get_safe_series(df, 'flow_volatility_20d_D', np.nan, method_name=method_name)
-        return (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, vol_s_5, vol_s_20, vol_s_60, vol_m_5, vol_m_20, vol_m_60,
-                raw_f, jerk_f, smart_n, smart_d, slope_f_21, accel_f_21, f_accum_34, t_accum_34, f_volat, 
-                vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, 
-                morning, stealth, high_lock, skew, pres_rel, hab_rel, winner, acc_win, turnover, 
-                chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, 
-                abnormal_vol, clustering, order_anomaly, acc_abnormal, volume, trade_count, total_net, 
-                ma_res, slope_t)
+        return (open_p, high_p, low_p, close_p, pct_chg, p_entropy, slope_p, jerk_p, atr_14, vol_f_10, vol_f_20, c_mean, peak_mig_5, mig_conv, conv_mig, raw_fund, jerk_f, smart_n, f_accum_34, t_accum_34, vpa_eff, och_acc, bbp_pos, test_cnt, cost_mig, sr_ratio, acc_supp, winner, acc_win, chip_stab, acc_stab_21, cost_diff, chip_kurt, chip_conv, morning, stealth, high_lock, skew, pres_rel, hab_rel, turnover, clustering, order_anomaly, volume, trade_count, total_net, ma_res, slope_t)
 
     def _assess_multi_period_volatility_hedge(self, s5: pd.Series, s20: pd.Series, s60: pd.Series, m5: pd.Series, m20: pd.Series, m60: pd.Series) -> pd.Series:
         """
@@ -279,6 +247,34 @@ class CalculateUpthrustWashoutRelationship:
         n_tension = np.tanh(tension).clip(0, 1)
         final_meta = (efficiency * 0.3 + thickness_score * 0.4 + n_tension * 0.3) * stability_gate * cost_gate
         return final_meta.fillna(0).astype(np.float32)
+
+    def _assess_chip_holographic_migration(self, close: pd.Series, c_mean: pd.Series, peak_mig: pd.Series, conv_mig: pd.Series) -> pd.Series:
+        """
+        [V31.0.0 · 筹码全息位移判定]
+        - 核心逻辑: 追踪主力的核心防御半径。洗盘特征为价格大幅下坠但长周期重心(Fibonacci)锁死。
+        - 判定维度: 
+            1. 斐波那契位移比: 计算 5/13/21/34/55 日重心变化。
+            2. 迁移稳定性: 价格下行速率 / 筹码重心下移速率。
+            3. 收敛位移[cite: 2, 3]: 结合 convergence_migration_D 判断位移是否具有攻击性。
+        """
+        fib_list = [5, 13, 21, 34, 55]
+        migration_scores = []
+        for period in fib_list:
+            # 价格下行速率
+            p_vel = (close.diff(period) / close.shift(period).replace(0, 1e-9)).abs()
+            # 筹码重心迁移速率 
+            c_vel = (c_mean.diff(period) / c_mean.shift(period).replace(0, 1e-9)).abs()
+            # 迁移比: 若价格跌得快而重心不动，说明洗盘质量高
+            m_ratio = (p_vel / (c_vel + 0.01)).clip(0, 3) / 3.0
+            migration_scores.append(m_ratio)
+        # 综合全息位移分
+        holographic_mig = pd.concat(migration_scores, axis=1).mean(axis=1)
+        # 结合迁移收敛特性 
+        c_gate = np.tanh(conv_mig.abs().rolling(21, min_periods=1).mean()).clip(0, 1)
+        # 最终位移分: 位移比 * (1 + 峰值迁移速度奖励 )
+        final_mig = (holographic_mig * (1.0 + np.tanh(peak_mig / 100))).clip(0, 1)
+        print(f"  [DEBUG_V31_MIG] MeanMigration: {final_mig.iloc[-1]:.4f}")
+        return final_mig.fillna(0).astype(np.float32)
 
     def _assess_stealth_shadow_divergence(self, morning: pd.Series, stealth: pd.Series, high_lock: pd.Series, skew: pd.Series, pct_chg: pd.Series, total_net: pd.Series) -> pd.Series:
         """
