@@ -80,10 +80,10 @@ class CalculateSplitOrderAccumulation:
 
     def _get_and_normalize_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, method_name: str) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V9.3.0 · 物理锚点确立版 · 信号获取】
-        针对筹码集中度与稳定性恢复绝对物理量纲，修复“相对主义陷阱”。
-        - 核心修正: 集中度使用 reverse_absolute，稳定性使用 scale_5，不再受历史波动范围影响。
-        - 逻辑审计: 2026-02-08 更新，确保结构锁定力反映真实物理状态而非统计相对位置。
+        【V9.4.0 · 状态-趋势双模锁定版 · 信号获取】
+        重构结构维度，引入静态熵(entropy_norm)以识别“死鱼级”完美锁仓。
+        - 核心修正: data_structure_outcome 纳入绝对低熵状态，防止稳态锁仓股得分过低。
+        - 逻辑审计: 2026-02-08 更新，确保静态结构优势能转化为最终评分。
         """
         df_index = df.index
         raw_df_columns = [
@@ -122,34 +122,10 @@ class CalculateSplitOrderAccumulation:
         }
         intent_comps_mapped = {k: (v * 0.5 + 0.5) if k != 'consistency' else v for k, v in intent_comps.items()}
         normalized_signals["data_intent_outcome"] = _robust_geometric_mean(intent_comps_mapped, {"explicit": 0.3, "hidden_slope": 0.4, "consistency": 0.3}, df_index).fillna(0.0)
-        # 结构组件归一化 (使用绝对物理量纲)
         range_ratio = raw_signals['intraday_price_range_ratio_D']
         range_rank = self._internal_normalize(range_ratio, mode='rank', window=60)
         convergence_score = (1 - range_rank).clip(0, 1)
-        entropy_slope_5 = normalized_signals.get('clean_SLOPE_5_chip_entropy_D', pd.Series(0.0, index=df_index))
-        struct_comps = {
-            "stability": self._internal_normalize(raw_signals['chip_stability_D'], mode='scale_5'), # 0-5分制 -> 0-1
-            "golden_pit": raw_signals['STATE_GOLDEN_PIT_D'].astype(float), # 已是状态分
-            "concentration": self._internal_normalize(raw_signals['chip_concentration_ratio_D'], mode='reverse_absolute'), # 越低越好 1-x
-            "entropy_reduction": (entropy_slope_5 * -1 * 0.5 + 0.5).clip(0, 1),
-            "transfer_eff": self._internal_normalize(raw_signals['tick_chip_transfer_efficiency_D'], mode='absolute_ratio'), # 本身是比率
-            "convergence": convergence_score
-        }
-        normalized_signals["data_structure_outcome"] = _robust_geometric_mean(struct_comps, {"stability": 0.15, "golden_pit": 0.2, "concentration": 0.2, "entropy_reduction": 0.15, "transfer_eff": 0.15, "convergence": 0.15}, df_index).fillna(0.0)
-        vpa_eff_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
-        vpa_quality_norm = self._internal_normalize(vpa_eff_slope_5, mode='bipolar', window=21) * 0.5 + 0.5
-        energy_comps = {
-            "abs_energy": self._internal_normalize(raw_signals['absorption_energy_D'], mode='unipolar', window=21), # 能量值无绝对上限，仍用 Unipolar
-            "vpa_quality": vpa_quality_norm,
-            "game_int": self._internal_normalize(raw_signals['game_intensity_D'], mode='scale_5') # 假设是 0-5 或 0-100，这里需确认。通常强度是0-100，改用 unipolar 安全点，或者归一化到 0-1
-        }
-        # game_intensity 如果是 0-100，需用 unipolar 或 /100。稳妥起见用 unipolar
-        energy_comps["game_int"] = self._internal_normalize(raw_signals['game_intensity_D'], mode='unipolar', window=21)
-        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 0.3, "vpa_quality": 0.4, "game_int": 0.3}, df_index).fillna(0.0)
-        mtf_signals = {
-            "mtf_intensity": self.helper._get_mtf_slope_accel_score(df, 'accumulation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
-            "mtf_cohesion": self.helper._get_mtf_cohesion_score(df, noise_sensitive_list, mtf_slope_accel_weights, df_index, method_name)
-        }
+        # 慢变量环境熵与压缩率
         entropy = raw_signals['PRICE_ENTROPY_D']
         entropy_diff = entropy.diff(5).abs()
         entropy_anf = entropy.rolling(60).std() * 0.1
@@ -158,12 +134,39 @@ class CalculateSplitOrderAccumulation:
         compression = raw_signals['MA_POTENTIAL_COMPRESSION_RATE_D']
         comp_rank = self._internal_normalize(compression, mode='rank', window=60)
         stable_comp_rank = comp_rank.where(compression.diff(5).abs() > (compression.rolling(60).std() * 0.1), 0.5)
+        # 熵的绝对状态 (Unipolar: 越低越好，所以 1-Rank 或直接归一化)
+        # 使用 60日 Unipolar 归一化熵值，然后取反 (1-x)
+        entropy_state_norm = (1 - self._internal_normalize(entropy, mode='unipolar', window=60)).clip(0, 1)
+        entropy_slope_5 = normalized_signals.get('clean_SLOPE_5_chip_entropy_D', pd.Series(0.0, index=df_index))
+        struct_comps = {
+            "stability": self._internal_normalize(raw_signals['chip_stability_D'], mode='scale_5'),
+            "golden_pit": raw_signals['STATE_GOLDEN_PIT_D'].astype(float),
+            "concentration": self._internal_normalize(raw_signals['chip_concentration_ratio_D'], mode='reverse_absolute'),
+            "entropy_reduction": (entropy_slope_5 * -1 * 0.5 + 0.5).clip(0, 1),
+            "entropy_state": entropy_state_norm, # 新增: 静态熵优势
+            "transfer_eff": self._internal_normalize(raw_signals['tick_chip_transfer_efficiency_D'], mode='absolute_ratio'),
+            "convergence": convergence_score
+        }
+        # 调整权重，纳入 entropy_state
+        normalized_signals["data_structure_outcome"] = _robust_geometric_mean(struct_comps, {"stability": 0.1, "golden_pit": 0.2, "concentration": 0.2, "entropy_reduction": 0.1, "entropy_state": 0.15, "transfer_eff": 0.1, "convergence": 0.15}, df_index).fillna(0.0)
+        vpa_eff_slope_5 = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
+        vpa_quality_norm = self._internal_normalize(vpa_eff_slope_5, mode='bipolar', window=21) * 0.5 + 0.5
+        energy_comps = {
+            "abs_energy": self._internal_normalize(raw_signals['absorption_energy_D'], mode='unipolar', window=21),
+            "vpa_quality": vpa_quality_norm,
+            "game_int": self._internal_normalize(raw_signals['game_intensity_D'], mode='unipolar', window=21)
+        }
+        normalized_signals["data_energy_outcome"] = _robust_geometric_mean(energy_comps, {"abs_energy": 0.3, "vpa_quality": 0.4, "game_int": 0.3}, df_index).fillna(0.0)
+        mtf_signals = {
+            "mtf_intensity": self.helper._get_mtf_slope_accel_score(df, 'accumulation_score_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False),
+            "mtf_cohesion": self.helper._get_mtf_cohesion_score(df, noise_sensitive_list, mtf_slope_accel_weights, df_index, method_name)
+        }
         context_signals = {
             "is_leader": raw_signals['IS_MARKET_LEADER_D'].astype(float),
             "mf_activity": self._internal_normalize(raw_signals['intraday_main_force_activity_D'], mode='unipolar', window=21),
             "adx_norm": self._internal_normalize(raw_signals['ADX_14_D'], mode='unipolar', window=21),
             "sentiment_norm": self._internal_normalize(raw_signals['market_sentiment_score_D'], mode='unipolar', window=21),
-            "entropy_norm": self._internal_normalize(entropy, mode='unipolar', window=60),
+            "entropy_norm": entropy_state_norm, # 使用反向归一化的静态熵
             "entropy_rank": stable_entropy_rank,
             "compression_rank": stable_comp_rank,
             "sentiment_slope": normalized_signals.get('clean_SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df_index)),
@@ -171,7 +174,7 @@ class CalculateSplitOrderAccumulation:
             "vpa_accel_5d": self._internal_normalize(raw_signals['VPA_ACCELERATION_5D'], mode='bipolar', window=21) * 0.5 + 0.5,
             "flow_accel": self._internal_normalize(raw_signals['flow_acceleration_D'], mode='bipolar', window=21),
             "flow_mom": self._internal_normalize(raw_signals['flow_momentum_5d_D'], mode='bipolar', window=21),
-            "turnover_stability": self._internal_normalize(raw_signals['TURNOVER_STABILITY_INDEX_D'], mode='absolute_ratio'), # CV 值通常 < 1
+            "turnover_stability": self._internal_normalize(raw_signals['TURNOVER_STABILITY_INDEX_D'], mode='absolute_ratio'),
             "data_quality": self._internal_normalize(raw_signals['tick_data_quality_score_D'], mode='absolute_ratio'),
             "theme_hotness": self._internal_normalize(raw_signals['THEME_HOTNESS_SCORE_D'], mode='unipolar', window=21),
             "parabolic_warning": self._internal_normalize(raw_signals['STATE_PARABOLIC_WARNING_D'], mode='raw_clip'),
@@ -186,7 +189,7 @@ class CalculateSplitOrderAccumulation:
             "range_ratio_rank": range_rank,
             "industry_strength_rank": self._internal_normalize(self.helper._get_safe_series(df, 'industry_strength_rank_D', 0.5), mode='rank', window=60)
         }
-        print(f"  -- [V9.3.0 物理量纲归一化探针] Structure Score: {normalized_signals['data_structure_outcome'].mean():.4f}, Concentration Norm: {struct_comps['concentration'].mean():.4f}")
+        print(f"  -- [V9.4.0 状态结构探针] Struct Score: {normalized_signals['data_structure_outcome'].mean():.4f}, Entropy State: {entropy_state_norm.mean():.4f}")
         return raw_signals, normalized_signals, {}, context_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -424,10 +427,10 @@ class CalculateSplitOrderAccumulation:
 
     def _calculate_preliminary_score(self, df: pd.DataFrame, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], context_signals: Dict[str, pd.Series], df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        【V9.3.0 · 动量补偿奇点版 · 初步评分】
-        在奇点模型中增加对“持续动量”的权重补偿，防止因瞬时加速度归零而丢失信号。
-        - 核心修正: flow_mom 权重从 0.2 提升至 0.25，行业预热提升至 0.25。
-        - 逻辑适配: 即使 inst_jerk 为 0，高动量 + 高预热也能触发 Singularity。
+        【V9.4.0 · 状态-趋势双模锁定版 · 初步评分】
+        重构锁定力(Locking Force)计算，引入静态结构优势，解决死鱼股锁定力为 0 的问题。
+        - 核心修正: locking_force = Max(动态锁定, 静态锁定)。
+        - 静态锁定: 由集中度(State)和熵(State)构成。
         """
         preliminary_debug_values = {}
         is_leader = context_signals.get("is_leader", pd.Series(0.0, index=df_index))
@@ -435,34 +438,40 @@ class CalculateSplitOrderAccumulation:
         anomaly_intensity = context_signals.get("anomaly_intensity", pd.Series(0.0, index=df_index))
         flow_accel = context_signals.get("flow_accel", pd.Series(0.0, index=df_index))
         flow_mom = context_signals.get("flow_mom", pd.Series(0.0, index=df_index))
-        ind_preheat_raw = self.helper._get_safe_series(df, 'industry_preheat_score_D', 0.0)
-        # 预热分数通常是 0-100，归一化到 0-1
-        ind_preheat = (ind_preheat_raw / 100.0).clip(0, 1)
+        ind_preheat = (self.helper._get_safe_series(df, 'industry_preheat_score_D', 0.0) / 100.0).clip(0, 1)
+        # 1. 动态锁定力 (基于变化率)
         chip_accel_13 = normalized_signals.get('clean_ACCEL_13_chip_concentration_ratio_D', pd.Series(0.0, index=df_index))
         entropy_slope_13 = normalized_signals.get('clean_SLOPE_13_chip_entropy_D', pd.Series(0.0, index=df_index))
-        locking_force = pd.concat([chip_accel_13, (-1 * entropy_slope_13)], axis=1).max(axis=1).clip(lower=0)
+        dynamic_lock = pd.concat([chip_accel_13, (-1 * entropy_slope_13)], axis=1).max(axis=1).clip(lower=0)
+        # 2. 静态锁定力 (基于绝对状态)
+        # 重新获取绝对归一化后的指标 (在 _get_and_normalize_signals 中已计算，但这里需要从 raw 再次归一化或从 struct_outcome 逆推? 
+        # 为了清晰，直接用 internal_normalize 再次计算，开销极小)
+        conc_norm = self._internal_normalize(self.helper._get_safe_series(df, 'chip_concentration_ratio_D', 0.5), mode='reverse_absolute')
+        entropy_norm = context_signals.get("entropy_norm", pd.Series(0.0, index=df_index)) # 已经是 1-x (越高越好)
+        static_lock = (conc_norm * 0.6 + entropy_norm * 0.4)
+        # 3. 综合锁定力 (双模极大值)
+        locking_force = pd.concat([dynamic_lock, static_lock], axis=1).max(axis=1)
+        # 4. 背离溢价 (Dissonance Premium)
         dissonance_mask = (locking_force > 0.7) & (flow_mom < 0)
         dissonance_premium = dissonance_mask.astype(float) * flow_mom.abs() * 0.25
+        # 5. 奇点模型
         hm_attack_slope = context_signals.get("hm_attack_slope", pd.Series(0.0, index=df_index))
         phase_transition_boost = (locking_force > 0.6).astype(float) * hm_attack_slope.clip(lower=0) * 0.5
         inst_jerk = normalized_signals.get('clean_JERK_5_SMART_MONEY_INST_NET_BUY_D', normalized_signals.get('clean_proxy_JERK_5_SMART_MONEY_INST_NET_BUY_D', pd.Series(0.0, index=df_index)))
         stealth_jerk = normalized_signals.get('clean_JERK_5_stealth_flow_ratio_D', pd.Series(0.0, index=df_index))
-        # 权重重构: 动量(Momentum) 与 预热(Preheat) 属于“状态量”，Jerk 属于“变化率”。
-        # 增加状态量的权重，作为“稳态奇点”的支撑。
         intent_singularity = (
             inst_jerk.clip(lower=0) * 0.15 + 
             stealth_jerk.clip(lower=0) * 0.15 + 
             flow_accel.clip(lower=0) * 0.1 + 
-            ind_preheat * 0.25 +  # 提升
-            flow_mom.clip(lower=0) * 0.25 + # 提升，且只取正向动量。负向动量由 dissonance_premium 处理
+            ind_preheat * 0.25 + 
+            flow_mom.clip(lower=0) * 0.25 + 
             dissonance_premium
         )
         base_authenticity = (vpa_accel * 0.6 + (1 - anomaly_intensity) * 0.4 + is_leader * 0.3).clip(0, 1)
         burst_authenticity = (base_authenticity + (locking_force > 0.8).astype(float) * 0.4).clip(0, 1)
         singularity_multiplier = 1 + (intent_singularity * burst_authenticity + phase_transition_boost) * 0.35
         energy_raw = normalized_signals.get("data_energy_outcome", pd.Series(0.0, index=df_index))
-        vpa_quality = self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0)
-        vpa_quality_norm = self._internal_normalize(vpa_quality, mode='bipolar', window=21) * 0.5 + 0.5
+        vpa_quality_norm = self._internal_normalize(self.helper._get_safe_series(df, 'SLOPE_5_VPA_MF_ADJUSTED_EFF_D', 0.0), mode='bipolar', window=21) * 0.5 + 0.5
         energy_boosted = pd.concat([energy_raw, vpa_quality_norm * 0.8], axis=1).max(axis=1).clip(0, 1)
         preliminary_components = {
             "mtf_intensity": mtf_signals.get("mtf_intensity", pd.Series(0.0, index=df_index)),
@@ -476,10 +485,10 @@ class CalculateSplitOrderAccumulation:
             "intent_singularity_boost": intent_singularity,
             "burst_authenticity": burst_authenticity,
             "locking_force_component": locking_force,
-            "energy_boost_final": energy_boosted,
-            "dissonance_premium": dissonance_premium
+            "static_lock": static_lock,
+            "dynamic_lock": dynamic_lock
         })
-        print(f"  -- [V9.3.0 动量补偿探针] Singularity: {intent_singularity.loc[df_index[-1]]:.4f}, Flow Mom (Pos): {flow_mom.clip(lower=0).loc[df_index[-1]]:.4f}")
+        print(f"  -- [V9.4.0 锁定力探针] Lock Force: {locking_force.loc[df_index[-1]]:.4f} (Static: {static_lock.loc[df_index[-1]]:.4f} vs Dyn: {dynamic_lock.loc[df_index[-1]]:.4f})")
         return final_score, preliminary_debug_values
 
     def _apply_quality_efficiency_calibration(self, dynamic_preliminary_score: pd.Series, holographic_validation_score: pd.Series, dynamic_efficiency_baseline: pd.Series, probe_ts: Optional[pd.Timestamp], context_signals: Dict[str, pd.Series]) -> Tuple[pd.Series, Dict[str, pd.Series]]:

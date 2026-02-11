@@ -368,11 +368,11 @@ class CalculatePriceVolumeDynamics:
                 raw_signals[f"SLOPE_{win}_{col}"] = pd.Series(s, index=df.index, dtype=np.float32)
                 raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index, dtype=np.float32)
                 raw_signals[f"JERK_{win}_{col}"] = pd.Series(j, index=df.index, dtype=np.float32)
-        if is_debug and probe_ts in df.index:
-            print(f"\n[原料 V86.2 修正 HAB 探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    原始市值包含0值: {'是' if (raw_signals['circ_mv_D']==0).any() else '否'}")
-            print(f"    代表性市值: {avg_mv/1e8:.1f}亿 ({mv_source}), 类型: {mv_tag}")
-            print(f"    窗口配置: 短 {w_s}d / 长 {w_l}d")
+        # if is_debug and probe_ts in df.index:
+        #     print(f"\n[原料 V86.2 修正 HAB 探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    原始市值包含0值: {'是' if (raw_signals['circ_mv_D']==0).any() else '否'}")
+        #     print(f"    代表性市值: {avg_mv/1e8:.1f}亿 ({mv_source}), 类型: {mv_tag}")
+        #     print(f"    窗口配置: 短 {w_s}d / 长 {w_l}d")
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
