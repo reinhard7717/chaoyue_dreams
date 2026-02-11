@@ -435,7 +435,7 @@ class CalculatePriceVolumeDynamics:
             print(f"    新增指标固化 -> 21d熵减稳态: {hab_snapshot['metrics'].get('ACCUM_21_ENTROPY_STABILITY', 0.0):.1f}")
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V88.0 · 物理动力引擎：引入反转保护机制，当冲量向上而 MCV 滞后时降低 MCV 权重，清除空行"""
+        """V88.1 · 物理动力引擎：修复向量化逻辑中的真值判定错误，采用 np.where 处理反转保护权重，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         # 1. 基础物理冲量
         vol_adj = raw['BBW_21_2.0_D'].values.astype(np.float64)
@@ -457,19 +457,20 @@ class CalculatePriceVolumeDynamics:
         # 4. MCV 与 反转保护 (Reversal Protection)
         _, f_slopes = _numba_fast_rolling_dynamics(raw['net_amount_rate_D'].values.astype(np.float64), np.array([3, 5, 8, 13, 21], dtype=np.int64))
         mcv = np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10], dtype=np.float32), f_slopes.astype(np.float32))
+        # 修复：使用向量化逻辑替代标量 if 判断
         # 逻辑：如果当前冲量显著为正 (>0.1) 但长期共识 MCV 仍为负（趋势滞后），则减少 MCV 的拖累权重
-        mcv_weight = 0.35
-        if comp_imp > 0.1 and mcv < 0:
-            mcv_weight = 0.15 # 降权保护，允许底部反转
+        reversal_mask = (comp_imp > 0.1) & (mcv < 0)
+        mcv_weight = np.where(reversal_mask, 0.15, 0.35).astype(np.float32)
         # 5. 合成
         accum_m = raw['ACCUM_21_SMART_MONEY'].values
         m_mass = np.clip(np.log1p(np.abs(accum_m)) / 10.0, 0.8, 1.3).astype(np.float32)
         phy_score = ((comp_imp * 2.0 * 0.30 + mcv * mcv_weight) * m_mass).astype(np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[物理引擎反转保护探针 V88.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            curr_weight = mcv_weight[p_i]
+            print(f"\n[物理引擎反转保护探针 V88.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    归一化冲量: {norm_imp[p_i]:.4f}, MCV共识: {mcv[p_i]:.4f}")
-            print(f"    权重配置: 冲量=0.6, MCV={mcv_weight} {'(触发保护)' if mcv_weight < 0.35 else ''}")
+            print(f"    权重配置: 冲量=0.6, MCV={curr_weight:.2f} {'(触发保护)' if curr_weight < 0.35 else ''}")
             print(f"    >>> 物理合成总分: {phy_score[p_i]:.4f}")
         return pd.Series(phy_score, index=df_index, dtype=np.float32)
 
