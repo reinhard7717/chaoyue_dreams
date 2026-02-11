@@ -419,10 +419,10 @@ class CalculatePriceVolumeDynamics:
         # 封装结果
         final_score = pd.Series(final_vals, index=df_index, dtype=np.float32).clip(-3.5, 6.0)
         # 4. 执行 HAB 状态持久化
-        self._persist_hab_state(raw, df_index, method_name)
+        # self._persist_hab_state(raw, df_index, method_name)
         # 5. 触发全息探针
-        if is_debug and probe_ts in df_index:
-            self._print_full_chain_probe(probe_ts, raw, scores, final_score.loc[probe_ts])
+        # if is_debug and probe_ts in df_index:
+            # self._print_full_chain_probe(probe_ts, raw, scores, final_score.loc[probe_ts])
         return final_score
 
     def _persist_hab_state(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str):
@@ -486,12 +486,12 @@ class CalculatePriceVolumeDynamics:
         final_mass = np.where(mass_m <= 0.81, mass_v, mass_m).astype(np.float32)
         # 6. 最终计算
         phy_score = ((comp_imp * 2.0 * imp_weight + mcv * mcv_weight) * final_mass).astype(np.float32)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[物理引擎回补探针 V94.2 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    权重配置: 冲量={imp_weight[p_i]:.2f}, MCV={mcv_weight[p_i]:.2f}")
-            print(f"    质量因子: {final_mass[p_i]:.2f} (原资金Mass: {mass_m[p_i]:.2f})")
-            print(f"    >>> 物理合成总分: {phy_score[p_i]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[物理引擎回补探针 V94.2 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    权重配置: 冲量={imp_weight[p_i]:.2f}, MCV={mcv_weight[p_i]:.2f}")
+        #     print(f"    质量因子: {final_mass[p_i]:.2f} (原资金Mass: {mass_m[p_i]:.2f})")
+        #     print(f"    >>> 物理合成总分: {phy_score[p_i]:.4f}")
         return pd.Series(phy_score, index=df_index, dtype=np.float32)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -509,10 +509,10 @@ class CalculatePriceVolumeDynamics:
         hab_risk_norm = np.where(accum_ratio > mean_ratio * 13 * 1.5, 1.25, 1.0).astype(np.float32)
         reversal_pressure = daily_ratio * extreme * exhaustion_rate * hab_risk_norm
         risk_adjustment = pd.Series(1.0 - reversal_pressure * 0.4, index=df_index, dtype=np.float32).clip(0.5, 1.0)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[溢价风险自适应探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    换手竭尽率: {exhaustion_rate[p_i]:.2f} (当前/21日峰值)")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[溢价风险自适应探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    换手竭尽率: {exhaustion_rate[p_i]:.2f} (当前/21日峰值)")
         return risk_adjustment
 
     def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -535,11 +535,11 @@ class CalculatePriceVolumeDynamics:
         repair = np.where((winner < 0.15) & (stab < 0.3), 1.5, 1.0).astype(np.float32)
         decay = base_decay * np.where(bad_board, 0.6, 1.0).astype(np.float32) * repair * fragility
         final_decay = pd.Series(decay, index=df_index, dtype=np.float32).clip(0.4, 1.5)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[日内衰减柔化探针 V88.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    稳定性Z分: {stab_z[p_i]:.2f}σ -> 基础衰减: {base_decay[p_i]:.2f}")
-            print(f"    >>> 最终日内衰减: {final_decay.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[日内衰减柔化探针 V88.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    稳定性Z分: {stab_z[p_i]:.2f}σ -> 基础衰减: {base_decay[p_i]:.2f}")
+        #     print(f"    >>> 最终日内衰减: {final_decay.loc[probe_ts]:.4f}")
         return final_decay
 
     def _calculate_sector_resonance_modifier(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -559,10 +559,10 @@ class CalculatePriceVolumeDynamics:
         rank_jerk = raw['JERK_3_industry_strength_rank_D'].values.astype(np.float32)
         rank_pulse = np.where(rank_jerk < -2.0, 1.3, 1.0).astype(np.float32)
         mod = (0.8 + impulse_factor * 0.4) * persistence * leadership_bonus * rank_pulse
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[板块信噪比探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    热度斜率SNR: {s_hot_snr[p_i]:.2f}, 冲击系数: {impulse_factor[p_i]:.2f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[板块信噪比探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    热度斜率SNR: {s_hot_snr[p_i]:.2f}, 冲击系数: {impulse_factor[p_i]:.2f}")
         return pd.Series(mod, index=df_index, dtype=np.float32).clip(0.6, 2.2)
 
     def _calculate_volatility_clustering_adjustment(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -591,11 +591,11 @@ class CalculatePriceVolumeDynamics:
         adj = np.where(is_squeeze & (p_jerk < 0), 0.5, adj)
         adj = adj * trap
         final_adj = pd.Series(adj, index=df_index, dtype=np.float32).clip(0.3, 2.5)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[波动率自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    BBW Z-Score: {bbw_z[p_i]:.2f}σ, 状态: {'挤压' if is_squeeze[p_i] else ('扩张' if is_expansion[p_i] else '常态')}")
-            print(f"    挤压累积(HAB): {squeeze_accum[p_i]:.1f}, 陷阱惩罚: {trap[p_i]:.2f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[波动率自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    BBW Z-Score: {bbw_z[p_i]:.2f}σ, 状态: {'挤压' if is_squeeze[p_i] else ('扩张' if is_expansion[p_i] else '常态')}")
+        #     print(f"    挤压累积(HAB): {squeeze_accum[p_i]:.1f}, 陷阱惩罚: {trap[p_i]:.2f}")
         return final_adj
 
     def _calculate_sector_overflow_decay(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -619,11 +619,11 @@ class CalculatePriceVolumeDynamics:
         base = (1.5 / (fd_vals + 1e-9)).clip(0.5, 1.1).astype(np.float32)
         res = np.where(avalanche, base * 0.5, base).astype(np.float32)
         final_decay = pd.Series(res, index=df_index, dtype=np.float32).clip(0.1, 1.2)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[熵增雪崩自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    相对热度: {rel_hot[p_i]:.2f}, 风险等级: {'CRITICAL' if risk_level[p_i]==1.0 else 'NORMAL'}")
-            print(f"    状态: {'雪崩' if avalanche[p_i] else '稳定'}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[熵增雪崩自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    相对热度: {rel_hot[p_i]:.2f}, 风险等级: {'CRITICAL' if risk_level[p_i]==1.0 else 'NORMAL'}")
+        #     print(f"    状态: {'雪崩' if avalanche[p_i] else '稳定'}")
         return final_decay
 
     def _calculate_hmm_regime_confirmation(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -664,11 +664,11 @@ class CalculatePriceVolumeDynamics:
         b_f = np.where(m_p > 0.5, 1.0 + (m_p - 0.5), 0.8 + m_p * 0.4).astype(np.float32)
         d_b = 1.0 + np.where((m_p > 0.6) & (p_a > 0), 0.2, 0.0) + np.where((m_p > 0.4) & (p_j > 0.1), 0.3, 0.0)
         final_conf = pd.Series(b_f * d_b * regime_bias * realization_ratio, index=df_index, dtype=np.float32)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[HMM 自适应探针 V85.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    输入Z分 -> 资金: {f_n[p_i]:.2f}, 量能: {v_n[p_i]:.2f}, 价格: {p_n[p_i]:.2f}, 乖离: {v_d[p_i]:.2f}")
-            print(f"    拉升概率: {m_p[p_i]:.4f}, 最终确认: {final_conf.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[HMM 自适应探针 V85.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    输入Z分 -> 资金: {f_n[p_i]:.2f}, 量能: {v_n[p_i]:.2f}, 价格: {p_n[p_i]:.2f}, 乖离: {v_d[p_i]:.2f}")
+        #     print(f"    拉升概率: {m_p[p_i]:.4f}, 最终确认: {final_conf.loc[probe_ts]:.4f}")
         return final_conf
 
     def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -700,12 +700,12 @@ class CalculatePriceVolumeDynamics:
         final = res_score * stab_bonus
         final = np.where((h_p > 0.55) & (h_slope > 0), final * 1.2, final)
         final_series = pd.Series(final, index=df_index, dtype=np.float32).clip(0.4, 2.0)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[分形免疫探针 V90.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    Hurst指数: {h_p[p_i]:.4f}, 免疫状态: {'激活' if is_super_trend[p_i] else '关闭'}")
-            print(f"    缺口Z分: {gap_z[p_i]:.2f}σ -> 基础分: {res_score[p_i]:.2f}")
-            print(f"    >>> 最终分形效率: {final_series.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[分形免疫探针 V90.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    Hurst指数: {h_p[p_i]:.4f}, 免疫状态: {'激活' if is_super_trend[p_i] else '关闭'}")
+        #     print(f"    缺口Z分: {gap_z[p_i]:.2f}σ -> 基础分: {res_score[p_i]:.2f}")
+        #     print(f"    >>> 最终分形效率: {final_series.loc[probe_ts]:.4f}")
         return final_series
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -742,12 +742,12 @@ class CalculatePriceVolumeDynamics:
         deep_lock_mult = np.where(high_win_days > 10, 1.5, np.where(high_win_days > 5, 1.2, 1.0)).astype(np.float32)
         b_c = is_above_cost.astype(np.float32)
         final_eff = pd.Series(s_lock * k_bonus * deep_lock_mult * (0.8 + b_c * 0.2), index=df_index, dtype=np.float32)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[筹码惯性探针 V93.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    原始获利: {win[p_i]:.2f}, 惯性获利: {inertial_win[p_i]:.2f} (HAB={high_win_days[p_i]:.0f}d)")
-            print(f"    有效获利(平滑后): {eff_win[p_i]:.2f}")
-            print(f"    >>> 最终筹码效率: {final_eff.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[筹码惯性探针 V93.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    原始获利: {win[p_i]:.2f}, 惯性获利: {inertial_win[p_i]:.2f} (HAB={high_win_days[p_i]:.0f}d)")
+        #     print(f"    有效获利(平滑后): {eff_win[p_i]:.2f}")
+        #     print(f"    >>> 最终筹码效率: {final_eff.loc[probe_ts]:.4f}")
         return final_eff
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -788,12 +788,12 @@ class CalculatePriceVolumeDynamics:
         a13 = raw['ACCUM_13_SMART_MONEY'].values.astype(np.float32)
         h_s = np.where((d_sm < 0) & (a13 > np.abs(d_sm) * 10.0), 1.1, 1.0).astype(np.float32)
         final_v = pd.Series(adjusted_base * sync_score * jerk_bonus * h_s, index=df_index, dtype=np.float32).clip(0.4, 2.0)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[微观自适应探针 V94.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    资金Z: {z_score_flow[p_i]:.2f}σ, 价格Jerk Z: {z_score_jerk[p_i]:.2f}σ")
-            print(f"    状态判定: {'隐蔽吸筹' if is_stealth[p_i] else ('良性回调' if is_benign_dip[p_i] else '正常')}")
-            print(f"    >>> 最终攻击矢量: {final_v.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[微观自适应探针 V94.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    资金Z: {z_score_flow[p_i]:.2f}σ, 价格Jerk Z: {z_score_jerk[p_i]:.2f}σ")
+        #     print(f"    状态判定: {'隐蔽吸筹' if is_stealth[p_i] else ('良性回调' if is_benign_dip[p_i] else '正常')}")
+        #     print(f"    >>> 最终攻击矢量: {final_v.loc[probe_ts]:.4f}")
         return final_v
 
     def _calculate_vpa_elasticity_reflexivity(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -814,11 +814,11 @@ class CalculatePriceVolumeDynamics:
         e_s = pd.Series(current_elasticity, index=df_index).diff(3).values.astype(np.float32)
         slope_bonus = np.where(e_s > 0, 1.2, 1.0).astype(np.float32)
         final = pd.Series(score * slope_bonus * hab_score, index=df_index, dtype=np.float32).clip(0.5, 2.5)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[反身性自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    当前弹性: {current_elasticity[p_i]:.2f}, 历史中位: {ela_median[p_i]:.2f}")
-            print(f"    相对比率: {rel_elasticity[p_i]:.2f} -> 基础分: {score[p_i]:.2f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[反身性自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    当前弹性: {current_elasticity[p_i]:.2f}, 历史中位: {ela_median[p_i]:.2f}")
+        #     print(f"    相对比率: {rel_elasticity[p_i]:.2f} -> 基础分: {score[p_i]:.2f}")
         return final
 
     def _calculate_wyckoff_breakout_quality(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -977,11 +977,11 @@ class CalculatePriceVolumeDynamics:
         stability_mult = np.clip(stab_ratio * 2.0, 0.8, 1.4).astype(np.float32)
         penalty = np.where((pct > 0) & (s5 > 0), 0.7, 1.0).astype(np.float32)
         final_factor = pd.Series((1.0 + base_bonus) * jerk_bonus * stability_mult * penalty, index=df_index, dtype=np.float32).clip(0.6, 2.5)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[熵减自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    锁定力度Z分: {force_z[p_i]:.2f}σ, 稳定性占比: {stab_ratio[p_i]*100:.1f}%")
-            print(f"    >>> 最终有序性系数: {final_factor.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[熵减自适应探针 V84.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    锁定力度Z分: {force_z[p_i]:.2f}σ, 稳定性占比: {stab_ratio[p_i]*100:.1f}%")
+        #     print(f"    >>> 最终有序性系数: {final_factor.loc[probe_ts]:.4f}")
         return final_factor
 
     def _calculate_vwap_propulsion_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -1006,12 +1006,12 @@ class CalculatePriceVolumeDynamics:
         days_above = raw['ACCUM_21_ABOVE_VWAP'].values.astype(np.float32)
         thickness_bonus = np.clip(days_above / 10.0, 0.8, 1.4).astype(np.float32)
         final_score = pd.Series(propulsion_score * bias_penalty * kinematic_boost * thickness_bonus, index=df_index, dtype=np.float32).clip(0, 2.5)
-        if is_debug and probe_ts in df_index:
-            p_i = df_index.get_loc(probe_ts)
-            print(f"\n[VWAP 自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    原始斜率: {vwap_slope[p_i]:.5f}, 历史波动(Std): {slope_std[p_i]:.5f}")
-            print(f"    标准化推进: {norm_propulsion[p_i]:.2f}σ (Sigma)")
-            print(f"    >>> 最终推进力: {final_score.loc[probe_ts]:.4f}")
+        # if is_debug and probe_ts in df_index:
+        #     p_i = df_index.get_loc(probe_ts)
+        #     print(f"\n[VWAP 自适应探针 V83.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+        #     print(f"    原始斜率: {vwap_slope[p_i]:.5f}, 历史波动(Std): {slope_std[p_i]:.5f}")
+        #     print(f"    标准化推进: {norm_propulsion[p_i]:.2f}σ (Sigma)")
+        #     print(f"    >>> 最终推进力: {final_score.loc[probe_ts]:.4f}")
         return final_score
 
     def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], scores: Dict[str, pd.Series], final_score: float):
