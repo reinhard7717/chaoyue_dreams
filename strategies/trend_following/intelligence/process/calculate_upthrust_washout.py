@@ -222,37 +222,33 @@ class CalculateUpthrustWashoutRelationship:
         hab_score = (reservoir_strength * trend_score * quality_f * tolerance).clip(0, 1)
         return hab_score.fillna(0).astype(np.float32)
 
-    def _assess_chip_holographic_tension(self, hab_rel: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, 
-                                        stability: pd.Series, acc_stab: pd.Series, kurtosis: pd.Series, convergence: pd.Series, cost_diff: pd.Series) -> pd.Series:
+    def _assess_chip_holographic_tension(self, hab_rel: pd.Series, turnover: pd.Series, winner: pd.Series, acc_win: pd.Series, stability: pd.Series, acc_stab: pd.Series, kurtosis: pd.Series, convergence: pd.Series, cost_diff: pd.Series) -> pd.Series:
         """
-        [V24.0.0 · 筹码全息张力判定]
+        [V24.0.1 · 拼写修复与鲁棒性增强版]
+        - 核心修复: 修正变量名拼写错误 (k_urtosis -> kurtosis)。
         - 核心逻辑: 识别筹码结构的"向心力"与"张力"。洗盘成功的标志是峰度上升、收敛度提高，且主力稳定性未加速恶化。
         - 判定维度:
             1. 代谢效率 (Efficiency): HAB_Rel / Turnover。
-            2. 结构厚度 (Thickness): Kurtosis(峰度) * Convergence(收敛)。峰度越高，主力成本区筹码越厚。
-            3. 运动学熔断 (Circuit Breaker): 获利盘加速度(AccWin)与稳定性加速度(AccStab)双重校验。
-            4. 弹性张力 (Elasticity): 成本偏差(CostDiff)与收敛度的负相关背离。
+            2. 结构厚度 (Thickness): Kurtosis(峰度) * Convergence(收敛)。
+            3. 运动学熔断 (Circuit Breaker): 获利盘加速度与稳定性加速度双重校验。
+            4. 弹性张力 (Elasticity): 成本偏差与收敛度的负相关背离。
         """
-        # 1. 代谢效率与结构厚度 [Source 2]
+        # 1. 代谢效率与结构厚度
         efficiency = (hab_rel / (turnover + 0.5)).clip(0, 1)
-        # 峰度映射：峰度越大，代表单峰越尖锐，筹码越向主力靠拢
+        # 修正拼写错误: k_urtosis -> kurtosis
         k_scale = kurtosis.rolling(60, min_periods=1).std().replace(0, 1e-9)
-        n_kurt = np.tanh(k_urtosis / k_scale).clip(0, 1)
+        n_kurt = np.tanh(kurtosis / k_scale).clip(0, 1)
         thickness_score = (n_kurt * 0.6 + convergence.clip(0, 1) * 0.4).clip(0, 1)
-        # 2. 运动学安全门控 [Source 2]
-        # 获利盘加速度与稳定性加速度必须处于受控状态
+        # 2. 运动学安全门控
         w_scale = acc_win.rolling(60, min_periods=1).std().replace(0, 1e-9)
         s_scale = acc_stab.rolling(60, min_periods=1).std().replace(0, 1e-9)
         n_acc_win = np.tanh(acc_win / w_scale)
         n_acc_stab = np.tanh(acc_stab / s_scale)
-        # 若稳定性在长周期(21日)内加速下降，则视为结构性崩溃
         stability_gate = (1.0 + n_acc_stab).clip(0, 1)
-        # 3. 弹性张力评分 [Source 2]
-        # 逻辑：股价跌破成本(CostDiff < 0)时，如果收敛度提高，说明主力在承接，张力增加
+        # 3. 弹性张力评分
         tension = np.where(cost_diff < 0, convergence * 1.2, convergence * 0.8)
         n_tension = np.tanh(tension).clip(0, 1)
-        # 4. 最终合成
-        # 逻辑: (效率 * 0.3 + 厚度 * 0.4 + 张力 * 0.3) * 安全门控
+        # 4. 最终合成与 NaN 阻断
         final_meta = (efficiency * 0.3 + thickness_score * 0.4 + n_tension * 0.3) * stability_gate
         return final_meta.fillna(0).astype(np.float32)
 
