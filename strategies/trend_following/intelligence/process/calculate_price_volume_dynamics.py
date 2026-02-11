@@ -267,12 +267,10 @@ class CalculatePriceVolumeDynamics:
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V86.0 · 原料加载层：修复市值(0.0)导致的自适应窗口错误，新增动态市值估算与稳健回退机制，清除空行"""
+        """V86.1 · 原料加载层：修复市值单位(万元->元)及0值干扰，确保自适应窗口正确锚定，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
-        # 基础列定义
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
-        # 尝试获取市值列，若无则标记后续处理
         has_mv_col = 'circ_mv_D' in df.columns
         if has_mv_col: base_cols.append('circ_mv_D')
         
@@ -283,23 +281,33 @@ class CalculatePriceVolumeDynamics:
             if col not in df.columns: raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
             raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
 
-        # --- 市值自适应逻辑修正 (Market Value Robustness) ---
+        # --- 市值自适应逻辑修正 V86.1 ---
         mv_source = "RAW"
-        print(f"DEBUG: 原始数据是否包含市值列: {has_mv_col}")
-        print(f"DEBUG: 原始数据市值列: {raw_signals.get('circ_mv_D')}")
-        if not has_mv_col or raw_signals.get('circ_mv_D', pd.Series([0])).mean() < 1e5: # 阈值过小视为无效
-            # 尝试通过 (成交额 / 换手率) 反推市值
+        # 1. 单位修正与有效性检查
+        # 假设 circ_mv_D 单位为万元，转换为元
+        if has_mv_col:
+            raw_signals['circ_mv_D'] = raw_signals['circ_mv_D'] * 10000.0
+
+        # 2. 计算代表性市值 (Representative Market Value)
+        # 过滤掉 0 值和异常小值 (< 1000万)，取中位数代表该股的整体体量
+        valid_mv = raw_signals.get('circ_mv_D', pd.Series([0]))
+        valid_mv = valid_mv[valid_mv > 1e7] # 过滤掉 0 和无效值
+        
+        if len(valid_mv) > 0:
+            avg_mv = valid_mv.median() # 使用中位数更稳健
+        else:
+            # 3. 估算回退逻辑
             amt = raw_signals['amount_D']
             turn = raw_signals['turnover_rate_f_D']
-            # 避免除以零，换手率限制最小 0.1%
-            est_mv = (amt / (turn + 0.1) * 100.0).fillna(0)
-            raw_signals['circ_mv_D'] = est_mv
+            est_mv = (amt / (turn + 0.1) * 100.0).replace([np.inf, -np.inf], 0).fillna(0)
+            avg_mv = est_mv[est_mv > 1e7].median()
+            if np.isnan(avg_mv): avg_mv = 0.0
             mv_source = "ESTIMATED"
         
-        avg_mv = raw_signals['circ_mv_D'].mean()
-        w_s, w_l = 13, 21 # 默认回退到中盘 (Safe Default)
+        # 4. 窗口判定
+        w_s, w_l = 13, 21 # 默认中盘
         mv_tag = "MID"
-
+        
         if avg_mv > 0:
             if avg_mv < 50e8: # < 50亿
                 w_s, w_l = 8, 13
@@ -311,7 +319,7 @@ class CalculatePriceVolumeDynamics:
         # 将窗口参数存入信号流
         raw_signals['META_HAB_WINDOWS'] = pd.Series([w_s, w_l], index=df.index[:2])
         
-        # --- 后续计算保持不变 ---
+        # --- 后续计算 ---
         raw_vwap = (raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)).fillna(raw_signals['close_D'])
         r_c, r_v = raw_signals['close_D'].values[-60:], raw_vwap.values[-60:]
         v_m, s_f = r_v > 0, 1.0
@@ -358,8 +366,9 @@ class CalculatePriceVolumeDynamics:
                 raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index, dtype=np.float32)
                 raw_signals[f"JERK_{win}_{col}"] = pd.Series(j, index=df.index, dtype=np.float32)
         if is_debug and probe_ts in df.index:
-            print(f"\n[原料 V86.0 稳健 HAB 探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    市值: {avg_mv/1e8:.1f}亿 ({mv_source}), 类型: {mv_tag}")
+            print(f"\n[原料 V86.1 修正 HAB 探针 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    原始市值包含0值: {'是' if (raw_signals['circ_mv_D']==0).any() else '否'}")
+            print(f"    代表性市值: {avg_mv/1e8:.1f}亿 ({mv_source}), 类型: {mv_tag}")
             print(f"    窗口配置: 短 {w_s}d / 长 {w_l}d")
         return raw_signals
 
