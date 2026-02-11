@@ -44,48 +44,40 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V12.8 · 动态周期反馈版】主力拉升意图主计算流程
-        修改说明：实现Proxy-Burst对Dynamic Period的反馈闭环。虽然存在计算顺序限制，但我们在意图合成前
-        更新了最终的周期参数供参考（尽管内存计算已前置，但此周期可用于后续的风控或调试）。
-        版本号：2026.02.10.378
+        【V12.9 · 全量float32效率版】主力拉升意图主计算流程
+        修改说明：检查并确认NaN防护闭环。强制所有中间意图分量（Bullish, Bearish, Penalty）使用float32，确保在Step 7缝合时获得最高矩阵运算效率。
+        版本号：2026.02.11.22
         """
         self._probe_output = []
         params = self._get_parameters(config)
         df_index = df.index
-        # 1. 信号与物理层
         raw_signals = self._get_raw_signals(df)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         normalized_signals = self._normalize_raw_signals(df_index, raw_signals)
         mtf_signals = self._calculate_mtf_fused_signals(df, raw_signals, params['mtf_slope_accel_weights'], df_index)
         if self._is_probe_enabled(df): self._diagnose_vol_jerk_anomaly(df_index, raw_signals, mtf_signals)
-        # 2. 状态识别
         factors = self._calculate_market_state_factors(df_index, normalized_signals, mtf_signals)
         phase = self._identify_market_phase(df_index, factors, normalized_signals)
-        # 3. 上下文与代理 (第一轮)
         historical_context = self._calculate_historical_context(df, df_index, raw_signals, mtf_signals, params['historical_context_params'])
         proxy_signals = self._construct_proxy_signals(df_index, mtf_signals, normalized_signals, config)
-        # 4. 【核心闭环】利用 Proxy Burst 修正动态周期
-        # 虽然内存已计算，但我们更新 context 中的周期值，供后续模块（如风险裁决）使用
         refined_period = self._calculate_dynamic_period(df_index, raw_signals, proxy_signals)
         historical_context['dynamic_memory_period'] = refined_period
-        # 5. 权重与分值
         dynamic_weights = self._calculate_dynamic_weights(df_index, normalized_signals, proxy_signals, mtf_signals, factors, phase)
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 6. 风险与意图
-        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase)
-        bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params'])
-        bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        # 7. 缝合与审计
-        final_rally_intent = (bullish_intent * (1 - total_risk_penalty * 0.8) + bearish_score).fillna(0).clip(-1, 1)
+        # 核心缝合：确保各分量为 float32 且已处理 NaN
+        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase).astype(np.float32)
+        bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params']).astype(np.float32)
+        bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context).astype(np.float32)
+        # 意图缝合与保护逻辑
+        final_rally_intent = (bullish_intent * (1.0 - total_risk_penalty * 0.8) + bearish_score).fillna(0.0).clip(-1, 1)
         final_rally_intent = self._apply_contextual_modulators(df_index, final_rally_intent, proxy_signals, mtf_signals, phase, aggressiveness_score)
-        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0).fillna(0)
+        final_rally_intent = final_rally_intent.mask(is_limit_up_day & (final_rally_intent < 0), 0.0).fillna(0.0)
         self._persist_hab_states(historical_context)
-        # if self._is_probe_enabled(df):
-        #     self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase, dynamic_weights)
-        #     self._output_probe_info(df_index, final_rally_intent)
-            
+        if self._is_probe_enabled(df):
+            self._execute_full_link_probing(df_index, raw_signals, mtf_signals, proxy_signals, historical_context, bullish_intent, final_rally_intent, phase, dynamic_weights)
+            self._output_probe_info(df_index, final_rally_intent)
         return final_rally_intent.astype(np.float32)
 
     def _execute_full_link_probing(self, df_index: pd.Index, raw_signals: Dict, mtf_signals: Dict, proxy_signals: Dict, historical_context: Dict, bullish_intent: pd.Series, final_intent: pd.Series, phase: pd.Series, dynamic_weights: Dict):
@@ -429,90 +421,70 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_chip_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 持久化补偿版】筹码记忆深度计算
-        修改说明：引入initial_hab初始水位补偿，量化筹码在长周期内的锁仓存量，解决实时排位归一化的冷启动问题。
-        版本号：2026.02.10.176
+        【V5.3 · 向量化加速版】筹码记忆深度计算
+        修改说明：引入float32硬化，向量化熵能映射，通过min_periods=1消除冷启动NaN。
+        版本号：2026.02.11.23
         """
-        decay = get_param_value(params.get('chip_memory_decay'), 0.95)
-        hab_win = get_param_value(params.get('chip_hab_window'), 89)
-        chip_s = mtf_signals.get('SLOPE_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
-        chip_a = mtf_signals.get('ACCEL_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
-        chip_j = mtf_signals.get('JERK_5_chip_concentration', pd.Series(0.0, index=df_index)).ewm(alpha=0.15).mean()
-        turn_rate = raw_signals.get('turnover_rate', pd.Series(0.0, index=df_index))
-        hab_inc = (chip_s.clip(lower=0) * raw_signals.get('chip_stability', pd.Series(0.5, index=df_index)) * turn_rate)
-        # 物理补偿逻辑：叠加历史持久化水位
-        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0) + initial_hab
-        hab_score = hab_buffer_raw.rolling(hab_win).rank(pct=True).fillna(0.5)
-        entropy = raw_signals.get('chip_entropy', pd.Series(0.5, index=df_index))
-        ent_mem = (np.log1p(entropy) / np.log1p(entropy).rolling(55).max().replace(0, 1)).clip(0, 1)
-        k_vec = (chip_s * 0.4 + chip_a * 0.4 + chip_j * 0.2).clip(0, 1)
-        integrated_chip = (hab_score * 0.4 + k_vec * 0.3 + (1 - ent_mem) * 0.3).clip(0, 1)
-        return {"chip_slope": chip_s, "chip_accel": chip_a, "hab_score": hab_score, "hab_buffer_raw": hab_buffer_raw, "integrated_chip_memory": integrated_chip}
+        decay = np.float32(get_param_value(params.get('chip_memory_decay'), 0.95))
+        hab_win = int(get_param_value(params.get('chip_hab_window'), 89))
+        chip_s = mtf_signals.get('SLOPE_5_chip_concentration', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=1-decay).mean()
+        chip_a = mtf_signals.get('ACCEL_5_chip_concentration', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=1-decay).mean()
+        chip_j = mtf_signals.get('JERK_5_chip_concentration', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=0.15).mean()
+        turn_rate = raw_signals.get('turnover_rate', pd.Series(0, index=df_index)).astype(np.float32)
+        hab_inc = (np.clip(chip_s.values, 0, None) * raw_signals.get('chip_stability', pd.Series(0.5, index=df_index)).astype(np.float32).values * turn_rate.values)
+        hab_buffer_raw = pd.Series(hab_inc, index=df_index).rolling(window=hab_win, min_periods=1).sum().fillna(0.0).astype(np.float32) + initial_hab
+        hab_score = hab_buffer_raw.rolling(hab_win).rank(pct=True).fillna(0.5).astype(np.float32)
+        entropy = raw_signals.get('chip_entropy', pd.Series(0.5, index=df_index)).astype(np.float32)
+        ent_mem = (np.log1p(entropy) / np.log1p(entropy).rolling(55, min_periods=1).max().replace(0, 1)).clip(0, 1).astype(np.float32)
+        k_vec = np.clip(chip_s.values * 0.4 + chip_a.values * 0.4 + chip_j.values * 0.2, 0, 1)
+        integrated_chip = (hab_score.values * 0.4 + k_vec * 0.3 + (1.0 - ent_mem.values) * 0.3)
+        return {"chip_slope": chip_s, "chip_accel": chip_a, "hab_score": hab_score, "hab_buffer_raw": hab_buffer_raw, "integrated_chip_memory": pd.Series(integrated_chip, index=df_index).clip(0, 1).astype(np.float32)}
 
     def _calculate_sentiment_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 持久化补偿版】情绪记忆深度计算
-        修改说明：引入initial_hab初始水位补偿，确保市场热度与赚钱效应在跨日温压累积中保持物理连续。
-        版本号：2026.02.10.177
+        【V5.3 · 向量化加速版】情绪记忆深度计算
+        修改说明：采用矩阵化SAJ合成，优化温压存量HAB的Tanh归一化性能，全链路强制float32。
+        版本号：2026.02.11.24
         """
-        decay = get_param_value(params.get('sentiment_memory_decay'), 0.90)
-        hab_win = get_param_value(params.get('sentiment_hab_window'), 21)
-        ss = mtf_signals.get('SLOPE_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
-        sa = mtf_signals.get('ACCEL_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=1-decay).mean()
-        sj = mtf_signals.get('JERK_5_market_sentiment_trend', pd.Series(0.0, index=df_index)).ewm(alpha=0.3).mean()
-        m_sent = raw_signals.get('market_sentiment', pd.Series(0.5, index=df_index))
-        i_breadth = raw_signals.get('industry_breadth', pd.Series(0.5, index=df_index))
-        hab_inc = m_sent * i_breadth * (1 + sa.clip(lower=0))
-        # 物理补偿逻辑：叠加历史持久化水位
-        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0) + initial_hab
-        roll_med = hab_buffer_raw.rolling(60).median()
-        roll_std = hab_buffer_raw.rolling(60).std().replace(0, 1e-9)
-        hab_score = (np.tanh((hab_buffer_raw - roll_med) / roll_std) * 0.5 + 0.5).fillna(0.5)
-        k_sum = (ss * 0.3 + sa * 0.5 + sj * 0.2).clip(-1, 1)
-        integrated_sent = ((k_sum * 0.5 + 0.5) * 0.4 + hab_score * 0.6).clip(0, 1)
-        return {"integrated_sentiment_memory": integrated_sent, "hab_score": hab_score, "hab_buffer_raw": hab_buffer_raw, "sentiment_slope": ss, "sentiment_accel": sa}
+        decay = np.float32(get_param_value(params.get('sentiment_memory_decay'), 0.90))
+        hab_win = int(get_param_value(params.get('sentiment_hab_window'), 21))
+        ss = mtf_signals.get('SLOPE_5_market_sentiment_trend', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=1-decay).mean()
+        sa = mtf_signals.get('ACCEL_5_market_sentiment_trend', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=1-decay).mean()
+        sj = mtf_signals.get('JERK_5_market_sentiment_trend', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=0.3).mean()
+        hab_inc = raw_signals.get('market_sentiment', pd.Series(0.5, index=df_index)).astype(np.float32) * raw_signals.get('industry_breadth', pd.Series(0.5, index=df_index)).astype(np.float32) * (1.0 + sa.clip(lower=0))
+        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0.0).astype(np.float32) + initial_hab
+        roll_med = hab_buffer_raw.rolling(60, min_periods=5).median()
+        roll_std = hab_buffer_raw.rolling(60, min_periods=5).std().replace(0, 1e-9)
+        hab_score = (np.tanh((hab_buffer_raw - roll_med) / roll_std) * 0.5 + 0.5).fillna(0.5).astype(np.float32)
+        k_sum = (ss.values * 0.3 + sa.values * 0.5 + sj.values * 0.2)
+        integrated_sent = ((np.clip(k_sum, -1, 1) * 0.5 + 0.5) * 0.4 + hab_score.values * 0.6)
+        return {"integrated_sentiment_memory": pd.Series(integrated_sent, index=df_index).clip(0, 1).astype(np.float32), "hab_score": hab_score, "hab_buffer_raw": hab_buffer_raw, "sentiment_slope": ss, "sentiment_accel": sa}
 
     def _fuse_integrated_memory(self, price_memory: Dict, capital_memory: Dict, chip_memory: Dict, sentiment_memory: Dict, params: Dict) -> pd.Series:
         """
         【V5.2 · 矩阵融合稳健加速版】综合记忆融合算法
-        修改说明：修复.get()返回默认值0导致的'int' object has no attribute 'values'报错。增强矩阵构建时的类型安全保护。
+        修改说明：修复.get(..., 0).values导致的类型报错。利用向量化逻辑处理HAB偏移量与阶段识别，保持float32计算精度。
         版本号：2026.02.11.20
         """
         df_index = price_memory["integrated_price_memory"].index
-        n_len = len(df_index)
-        # 1. 提取基础内存数组 (float32)
         p_base = price_memory["integrated_price_memory"].values.astype(np.float32)
         c_base = capital_memory["integrated_capital_memory"].values.astype(np.float32)
         ch_base = chip_memory["integrated_chip_memory"].values.astype(np.float32)
         s_base = sentiment_memory["integrated_sentiment_memory"].values.astype(np.float32)
-        # 2. 提取水位数组并计算偏移
         p_hab = price_memory.get("hab_score", pd.Series(0.5, index=df_index)).values.astype(np.float32)
         c_hab = capital_memory.get("hab_score", pd.Series(0.5, index=df_index)).values.astype(np.float32)
         ch_hab = chip_memory.get("hab_score", pd.Series(0.5, index=df_index)).values.astype(np.float32)
         s_hab = sentiment_memory.get("hab_score", pd.Series(0.5, index=df_index)).values.astype(np.float32)
         integrated_hab = (p_hab * 0.2 + c_hab * 0.3 + ch_hab * 0.3 + s_hab * 0.2)
-        # 3. 向量化权重计算
         w_p = 0.2 + integrated_hab * 0.2
         w_c = 0.4 - integrated_hab * 0.1
         w_ch = 0.3 - integrated_hab * 0.1
         w_s = 0.1 + integrated_hab * 0.1
         base_fusion = p_base * w_p + c_base * w_c + ch_base * w_ch + s_base * w_s
-        # 4. 矩阵化运动学审计 (核心修复点)
-        def _get_arr(mem_dict, key):
-            return pd.Series(mem_dict.get(key, 0.0), index=df_index).values.astype(np.float32)
-        slopes_mat = np.column_stack([
-            _get_arr(price_memory, "trend_memory"),
-            _get_arr(capital_memory, "composite_capital_flow"),
-            _get_arr(chip_memory, "chip_slope"),
-            _get_arr(sentiment_memory, "sentiment_slope")
-        ])
-        accels_mat = np.column_stack([
-            _get_arr(price_memory, "accel_memory"),
-            _get_arr(capital_memory, "cap_accel"),
-            _get_arr(chip_memory, "chip_accel"),
-            _get_arr(sentiment_memory, "sentiment_accel")
-        ])
-        # 5. 向量化共振与增强
+        def _safe_arr(m_dict, key):
+            return pd.Series(m_dict.get(key, 0.0), index=df_index).values.astype(np.float32)
+        slopes_mat = np.column_stack([_safe_arr(price_memory, "trend_memory"), _safe_arr(capital_memory, "composite_capital_flow"), _safe_arr(chip_memory, "chip_slope"), _safe_arr(sentiment_memory, "sentiment_slope")])
+        accels_mat = np.column_stack([_safe_arr(price_memory, "accel_memory"), _safe_arr(capital_memory, "cap_accel"), _safe_arr(chip_memory, "chip_accel"), _safe_arr(sentiment_memory, "sentiment_accel")])
         slope_consistency = (np.all(slopes_mat > 0, axis=1) | np.all(slopes_mat < 0, axis=1)).astype(np.float32)
         accel_synergy = (accels_mat > 0).sum(axis=1) / 4.0
         cap_price_offset = c_hab - p_hab
@@ -548,15 +520,19 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_memory_consistency(self, price_mem: Dict, capital_mem: Dict, chip_mem: Dict, sentiment_memory: Dict) -> pd.Series:
         """
-        【V5.2 · 矩阵共振加速版】记忆一致性深度计算
-        修改说明：采用矩阵化共振计数替代字典映射，利用float32矩阵运算加速多维信号的一致性识别与HAB累积。
-        版本号：2026.02.11.08
+        【V5.3 · 矩阵共振稳健加速版】记忆一致性深度计算
+        修改说明：修复.get(..., 0).values导致的类型报错。引入内部安全提取算子，确保在Key缺失时依然返回正确维度的float32零矩阵。
+        版本号：2026.02.11.21
         """
         df_index = price_mem["integrated_price_memory"].index
+        def _safe_arr(m_dict, key):
+            return pd.Series(m_dict.get(key, 0.0), index=df_index).values.astype(np.float32)
         accel_mat = np.column_stack([
-            price_mem.get("accel_memory", 0).values, capital_mem.get("cap_accel", 0).values,
-            chip_mem.get("chip_accel", 0).values, sentiment_memory.get("sentiment_accel", 0).values
-        ]).astype(np.float32)
+            _safe_arr(price_mem, "accel_memory"),
+            _safe_arr(capital_mem, "cap_accel"),
+            _safe_arr(chip_mem, "chip_accel"),
+            _safe_arr(sentiment_memory, "sentiment_accel")
+        ])
         res_count = (accel_mat > 0).sum(axis=1)
         res_map = np.array([0.0, 0.1, 0.3, 0.7, 1.0], dtype=np.float32)
         instant_resonance = res_map[res_count]
@@ -570,43 +546,18 @@ class CalculateMainForceRallyIntent:
 
     def _get_empty_context(self, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
-        【V3.0】返回空的历史上下文（禁用时使用）
+        【V3.1 · 内存优化版】返回空的历史上下文
+        修改说明：统一使用float32，降低禁用上下文时的内存预分配开销。
+        版本号：2026.02.11.33
         """
-        empty_series = pd.Series(0.5, index=df_index)
+        empty_s = pd.Series(0.5, index=df_index).astype(np.float32)
+        e_dict = {k: empty_s for k in ["trend_memory", "momentum_memory", "volatility_memory", "support_resistance_memory", "integrated_price_memory", "composite_capital_flow", "persistence_score", "anomaly_score", "efficiency_memory", "integrated_capital_memory", "entropy_memory", "concentration_migration", "stability_memory", "pressure_memory", "integrated_chip_memory", "sentiment_momentum", "sentiment_divergence", "sentiment_extreme", "sentiment_consistency", "integrated_sentiment_memory"]}
         return {
-            "price_memory": {
-                "trend_memory": empty_series,
-                "momentum_memory": empty_series,
-                "volatility_memory": empty_series,
-                "support_resistance_memory": empty_series,
-                "integrated_price_memory": empty_series
-            },
-            "capital_memory": {
-                "composite_capital_flow": empty_series,
-                "persistence_score": empty_series,
-                "anomaly_score": empty_series,
-                "efficiency_memory": empty_series,
-                "integrated_capital_memory": empty_series
-            },
-            "chip_memory": {
-                "entropy_memory": empty_series,
-                "concentration_migration": empty_series,
-                "stability_memory": empty_series,
-                "pressure_memory": empty_series,
-                "integrated_chip_memory": empty_series
-            },
-            "sentiment_memory": {
-                "sentiment_momentum": empty_series,
-                "sentiment_divergence": empty_series,
-                "sentiment_extreme": empty_series,
-                "sentiment_consistency": empty_series,
-                "integrated_sentiment_memory": empty_series
-            },
-            "integrated_memory": empty_series,
-            "phase_sync": empty_series,
-            "memory_quality": empty_series,
-            "hc_enabled": False,
-            "dynamic_memory_period": pd.Series(21, index=df_index)
+            "price_memory": {k: v for k, v in e_dict.items() if "price" in k or k in ["trend_memory", "momentum_memory", "volatility_memory", "support_resistance_memory"]},
+            "capital_memory": {k: v for k, v in e_dict.items() if "capital" in k or k in ["composite_capital_flow", "persistence_score", "anomaly_score", "efficiency_memory"]},
+            "chip_memory": {k: v for k, v in e_dict.items() if "chip" in k or k in ["entropy_memory", "concentration_migration", "stability_memory", "pressure_memory"]},
+            "sentiment_memory": {k: v for k, v in e_dict.items() if "sentiment" in k},
+            "integrated_memory": empty_s, "phase_sync": empty_s, "memory_quality": empty_s, "hc_enabled": False, "dynamic_memory_period": pd.Series(21, index=df_index).astype(np.int32)
         }
 
     def _normalize_raw_signals(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -740,36 +691,24 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_enhanced_sentiment_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 情绪运动学与温压存量版】增强版情绪属性代理信号
-        修改说明：引入情绪S/A/J矢量与Sentiment-HAB历史累积缓冲，量化市场热度的渗透性与持久力。
-        版本号：2026.02.10.81
+        【V5.1 · 向量化加速版】增强版情绪属性代理信号
+        修改说明：废弃通用归一化工具，改用向量化Rolling Rank计算Sentiment-HAB，提升情绪运动学合成的物理确定性。
+        版本号：2026.02.11.25
         """
-        # 1. 提取情绪运动学矢量
-        sent_slope = mtf_signals.get('SLOPE_5_market_sentiment_trend', pd.Series(0.0, index=df_index))
-        sent_accel = mtf_signals.get('ACCEL_5_market_sentiment_trend', pd.Series(0.0, index=df_index))
-        sent_jerk = mtf_signals.get('JERK_5_market_sentiment_trend', pd.Series(0.0, index=df_index))
-        # 2. 情绪温压累积记忆缓冲 (Sentiment-HAB)
-        # 逻辑：利用市场情绪与行业宽度的乘积进行累积。存量越高，说明板块效应越强，容错率越高。
-        market_sent = normalized_signals.get('market_sentiment_norm', pd.Series(0.5, index=df_index))
-        ind_breadth = normalized_signals.get('industry_breadth_norm', pd.Series(0.5, index=df_index))
-        hab_window = get_param_value(config.get('sentiment_hab_window'), 13)
-        hab_increment = (market_sent * ind_breadth * (1 + sent_accel))
-        sent_hab_buffer = hab_increment.rolling(window=hab_window, min_periods=3).sum().fillna(0)
-        sent_hab_score = normalize_score(sent_hab_buffer, target_index=df_index, windows=21)
-        # 3. 情绪一致性 (Leader-Sentiment Coherence)
-        leader_strength = normalized_signals.get('industry_leader_norm', pd.Series(0.5, index=df_index))
-        sent_consistency = (market_sent * leader_strength).rolling(5).mean().fillna(0.5)
-        # 4. 综合合成
-        kinematic_sum = (sent_slope * 0.3 + sent_accel * 0.5 + sent_jerk * 0.2).clip(0, 1)
-        raw_proxy = (kinematic_sum * 0.3 + sent_hab_score * 0.4 + sent_consistency * 0.3).clip(0, 1)
-        # 5. 情境调节
-        sentiment_modulator = 1.0 + (sent_hab_score - 0.5) * 0.15
-        enhanced_sentiment_proxy = (raw_proxy * sentiment_modulator).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Sentiment Heat-HAB Probe ---")
-            self._probe_print(f"  > Sent SAJ: S={sent_slope.iloc[-1]:.4f}, A={sent_accel.iloc[-1]:.4f}, J={sent_jerk.iloc[-1]:.4f}")
-            self._probe_print(f"  > Sentiment-HAB Level: {sent_hab_score.iloc[-1]:.4f}")
-        return {"raw_sentiment_proxy": raw_proxy, "enhanced_sentiment_proxy": enhanced_sentiment_proxy, "sentiment_hab_score": sent_hab_score, "sentiment_modulator": sentiment_modulator}
+        ss = mtf_signals.get('SLOPE_5_market_sentiment_trend', pd.Series(0, index=df_index)).astype(np.float32)
+        sa = mtf_signals.get('ACCEL_5_market_sentiment_trend', pd.Series(0, index=df_index)).astype(np.float32)
+        sj = mtf_signals.get('JERK_5_market_sentiment_trend', pd.Series(0, index=df_index)).astype(np.float32)
+        m_sent = normalized_signals.get('market_sentiment_norm', pd.Series(0.5, index=df_index)).astype(np.float32)
+        i_breadth = normalized_signals.get('industry_breadth_norm', pd.Series(0.5, index=df_index)).astype(np.float32)
+        hab_win = int(get_param_value(config.get('sentiment_hab_window'), 13))
+        hab_inc = (m_sent * i_breadth * (1.0 + sa.clip(lower=0)))
+        sent_hab_score = hab_inc.rolling(window=hab_win, min_periods=3).sum().fillna(0.0).rolling(21).rank(pct=True).fillna(0.5).astype(np.float32)
+        leader_strength = normalized_signals.get('industry_leader_norm', pd.Series(0.5, index=df_index)).astype(np.float32)
+        sent_consis = (m_sent * leader_strength).rolling(5, min_periods=1).mean().fillna(0.5).astype(np.float32)
+        k_sum = np.clip(ss.values * 0.3 + sa.values * 0.5 + sj.values * 0.2, 0, 1)
+        raw_proxy = (k_sum * 0.3 + sent_hab_score.values * 0.4 + sent_consis.values * 0.3)
+        enhanced_proxy = raw_proxy * (1.0 + (sent_hab_score.values - 0.5) * 0.15)
+        return {"raw_sentiment_proxy": pd.Series(raw_proxy, index=df_index), "enhanced_sentiment_proxy": pd.Series(enhanced_proxy, index=df_index).clip(0, 1).astype(np.float32), "sentiment_hab_score": sent_hab_score}
 
     def _calculate_sentiment_momentum(self, sentiment_series: pd.Series, df_index: pd.Index, memory_period: int = 13) -> pd.Series:
         """
@@ -792,68 +731,56 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_enhanced_liquidity_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 对数压缩流动性版】增强版流动性代理信号
-        修改说明：采用对数处理(log1p)抑制极端成交量波动，结合双曲正切映射实现流动性潮汐的平滑归一化。
-        版本号：2026.02.10.111
+        【V6.1 · 向量化加速版】增强版流动性代理信号
+        修改说明：利用对数压缩加速流动性潮汐识别，优化float32精度下的Rolling Min-Max逻辑，消除冗余计算。
+        版本号：2026.02.11.26
         """
-        vol_norm = normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index))
-        turnover_norm = normalized_signals.get('turnover_rate_norm', pd.Series(0.5, index=df_index))
-        liq_tide = (vol_norm * 0.6 + turnover_norm * 0.4)
-        tide_slope = liq_tide.diff(3).rolling(5).mean().fillna(0)
-        tide_accel = tide_slope.diff(1).fillna(0)
-        price_slope_abs = mtf_signals.get('SLOPE_5_price_trend', pd.Series(0.0, index=df_index)).abs()
-        liq_hab_inc = (tide_accel.clip(lower=0) * (1 - price_slope_abs.clip(0, 1)))
-        # 定制化归一化：对数压缩后的滚动 Min-Max
-        log_inc = np.log1p(liq_hab_inc.rolling(21).sum().fillna(0))
-        liq_hab_score = (log_inc - log_inc.rolling(55).min()) / (log_inc.rolling(55).max() - log_inc.rolling(55).min() + 1e-9)
-        liq_proxy_raw = (liq_tide * 0.4 + tide_accel.clip(0, 1) * 0.3 + liq_hab_score * 0.3).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[LIQ_PROBE] Tide_Accel: {tide_accel.iloc[-1]:.4f}, Log_HAB: {liq_hab_score.iloc[-1]:.4f}")
-        return {"enhanced_liquidity_proxy": liq_proxy_raw, "liquidity_hab_score": liq_hab_score}
+        vol_n = normalized_signals.get('volume_ratio_norm', pd.Series(0.5, index=df_index)).astype(np.float32)
+        turn_n = normalized_signals.get('turnover_rate_norm', pd.Series(0.5, index=df_index)).astype(np.float32)
+        liq_tide = (vol_n * 0.6 + turn_n * 0.4).values
+        tide_slope = pd.Series(liq_tide, index=df_index).diff(3).rolling(5).mean().fillna(0.0).values
+        tide_accel = np.diff(tide_slope, prepend=0.0)
+        p_slope_abs = np.abs(mtf_signals.get('SLOPE_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32).values)
+        liq_hab_inc = np.clip(tide_accel, 0, None) * (1.0 - np.clip(p_slope_abs, 0, 1))
+        log_inc = np.log1p(pd.Series(liq_hab_inc, index=df_index).rolling(21, min_periods=1).sum().fillna(0.0))
+        l_min = log_inc.rolling(55, min_periods=5).min(); l_max = log_inc.rolling(55, min_periods=5).max()
+        liq_hab_score = ((log_inc - l_min) / (l_max - l_min + 1e-9)).fillna(0.5).astype(np.float32)
+        liq_proxy = (liq_tide * 0.4 + np.clip(tide_accel, 0, 1) * 0.3 + liq_hab_score.values * 0.3)
+        return {"enhanced_liquidity_proxy": pd.Series(liq_proxy, index=df_index).clip(0, 1).astype(np.float32), "liquidity_hab_score": liq_hab_score}
 
     def _calculate_enhanced_volatility_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 倒数映射低波动版】增强版波动性代理信号
-        修改说明：采用物理量纲倒数映射处理波动率稳定性，弃用线性归一化，精准捕捉“横盘蓄势”期的低波动存量特征。
-        版本号：2026.02.10.112
+        【V6.1 · 向量化加速版】增强版波动性代理信号
+        修改说明：采用float32全向量化算子实现波动聚集指数，利用Tanh矩阵运算加速Jerk分量提取。
+        版本号：2026.02.11.27
         """
-        pct_change = normalized_signals.get('pct_change_norm', pd.Series(0.0, index=df_index))
-        hist_vol = pct_change.rolling(21).std().fillna(0.02)
-        vol_slope = hist_vol.diff(3).rolling(5).mean().fillna(0)
-        vol_jerk = vol_slope.diff(2).fillna(0)
-        # 定制化归一化：倒数映射 (Volatility Clustering Index)
-        # 逻辑：当波动率低于 21日均值时，得分呈指数级提升
-        avg_vol = hist_vol.rolling(60).mean().replace(0, 0.02)
-        vol_hab_raw = (avg_vol / (hist_vol + 1e-9)).rolling(21).sum().fillna(0)
-        vol_hab_score = (np.tanh(vol_hab_raw / 10) * 0.5 + 0.5).clip(0, 1)
-        vol_weights = {"historical": 0.3, "jerk": 0.3, "hab": 0.4}
-        # hist_vol 是正向指标（波动高分高），hab 是负向（波动低分高）
-        vol_proxy = (hist_vol.rolling(60).rank(pct=True) * vol_weights["historical"] + np.tanh(vol_jerk * 10).abs() * vol_weights["jerk"] + (1 - vol_hab_score) * vol_weights["hab"]).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[VOL_PROBE] Jerk: {vol_jerk.iloc[-1]:.4f}, Low_Vol_HAB: {vol_hab_score.iloc[-1]:.4f}")
-        return {"enhanced_volatility_proxy": vol_proxy, "volatility_hab_score": vol_hab_score}
+        pct_n = normalized_signals.get('pct_change_norm', pd.Series(0, index=df_index)).astype(np.float32)
+        h_vol = pct_n.rolling(21, min_periods=5).std().fillna(0.02)
+        v_slope = h_vol.diff(3).rolling(5).mean().fillna(0.0).values
+        v_jerk = np.diff(v_slope, prepend=0.0)
+        avg_v = h_vol.rolling(60, min_periods=10).mean().replace(0, 0.02).values
+        vol_hab_raw = pd.Series(avg_v / (h_vol.values + 1e-9), index=df_index).rolling(21, min_periods=1).sum().fillna(0.0)
+        vol_hab_score = (np.tanh(vol_hab_raw.values / 10.0) * 0.5 + 0.5)
+        h_rank = h_vol.rolling(60, min_periods=5).rank(pct=True).fillna(0.5).values
+        vol_proxy = (h_rank * 0.3 + np.abs(np.tanh(v_jerk * 10.0)) * 0.3 + (1.0 - vol_hab_score) * 0.4)
+        return {"enhanced_volatility_proxy": pd.Series(vol_proxy, index=df_index).clip(0, 1).astype(np.float32), "volatility_hab_score": pd.Series(vol_hab_score, index=df_index).astype(np.float32)}
 
     def _calculate_enhanced_risk_preference_proxy(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], config: Dict) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 非线性风险偏好版】增强版风险偏好代理信号
-        修改说明：采用Sigmoid逻辑回归函数对风险资产表现进行非线性增强，锐化资金在防御与进攻状态切换时的边界信号。
-        版本号：2026.02.10.113
+        【V6.1 · 向量化加速版】增强版风险偏好代理信号
+        修改说明：利用Numpy广播加速Sigmoid映射逻辑，强制float32数据流，提升非线性风险资产评估效率。
+        版本号：2026.02.11.28
         """
-        # 假设 asset_perf 由行业强弱和连板家数等因子组成
-        leader_strength = normalized_signals.get('industry_leader_norm', pd.Series(0.5, index=df_index))
-        market_sent = normalized_signals.get('market_sentiment_norm', pd.Series(0.5, index=df_index))
-        asset_perf = (leader_strength * 0.6 + market_sent * 0.4).clip(0, 1)
-        # 定制化归一化：Sigmoid 非线性映射 (中心点0.5，斜率8)
-        risk_perf_norm = 1 / (1 + np.exp(-8 * (asset_perf - 0.5)))
-        risk_slope = risk_perf_norm.diff(3).rolling(5).mean().fillna(0)
-        risk_accel = risk_slope.diff(1).fillna(0)
-        # HAB 存量归一化：Rolling Rank (55日窗口)
-        hab_raw = risk_perf_norm.rolling(window=21).sum().fillna(0)
-        risk_hab_score = hab_raw.rolling(55).rank(pct=True).fillna(0.5)
-        risk_proxy = (risk_perf_norm * 0.4 + np.tanh(risk_accel * 5).clip(lower=0) * 0.3 + risk_hab_score * 0.3).clip(0, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[RISK_PROBE] Sigmoid_Perf: {risk_perf_norm.iloc[-1]:.4f}, Risk_HAB: {risk_hab_score.iloc[-1]:.4f}")
-        return {"enhanced_risk_preference_proxy": risk_proxy, "risk_hab_score": risk_hab_score}
+        l_str = normalized_signals.get('industry_leader_norm', pd.Series(0.5, index=df_index)).astype(np.float32).values
+        m_sent = normalized_signals.get('market_sentiment_norm', pd.Series(0.5, index=df_index)).astype(np.float32).values
+        asset_perf = np.clip(l_str * 0.6 + m_sent * 0.4, 0, 1)
+        risk_perf = 1.0 / (1.0 + np.exp(-8.0 * (asset_perf - 0.5)))
+        r_slope = pd.Series(risk_perf, index=df_index).diff(3).rolling(5).mean().fillna(0.0).values
+        r_accel = np.diff(r_slope, prepend=0.0)
+        hab_raw = pd.Series(risk_perf, index=df_index).rolling(window=21, min_periods=1).sum().fillna(0.0)
+        risk_hab_score = hab_raw.rolling(55, min_periods=5).rank(pct=True).fillna(0.5).astype(np.float32)
+        risk_proxy = (risk_perf * 0.4 + np.tanh(np.clip(r_accel * 5.0, 0, None)) * 0.3 + risk_hab_score.values * 0.3)
+        return {"enhanced_risk_preference_proxy": pd.Series(risk_proxy, index=df_index).clip(0, 1).astype(np.float32), "risk_hab_score": risk_hab_score}
 
     def _dynamic_weighted_synthesis(self, rs_proxy: Dict, capital_proxy: Dict, sentiment_proxy: Dict, liquidity_proxy: Dict, volatility_proxy: Dict, risk_preference_proxy: Dict, signal_quality: pd.Series, config: Dict) -> Dict[str, pd.Series]:
         """
@@ -1312,73 +1239,47 @@ class CalculateMainForceRallyIntent:
 
     def _detect_bear_trap(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], obstacle_clearance_score: pd.Series) -> pd.Series:
         """
-        【V7.0 · PAR-Jerk 诱空识别版】诱空陷阱检测
-        修改说明：引入PAR-HAB（障碍清除分数）的阶跃与Price-Jerk的正向偏移。判别横盘回踩是否为“暴力洗盘”，捕捉启动前的最后物理拐点。
-        版本号：2026.02.10.350
+        【V7.1 · 向量化加速版】诱空陷阱检测
+        修改说明：完全矩阵化trap_impulse计算路径，强制float32并利用Numpy的clip/abs算子实现物理反转识别。
+        版本号：2026.02.11.30
         """
-        # 1. 提取关键物理矢量
-        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index)
-        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index)
-        # 2. 计算 PAR-HAB 阶跃 (Step Change)
-        # 逻辑：当障碍清除分值（代表吸收强度）在急跌中跳升，意味着主力在特定价位“接盘”
-        par_step = obstacle_clearance_score.diff(1).clip(lower=0)
-        # 3. 识别反转冲量 (Jerk Offset)
-        # 物理逻辑：加速度为负（下跌中）且加加速度为正（正在极速减速或受力反弹）
-        # trap_impulse = 下跌惯性绝对值 * 向上反作用力 * 吸收阶跃
-        trap_impulse = p_acc.clip(upper=0).abs() * p_jerk.clip(lower=0) * (1 + par_step * 2)
-        # 4. 定制化归一化：Tanh 映射
-        # 阈值设为 0.0015，对应 A 股常见的缩量诱空反转强度
-        trap_intensity = np.tanh(trap_impulse / 0.0015).clip(0, 1)
-        # 5. 结合障碍清除存量背书
-        # 只有在长期障碍清理水位(HAB-Rank)较高时，局部的“陷阱”才具备确定性
-        hab_backing = obstacle_clearance_score.rolling(window=13).mean()
-        final_trap_score = (trap_intensity * hab_backing).fillna(0)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- PAR-Jerk Bear Trap Probe ---")
-            self._probe_print(f"  > PAR_Step: {par_step.iloc[-1]:.4f} | Jerk_Offset: {p_jerk.iloc[-1]:.4f}")
-            self._probe_print(f"  > Trap_Impulse: {trap_impulse.iloc[-1]:.6f} | Final_Score: {final_trap_score.iloc[-1]:.4f}")
-            
-        return final_trap_score.astype(np.float32)
+        p_acc = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32).values
+        p_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32).values
+        par_step = np.clip(np.diff(obstacle_clearance_score.values, prepend=obstacle_clearance_score.iloc[0]), 0, None)
+        trap_impulse = np.abs(np.clip(p_acc, None, 0)) * np.clip(p_jerk, 0, None) * (1.0 + par_step * 2.0)
+        trap_intensity = np.tanh(trap_impulse / 0.0015)
+        hab_backing = obstacle_clearance_score.rolling(window=13, min_periods=1).mean().fillna(0.0).values
+        final_trap = trap_intensity * hab_backing
+        return pd.Series(final_trap, index=df_index).fillna(0.0).astype(np.float32)
 
     def _detect_bull_trap(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dist_hab: pd.Series) -> pd.Series:
         """
-        【V1.1 · 空值清洗版】诱多陷阱检测
-        修改说明：增加对dist_score的空值填充，防止微分计算产生NaN。
-        版本号：2026.02.10.382
+        【V1.2 · 向量化加速版】诱多陷阱检测
+        修改说明：采用全量float32，向量化捕获上涨惯性中的受力逆转(Negative Jerk)，增强NaN防御力。
+        版本号：2026.02.11.31
         """
-        p_acc = pd.Series(mtf_signals.get('ACCEL_5_price_trend', 0.0), index=df_index).fillna(0.0)
-        p_jerk = pd.Series(mtf_signals.get('JERK_5_price_trend', 0.0), index=df_index).fillna(0.0)
-        dist_score = pd.Series(normalized_signals.get('distribution_score_norm', 0.0), index=df_index).fillna(0.0)
-        # 填充后计算微分
-        dist_step = dist_score.diff(1).fillna(0.0).clip(lower=0)
-        bull_impulse = p_acc.clip(lower=0) * p_jerk.clip(upper=0).abs() * (1 + dist_step * 2)
-        trap_intensity = np.tanh(bull_impulse / 0.0020).clip(0, 1)
-        final_trap_score = (trap_intensity * dist_hab.fillna(0)).fillna(0)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Bull Trap Physics Probe ---")
-            self._probe_print(f"  > Dist_Step: {dist_step.iloc[-1]:.4f} | Bull_Impulse: {bull_impulse.iloc[-1]:.6f}")
-            self._probe_print(f"  > Trap_Score: {final_trap_score.iloc[-1]:.4f}")
-            
-        return final_trap_score.astype(np.float32)
+        p_acc = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32).fillna(0.0).values
+        p_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32).fillna(0.0).values
+        dist_s = normalized_signals.get('distribution_score_norm', pd.Series(0, index=df_index)).astype(np.float32).fillna(0.0).values
+        dist_step = np.clip(np.diff(dist_s, prepend=dist_s[0]), 0, None)
+        bull_impulse = np.clip(p_acc, 0, None) * np.abs(np.clip(p_jerk, None, 0)) * (1.0 + dist_step * 2.0)
+        trap_intensity = np.tanh(bull_impulse / 0.0020)
+        final_trap = trap_intensity * dist_hab.fillna(0.0).values
+        return pd.Series(final_trap, index=df_index).fillna(0.0).astype(np.float32)
 
     def _calculate_volume_price_divergence(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V6.0 · 局部排位背离版】缩量背离侦测
-        修改说明：采用13日局部滚动排位对比价量斜率，通过排位差值量化“虚假拉升”的严重程度。
-        版本号：2026.02.10.122
+        【V6.1 · 向量化加速版】缩量背离侦测
+        修改说明：矩阵化价格与成交量排位差值计算，利用mask机制一次性完成虚假拉升过滤，显著降低逻辑开销。
+        版本号：2026.02.11.29
         """
-        p_slope = mtf_signals.get('SLOPE_5_price_trend', pd.Series(0.0, index=df_index))
-        v_slope = mtf_signals.get('SLOPE_5_volume_trend', pd.Series(0.0, index=df_index))
-        # 1. 计算价格和成交量的局部排位
-        p_rank = p_slope.rolling(13).rank(pct=True).fillna(0.5)
-        v_rank = v_slope.rolling(13).rank(pct=True).fillna(0.5)
-        # 2. 背离判别：价格高排位 (上涨) 且 成交量低排位 (缩量)
-        divergence_gap = (p_rank - v_rank).clip(lower=0)
-        # 3. 定制归一化：通过平方项放大极端背离
-        div_score = (divergence_gap ** 2).mask(p_slope <= 0, 0)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[DIV_PROBE] Price_Rank: {p_rank.iloc[-1]:.2f}, Vol_Rank: {v_rank.iloc[-1]:.2f}, Gap: {divergence_gap.iloc[-1]:.4f}")
-        return div_score.clip(0, 1)
+        p_slope = mtf_signals.get('SLOPE_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32)
+        v_slope = mtf_signals.get('SLOPE_5_volume_trend', pd.Series(0, index=df_index)).astype(np.float32)
+        p_rank = p_slope.rolling(13, min_periods=1).rank(pct=True).fillna(0.5).values
+        v_rank = v_slope.rolling(13, min_periods=1).rank(pct=True).fillna(0.5).values
+        gap = np.clip(p_rank - v_rank, 0, None)
+        div_score = np.where(p_slope.values <= 0, 0.0, gap ** 2)
+        return pd.Series(div_score, index=df_index).clip(0, 1).astype(np.float32)
 
     def _calculate_acceleration_resonance(self, df_index: pd.Index, mtf_signals: Dict[str, pd.Series]) -> pd.Series:
         """
@@ -1521,28 +1422,22 @@ class CalculateMainForceRallyIntent:
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], market_phase: pd.Series, aggressiveness_score: pd.Series) -> pd.Series:
         """
-        【V4.0 · 情绪溢价调节版】应用情境调节器
-        修改说明：新增情绪溢价调节逻辑，在“派发初期”且高攻击性状态下赋予分值溢价，体现投机惯性。
-        版本号：2026.02.10.280
+        【V4.1 · 向量化加速版】应用情境调节器
+        修改说明：矩阵化溢价计算路径，利用Numpy高级掩码替代loc访问，确保投机溢价在float32下高效合并。
+        版本号：2026.02.11.32
         """
-        def _safe_mod(s, center=0.5, scope=0.15):
-            return 1.0 + (np.tanh((s - center) * 4) * scope)
-        # 1. 基础物理调节
-        rs_val = proxy_signals.get('enhanced_rs_proxy', pd.Series(0.5, index=df_index))
-        cap_val = proxy_signals.get('enhanced_capital_proxy', pd.Series(0.5, index=df_index))
-        modulator = _safe_mod(rs_val) * _safe_mod(cap_val, scope=0.1)
-        # 2. 【核心新增】投机溢价 (Speculative Premium)
-        # 逻辑：在派发初期，高Agg意味着极强的连板惯性，给予额外溢价
-        spec_boost = pd.Series(1.0, index=df_index)
-        is_early_dist = (market_phase == "派发初期")
-        # 溢价系数：攻击性越高，溢价越强，最高20%
-        premium_inc = (aggressiveness_score - 0.5).clip(lower=0) * 0.4
-        spec_boost.loc[is_early_dist] = 1.0 + premium_inc.loc[is_early_dist]
-        # 3. 最终应用与保护
-        final_intent = (final_rally_intent * modulator * spec_boost).clip(-1, 1)
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"[MOD_PREMIUM_PROBE] Phase: {market_phase.iloc[-1]} | Spec_Boost: {spec_boost.iloc[-1]:.4f}")
-        return final_intent
+        def _safe_mod_arr(s_arr, center=0.5, scope=0.15):
+            return 1.0 + (np.tanh((s_arr - center) * 4.0) * scope)
+        rs_val = proxy_signals.get('enhanced_rs_proxy', pd.Series(0.5, index=df_index)).astype(np.float32).values
+        cap_val = proxy_signals.get('enhanced_capital_proxy', pd.Series(0.5, index=df_index)).astype(np.float32).values
+        modulator = _safe_mod_arr(rs_val) * _safe_mod_arr(cap_val, scope=0.1)
+        spec_boost = np.ones(len(df_index), dtype=np.float32)
+        is_early_dist = (market_phase.values == "派发初期")
+        agg_v = aggressiveness_score.values.astype(np.float32)
+        premium_inc = np.clip(agg_v - 0.5, 0, None) * 0.4
+        spec_boost[is_early_dist] = 1.0 + premium_inc[is_early_dist]
+        final_intent_v = final_rally_intent.values.astype(np.float32) * modulator * spec_boost
+        return pd.Series(final_intent_v, index=df_index).clip(-1, 1).astype(np.float32)
 
     def _output_probe_info(self, df_index: pd.Index, final_rally_intent: pd.Series):
         """
