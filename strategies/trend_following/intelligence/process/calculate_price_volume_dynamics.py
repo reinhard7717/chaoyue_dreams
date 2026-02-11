@@ -710,49 +710,47 @@ class CalculatePriceVolumeDynamics:
         return final_series
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V92.0 · 筹码锁定效率：引入趋势缓冲(Trend Buffer)与平缓衰减曲线，防止良性分歧被误杀，清除空行"""
+        """V93.0 · 筹码锁定效率：引入 HAB 惯性保护(Inertial Protection)，平滑单日获利盘闪崩，清除空行"""
         is_debug, probe_ts, _ = self._setup_debug_info(pd.DataFrame(index=df_index), method_name)
         win = raw['winner_rate_D'].values
         turn = raw['turnover_rate_f_D'].values
         c_s, p_s = raw['cost_50pct_D'].values, raw['close_D'].values
-        # 1. 有效获利盘 (保持 V90 逻辑)
+        # 1. 获利盘惯性平滑 (Inertial Smoothing)
+        # 逻辑：如果过去 13 天长期处于高获利状态(ACCUM_13_HIGH_WINNER 高)，
+        # 即使单日获利盘暴跌(如高位换手导致的假摔)，也应保留一部分惯性分，防止策略熔断
+        high_win_days = raw['ACCUM_13_HIGH_WINNER'].values
+        inertial_win = np.clip(high_win_days / 13.0, 0.0, 1.0).astype(np.float32)
+        # 修正获利盘: 取 当日值、成本修正值、惯性值 中的最大者
         c_50 = np.where(c_s == 0, p_s, c_s)
         is_above_cost = (p_s > c_50)
-        eff_win = np.maximum(win, np.where(is_above_cost, 0.6, 0.0)).astype(np.float32)
+        cost_fix_win = np.where(is_above_cost, 0.6, 0.0)
+        # 核心修正：权重偏向惯性 (0.7 * win + 0.3 * inertial) 或者取最大值
+        # 这里采用取最大值策略，给予最强容错
+        eff_win = np.maximum(win, np.maximum(cost_fix_win, inertial_win * 0.8)).astype(np.float32)
         # 2. 相对换手率
         turn_median = pd.Series(turn, index=df_index).rolling(21).median().replace(0, 0.01).values
         rel_turn = turn / (turn_median + 1e-9)
-        # 3. 趋势缓冲 (Trend Buffer)
-        # 如果价格在 21日均线之上，说明趋势完好，高换手容忍度提升
+        # 3. 趋势缓冲
         ma21 = raw['close_D'].rolling(21).mean().values
         is_trend_safe = (raw['close_D'].values > ma21)
-        # 缓冲系数: 趋势安全 -> 0.6 (衰减打6折); 趋势破位 -> 1.0 (全额衰减)
         buffer_rate = np.where(is_trend_safe, 0.6, 1.0).astype(np.float32)
-        # 承接力进一步豁免
         absorb = raw['absorption_energy_D'].values
         final_decay = np.clip(buffer_rate - np.where(absorb > 0, 0.3, 0.0), 0.3, 1.2)
-        # 4. 平缓锁定系数 (Smoother Curve)
-        # 使用 Sigmoid 变体替代陡峭的 exp
-        # x = rel_turn。当 x=1.8, decay=0.6 时: 
-        # (x-1)*decay = 0.8*0.6 = 0.48
-        # Score = 2 / (1 + exp(0.48)) = 2 / 2.61 ≈ 0.76 (及格)
-        # 相比 V91 的 0.27 大幅改善
+        # 4. 锁定系数
         lock_factor = 2.0 / (1.0 + np.exp((rel_turn - 1.0) * 2.0 * final_decay))
-        # 限制范围，避免过度奖励缩量
         lock_factor = np.clip(lock_factor, 0.3, 1.5).astype(np.float32)
         s_lock = eff_win * lock_factor
         # 5. 动力学与 HAB
         a_w, a_t, j_w = raw['ACCEL_5_winner_rate_D'].values, raw['ACCEL_5_turnover_rate_f_D'].values, raw['JERK_3_winner_rate_D'].values
         k_bonus = 1.0 + np.where((a_w > 0) & (a_t < 0), 0.3, 0.0) + np.where(j_w > 0.1, 0.2, 0.0)
-        high_win_days = raw['ACCUM_13_HIGH_WINNER'].values
         deep_lock_mult = np.where(high_win_days > 10, 1.5, np.where(high_win_days > 5, 1.2, 1.0)).astype(np.float32)
         b_c = is_above_cost.astype(np.float32)
         final_eff = pd.Series(s_lock * k_bonus * deep_lock_mult * (0.8 + b_c * 0.2), index=df_index, dtype=np.float32)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[筹码缓冲探针 V92.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
-            print(f"    相对换手: {rel_turn[p_i]:.2f}x, 趋势安全: {is_trend_safe[p_i]}")
-            print(f"    衰减力度: {final_decay[p_i]:.2f} -> 锁定系数: {lock_factor[p_i]:.2f}")
+            print(f"\n[筹码惯性探针 V93.0 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"    原始获利: {win[p_i]:.2f}, 惯性获利: {inertial_win[p_i]:.2f} (HAB={high_win_days[p_i]:.0f}d)")
+            print(f"    有效获利(平滑后): {eff_win[p_i]:.2f}")
             print(f"    >>> 最终筹码效率: {final_eff.loc[probe_ts]:.4f}")
         return final_eff
 
