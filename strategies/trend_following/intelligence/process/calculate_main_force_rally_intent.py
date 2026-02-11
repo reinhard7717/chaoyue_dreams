@@ -1265,20 +1265,21 @@ class CalculateMainForceRallyIntent:
         final_intent_v = final_rally_intent.values.astype(np.float32) * modulator * spec_boost
         return pd.Series(final_intent_v, index=df_index).clip(-1, 1).astype(np.float32)
 
-    def _persist_hab_states(self, historical_context: Dict):
+    def _output_probe_info(self, df_index: pd.Index, final_rally_intent: pd.Series):
         """
-        【V1.2 · 标量加速持久化版】将HAB最新状态持久化
-        修改说明：使用 .values[-1] 替代 .iloc[-1] 显著提升标量提取速度，优化 tanh 标准化链路。
-        版本号：2026.02.11.44
+        【V2.1 · 检索定位优化版】输出探针信息
+        修改说明：利用 Pandas 索引集合操作替代反向迭代循环，大幅提升在大数据量下的探针日志提取效率。
+        版本号：2026.02.11.47
         """
-        try:
-            m_keys = [('price_memory', '_HAB_STATE_PRICE', 1.0), ('capital_memory', '_HAB_STATE_CAPITAL', 5e7), ('chip_memory', '_HAB_STATE_CHIP', 1.0), ('sentiment_memory', '_HAB_STATE_SENTIMENT', 1.0)]
-            for m_key, s_key, scale in m_keys:
-                buf = historical_context.get(m_key, {}).get('hab_buffer_raw', pd.Series([0.0]))
-                val = buf.values[-1] if len(buf) > 0 else 0.0
-                self.strategy.atomic_states[s_key] = float(np.tanh(val / np.float32(scale)))
-            if self._is_probe_enabled(pd.DataFrame()): self._probe_print(f"[HAB_PERSIST] 存量水位标准化持久化完成 (Cap: {self.strategy.atomic_states['_HAB_STATE_CAPITAL']:.4f})")
-        except Exception as e: self._probe_print(f"[HAB_PERSIST_ERROR] 持久化失败: {str(e)}")
+        if not self.probe_dates: return
+        p_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
+        matches = df_index[df_index.tz_localize(None).normalize().isin(p_dates)]
+        if not matches.empty:
+            p_ts = matches[-1]
+            print(f"\n=== 主力拉升意图探针报告 @ {p_ts.strftime('%Y-%m-%d')} ===")
+            for line in self._probe_output: print(line)
+            print(f"最终拉升意图分值: {final_rally_intent.loc[p_ts]:.4f}")
+            print("=== 探针报告结束 ===\n")
 
 
 
