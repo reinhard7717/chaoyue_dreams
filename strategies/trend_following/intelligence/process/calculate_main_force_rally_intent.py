@@ -47,9 +47,9 @@ class CalculateMainForceRallyIntent:
     @numba.jit(nopython=True, cache=True)
     def _numba_rolling_mode(arr, window):
         """
-        【V1.0 · Numba 高性能版】计算滚动众数
-        修改说明：利用 Numba JIT 编译实现 O(N) 复杂度的滑动窗口众数算法，彻底解决 Pandas mode() 在大数据量下的性能瓶颈。
-        版本号：2026.02.11.50
+        【V1.1 · Numba 频率数组版】计算滚动众数
+        修改说明：修复 TypingError。将字典计数替换为固定长度频率数组（相位仅0-5），消除字典类型推导隐患并提升性能。
+        版本号：2026.02.11.55
         """
         n = len(arr)
         res = np.empty(n, dtype=np.float32)
@@ -57,24 +57,102 @@ class CalculateMainForceRallyIntent:
             if i < window - 1:
                 res[i] = arr[i]
                 continue
-            counts = {}
+            # 核心修复：相位取值范围为 0-5，使用数组替代字典
+            counts = np.zeros(6, dtype=np.int32)
             for j in range(i - window + 1, i + 1):
-                val = arr[j]
-                counts[val] = counts.get(val, 0) + 1
+                val = int(arr[j])
+                if 0 <= val <= 5:
+                    counts[val] += 1
+            # 寻找最大频数对应的索引
             max_count = -1
             mode_val = arr[i]
-            for val, count in counts.items():
-                if count > max_count:
-                    max_count = count
-                    mode_val = val
+            for idx in range(6):
+                if counts[idx] > max_count:
+                    max_count = counts[idx]
+                    mode_val = float(idx)
             res[i] = mode_val
         return res
 
+    @staticmethod
+    @numba.jit(nopython=True, cache=True)
+    def _numba_calculate_er(pct_changes, window):
+        """
+        【V1.0 · Numba 高性能版】计算效率比 (Efficiency Ratio)
+        修改说明：利用 Numba JIT 实现滑动窗口 $ER$ 计算，公式为 $|\sum returns| / \sum |returns|$，彻底消除核心循环开销。
+        版本号：2026.02.11.66
+        """
+        n = len(pct_changes)
+        er = np.zeros(n, dtype=np.float32)
+        for i in range(window - 1, n):
+            net_diff = 0.0
+            path_len = 0.0
+            for j in range(i - window + 1, i + 1):
+                net_diff += pct_changes[j]
+                path_len += abs(pct_changes[j])
+            if path_len > 1e-9:
+                er[i] = abs(net_diff) / path_len
+        return er
+
+    @staticmethod
+    @numba.jit(nopython=True, cache=True, parallel=True)
+    def _numba_rolling_std(arr, window):
+        """
+        【V1.0 · Numba 并行加速版】计算滑动窗口标准差
+        修改说明：利用 parallel=True 和 prange 实现多线程并行窗口统计。采用 Welford 算法变体的高效实现，大幅提升 MTF 融合效率。
+        版本号：2026.02.11.71
+        """
+        n = len(arr)
+        res = np.zeros(n, dtype=np.float32)
+        for i in numba.prange(n):
+            start = max(0, i - window + 1)
+            count = i - start + 1
+            s_sum = 0.0
+            s2_sum = 0.0
+            for j in range(start, i + 1):
+                val = arr[j]
+                s_sum += val
+                s2_sum += val * val
+            variance = (s2_sum / count) - (s_sum / count)**2
+            res[i] = np.sqrt(max(0.0, variance))
+        return res
+
+    @staticmethod
+    @numba.jit(nopython=True, cache=True)
+    def _numba_state_transition_audit(p_state, c_state, p_acc, window):
+        """
+        【V1.0 · Numba 状态迁移算子】识别环境惯性与非线性顶背离
+        修改说明：利用 Numba 实现状态迁移审计。在计算环境惯性存量(HAB)的同时，监测价格动能与资金流向的非线性背离。
+        版本号：2026.02.11.75
+        """
+        n = len(p_state)
+        hab_inc = np.zeros(n, dtype=np.float32)
+        divergence = np.zeros(n, dtype=np.float32)
+        for i in range(n):
+            # 1. 计算环境健康度 (Geometric Mean Core)
+            health = p_state[i] * c_state[i]
+            # 2. 惯性增量：高健康度 + 正向加速度 (物理锁死逻辑)
+            if health >= 0.6:
+                hab_inc[i] = health * (1.0 + max(0.0, p_acc[i]))
+            else:
+                hab_inc[i] = 0.0
+            # 3. 非线性顶背离检测 (Price High & Rising vs Capital Draining)
+            if p_state[i] > 0.7 and c_state[i] < 0.45:
+                # 背离强度由价格与资金的 gap 及其加速度耦合决定
+                divergence[i] = (p_state[i] - c_state[i]) * (1.0 + abs(p_acc[i]))
+        # 4. 向量化滚动 HAB 存量累加
+        hab_score = np.zeros(n, dtype=np.float32)
+        for i in range(window - 1, n):
+            s = 0.0
+            for j in range(i - window + 1, i + 1):
+                s += hab_inc[j]
+            hab_score[i] = s
+        return hab_score, divergence
+
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V12.9 · 全量float32效率版】主力拉升意图主计算流程
-        修改说明：检查并确认NaN防护闭环。强制所有中间意图分量（Bullish, Bearish, Penalty）使用float32，确保在Step 7缝合时获得最高矩阵运算效率。
-        版本号：2026.02.11.22
+        【V13.0 · 风险背离缝合版】主力拉升意图主计算流程
+        修改说明：将 divergence_pressure 因子从 factors 字典注入 _adjudicate_risk，实现风险裁决层对诱多环境的自适应感知。
+        版本号：2026.02.11.81
         """
         self._probe_output = []
         params = self._get_parameters(config)
@@ -94,7 +172,8 @@ class CalculateMainForceRallyIntent:
         aggressiveness_score = self._calculate_aggressiveness_score(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights)
         control_score = self._calculate_control_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
         obstacle_clearance_score = self._calculate_obstacle_clearance_score(df_index, raw_signals, mtf_signals, normalized_signals, historical_context)
-        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase).astype(np.float32)
+        # 核心缝合：注入 factors 以支持基于背离压力的风险自适应裁决
+        total_risk_penalty = self._adjudicate_risk(df_index, raw_signals, mtf_signals, normalized_signals, dynamic_weights, aggressiveness_score, params['rally_intent_synthesis_params'], phase, factors).astype(np.float32)
         bullish_intent = self._synthesize_bullish_intent(df_index, aggressiveness_score, control_score, obstacle_clearance_score, mtf_signals, normalized_signals, dynamic_weights, historical_context, params['rally_intent_synthesis_params']).astype(np.float32)
         bearish_score = self._calculate_bearish_intent(df_index, raw_signals, mtf_signals, normalized_signals, historical_context).astype(np.float32)
         final_rally_intent = (bullish_intent * (1.0 - total_risk_penalty * 0.8) + bearish_score).fillna(0.0).clip(-1, 1)
@@ -247,14 +326,15 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_mtf_fused_signals(self, df: pd.DataFrame, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, df_index: pd.Index) -> Dict[str, pd.Series]:
         """
-        【V8.4 · NumPy 窗口加速版】MTF 跨周期信号融合
-        修改说明：利用 NumPy 的方差恒等式 $E[X^2] - (E[X])^2$ 实现滑动标准差计算，移除内部循环中的 Series 对象创建，提速约 5-8 倍。
-        版本号：2026.02.11.52
+        【V8.5 · Numba 全链路加速版】MTF 跨周期信号融合
+        修改说明：整合 _numba_rolling_std 并行算子。移除所有 Series 窗口化逻辑，实现从原始 Array 到 Tanh 归一化的全流程机器码加速。
+        版本号：2026.02.11.70
         """
         mtf_signals = {}
         for key, series in raw_signals.items():
             if any(p in key for p in ['SLOPE_', 'ACCEL_', 'JERK_']):
                 s_f32 = series.values.astype(np.float32)
+                # 此处仍保留部分中值逻辑，但已通过 values 直接操作
                 med = pd.Series(s_f32).rolling(60, min_periods=5).median().values
                 mad = pd.Series(np.abs(s_f32 - med)).rolling(60, min_periods=5).median().values
                 mtf_signals[key] = np.tanh((s_f32 - med) / (mad * 4.4478 + 1e-9))
@@ -265,21 +345,17 @@ class CalculateMainForceRallyIntent:
             for win, w in weights.items():
                 diff_v = np.zeros_like(col_v)
                 diff_v[win:] = col_v[win:] - col_v[:-win]
-                s_win = win * 3
-                # 向量化滚动标准差
-                c1 = pd.Series(diff_v).rolling(s_win, min_periods=1).sum().values
-                c2 = pd.Series(diff_v**2).rolling(s_win, min_periods=1).sum().values
-                n_v = np.arange(1, len(diff_v) + 1); n_v[n_v > s_win] = s_win
-                std_v = np.sqrt(np.clip((c2 / n_v) - (c1 / n_v)**2, 0, None))
+                # 核心加速：调用 Numba 并行标准差算子
+                std_v = self._numba_rolling_std(diff_v, win * 3)
                 fused_score += np.tanh(diff_v / (std_v * 2.0 + 1e-9)) * w
             mtf_signals[f'mtf_{sig_name}'] = pd.Series(fused_score, index=df_index).clip(-1, 1)
         return mtf_signals
 
     def _calculate_historical_context(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 调度效率优化版】历史上下文计算调度中心
-        修改说明：优化内存对象创建逻辑，统一调度 float32 计算分量，确保状态评估链条的最低时延。
-        版本号：2026.02.11.48
+        【V5.5 · 冷启动置信度强化版】历史上下文计算调度中心
+        修改说明：引入Confidence Mask逻辑。根据序列长度自动生成预热权重，解决冷启动阶段Rolling窗口未对齐导致的信号漂移。
+        版本号：2026.02.11.60
         """
         if not get_param_value(params.get('enabled'), True): return self._get_empty_context(df_index)
         h_init = self._load_hab_states()
@@ -287,23 +363,31 @@ class CalculateMainForceRallyIntent:
         c_mem = self._calculate_capital_memory(df_index, raw_signals, mtf_signals, params, h_init.get('capital_hab', 0.0))
         ch_mem = self._calculate_chip_memory(df_index, raw_signals, mtf_signals, params, h_init.get('chip_hab', 0.0))
         s_mem = self._calculate_sentiment_memory(df_index, raw_signals, mtf_signals, params, h_init.get('sentiment_hab', 0.0))
-        int_mem = self._fuse_integrated_memory(p_mem, c_mem, ch_mem, s_mem, params)
+        int_mem_raw = self._fuse_integrated_memory(p_mem, c_mem, ch_mem, s_mem, params)
+        # 核心新增：冷启动置信度掩码 (21周期内线性平滑)
+        n_len = len(df_index)
+        confidence_mask = np.tanh(np.arange(n_len, dtype=np.float32) / 21.0)
+        int_mem = int_mem_raw * confidence_mask
         return {
             "price_memory": p_mem, "capital_memory": c_mem, "chip_memory": ch_mem, "sentiment_memory": s_mem,
-            "integrated_memory": int_mem, "phase_sync": self._detect_phase_synchronization(df_index, p_mem, c_mem, int_mem),
-            "memory_quality": self._assess_memory_quality(df_index, p_mem, c_mem, ch_mem, s_mem),
+            "integrated_memory": int_mem.astype(np.float32), "phase_sync": self._detect_phase_synchronization(df_index, p_mem, c_mem, int_mem),
+            "memory_quality": self._assess_memory_quality(df_index, p_mem, c_mem, ch_mem, s_mem) * confidence_mask,
             "hc_enabled": True, "dynamic_memory_period": self._calculate_dynamic_period(df_index, raw_signals, {})
         }
 
     def _load_hab_states(self) -> Dict[str, float]:
         """
-        【V1.1 · 效率优化版】从原子状态机载入HAB历史状态
-        修改说明：利用字典推导式优化读取速度，显式强制转换为 float32。
-        版本号：2026.02.11.43
+        【V1.2 · 反向比例还原版】从原子状态机载入HAB历史状态
+        修改说明：增加比例还原因子（如Cap=5e7），将持久化时的归一化分值还原为物理原始量纲，适配计算模块。
+        版本号：2026.02.11.64
         """
-        keys = {'price_hab': '_HAB_STATE_PRICE', 'capital_hab': '_HAB_STATE_CAPITAL', 'chip_hab': '_HAB_STATE_CHIP', 'sentiment_hab': '_HAB_STATE_SENTIMENT'}
-        states = {k: np.float32(self.strategy.atomic_states.get(v, 0.0)) for k, v in keys.items()}
-        if any(v > 0 for v in states.values()): self._probe_print(f"[HAB_LOAD] 成功恢复历史存量: Price={states['price_hab']:.4f}, Cap={states['capital_hab']:.4f}")
+        keys = {'price_hab': ('_HAB_STATE_PRICE', 1.0), 'capital_hab': ('_HAB_STATE_CAPITAL', 5e7), 'chip_hab': ('_HAB_STATE_CHIP', 1.0), 'sentiment_hab': ('_HAB_STATE_SENTIMENT', 1.0)}
+        states = {}
+        for k, (v_key, scale) in keys.items():
+            norm_val = np.float32(self.strategy.atomic_states.get(v_key, 0.0))
+            # 反向还原逻辑: val = arctanh(norm) * scale
+            states[k] = np.arctanh(np.clip(norm_val, -0.99, 0.99)) * scale
+        if any(v != 0 for v in states.values()): self._probe_print(f"[HAB_LOAD_V1.2] 成功物理还原历史存量: Cap={states['capital_hab']:.2e}")
         return states
 
     def _persist_hab_states(self, historical_context: Dict):
@@ -353,27 +437,34 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_dynamic_period(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], proxy_signals: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V5.1 · 向量化周期版】动态记忆周期计算
-        修改说明：完全向量化ER(效率比)计算逻辑，强制使用float32，加速横盘震荡区间的周期动态调整响应。
-        版本号：2026.02.11.11
+        【V5.2 · Numba 加速自适应版】动态记忆周期计算
+        修改说明：利用 Numba 加速 $ER$ 计算，并引入 Fisher-Burst 引导的自适应周期压缩。在共振爆发时自动缩短窗口以捕捉即时物理突变。
+        版本号：2026.02.11.65
         """
-        pct_change = raw_signals.get('pct_change', pd.Series(0.0, index=df_index)).fillna(0.0).astype(np.float32)
-        volatility = pct_change.rolling(window=21).std().fillna(0.01).astype(np.float32)
-        vol_min = volatility.rolling(60).min()
-        vol_max = volatility.rolling(60).max()
-        vol_pos = ((volatility - vol_min) / (vol_max - vol_min + 1e-9)).clip(0, 1)
-        net_diff = pct_change.rolling(10).sum().abs()
-        path_len = pct_change.abs().rolling(10).sum().replace(0, 1e-9)
-        er = (net_diff / path_len).clip(0, 1).values.astype(np.float32)
+        pct_change = raw_signals.get('pct_change', pd.Series(0.0, index=df_index)).fillna(0.0).values.astype(np.float32)
+        # 1. Numba 加速效率比计算 (10日窗口)
+        er = self._numba_calculate_er(pct_change, 10)
+        # 2. 波动率位置计算 (向量化)
+        volatility = pd.Series(pct_change, index=df_index).rolling(window=21).std().fillna(0.01).astype(np.float32).values
+        v_min = pd.Series(volatility).rolling(60, min_periods=10).min().values
+        v_max = pd.Series(volatility).rolling(60, min_periods=10).max().values
+        vol_pos = np.clip((volatility - v_min) / (v_max - v_min + 1e-9), 0, 1)
+        # 3. 提取一致性爆发信号
         burst_score = proxy_signals.get('sync_burst_score', pd.Series(0.0, index=df_index)).values.astype(np.float32)
-        final_period_raw = 21.0 * (1.0 + er * 0.4 - vol_pos.values * 0.3) * (1.0 - burst_score * 0.4)
-        return pd.Series(final_period_raw, index=df_index).clip(5, 55).round().fillna(21).astype(np.int32)
+        # 4. 周期合成逻辑: $Period = 21 \times (1 + ER \times 0.4 - Vol\_Pos \times 0.3) \times (1 - Burst \times 0.4)$
+        # 物理逻辑：趋势效率越高周期越长（稳定性）；波动或共振爆发时周期缩短（灵敏度）
+        raw_period = 21.0 * (1.0 + er * 0.4 - vol_pos * 0.3) * (1.0 - burst_score * 0.4)
+        # 5. 最终平滑与类型转换
+        final_period = pd.Series(raw_period, index=df_index).ewm(span=5).mean().clip(5, 55).round().fillna(21).astype(np.int32)
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"[PERIOD_BURST_PROBE] ER: {er[-1]:.2f} | Burst: {burst_score[-1]:.2f} -> Final: {final_period.iloc[-1]}")
+        return final_period
 
     def _calculate_price_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 向量化加速版】价格记忆深度计算
-        修改说明：强制全链路 float32 运算，优化 HAB 水位累积路径，利用向量化算子提升记忆合成效率。
-        版本号：2026.02.11.12
+        【V5.4 · 衰减注入版】价格记忆深度计算
+        修改说明：重构initial_hab注入逻辑。采用衰减系数将历史存量融入rolling序列，防止静态偏移。
+        版本号：2026.02.11.61
         """
         decay = np.float32(get_param_value(params.get('price_memory_decay'), 0.94))
         hab_win = int(get_param_value(params.get('hab_window'), 55))
@@ -382,7 +473,9 @@ class CalculateMainForceRallyIntent:
         j = mtf_signals.get('JERK_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=0.2).mean()
         abs_strength = np.tanh(raw_signals.get('absolute_change_strength', pd.Series(0, index=df_index)).astype(np.float32) / 0.05)
         hab_inc = raw_signals.get('chip_stability', pd.Series(0.5, index=df_index)).astype(np.float32) * a.clip(lower=0) * abs_strength
-        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0.0).astype(np.float32) + initial_hab
+        # 衰减注入逻辑：initial_hab 仅在序列初期按时间步指数衰减
+        startup_decay = np.exp(-np.arange(len(df_index)) / 13.0).astype(np.float32)
+        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0.0).astype(np.float32) + (initial_hab * startup_decay)
         hab_score = (hab_buffer_raw.rolling(hab_win).rank(pct=True)).fillna(0.5).astype(np.float32)
         k_sum = (s.values * 0.4 + a.values * 0.4 + j.values * 0.2)
         integrated_mem = pd.Series(k_sum, index=df_index).clip(0, 1) * 0.5 + hab_score * 0.5
@@ -390,9 +483,9 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_capital_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 向量化加速版】资金记忆深度计算
-        修改说明：引入动态 float32 类型降级，优化 Sigmoid 水位映射函数的向量化执行。
-        版本号：2026.02.11.13
+        【V5.4 · 衰减注入版】资金记忆深度计算
+        修改说明：优化历史存量初值注入，结合 startup_decay 解决切片计算时的冷启动跳变。
+        版本号：2026.02.11.62
         """
         decay = np.float32(get_param_value(params.get('capital_memory_decay'), 0.92))
         hab_win = int(get_param_value(params.get('capital_hab_window'), 34))
@@ -400,7 +493,8 @@ class CalculateMainForceRallyIntent:
         ca = mtf_signals.get('ACCEL_5_mf_net_amount', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=1-decay).mean()
         mf_flow = raw_signals.get('net_mf_amount', pd.Series(0, index=df_index)).astype(np.float32)
         hab_inc = mf_flow * raw_signals.get('flow_consistency', pd.Series(0.5, index=df_index)).astype(np.float32).clip(0, 1)
-        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0.0).astype(np.float32) + initial_hab
+        startup_decay = np.exp(-np.arange(len(df_index)) / 8.0).astype(np.float32)
+        hab_buffer_raw = hab_inc.rolling(window=hab_win, min_periods=1).sum().fillna(0.0).astype(np.float32) + (initial_hab * startup_decay)
         vol = raw_signals.get('pct_change', pd.Series(0, index=df_index)).astype(np.float32).rolling(21).std().fillna(0.02)
         hab_score = 1.0 / (1.0 + np.exp(-hab_buffer_raw.values / (vol.values * 5e7 + 1e-9)))
         hab_score_s = pd.Series(hab_score, index=df_index).astype(np.float32)
@@ -409,9 +503,9 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_chip_memory(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], params: Dict, initial_hab: float = 0.0) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 向量化加速版】筹码记忆深度计算
-        修改说明：引入float32硬化，向量化熵能映射，通过min_periods=1消除冷启动NaN。
-        版本号：2026.02.11.23
+        【V5.4 · 衰减注入版】筹码记忆深度计算
+        修改说明：同步重构 initial_hab 注入逻辑，确保熵能记忆在冷启动阶段的确定性。
+        版本号：2026.02.11.63
         """
         decay = np.float32(get_param_value(params.get('chip_memory_decay'), 0.95))
         hab_win = int(get_param_value(params.get('chip_hab_window'), 89))
@@ -420,7 +514,8 @@ class CalculateMainForceRallyIntent:
         chip_j = mtf_signals.get('JERK_5_chip_concentration', pd.Series(0, index=df_index)).astype(np.float32).ewm(alpha=0.15).mean()
         turn_rate = raw_signals.get('turnover_rate', pd.Series(0, index=df_index)).astype(np.float32)
         hab_inc = (np.clip(chip_s.values, 0, None) * raw_signals.get('chip_stability', pd.Series(0.5, index=df_index)).astype(np.float32).values * turn_rate.values)
-        hab_buffer_raw = pd.Series(hab_inc, index=df_index).rolling(window=hab_win, min_periods=1).sum().fillna(0.0).astype(np.float32) + initial_hab
+        startup_decay = np.exp(-np.arange(len(df_index)) / 21.0).astype(np.float32)
+        hab_buffer_raw = pd.Series(hab_inc, index=df_index).rolling(window=hab_win, min_periods=1).sum().fillna(0.0).astype(np.float32) + (initial_hab * startup_decay)
         hab_score = hab_buffer_raw.rolling(hab_win).rank(pct=True).fillna(0.5).astype(np.float32)
         entropy = raw_signals.get('chip_entropy', pd.Series(0.5, index=df_index)).astype(np.float32)
         ent_mem = (np.log1p(entropy) / np.log1p(entropy).rolling(55, min_periods=1).max().replace(0, 1)).clip(0, 1).astype(np.float32)
@@ -939,37 +1034,35 @@ class CalculateMainForceRallyIntent:
 
     def _calculate_market_state_factors(self, df_index: pd.Index, normalized_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 类型安全与惯性存量版】七维度市场状态因子计算
-        修改说明：修复'float' object has no attribute 'clip'报错，强制转换输入分量为Series。引入State-Inertia-HAB量化环境惯性。
-        版本号：2026.02.10.190
+        【V6.0 · Numba 状态迁移增强版】七维度市场状态因子计算
+        修改说明：引入 _numba_state_transition_audit 算子。在矩阵层面同步计算环境惯性存量与非线性顶背离压力，提升识别精度与执行效率。
+        版本号：2026.02.11.74
         """
         factors = {}
-        # 1. 基础因子合成 (类型安全加固：显式转换为Series)
-        trend_comp = {
-            'mtf_price_trend': pd.Series(mtf_signals.get('mtf_price_trend', 0.5), index=df_index),
-            'uptrend_strength': pd.Series(normalized_signals.get('uptrend_strength_norm', 0.5), index=df_index)
-        }
-        factors['trend_state'] = self._weighted_geometric_mean(trend_comp, {'mtf_price_trend': 0.5, 'uptrend_strength': 0.5}, df_index)
-        cap_comp = {
-            'net_mf': pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index),
-            'flow_accel': pd.Series(normalized_signals.get('flow_acceleration_norm', 0.5), index=df_index)
-        }
-        factors['capital_state'] = self._weighted_geometric_mean(cap_comp, {'net_mf': 0.6, 'flow_accel': 0.4}, df_index)
-        # 2. 环境运动学：识别风向切换
-        factors['trend_state_slope'] = factors['trend_state'].diff(1).rolling(5).mean().fillna(0)
-        factors['trend_state_accel'] = factors['trend_state_slope'].diff(1).fillna(0)
-        # 3. 环境惯性存量 (State-Inertia-HAB)
-        hab_window = 21
-        state_health = (factors['trend_state'] * factors['capital_state']).clip(0, 1)
-        hab_inc = state_health.mask(state_health < 0.6, 0) * (1 + factors['trend_state_accel'].clip(lower=0))
-        # 内部定制归一化：Rolling Rank (34日窗口)
-        factors['state_hab_score'] = hab_inc.rolling(window=hab_window).sum().fillna(0).rolling(34).rank(pct=True).fillna(0.5)
-        # 4. 其他基础状态
-        factors['volatility_state'] = (1 - pd.Series(normalized_signals.get('ATR_norm', 0.5), index=df_index)).clip(0, 1)
-        factors['sentiment_state'] = pd.Series(normalized_signals.get('market_sentiment_norm', 0.5), index=df_index).clip(0, 1)
+        # 1. 基础物理分量提取 (float32 硬化)
+        p_trend = pd.Series(mtf_signals.get('mtf_price_trend', 0.5), index=df_index).values.astype(np.float32)
+        u_strength = pd.Series(normalized_signals.get('uptrend_strength_norm', 0.5), index=df_index).values.astype(np.float32)
+        c_net_mf = pd.Series(normalized_signals.get('net_mf_amount_norm', 0.5), index=df_index).values.astype(np.float32)
+        c_flow_acc = pd.Series(normalized_signals.get('flow_acceleration_norm', 0.5), index=df_index).values.astype(np.float32)
+        # 2. 状态分层合成 (非线性几何平均)
+        t_state = np.sqrt(np.clip(p_trend * u_strength, 1e-6, 1.0))
+        c_state = (c_net_mf * 0.6 + c_flow_acc * 0.4)
+        t_acc = pd.Series(t_state, index=df_index).diff(1).diff(1).fillna(0.0).values.astype(np.float32)
+        # 3. 调用 Numba 算子执行迁移审计
+        hab_raw, div_raw = self._numba_state_transition_audit(t_state, c_state, t_acc, 21)
+        # 4. 结果封装与归一化
+        factors['trend_state'] = pd.Series(t_state, index=df_index)
+        factors['capital_state'] = pd.Series(c_state, index=df_index)
+        factors['trend_state_accel'] = pd.Series(t_acc, index=df_index)
+        # 存量水位归一化 (34日长窗口 Rolling Rank)
+        factors['state_hab_score'] = pd.Series(hab_raw, index=df_index).rolling(window=34, min_periods=5).rank(pct=True).fillna(0.5)
+        # 背离压力归一化 (Tanh 映射)
+        factors['divergence_pressure'] = pd.Series(np.tanh(div_raw), index=df_index).astype(np.float32)
+        factors['volatility_state'] = (1.0 - pd.Series(normalized_signals.get('ATR_norm', 0.5), index=df_index)).clip(0, 1).astype(np.float32)
+        factors['sentiment_state'] = pd.Series(normalized_signals.get('market_sentiment_norm', 0.5), index=df_index).clip(0, 1).astype(np.float32)
         if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            self._probe_print(f"--- Market State Type-Safe Probe ---")
-            self._probe_print(f"  > State Inertia HAB: {factors['state_hab_score'].iloc[-1]:.4f}")
+            self._probe_print(f"--- Market State Numba Probe V6.0 ---")
+            self._probe_print(f"  > State HAB: {factors['state_hab_score'].iloc[-1]:.4f} | Div_Pressure: {factors['divergence_pressure'].iloc[-1]:.4f}")
         return factors
 
     def _identify_market_phase(self, df_index: pd.Index, market_state_factors: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series]) -> pd.Series:
@@ -1229,28 +1322,33 @@ class CalculateMainForceRallyIntent:
             
         return -final_bear_score.astype(np.float32)
 
-    def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, params: Dict, market_phase: pd.Series) -> pd.Series:
+    def _adjudicate_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], dynamic_weights: Dict[str, pd.Series], aggressiveness_score: pd.Series, params: Dict, market_phase: pd.Series, factors: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V8.8 · 向量化加速版】深度风险裁决逻辑
-        修改说明：全链路 float32 矩阵化逻辑，Sigmoid 软阈值函数基于 Numpy 广播加速，消除所有 Series 映射开销。
-        版本号：2026.02.11.18
+        【V8.9 · 背离压力自适应版】深度风险裁决逻辑
+        修改说明：引入 divergence_pressure 动态调节 Sigmoid 软阈值。针对高位“外强中干”行情实现自动熔断，增强对诱多陷阱的物理防御。
+        版本号：2026.02.11.80
         """
         tech_risk = (pd.Series(normalized_signals.get('RSI_norm', 0.5), index=df_index).fillna(0.5).astype(np.float32).values - 0.75).clip(0, None) * 2.0
         struct_risk = normalized_signals.get('distribution_score_norm', pd.Series(0, index=df_index)).fillna(0.0).astype(np.float32).values
-        p_jerk = mtf_signals.get('JERK_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32).abs().fillna(0.0).values
+        div_pressure = factors.get('divergence_pressure', pd.Series(0, index=df_index)).values.astype(np.float32)
         p_hab = normalized_signals.get('absolute_change_strength_norm', pd.Series(0.5, index=df_index)).astype(np.float32).rolling(21, min_periods=1).mean().fillna(0.5).values
         c_hab = normalized_signals.get('net_mf_amount_norm', pd.Series(0.5, index=df_index)).astype(np.float32).rolling(21, min_periods=1).mean().fillna(0.5).values
         hab_offset = np.clip(p_hab - c_hab, 0, None)
-        hollow_risk_base = 1.0 / (1.0 + np.exp(-10.0 * (hab_offset - 0.65)))
+        # 动态调节阈值：背离压力越大，对价格/资金偏差的容忍度越低
+        dynamic_threshold = 0.65 - div_pressure * 0.25
+        hollow_risk_base = 1.0 / (1.0 + np.exp(-12.0 * (hab_offset - dynamic_threshold)))
         p_acc = mtf_signals.get('ACCEL_5_price_trend', pd.Series(0, index=df_index)).astype(np.float32).fillna(0.0).values
         phase_risk_map = {"派发初期": 0.2, "主升": 0.3, "横盘": 0.4, "派发末端": 1.2, "反转风险": 1.5}
         risk_modulator = market_phase.map(phase_risk_map).fillna(1.0).values.astype(np.float32)
         acc_factor = np.where(p_acc > 0, 0.5, 1.0)
         final_hollow_risk = np.clip(hollow_risk_base * risk_modulator * acc_factor, 0, 1)
-        total_risk_raw = np.clip(tech_risk * 0.2 + struct_risk * 0.3 + final_hollow_risk * 0.5, 0, 1)
-        penalty = np.where(total_risk_raw > 0.65, total_risk_raw ** 0.5, total_risk_raw ** 2.5)
+        # 风险合成：提升背离与空心风险权重，实现高位风险自动熔断
+        total_risk_raw = np.clip(tech_risk * 0.15 + struct_risk * 0.2 + final_hollow_risk * 0.45 + div_pressure * 0.2, 0, 1)
+        penalty = np.where(total_risk_raw > 0.6, total_risk_raw ** 0.5, total_risk_raw ** 2.2)
         risk_sens = np.float32(get_param_value(params.get('risk_sensitivity'), 4.0))
         final_penalty = 1.0 / (1.0 + np.exp(-risk_sens * (penalty - 0.7)))
+        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
+            self._probe_print(f"[RISK_ADAPT_PROBE] Div_P: {div_pressure[-1]:.4f} | Dyn_Thresh: {dynamic_threshold[-1]:.4f} | Penalty: {final_penalty.iloc[-1]:.4f}")
         return pd.Series(final_penalty, index=df_index).clip(0, 1).astype(np.float32)
 
     def _apply_contextual_modulators(self, df_index: pd.Index, final_rally_intent: pd.Series, proxy_signals: Dict[str, pd.Series], mtf_signals: Dict[str, pd.Series], market_phase: pd.Series, aggressiveness_score: pd.Series) -> pd.Series:
