@@ -252,14 +252,16 @@ class CalculateStormEyeCalm:
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V54.0.1: 具备动态导数生成与 3-Sigma 限幅的数据矩阵引擎。
-        说明: 全量生成物理模型所需的 Slope/Accel/Jerk 衍生列并执行降噪处理。
+        V55.0.1: 具备 NaN 全面监控的数据矩阵引擎。
+        说明: 在生成导数前对军械库原始列进行 NaN 探测，暴露数据源层面的空值问题。
         """
         raw_data = {}
         target_columns = self._get_required_signals(params, {}, [])
+        print(f"--- [数据源 NaN 扫描探针] @ {df.index[-1]} ---")
         for col in target_columns:
             if col in df.columns:
                 raw_data[col] = df[col]
+                if pd.isna(df[col].iloc[-1]): print(f"  !! [警告] 原始列 {col} 在当前时点为 NaN")
             else:
                 print(f"[WARNING] 军械库清单中未发现列: {col}")
         # 1. 动态生成导数并执行物理限幅
@@ -298,13 +300,16 @@ class CalculateStormEyeCalm:
         raw_data['ACCEL_8_BIAS_5_D'] = self._clip_physical_outliers(raw_data['BIAS_5_D'].diff().diff())
         raw_data['SLOPE_5_RSI_13_D'] = self._clip_physical_outliers(raw_data['RSI_13_D'].diff(5))
         raw_data['SLOPE_5_market_sentiment_score_D'] = self._clip_physical_outliers(raw_data['market_sentiment_score_D'].diff(5))
+        # 2. 补齐代理与历史存量原料
         raw_data['pain_index_proxy'] = 1.0 - raw_data['profit_ratio_D']
         raw_data['JERK_5_profit_ratio_D'] = self._clip_physical_outliers(raw_data['profit_ratio_D'].diff().diff().diff())
         raw_data['JERK_5_pain_index_proxy'] = raw_data['JERK_5_profit_ratio_D'] * -1.0
         raw_data['price_slope_raw'] = raw_data['SLOPE_5_market_sentiment_score_D']
         raw_data['net_mf_sum_13'] = raw_data['net_mf_amount_D'].rolling(window=13, min_periods=1).sum()
         raw_data['net_mf_sum_21'] = raw_data['net_mf_amount_D'].rolling(window=21, min_periods=1).sum()
-        print(f"--- [物理导数自洽性探针] 原子化数据处理完成 @ {raw_data['close'].index[-1]} ---")
+        # 监控导数生成后的状态
+        nan_count = sum(1 for v in raw_data.values() if pd.isna(v.iloc[-1]))
+        print(f"  -- 导数矩阵扫描: 生成列总数 {len(raw_data)}, 当前时点 NaN 计数: {nan_count}")
         return raw_data
 
     def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False) -> pd.Series:
@@ -486,48 +491,47 @@ class CalculateStormEyeCalm:
 
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: dict[str, pd.Series], final_fusion_weights: dict, price_calmness_params: dict, main_force_control_params: dict, raw_data: dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        V22.0.2: 融合猎杀协同频率与效率熵损的终极动力学模型。
-        逻辑：利用协同猎杀因子作为最终爆破增益，确保在主力共识达成时快速响应。
+        V55.0.5: 融合链路全状态监控版。
+        说明: 在几何平均前对组件分值进行全覆盖扫描，精确定位 NaN 污染源。
         """
-        print(f"--- [最终融合 协同猎杀动力学探针] @ {df_index[-1]} ---")
-        # 1. 一致性熵权与基础几何分 
+        print(f"--- [最终融合链路状态探针] @ {df_index[-1]} ---")
+        # 1. 组件状态扫描
+        for name, series in component_scores.items():
+            if pd.isna(series.iloc[-1]): print(f"  !! [重大污染] 组件 '{name}' 输出为 NaN")
         ewd_factor = self._calculate_consensus_entropy(component_scores)
+        # 2. 几何平均输入校验
         base_score = _robust_geometric_mean(component_scores, final_fusion_weights, df_index)
-        # 2. 动力学压差与资金 HAB 缓冲 
+        if pd.isna(base_score.iloc[-1]): print(f"  !! [融合崩溃] _robust_geometric_mean 输出结果为 NaN")
+        # 3. 动力学补偿状态
         ext_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         int_boil = self._calculate_physics_score(raw_data.get('ACCEL_8_intraday_cost_center_migration_D', 0), mode='limit_high', sensitivity=20.0)
         pressure_mult = 1.0 + 1.2 * (ext_calm * int_boil)
         mf_hab = self._calculate_historical_accumulation_buffer(raw_data['net_mf_amount_D'], windows=[13, 21, 34])
-        # 3. 猎杀协同增益：从意图组件中提取共识因子 
-        # 重新计算频率 Jerk 以确保逻辑自洽
-        chf_base = raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].rolling(window=8, min_periods=1).mean()
-        hunt_jerk = self._calculate_physics_score(raw_data.get('JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D', 0), mode='limit_high', sensitivity=25.0, denoise=True)
-        hunting_boost = 1.0 + 0.4 * (chf_base * hunt_jerk).pow(0.5)
-        # 4. 环境抑制与熔断校验 
-        pressure_backtest = self._calculate_pressure_backtest_modulator(df_index, raw_data)
-        activity_veto = ((raw_data['main_force_activity_index_D'] - 5.0) * 0.1).clip(0, 1)
-        struct_veto = self._calculate_physics_score(raw_data['chip_structure_state_D'], mode='limit_high', sensitivity=2.0)
-        # 5. 最终合成 
-        final_score = base_score * ewd_factor * (0.7 + 0.3 * mf_hab) * pressure_mult * pressure_backtest * activity_veto * struct_veto * hunting_boost
-        print(f"  -- 基础分: {base_score.iloc[-1]:.4f} | 猎杀增益: {hunting_boost.iloc[-1]:.4f} | 最终输出: {final_score.iloc[-1]:.4f}")
+        # 4. 猎杀协同状态
+        hunting_boost = 1.0 + 0.4 * (raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].rolling(8).mean() * 0.5)
+        # 5. 最终合成
+        final_score = base_score * ewd_factor * (0.7 + 0.3 * mf_hab) * pressure_mult * hunting_boost
+        if pd.isna(final_score.iloc[-1]):
+            print(f"  !! [全链路失败] base:{base_score.iloc[-1]:.4f} | ewd:{ewd_factor.iloc[-1]:.4f} | mf_hab:{mf_hab.iloc[-1]:.4f}")
+        print(f"  -- 最终融合分状态: {final_score.iloc[-1]:.4f}")
         return final_score.clip(0, 1)
 
     def _calculate_historical_accumulation_buffer(self, daily_series: pd.Series, windows: list[int] = [13, 21, 34]) -> pd.Series:
         """
-        V14.0.0: 历史累积记忆缓冲系统 (HAB)。
-        逻辑：计算多周期累积存量对当日信号的缓冲能力，识别“大买小洗”特征。
+        V55.0.4: HAB 缓冲记忆深度解构版。
+        说明: 解构存量与当日流量的比例计算，暴露缓冲系数失效的物理原因。
         """
-        print(f"--- [HAB 内存探针] 启动累积计算 ---")
+        print(f"--- [HAB 深度解构探针] 启动时域积分检查 ---")
         buffers = []
         for w in windows:
             acc_sum = daily_series.rolling(window=w, min_periods=w//2).sum()
-            # 存量/流量比：当日流出占存量的比例。若占比极小，则缓冲系数接近 1.0
-            # 采用 denoise 逻辑：分母加入极小项避免零基陷阱
             impact_ratio = daily_series / (acc_sum.abs() + 1e-9)
-            # 使用 tanh 映射，当流出方向与存量相反且比例小时，返回高缓冲
             buffer_factor = 1.0 - np.tanh(impact_ratio.clip(lower=-1, upper=0).abs() * 5.0)
             buffers.append(buffer_factor)
-            if not acc_sum.empty: print(f"  -- 周期 {w} 存量均值: {acc_sum.iloc[-1]:.2f} | 缓冲状态: {buffer_factor.iloc[-1]:.4f}")
+            if pd.isna(buffer_factor.iloc[-1]):
+                print(f"  !! [HAB 崩溃] 周期 {w}: daily_val={daily_series.iloc[-1]:.4f}, acc_sum={acc_sum.iloc[-1]:.4f}")
+            else:
+                print(f"  -- 周期 {w} 存量均值: {acc_sum.iloc[-1]:.2f} | 缓冲状态: {buffer_factor.iloc[-1]:.4f}")
         final_buffer = pd.concat(buffers, axis=1).mean(axis=1).fillna(1.0)
         return final_buffer
 
@@ -593,24 +597,23 @@ class CalculateStormEyeCalm:
 
     def _calculate_linear_resonance_failure(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V24.0.1: 线性共振失效模型 (Linear Resonance Failure)。
-        逻辑：量化价格结构从“线性稳定”向“非线性爆发”转换的物理瞬间。
+        V55.0.3: 线性共振失效深度探针版。
+        说明: 输出 R2 拟合度及其加速度差分的全路径数值，定位 NaN 传递节点。
         """
-        print(f"--- [线性共振失效探针] @ {df_index[-1]} ---")
-        # 1. 拟合度及其结构瓦解加速度 
+        print(f"--- [线性共振失效深度探针] @ {df_index[-1]} ---")
         r2_raw = raw_data['GEOM_REG_R2_D']
-        r2_accel = raw_data.get('ACCEL_8_GEOM_REG_R2_D', r2_raw.diff().diff())
-        # 2. 拟合度存量 HAB：判定此前是否处于极高的共振态 
+        # 手动差分以暴露过程
+        r2_diff1 = r2_raw.diff()
+        r2_accel = r2_diff1.diff(7) # 模拟 ACCEL_8
         r2_hab = self._calculate_historical_accumulation_buffer(r2_raw, windows=[21])
-        # 3. 失效判定：当加速度转负 (结构瓦解) 且此前线性度高
-        # 物理含义：稳固的线性横盘结构正在出现裂纹
         failure_burst = self._calculate_physics_score(r2_accel.abs(), mode='limit_high', sensitivity=15.0, denoise=True)
-        # 4. 结合价格静止：失效必须发生在价格尚未大幅偏离时
         reg_slope = raw_data['GEOM_REG_SLOPE_D']
         slope_calm = self._calculate_physics_score(reg_slope, mode='zero_focus', sensitivity=40.0, denoise=True)
-        # 5. 最终失效分：历史高线性存量 * 当前瓦解加速度 * 价格斜率静止度
         failure_score = r2_hab * failure_burst * slope_calm
-        print(f"  -- R2原始值: {r2_raw.iloc[-1]:.4f} | R2存量HAB: {r2_hab.iloc[-1]:.4f} | 失效突变分: {failure_burst.iloc[-1]:.4f}")
+        if pd.isna(failure_score.iloc[-1]):
+            print(f"  !! [NaN 报警] R2_raw: {r2_raw.iloc[-1]:.4f} | R2_diff1: {r2_diff1.iloc[-1]:.4f} | R2_accel: {r2_accel.iloc[-1]:.4f}")
+            print(f"  !! [NaN 报警] R2_hab: {r2_hab.iloc[-1]:.4f} | failure_burst: {failure_burst.iloc[-1]:.4f} | slope_calm: {slope_calm.iloc[-1]:.4f}")
+        print(f"  -- R2原始值: {r2_raw.iloc[-1]:.4f} | 最终失效分: {failure_score.iloc[-1]:.4f}")
         return failure_score.clip(0, 1)
 
     def _calculate_micro_order_gain(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -701,24 +704,26 @@ class CalculateStormEyeCalm:
 
     def _calculate_amount_distribution_entropy_delta(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V29.0.1: 成交金额分布熵增模型 (Amount Distribution Entropy Delta)。
-        逻辑：量化成交额在价格空间的分布变化，通过熵减识别主力的“拦截式吸筹” [cite: 1, 3]。
+        V55.0.2: 成交金额分布熵增深度探针版。
+        说明: 监控 amount/price_grid 比例的稳定性，暴露导致熵值为 NaN 的具体因子。
         """
-        print(f"--- [成交分布熵增探针] @ {df_index[-1]} ---")
-        # 1. 计算成交额的 13 日时空分布熵 (Proxy)
+        print(f"--- [成交分布熵增深度探针] @ {df_index[-1]} ---")
         amount = raw_data['amount_D']
         price_grid = raw_data['price_grid_D']
+        # 计算分布核心比例
+        base_ratio = amount / (price_grid + 1e-9)
+        if pd.isna(base_ratio.iloc[-1]): print(f"  !! [警告] amount/price_grid 比例计算结果为 NaN")
         # 联合计算金额与价格格点的互信息熵代理值
-        # 物理含义：值越低，代表成交额越集中在特定的价格格点上
-        dist_entropy = (amount / (price_grid + 1e-9)).rolling(window=13).std() / (amount.rolling(window=13).mean() + 1e-9)
-        # 2. 计算熵增斜率 (Entropy Delta)
-        # 负斜率代表熵减，即成交分布正在变得有序、集中
+        dist_entropy = base_ratio.rolling(window=13).std() / (amount.rolling(window=13).mean() + 1e-9)
         entropy_delta = dist_entropy.diff(5)
-        # 3. 映射为有序化得分：熵减越剧烈，得分越高
+        # 映射为有序化得分
         interceptive_score = self._calculate_physics_score(entropy_delta, mode='limit_low', sensitivity=20.0, denoise=True)
-        # 4. 结合 HAB 缓冲：判定有序化的持续性底蕴
+        # 结合 HAB 缓冲
         entropy_hab = self._calculate_historical_accumulation_buffer(dist_entropy, windows=[21])
-        print(f"  -- 分布熵代理: {dist_entropy.iloc[-1]:.4f} | 熵增斜率: {entropy_delta.iloc[-1]:.4f} | 拦截吸筹分: {interceptive_score.iloc[-1]:.4f}")
+        if pd.isna(dist_entropy.iloc[-1]): 
+            print(f"  -- [状态诊断] amount_last: {amount.iloc[-1]:.4f} | grid_last: {price_grid.iloc[-1]:.4f}")
+            print(f"  -- [状态诊断] rolling_std: {base_ratio.rolling(13).std().iloc[-1]:.4f} | rolling_mean: {amount.rolling(13).mean().iloc[-1]:.4f}")
+        print(f"  -- 分布熵代理: {dist_entropy.iloc[-1]:.4f} | 熵增斜率: {entropy_delta.iloc[-1]:.4f} | 最终拦截分: {interceptive_score.iloc[-1]:.4f}")
         return (interceptive_score * (1.0 - entropy_hab)).clip(0, 1)
 
     def _calculate_seat_scatter_decay(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
