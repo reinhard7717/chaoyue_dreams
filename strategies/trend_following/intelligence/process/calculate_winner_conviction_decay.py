@@ -57,34 +57,36 @@ class CalculateWinnerConvictionDecay:
 
     def _execute_intelligence_probe(self, method_name: str, probe_ts: pd.Timestamp, _temp_debug_values: Dict, final_score: pd.Series):
         """
-        【V7.3.0 · 异常暴露版】全息诊断探针
-        - 修改思路：打印 Latch 与 最终输出。
-        - 版本号：V7.3.0
+        【V7.6.0 · 物理信号保护版】全息审计探针更新
+        - 修改思路：暴露指数幂运算前的底数 RawNet，防止 10^-39 级别的信号坍塌。
+        - 版本号：V7.6.0
         """
-        print(f"\n{'='*40} [V7.3 DIAGNOSTIC PROBE: {probe_ts.strftime('%Y-%m-%d')}] {'='*40}")
+        print(f"\n{'='*38} [V7.6 PHYSICAL AUDIT: {probe_ts.strftime('%Y-%m-%d')}] {'='*38}")
         conv = _temp_debug_values.get("conviction_dynamics", {})
-        print(f"--- [CORE DECISION] ---")
-        print(f"  > ConvictionIntensity: {conv.get('fused_conviction').loc[probe_ts]:.4f}")
         latch = _temp_debug_values.get("latch_state", {})
-        print(f"--- [LATCH & FINAL] ---")
-        print(f"  > LatchTrigger: {latch.get('latch_trigger').loc[probe_ts]}")
-        print(f"  > FinalOutput: {final_score.loc[probe_ts]:.4f}")
-        print(f"{'='*108}\n")
+        fus = _temp_debug_values.get("final_fusion_debug", {})
+        print(f"--- [FUSION BASELINE] ---")
+        print(f"  > RawIntensity: {fus.get('intensity', 0.0):.4f} | NetAfterStealth: {fus.get('raw_net', 0.0):.4f}")
+        print(f"  > PowerExponent: {fus.get('exponent', 0.0):.1f}")
+        print(f"--- [FINAL DECISION] ---")
+        print(f"  > LatchTrigger: {latch.get('latch_trigger').loc[probe_ts]} | Count: {latch.get('rolling_count').loc[probe_ts]}")
+        print(f"  > FINAL_SCORE: {final_score.loc[probe_ts]:.4e}")
+        print(f"{'='*105}\n")
 
     def _get_decay_params_and_signals(self, config: Dict, method_name: str) -> Tuple[Dict, List[str]]:
         """
-        【V7.3.1 · 全量探针审计版】补全 16 维博弈权重体系
-        - 修改思路：明确定义所有子判定模块的权重，总和归一为 1.0，激活动能转换点。
-        - 版本号：V7.3.1
+        【V7.6.0 · 物理信号保护版】重构权重体系与非线性压缩指数
+        - 修改思路：下调 final_exponent 以防止微弱信号坍塌；补全所有军械库依赖列。
+        - 版本号：V7.6.0
         """
         decay_params = get_param_value(config.get('winner_conviction_decay_params'), {})
         fibo_periods = ["5", "13", "21", "34"]
         belief_decay_weights = {
-            "mid_long_sync_decay": 0.10, "chain_collapse_resonance": 0.10, "chaotic_collapse_resonance": 0.10,
+            "mid_long_sync_decay": 0.15, "chain_collapse_resonance": 0.15, "chaotic_collapse_resonance": 0.10,
             "institutional_vacuum_meltdown": 0.10, "institutional_stalling_jerk": 0.10, "kinetic_transition_impact": 0.10,
-            "macro_sector_slippage": 0.04, "parabolic_sprint_risk": 0.04, "regime_switching_risk": 0.04,
+            "macro_sector_slippage": 0.05, "parabolic_sprint_risk": 0.05, "regime_switching_risk": 0.05,
             "structural_anchor_risk": 0.04, "vpa_exhaustion_risk": 0.04, "sector_domino_risk": 0.04,
-            "handover_risk": 0.04, "resonance_collapse_risk": 0.04, "golden_trap_risk": 0.04, "inst_erosion_risk": 0.04
+            "handover_risk": 0.04, "resonance_collapse_risk": 0.04, "golden_trap_risk": 0.03, "inst_erosion_risk": 0.02
         }
         required_df_columns = [
             'mid_long_sync_D', 'volatility_adjusted_concentration_D', 'STATE_TRENDING_STAGE_D',
@@ -96,8 +98,8 @@ class CalculateWinnerConvictionDecay:
             'VPA_ACCELERATION_5D', 'VPA_EFFICIENCY_D', 'MA_RUBBER_BAND_EXTENSION_D',
             'STATE_PARABOLIC_WARNING_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'SMART_MONEY_HM_NET_BUY_D', 'STATE_EMOTIONAL_EXTREME_D', 'tick_abnormal_volume_ratio_D',
-            'tick_chip_transfer_efficiency_D', 'intraday_distribution_confidence_D', 'anomaly_intensity_D',
-            'stealth_flow_ratio_D', 'uptrend_strength_D', 'market_sentiment_score_D', 'pressure_profit_D', 'net_amount_ratio_D'
+            'tick_chip_transfer_efficiency_D', 'anomaly_intensity_D', 'stealth_flow_ratio_D',
+            'uptrend_strength_D', 'market_sentiment_score_D', 'pressure_profit_D', 'net_amount_ratio_D'
         ]
         kinetic_targets = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 'market_sentiment_score_D']
         for target in kinetic_targets:
@@ -107,15 +109,15 @@ class CalculateWinnerConvictionDecay:
             'decay_params': decay_params, 'fibo_periods': fibo_periods, 'belief_decay_weights': belief_decay_weights,
             'hab_settings': {"short": 13, "medium": 21, "long": 34},
             'latch_params': {"window": 5, "hit_count": 3, "high_score_threshold": 0.618, "core_threshold": 0.382, "momentum_protection_factor": 0.95, "entropy_threshold": 0.75},
-            'vacuum_threshold': 0.1, 'final_exponent': 18.0
+            'vacuum_threshold': 0.1, 'final_exponent': 8.0 # [修正：防止信号在幂运算后消失]
         }
         return params_dict, list(set(required_df_columns))
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.5.2 · 物理量纲平滑版】提升背景统计量的物理底座，防止极小分母导致的信号跳变
-        - 修改思路：将 STD/MAD 的保底值提升至 1e-4，平滑 Z-Score 分布。
-        - 版本号：V7.5.2
+        【V7.6.0 · 鲁棒量纲版】优化动力学请求链条，补全分母保底
+        - 修改思路：从全量导数请求中剔除 VPA_ACCEL 以消除警告；STD/MAD 强制 replace(0, 1e-4)。
+        - 版本号：V7.6.0
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
@@ -134,17 +136,12 @@ class CalculateWinnerConvictionDecay:
             series = self.helper._get_safe_series(df, col, 0.0)
             raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean().fillna(0)
-            # 物理保底 1：提升标准差底座至 1e-4，消除噪声放大效应
             raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().fillna(0).replace(0, 1e-4)
             if col in ['tick_abnormal_volume_ratio_D', 'anomaly_intensity_D', 'tick_large_order_net_D']:
                 mad_val = (series - series.rolling(window=hab_cfg['long']).median()).abs().rolling(window=hab_cfg['long']).median()
                 raw_signals[f'HAB_MAD_{col}'] = mad_val.fillna(0).replace(0, 1e-4)
-        kinetic_targets = [
-            'mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 
-            'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 
-            'market_sentiment_score_D', 'industry_breadth_score_D', 'industry_stagnation_score_D',
-            'MA_COHERENCE_RESONANCE_D', 'VPA_ACCELERATION_5D', 'breakout_potential_D'
-        ]
+        # 全量导数链条：已剔除 VPA_ACCELERATION_5D 防止冗余阶数警告
+        kinetic_targets = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 'market_sentiment_score_D']
         for target in kinetic_targets:
             for d_type in ['SLOPE', 'ACCEL', 'JERK']:
                 col_name = f'{d_type}_5_{target}'
@@ -152,18 +149,17 @@ class CalculateWinnerConvictionDecay:
                 raw_signals[col_name] = val
                 if d_type == 'JERK':
                     j_mad = (val - val.rolling(34).median()).abs().rolling(34).median()
-                    # 物理保底 2：动力学 MAD 底座提升
                     raw_signals[f'HAB_MAD_{col_name}'] = j_mad.fillna(0).replace(0, 1e-4)
-        raw_signals['STATE_PARABOLIC_WARNING_D'] = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
-        raw_signals['STATE_MARKET_LEADER_D'] = self.helper._get_safe_series(df, 'STATE_MARKET_LEADER_D', 0.0)
-        raw_signals['STATE_ROUNDING_BOTTOM_D'] = self.helper._get_safe_series(df, 'STATE_ROUNDING_BOTTOM_D', 0.0)
-        raw_signals['STATE_GOLDEN_PIT_D'] = self.helper._get_safe_series(df, 'STATE_GOLDEN_PIT_D', 0.0)
-        raw_signals['STATE_TRENDING_STAGE_D'] = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
-        raw_signals['STATE_EMOTIONAL_EXTREME_D'] = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
+        # 补全仅斜率项
+        for target in ['VPA_ACCELERATION_5D', 'industry_breadth_score_D', 'industry_stagnation_score_D', 'MA_COHERENCE_RESONANCE_D', 'breakout_potential_D']:
+            col_name = f'SLOPE_5_{target}'
+            raw_signals[col_name] = self.helper._get_safe_series(df, col_name, 0.0)
+        # 状态指标强制实数化
+        for s_col in ['STATE_PARABOLIC_WARNING_D', 'STATE_MARKET_LEADER_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'STATE_EMOTIONAL_EXTREME_D']:
+            raw_signals[s_col] = self.helper._get_safe_series(df, s_col, 0.0).fillna(0.0)
         raw_signals['hab_net_inflow'] = raw_signals['net_amount_ratio_D'].rolling(window=hab_cfg['medium']).sum().fillna(0).replace(0, 1e-4)
         raw_signals['hab_pressure_max'] = raw_signals['pressure_profit_D'].rolling(window=hab_cfg['medium']).max().fillna(0).replace(0, 1e-4)
         raw_signals['industry_rank_accel_D'] = self.helper._get_safe_series(df, 'industry_rank_accel_D', 0.0)
-        raw_signals['intraday_distribution_confidence_D'] = self.helper._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0)
         return raw_signals
 
     def _calculate_parabolic_sprint_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -245,13 +241,16 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.4.1 · 物理数据透视版】博弈中枢：补全 kinetic_transition_point 并暴露全量输出
-        - 修改思路：激活 16 个风险因子，强制打印每一个风险组件及其权重后得分。
-        - 版本号：V7.4.1
+        【V7.6.0 · 物理信号保护版】博弈中枢：强化 0 值数据穿透探针
+        - 修改思路：打印每项权重的原始输入（Raw）与加权后分值（W-Score），识别“虚假 0 值”。
+        - 版本号：V7.6.0
         """
         w = params_dict['belief_decay_weights']
+        # 1. 跨维度同步性：增加 Raw 原始值探针
+        sync_raw = raw_signals['mid_long_sync_D'].iloc[-1]
         sync_num = raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']
         sync_decay = -np.tanh(sync_num / raw_signals['HAB_STD_mid_long_sync_D'])
+        # 2. 调用子风险判定
         para_r = self._calculate_parabolic_sprint_risk(df_index, raw_signals, _temp_debug_values)
         vpa_r = self._calculate_vpa_exhaustion_risk(df_index, raw_signals, _temp_debug_values)
         domi_r = self._calculate_sector_spillover_domino_risk(df_index, raw_signals, _temp_debug_values)
@@ -267,11 +266,12 @@ class CalculateWinnerConvictionDecay:
         inst_e = self._calculate_institutional_erosion_index(df_index, raw_signals, _temp_debug_values)
         vacu_r = self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values)
         chai_r = self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values)
-        kine_t = self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values) # [正式补全调用]
-        print(f"\n[CONVICTION_STRENGTH_AUDIT]")
-        print(f"  > SyncDcy_W: {sync_decay.iloc[-1] * w['mid_long_sync_decay']:.4f} | Chain_W: {chai_r.iloc[-1] * w['chain_collapse_resonance']:.4f}")
-        print(f"  > Chaos_W: {chao_r.iloc[-1] * w['chaotic_collapse_resonance']:.4f} | Vacuum_W: {vacu_r.iloc[-1] * w['institutional_vacuum_meltdown']:.4f}")
-        print(f"  > Stall_W: {stal_r.iloc[-1] * w['institutional_stalling_jerk']:.4f} | KineT_W: {kine_t.iloc[-1] * w['kinetic_transition_impact']:.4f}")
+        kine_t = self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values)
+        # 3. 全量输出审计（包含 0 值来源）
+        print(f"\n[CONVICTION_COMPONENT_RAW_AUDIT]")
+        print(f"  > Sync(Raw:{sync_raw:.1f}) W-Score: {sync_decay.iloc[-1]*w['mid_long_sync_decay']:.4f}")
+        print(f"  > Vacuum(Raw:{raw_signals['SMART_MONEY_INST_NET_BUY_D'].iloc[-1]:.1f}) W-Score: {vacu_r.iloc[-1]*w['institutional_vacuum_meltdown']:.4f}")
+        print(f"  > Chain(Stage:{raw_signals['STATE_TRENDING_STAGE_D'].iloc[-1]:.2f}) W-Score: {chai_r.iloc[-1]*w['chain_collapse_resonance']:.4f}")
         fused = (
             sync_decay.clip(0) * w["mid_long_sync_decay"] + chai_r * w["chain_collapse_resonance"] + 
             chao_r * w["chaotic_collapse_resonance"] + vacu_r * w["institutional_vacuum_meltdown"] + 
@@ -281,9 +281,9 @@ class CalculateWinnerConvictionDecay:
             vpa_r * w["vpa_exhaustion_risk"] + domi_r * w["sector_domino_risk"] + 
             hand_r * w["handover_risk"] + coll_r * w["resonance_collapse_risk"] + 
             trap_r * w["golden_trap_risk"] + inst_e * w["inst_erosion_risk"]
-        ).clip(-1, 1)
+        ).clip(-1, 1).fillna(0)
         _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused})
-        print(f"  >> FINAL_CONVICTION_STRENGTH: {fused.iloc[-1]:.4f}")
+        print(f"  >> FUSED_TOTAL: {fused.iloc[-1]:.4f}")
         return fused
 
     def _calculate_sector_spillover_domino_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -571,21 +571,20 @@ class CalculateWinnerConvictionDecay:
 
     def _perform_final_fusion(self, df_index: pd.Index, conviction_score: pd.Series, resilience_score: pd.Series, deception_filter: pd.Series, stealth_bonus: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.5.2 · 对冲权重修正版】终核融合：下调隐秘流对冲强度，确保信号连续性
-        - 修改思路：将 stealth_bonus 权重从 0.4 降至 0.2，防止信号被对冲归零。
-        - 版本号：V7.5.2
+        【V7.6.0 · 物理信号保护版】重构终核融合逻辑：从“减法对冲”升级为“乘法抑制”
+        - 修改思路：Signal * (1 - StealthBonus * 0.5) 确保隐秘吸筹不会将衰减信号彻底抹除或反转。
+        - 版本号：V7.6.0
         """
         exp = params_dict['final_exponent']
-        st_b = stealth_bonus.fillna(0)
         intensity = (conviction_score * 0.7 + resilience_score * 0.3).clip(0, 1).fillna(0)
-        # 对冲强度修正：intensity * (2 - filter) 为 0-2 区间，对冲分最大 0.1
-        raw_net = (intensity * (2 - deception_filter.fillna(1)) - st_b * 0.2)
+        # 修改点：采用乘法抑制逻辑。即便 StealthBonus 很高，也只是削弱衰减，而非将其变成负数
+        raw_net = (intensity * (2 - deception_filter.fillna(1))) * (1 - stealth_bonus.fillna(0) * 0.5)
         net_decay = raw_net.clip(-1, 1).fillna(0)
         final = np.sign(net_decay) * (net_decay.abs() ** exp)
-        print(f"\n[FINAL_AUDIT] RawIntensity: {intensity.iloc[-1]:.4f}, DeceptionFilter: {deception_filter.iloc[-1]:.4f}")
-        print(f"  > StealthBonusOnFusion: {st_b.iloc[-1] * 0.2:.4f}, RawNet: {raw_net.iloc[-1]:.4f}, Final: {final.iloc[-1]:.4e}")
+        # 持久化中间变量供探针调用
+        _temp_debug_values["final_fusion_debug"] = {"intensity": intensity.iloc[-1], "raw_net": raw_net.iloc[-1], "exponent": exp}
+        print(f"[NODE_AUDIT] FinalFusion - Intensity: {intensity.iloc[-1]:.4f}, MultiplicativeNet: {raw_net.iloc[-1]:.4f}")
         return final.clip(-1, 1).fillna(0)
-
 
 
 
