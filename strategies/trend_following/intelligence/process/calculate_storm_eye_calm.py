@@ -1,4 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_storm_eye_calm.py
+# 【V58.0.2】 拆单吸筹强度 已完成
 import json
 import os
 import pandas as pd
