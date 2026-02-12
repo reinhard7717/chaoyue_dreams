@@ -113,9 +113,9 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.4.1 · 物理数据透视版】强制加载全量指标并物理锁定 MAD 背景键值
-        - 修改思路：移除条件过滤，强制为 tick_abnormal_volume_ratio_D 生成 HAB_MAD 键，解决 KeyError。
-        - 版本号：V7.4.1
+        【V7.5.0 · 鲁棒量纲版】补全 MAD 物理保护，防止除零 nan 污染
+        - 修改思路：对所有 STD 和 MAD 背景执行 replace(0, 1e-6) 强制物理锁死。
+        - 版本号：V7.5.0
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
@@ -130,17 +130,15 @@ class CalculateWinnerConvictionDecay:
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'tick_chip_transfer_efficiency_D', 'anomaly_intensity_D', 'stealth_flow_ratio_D'
         ]
-        print(f"\n[ARMORY_PHYSICAL_LOAD_PROBE]")
         for col in targets:
-            series = self.helper._get_safe_series(df, col, np.nan)
+            series = self.helper._get_safe_series(df, col, 0.0)
             raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
-            raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std()
-            # 强制为诡道过滤与三阶冲击生成 MAD 背景
+            # 物理保护 1：背景标准差强制不为 0
+            raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().replace(0, 1e-6)
             if col in ['tick_abnormal_volume_ratio_D', 'anomaly_intensity_D', 'tick_large_order_net_D']:
-                raw_signals[f'HAB_MAD_{col}'] = (series - series.rolling(window=hab_cfg['long']).median()).abs().rolling(window=hab_cfg['long']).median()
-                print(f"  > KEY_CREATED: HAB_MAD_{col} | Val: {raw_signals[f'HAB_MAD_{col}'].iloc[-1]:.4e}")
-            print(f"  > SOURCE_DATA: {col} = {series.iloc[-1]:.4f}")
+                mad_val = (series - series.rolling(window=hab_cfg['long']).median()).abs().rolling(window=hab_cfg['long']).median()
+                raw_signals[f'HAB_MAD_{col}'] = mad_val.replace(0, 1e-6)
         kinetic_targets = [
             'mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 
             'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 
@@ -150,20 +148,22 @@ class CalculateWinnerConvictionDecay:
         for target in kinetic_targets:
             for d_type in ['SLOPE', 'ACCEL', 'JERK']:
                 col_name = f'{d_type}_5_{target}'
-                val = self.helper._get_safe_series(df, col_name, np.nan)
+                val = self.helper._get_safe_series(df, col_name, 0.0)
                 raw_signals[col_name] = val
                 if d_type == 'JERK':
-                    raw_signals[f'HAB_MAD_{col_name}'] = (val - val.rolling(34).median()).abs().rolling(34).median()
+                    j_mad = (val - val.rolling(34).median()).abs().rolling(34).median()
+                    # 物理保护 2：动力学 MAD 强制不为 0
+                    raw_signals[f'HAB_MAD_{col_name}'] = j_mad.replace(0, 1e-6)
         raw_signals['STATE_PARABOLIC_WARNING_D'] = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
         raw_signals['STATE_MARKET_LEADER_D'] = self.helper._get_safe_series(df, 'STATE_MARKET_LEADER_D', 0.0)
         raw_signals['STATE_ROUNDING_BOTTOM_D'] = self.helper._get_safe_series(df, 'STATE_ROUNDING_BOTTOM_D', 0.0)
         raw_signals['STATE_GOLDEN_PIT_D'] = self.helper._get_safe_series(df, 'STATE_GOLDEN_PIT_D', 0.0)
         raw_signals['STATE_TRENDING_STAGE_D'] = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
         raw_signals['STATE_EMOTIONAL_EXTREME_D'] = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
-        raw_signals['hab_net_inflow'] = raw_signals['net_amount_ratio_D'].rolling(window=hab_cfg['medium']).sum()
-        raw_signals['hab_pressure_max'] = raw_signals['pressure_profit_D'].rolling(window=hab_cfg['medium']).max()
+        raw_signals['hab_net_inflow'] = raw_signals['net_amount_ratio_D'].rolling(window=hab_cfg['medium']).sum().replace(0, 1e-6)
+        raw_signals['hab_pressure_max'] = raw_signals['pressure_profit_D'].rolling(window=hab_cfg['medium']).max().replace(0, 1e-6)
         raw_signals['industry_rank_accel_D'] = self.helper._get_safe_series(df, 'industry_rank_accel_D', 0.0)
-        raw_signals['intraday_distribution_confidence_D'] = self.helper._get_safe_series(df, 'intraday_distribution_confidence_D', np.nan)
+        raw_signals['intraday_distribution_confidence_D'] = self.helper._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0)
         return raw_signals
 
     def _calculate_parabolic_sprint_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -350,20 +350,19 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_chaotic_collapse_resonance(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.4.0 · 物理量纲全暴露版】判定混沌溃散共振
-        - 修改思路：打印双重 Jerk 脉冲与对应的 MAD 背景值，暴露 nan 风险。
-        - 版本号：V7.4.0
+        【V7.5.0 · 鲁棒量纲版】混沌共振：消除分母为零引发的 nan
+        - 修改思路：在除法前通过 1e-7 进行物理保底，并对 nan 执行强校验归零。
+        - 版本号：V7.5.0
         """
-        inst_j = raw_signals['JERK_5_SMART_MONEY_INST_NET_BUY_D']
-        frac_j = raw_signals['JERK_5_PRICE_FRACTAL_DIM_D']
-        i_mad = raw_signals['HAB_MAD_JERK_5_SMART_MONEY_INST_NET_BUY_D']
-        f_mad = raw_signals['HAB_MAD_JERK_5_PRICE_FRACTAL_DIM_D']
-        inst_j_z = -np.tanh(inst_j / (i_mad * 3.7))
-        frac_j_z = np.tanh(frac_j / (f_mad * 3.7))
-        chaos_resonance = (inst_j_z.clip(0) * frac_j_z.clip(0)).clip(0, 1)
-        print(f"[NODE_EXPOSURE] ChaosRes - InstJerk: {inst_j.iloc[-1]:.4e}, InstMAD: {i_mad.iloc[-1]:.4e}, FracJerk: {frac_j.iloc[-1]:.4e}, FracMAD: {f_mad.iloc[-1]:.4e}")
-        print(f"  > ChaosFinal: {chaos_resonance.iloc[-1]:.4f}")
-        return chaos_resonance
+        i_j = raw_signals['JERK_5_SMART_MONEY_INST_NET_BUY_D']
+        i_m = raw_signals['HAB_MAD_JERK_5_SMART_MONEY_INST_NET_BUY_D'].replace(0, 1e-7)
+        f_j = raw_signals['JERK_5_PRICE_FRACTAL_DIM_D']
+        f_m = raw_signals['HAB_MAD_JERK_5_PRICE_FRACTAL_DIM_D'].replace(0, 1e-7)
+        inst_j_z = -np.tanh(i_j / (i_m * 3.7))
+        frac_j_z = np.tanh(f_j / (f_m * 3.7))
+        chaos_res = (inst_j_z.clip(0) * frac_j_z.clip(0)).clip(0, 1).fillna(0)
+        print(f"[NODE_AUDIT] ChaosRes - InstJerkZ: {inst_j_z.iloc[-1]:.4f}, FracJerkZ: {frac_j_z.iloc[-1]:.4f}")
+        return chaos_res
 
     def _calculate_institutional_vacuum_meltdown(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
@@ -464,26 +463,25 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.4.1 · 物理数据透视版】诡道过滤器：强引用索引并暴露 nan 污染链
-        - 修改思路：移除防御性获取，直接访问 MAD 背景键，通过探针暴露分母为 0 或 nan 的情况。
-        - 版本号：V7.4.1
+        【V7.5.0 · 鲁棒量纲版】诡道过滤器：全链路 nan 拦截
+        - 修改思路：利用 replace(0, 1e-7) 消除 Z-Score 坍塌，拦截异常强度产生的 nan。
+        - 版本号：V7.5.0
         """
-        abn_vol = raw_signals['tick_abnormal_volume_ratio_D']
-        abn_hab = raw_signals['HAB_LONG_tick_abnormal_volume_ratio_D']
-        abn_mad = raw_signals['HAB_MAD_tick_abnormal_volume_ratio_D'] # [KeyError 发生点，强引用暴露问题]
-        abn_num = abn_vol - abn_hab
-        abn_den = abn_mad * 1.4826
-        abn_z = np.tanh(abn_num / abn_den)
-        trans_v = raw_signals['tick_chip_transfer_efficiency_D']
-        trans_hab = raw_signals['HAB_LONG_tick_chip_transfer_efficiency_D']
-        trans_std = raw_signals['HAB_STD_tick_chip_transfer_efficiency_D']
-        trans_z = np.tanh((trans_v - trans_hab) / trans_std)
-        vol_eff_gap = (abn_z.clip(0) - trans_z).clip(0)
-        penalty = (vol_eff_gap * 0.4).clip(0, 1)
-        print(f"\n[DECEPTION_PHYSICS_AUDIT]")
-        print(f"  > AbnNum: {abn_num.iloc[-1]:.4f} | AbnDenom: {abn_den.iloc[-1]:.4e} | AbnZ: {abn_z.iloc[-1]:.4f}")
-        print(f"  > TransV: {trans_v.iloc[-1]:.4e} | TransHab: {trans_hab.iloc[-1]:.4e} | TransZ: {trans_z.iloc[-1]:.4f}")
-        print(f"  > VolEffGap: {vol_eff_gap.iloc[-1]:.4f} | FinalPenalty: {penalty.iloc[-1]:.4f}")
+        ab_v = raw_signals['tick_abnormal_volume_ratio_D']
+        ab_h = raw_signals['HAB_LONG_tick_abnormal_volume_ratio_D']
+        ab_m = raw_signals['HAB_MAD_tick_abnormal_volume_ratio_D'].replace(0, 1e-7)
+        abn_z = np.tanh((ab_v - ab_h) / (ab_m * 1.4826))
+        tr_v = raw_signals['tick_chip_transfer_efficiency_D']
+        tr_h = raw_signals['HAB_LONG_tick_chip_transfer_efficiency_D']
+        tr_s = raw_signals['HAB_STD_tick_chip_transfer_efficiency_D'].replace(0, 1e-7)
+        trans_z = np.tanh((tr_v - tr_h) / tr_s)
+        eff_gap = (abn_z.clip(0) - trans_z).clip(0).fillna(0)
+        an_v = raw_signals['anomaly_intensity_D']
+        an_h = raw_signals['HAB_LONG_anomaly_intensity_D']
+        an_s = raw_signals['HAB_STD_anomaly_intensity_D'].replace(0, 1e-7)
+        anom_int = np.tanh((an_v - an_h) / an_s).fillna(0)
+        penalty = (eff_gap * 0.4 + anom_int.clip(0) * 0.3).clip(0, 1)
+        print(f"[NODE_AUDIT] Deception - AbnZ: {abn_z.iloc[-1]:.4f}, TransZ: {trans_z.iloc[-1]:.4f}, AnomInt: {anom_int.iloc[-1]:.4f}")
         return 1 - penalty
 
     def _calculate_contextual_modulator(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
@@ -506,16 +504,16 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_stealth_accumulation_bonus(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】隐秘吸筹增益判定
-        - 修改思路：打印隐秘流比率与背景，暴露 nan 风险。
-        - 版本号：V7.3.0
+        【V7.5.0 · 鲁棒量纲版】隐秘吸筹增益：消除 Z-Score 分母缺失导致的 nan
+        - 修改思路：标准化 STD 处理。
+        - 版本号：V7.5.0
         """
-        st_val = raw_signals['stealth_flow_ratio_D']
-        st_hab = raw_signals['HAB_LONG_stealth_flow_ratio_D']
-        st_std = raw_signals['HAB_STD_stealth_flow_ratio_D']
-        st_z = np.tanh((st_val - st_hab) / st_std)
-        bonus = (st_z.clip(0) * 0.5 + np.tanh(raw_signals['tick_chip_transfer_efficiency_D']).clip(0) * 0.5).clip(0, 1)
-        print(f"[NODE_PROBE] Stealth_Bonus - StealthRaw: {st_val.iloc[-1]:.4f}, StealthZ: {st_z.iloc[-1]:.4f}, Bonus: {bonus.iloc[-1]:.4f}")
+        s_v = raw_signals['stealth_flow_ratio_D']
+        s_h = raw_signals['HAB_LONG_stealth_flow_ratio_D']
+        s_s = raw_signals['HAB_STD_stealth_flow_ratio_D'].replace(0, 1e-7)
+        st_z = np.tanh((s_v - s_h) / s_s)
+        bonus = (st_z.clip(0) * 0.5 + np.tanh(raw_signals['tick_chip_transfer_efficiency_D'] / 1e7).clip(0) * 0.5).clip(0, 1).fillna(0)
+        print(f"[NODE_AUDIT] StealthBonus - Z: {st_z.iloc[-1]:.4f}, Bonus: {bonus.iloc[-1]:.4f}")
         return bonus
 
     def _calculate_macro_sector_synergy(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -568,20 +566,18 @@ class CalculateWinnerConvictionDecay:
 
     def _perform_final_fusion(self, df_index: pd.Index, conviction_score: pd.Series, resilience_score: pd.Series, deception_filter: pd.Series, stealth_bonus: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.4.0 · 物理量纲全暴露版】终核融合：暴露 nan 污染链条
-        - 修改思路：打印指数幂运算前的底数 RawNet，定位 nan 是否由负值底数引起。
-        - 版本号：V7.4.0
+        【V7.5.0 · 鲁棒量纲版】终核融合：确保输出分值物理连续
+        - 修改思路：对 stealth_bonus 执行 fillna(0)，对幂运算执行 abs() + sign() 保护。
+        - 版本号：V7.5.0
         """
         exp = params_dict['final_exponent']
-        intensity = (conviction_score * 0.7 + resilience_score * 0.3).clip(0, 1)
-        raw_net = (intensity * (2 - deception_filter) - stealth_bonus * 0.4)
-        net_decay = raw_net.clip(-1, 1)
+        st_b = stealth_bonus.fillna(0) # [关键：拦截上游 nan]
+        intensity = (conviction_score * 0.7 + resilience_score * 0.3).clip(0, 1).fillna(0)
+        raw_net = (intensity * (2 - deception_filter.fillna(1)) - st_b * 0.4)
+        net_decay = raw_net.clip(-1, 1).fillna(0)
         final = np.sign(net_decay) * (net_decay.abs() ** exp)
-        print(f"\n[FINAL_FUSION_EXPOSURE]")
-        print(f"  > Intensity: {intensity.iloc[-1]:.4f} | Filter: {deception_filter.iloc[-1]:.4f}")
-        print(f"  > StealthBonus: {stealth_bonus.iloc[-1]:.4f} | RawNet: {raw_net.iloc[-1]:.4f}")
-        print(f"  > Final_With_Exp: {final.iloc[-1]:.4e}")
-        return final.clip(-1, 1)
+        print(f"\n[FINAL_AUDIT] RawIntensity: {intensity.iloc[-1]:.4f}, StealthBonus: {st_b.iloc[-1]:.4f}, Final: {final.iloc[-1]:.4e}")
+        return final.clip(-1, 1).fillna(0)
 
 
 
