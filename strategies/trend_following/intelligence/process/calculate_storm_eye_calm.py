@@ -44,8 +44,8 @@ class CalculateStormEyeCalm:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        V48.0.2: 集成时空非对称奖励(STAR)的终极主计算流程。
-        说明: 在锁存与熔断的基础上，根据标的历史期望表现进行个性化奖励，锁定高 Alpha 信号。
+        V53.0.1: 集成自适应相变阈值的终极主计算流程。
+        说明: 利用 250 日 SNR 动态调整 Fermi 门控阈值，实现对不同股性标的的个性化相变捕捉。
         """
         method_name = "calculate_storm_eye_calm"
         df_index = df.index
@@ -55,16 +55,21 @@ class CalculateStormEyeCalm:
             if col not in df.columns: print(f"[FATAL ERROR] 军械库缺失关键列: {col}")
         raw_data = self._get_raw_and_atomic_data(df, method_name, params)
         _temp_debug_values = {"raw": raw_data}
+        # 1. 计算核心物理组件分值
         energy_score = self._calculate_energy_compression_component(df_index, raw_data, {}, params['energy_compression_weights'], _temp_debug_values)
         volume_score = self._calculate_volume_exhaustion_component(df_index, raw_data, {}, params['volume_exhaustion_weights'], _temp_debug_values)
         intent_score, _ = self._calculate_main_force_covert_intent_component(df_index, raw_data, {}, params['main_force_covert_intent_weights'], {}, _temp_debug_values)
         sentiment_score = self._calculate_subdued_market_sentiment_component(df_index, raw_data, params['subdued_market_sentiment_weights'], 21, 55, 1.0, 0.2, _temp_debug_values)
         readiness_score = self._calculate_breakout_readiness_component(df_index, raw_data, params['breakout_readiness_weights'], _temp_debug_values)
-        gate_energy = self._calculate_fermi_dirac_gate(energy_score, threshold=0.45, beta=12.0)
-        gate_volume = self._calculate_fermi_dirac_gate(volume_score, threshold=0.45, beta=12.0)
-        gate_intent = self._calculate_fermi_dirac_gate(intent_score, threshold=0.45, beta=12.0)
-        gate_sentiment = self._calculate_fermi_dirac_gate(sentiment_score, threshold=0.45, beta=12.0)
-        gate_readiness = self._calculate_fermi_dirac_gate(readiness_score, threshold=0.45, beta=12.0)
+        # 2. 接入自适应相变阈值
+        dynamic_threshold = self._calculate_adaptive_phase_transition_threshold(df_index, raw_data)
+        # 3. 执行自适应 Fermi-Dirac 博弈门控
+        gate_energy = self._calculate_fermi_dirac_gate(energy_score, threshold=dynamic_threshold, beta=12.0)
+        gate_volume = self._calculate_fermi_dirac_gate(volume_score, threshold=dynamic_threshold, beta=12.0)
+        gate_intent = self._calculate_fermi_dirac_gate(intent_score, threshold=dynamic_threshold, beta=12.0)
+        gate_sentiment = self._calculate_fermi_dirac_gate(sentiment_score, threshold=dynamic_threshold, beta=12.0)
+        gate_readiness = self._calculate_fermi_dirac_gate(readiness_score, threshold=dynamic_threshold, beta=12.0)
+        # 4. 后续融合、锁存、熔断与 STAR 奖励
         component_scores = {
             'energy': energy_score * gate_energy, 'volume': volume_score * gate_volume,
             'intent': intent_score * gate_intent, 'sentiment': sentiment_score * gate_sentiment,
@@ -80,10 +85,9 @@ class CalculateStormEyeCalm:
         latched_score = raw_final_score.rolling(window=3, min_periods=1).mean() * latch_multiplier
         bipolar_gain = self._calculate_oversold_momentum_bipolarization(df_index, raw_data)
         veto_factor = self._calculate_kinetic_overflow_veto(df_index, raw_data, bipolar_gain)
-        # 9. 接入时空非对称奖励 (STAR)
         reward_factor = self._calculate_spatio_temporal_asymmetric_reward(df_index, raw_data, resonance_confirm)
         final_latched_score = (latched_score * veto_factor * reward_factor).clip(0, 1)
-        print(f"  -- 锁存分: {latched_score.iloc[-1]:.4f} | 奖励因子: {reward_factor.iloc[-1]:.4f} | 最终输出: {final_latched_score.iloc[-1]:.4f}")
+        print(f"  -- 最终输出: {final_latched_score.iloc[-1]:.4f} | 动态门控阈值: {dynamic_threshold.iloc[-1]:.4f}")
         return final_latched_score.astype(np.float32)
 
     def _calculate_fermi_dirac_gate(self, score_series: pd.Series, threshold: float = 0.5, beta: float = 10.0) -> pd.Series:
@@ -254,60 +258,60 @@ class CalculateStormEyeCalm:
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V51.0.1: 原子化数据映射与动态导数生成引擎。
-        说明: 在此处动态计算所有高阶物理导数(Slope/Accel/Jerk)，彻底解决军械库列缺失导致的崩溃。
+        V52.0.1: 具备物理限幅功能的动态导数引擎。
+        说明: 在生成 Slope/Accel/Jerk 后立即执行 3-Sigma 限幅，确保军械库数据的鲁棒性。
         """
         raw_data = {}
         target_columns = self._get_required_signals(params, {}, [])
-        # 1. 安全映射军械库原生原子信号
         for col in target_columns:
             if col in df.columns:
                 raw_data[col] = df[col]
             else:
-                print(f"[WARNING] 军械库清单中未发现列: {col}, 请检查数据源。")
-        # 2. 动态生成所有必需的高阶物理导数
-        # 针对 KeyError: 'JERK_5_VPA_ACCELERATION_5D' 的专项修复
-        raw_data['JERK_5_VPA_ACCELERATION_5D'] = raw_data['VPA_ACCELERATION_5D'].diff().diff().diff()
-        # 补全主力意图、能量溢出与博弈中性化所需的其他衍生列
-        raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'] = raw_data['VPA_MF_ADJUSTED_EFF_D'].diff(13)
-        raw_data['ACCEL_8_VPA_MF_ADJUSTED_EFF_D'] = raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'].diff(8)
-        raw_data['JERK_5_VPA_MF_ADJUSTED_EFF_D'] = raw_data['VPA_MF_ADJUSTED_EFF_D'].diff().diff().diff()
-        raw_data['JERK_5_tick_abnormal_volume_ratio_D'] = raw_data['tick_abnormal_volume_ratio_D'].diff().diff().diff()
-        raw_data['JERK_5_MA_ACCELERATION_EMA_55_D'] = raw_data['MA_ACCELERATION_EMA_55_D'].diff().diff().diff()
-        raw_data['SLOPE_13_PRICE_ENTROPY_D'] = raw_data['PRICE_ENTROPY_D'].diff(13)
-        raw_data['ACCEL_8_PRICE_ENTROPY_D'] = raw_data['PRICE_ENTROPY_D'].diff().diff()
-        raw_data['SLOPE_13_STATE_GOLDEN_PIT_D'] = raw_data['STATE_GOLDEN_PIT_D'].diff(13)
-        raw_data['JERK_5_STATE_GOLDEN_PIT_D'] = raw_data['STATE_GOLDEN_PIT_D'].diff().diff().diff()
-        raw_data['SLOPE_13_BIAS_55_D'] = raw_data['BIAS_55_D'].diff(13)
-        raw_data['ACCEL_8_BIAS_55_D'] = raw_data['BIAS_55_D'].diff().diff()
-        raw_data['JERK_5_NDI_14_D'] = raw_data['NDI_14_D'].diff().diff().diff()
-        raw_data['SLOPE_13_PDI_14_D'] = raw_data['PDI_14_D'].diff(13)
-        raw_data['JERK_5_PDI_14_D'] = raw_data['PDI_14_D'].diff().diff().diff()
-        raw_data['SLOPE_13_breakout_penalty_score_D'] = raw_data['breakout_penalty_score_D'].diff(13)
-        raw_data['SLOPE_13_RSI_13_D'] = raw_data['RSI_13_D'].diff(13)
-        raw_data['ACCEL_8_RSI_13_D'] = raw_data['RSI_13_D'].diff().diff()
-        raw_data['JERK_5_RSI_13_D'] = raw_data['RSI_13_D'].diff().diff().diff()
-        raw_data['SLOPE_13_OCH_D'] = raw_data['OCH_D'].diff(13)
-        raw_data['ACCEL_8_OCH_D'] = raw_data['OCH_D'].diff().diff()
-        raw_data['SLOPE_13_ATR_14_D'] = raw_data['ATR_14_D'].diff(13)
-        raw_data['ACCEL_8_ATR_14_D'] = raw_data['ATR_14_D'].diff().diff()
-        raw_data['JERK_5_ATR_14_D'] = raw_data['ATR_14_D'].diff().diff().diff()
-        raw_data['SLOPE_13_MA_FAN_EFFICIENCY_D'] = raw_data['MA_FAN_EFFICIENCY_D'].diff(13)
-        raw_data['ACCEL_8_MA_FAN_EFFICIENCY_D'] = raw_data['MA_FAN_EFFICIENCY_D'].diff().diff()
-        raw_data['JERK_5_MA_FAN_EFFICIENCY_D'] = raw_data['MA_FAN_EFFICIENCY_D'].diff().diff().diff()
-        raw_data['JERK_5_HM_ACTIVE_ANY_D'] = raw_data['HM_ACTIVE_ANY_D'].diff().diff().diff()
-        raw_data['JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D'] = raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].diff().diff().diff()
-        raw_data['SLOPE_13_HM_COORDINATED_ATTACK_D'] = raw_data['HM_COORDINATED_ATTACK_D'].diff(13)
-        raw_data['JERK_5_HM_COORDINATED_ATTACK_D'] = raw_data['HM_COORDINATED_ATTACK_D'].diff().diff().diff()
-        raw_data['JERK_5_BIAS_5_D'] = raw_data['BIAS_5_D'].diff().diff().diff()
-        raw_data['ACCEL_8_BIAS_5_D'] = raw_data['BIAS_5_D'].diff().diff()
-        raw_data['SLOPE_5_RSI_13_D'] = raw_data['RSI_13_D'].diff(5)
-        raw_data['SLOPE_5_market_sentiment_score_D'] = raw_data['market_sentiment_score_D'].diff(5)
-        # 3. 痛感代理与 HAB 原料补齐
+                print(f"[WARNING] 军械库清单中未发现列: {col}")
+        # 1. 动态生成导数并执行物理限幅 (针对高阶导数进行专项降噪)
+        raw_data['JERK_5_VPA_ACCELERATION_5D'] = self._clip_physical_outliers(raw_data['VPA_ACCELERATION_5D'].diff().diff().diff())
+        raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['VPA_MF_ADJUSTED_EFF_D'].diff(13))
+        raw_data['ACCEL_8_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'].diff(8))
+        raw_data['JERK_5_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['VPA_MF_ADJUSTED_EFF_D'].diff().diff().diff())
+        raw_data['JERK_5_tick_abnormal_volume_ratio_D'] = self._clip_physical_outliers(raw_data['tick_abnormal_volume_ratio_D'].diff().diff().diff())
+        raw_data['JERK_5_MA_ACCELERATION_EMA_55_D'] = self._clip_physical_outliers(raw_data['MA_ACCELERATION_EMA_55_D'].diff().diff().diff())
+        raw_data['SLOPE_13_PRICE_ENTROPY_D'] = self._clip_physical_outliers(raw_data['PRICE_ENTROPY_D'].diff(13))
+        raw_data['ACCEL_8_PRICE_ENTROPY_D'] = self._clip_physical_outliers(raw_data['PRICE_ENTROPY_D'].diff().diff())
+        raw_data['SLOPE_13_STATE_GOLDEN_PIT_D'] = self._clip_physical_outliers(raw_data['STATE_GOLDEN_PIT_D'].diff(13))
+        raw_data['JERK_5_STATE_GOLDEN_PIT_D'] = self._clip_physical_outliers(raw_data['STATE_GOLDEN_PIT_D'].diff().diff().diff())
+        raw_data['SLOPE_13_BIAS_55_D'] = self._clip_physical_outliers(raw_data['BIAS_55_D'].diff(13))
+        raw_data['ACCEL_8_BIAS_55_D'] = self._clip_physical_outliers(raw_data['BIAS_55_D'].diff().diff())
+        raw_data['JERK_5_NDI_14_D'] = self._clip_physical_outliers(raw_data['NDI_14_D'].diff().diff().diff())
+        raw_data['SLOPE_13_PDI_14_D'] = self._clip_physical_outliers(raw_data['PDI_14_D'].diff(13))
+        raw_data['JERK_5_PDI_14_D'] = self._clip_physical_outliers(raw_data['PDI_14_D'].diff().diff().diff())
+        raw_data['SLOPE_13_breakout_penalty_score_D'] = self._clip_physical_outliers(raw_data['breakout_penalty_score_D'].diff(13))
+        raw_data['SLOPE_13_RSI_13_D'] = self._clip_physical_outliers(raw_data['RSI_13_D'].diff(13))
+        raw_data['ACCEL_8_RSI_13_D'] = self._clip_physical_outliers(raw_data['RSI_13_D'].diff().diff())
+        raw_data['JERK_5_RSI_13_D'] = self._clip_physical_outliers(raw_data['RSI_13_D'].diff().diff().diff())
+        raw_data['SLOPE_13_OCH_D'] = self._clip_physical_outliers(raw_data['OCH_D'].diff(13))
+        raw_data['ACCEL_8_OCH_D'] = self._clip_physical_outliers(raw_data['OCH_D'].diff().diff())
+        raw_data['SLOPE_13_ATR_14_D'] = self._clip_physical_outliers(raw_data['ATR_14_D'].diff(13))
+        raw_data['ACCEL_8_ATR_14_D'] = self._clip_physical_outliers(raw_data['ATR_14_D'].diff().diff())
+        raw_data['JERK_5_ATR_14_D'] = self._clip_physical_outliers(raw_data['ATR_14_D'].diff().diff().diff())
+        raw_data['SLOPE_13_MA_FAN_EFFICIENCY_D'] = self._clip_physical_outliers(raw_data['MA_FAN_EFFICIENCY_D'].diff(13))
+        raw_data['ACCEL_8_MA_FAN_EFFICIENCY_D'] = self._clip_physical_outliers(raw_data['MA_FAN_EFFICIENCY_D'].diff().diff())
+        raw_data['JERK_5_MA_FAN_EFFICIENCY_D'] = self._clip_physical_outliers(raw_data['MA_FAN_EFFICIENCY_D'].diff().diff().diff())
+        raw_data['JERK_5_HM_ACTIVE_ANY_D'] = self._clip_physical_outliers(raw_data['HM_ACTIVE_ANY_D'].diff().diff().diff())
+        raw_data['JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D'] = self._clip_physical_outliers(raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].diff().diff().diff())
+        raw_data['SLOPE_13_HM_COORDINATED_ATTACK_D'] = self._clip_physical_outliers(raw_data['HM_COORDINATED_ATTACK_D'].diff(13))
+        raw_data['JERK_5_HM_COORDINATED_ATTACK_D'] = self._clip_physical_outliers(raw_data['HM_COORDINATED_ATTACK_D'].diff().diff().diff())
+        raw_data['JERK_5_BIAS_5_D'] = self._clip_physical_outliers(raw_data['BIAS_5_D'].diff().diff().diff())
+        raw_data['ACCEL_8_BIAS_5_D'] = self._clip_physical_outliers(raw_data['BIAS_5_D'].diff().diff())
+        raw_data['SLOPE_5_RSI_13_D'] = self._clip_physical_outliers(raw_data['RSI_13_D'].diff(5))
+        raw_data['SLOPE_5_market_sentiment_score_D'] = self._clip_physical_outliers(raw_data['market_sentiment_score_D'].diff(5))
+        # 2. 补齐痛感代理与历史存量原料
         raw_data['pain_index_proxy'] = 1.0 - raw_data['profit_ratio_D']
-        raw_data['JERK_5_profit_ratio_D'] = raw_data['profit_ratio_D'].diff().diff().diff()
+        raw_data['JERK_5_profit_ratio_D'] = self._clip_physical_outliers(raw_data['profit_ratio_D'].diff().diff().diff())
         raw_data['JERK_5_pain_index_proxy'] = raw_data['JERK_5_profit_ratio_D'] * -1.0
         raw_data['price_slope_raw'] = raw_data['SLOPE_5_market_sentiment_score_D']
+        raw_data['net_mf_sum_13'] = raw_data['net_mf_amount_D'].rolling(window=13, min_periods=1).sum()
+        raw_data['net_mf_sum_21'] = raw_data['net_mf_amount_D'].rolling(window=21, min_periods=1).sum()
+        print(f"--- [物理限幅自洽性探针] 导数生成完成，全量 3-Sigma 限幅校验已生效 @ {raw_data['close'].index[-1]} ---")
         return raw_data
 
     def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False) -> pd.Series:
@@ -1098,6 +1102,49 @@ class CalculateStormEyeCalm:
         resonance_score = panic_burst * pit_state
         print(f"  -- 痛感Jerk分: {panic_burst.iloc[-1]:.4f} | 黄金坑状态: {pit_state.iloc[-1]:.4f} | 共振最终分: {resonance_score.iloc[-1]:.4f}")
         return resonance_score.clip(0, 1)
+
+    def _clip_physical_outliers(self, series: pd.Series, window: int = 55, sigma_multiplier: float = 3.0) -> pd.Series:
+        """
+        V52.0.0: 物理异常值限幅引擎。
+        说明: 利用 55 日滚动 3 Sigma 原则对信号进行限幅，消除数据跳变引发的伪脉冲。
+        """
+        rolling_mean = series.rolling(window=window, min_periods=window//2).mean()
+        rolling_std = series.rolling(window=window, min_periods=window//2).std()
+        upper_bound = rolling_mean + (rolling_std * sigma_multiplier)
+        lower_bound = rolling_mean - (rolling_std * sigma_multiplier)
+        # 针对导数序列，确保在统计极值范围内平滑波动
+        clipped_series = series.clip(lower=lower_bound, upper=upper_bound).fillna(series)
+        return clipped_series
+
+    def _calculate_adaptive_phase_transition_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
+        """
+        V53.0.0: 自适应相变阈值模型 (Adaptive Phase-Transition Threshold)。
+        说明: 量化标的历史 250 日信噪比分布，动态调整 Fermi 门控的激活阈值，实现因股制宜。
+        """
+        print(f"--- [自适应相变阈值探针] @ {df_index[-1]} ---")
+        # 1. 提取价格斜率作为噪音监测代理
+        price_v = raw_data['price_slope_raw']
+        # 2. 计算时序信噪比 (SNR Proxy)：均值 / 标准差 的倒数（变异系数）
+        # 物理含义：变异系数越高，代表标的波动越杂乱，噪音越大
+        noise_cv = price_v.rolling(window=250, min_periods=60).std() / (price_v.rolling(window=250, min_periods=60).mean().abs() + 1e-9)
+        # 3. 映射为阈值调节系数：基准阈值 0.45
+        # 逻辑：信噪比越低（Noise 高），阈值越高（最高 0.6），反之最低 0.35
+        adaptive_threshold = 0.45 * (0.8 + 0.5 * self._calculate_physics_score(noise_cv, mode='limit_high', sensitivity=2.0))
+        # 填充初始值
+        adaptive_threshold = adaptive_threshold.fillna(0.45)
+        print(f"  -- 历史噪音系数: {noise_cv.iloc[-1]:.4f} | 自适应阈值: {adaptive_threshold.iloc[-1]:.4f}")
+        return adaptive_threshold
+
+
+
+
+
+
+
+
+
+
+
 
 
 
