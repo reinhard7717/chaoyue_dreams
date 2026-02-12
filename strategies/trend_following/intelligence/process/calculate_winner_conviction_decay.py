@@ -120,12 +120,13 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.2.7 · 背景信号标准化版】统一 HAB 背景命名规范并消除 MAD 缺失风险
-        - 逻辑：补全 tick_abnormal_volume_ratio_D 的标准化 MAD 背景（HAB_MAD_...）。
-        - 版本号：V7.2.7
+        【V7.2.8 · HAB全量对齐版】补全所有子模块依赖的 HAB 背景信号
+        - 逻辑：补全 tick_chip_transfer_efficiency_D, anomaly_intensity_D 等指标的背景计算链。
+        - 版本号：V7.2.8
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
+        # 核心修复：包含所有 _calculate_* 方法中引用的 HAB 背景目标列
         targets = [
             'mid_long_sync_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_INST_NET_BUY_D',
             'tick_large_order_net_D', 'VPA_ACCELERATION_5D', 'VPA_EFFICIENCY_D',
@@ -134,14 +135,14 @@ class CalculateWinnerConvictionDecay:
             'MA_RUBBER_BAND_EXTENSION_D', 'industry_breadth_score_D', 'industry_stagnation_score_D',
             'tick_abnormal_volume_ratio_D', 'breakout_quality_score_D', 'market_sentiment_score_D',
             'uptrend_strength_D', 'pressure_profit_D', 'net_amount_ratio_D',
-            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'
+            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
+            'tick_chip_transfer_efficiency_D', 'anomaly_intensity_D', 'stealth_flow_ratio_D' # [补齐项]
         ]
         for col in targets:
             series = self.helper._get_safe_series(df, col, 0.0)
             raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
             raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().replace(0, 1e-6)
-            # 核心修复：为关键异常判定指标生成标准化 MAD 背景
             if col in ['tick_abnormal_volume_ratio_D', 'anomaly_intensity_D']:
                 raw_signals[f'HAB_MAD_{col}'] = (series - series.rolling(window=hab_cfg['long']).median()).abs().rolling(window=hab_cfg['long']).median().replace(0, 1e-6)
         full_kinetic = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 'market_sentiment_score_D']
@@ -162,13 +163,10 @@ class CalculateWinnerConvictionDecay:
         raw_signals['STATE_GOLDEN_PIT_D'] = self.helper._get_safe_series(df, 'STATE_GOLDEN_PIT_D', 0.0)
         raw_signals['STATE_TRENDING_STAGE_D'] = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
         raw_signals['STATE_EMOTIONAL_EXTREME_D'] = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
-        raw_signals['tick_chip_transfer_efficiency_D'] = self.helper._get_safe_series(df, 'tick_chip_transfer_efficiency_D', 0.0)
-        raw_signals['stealth_flow_ratio_D'] = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', 0.0)
+        raw_signals['intraday_distribution_confidence_D'] = self.helper._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0)
         raw_signals['hab_net_inflow'] = raw_signals['net_amount_ratio_D'].rolling(window=hab_cfg['medium']).sum().fillna(0)
         raw_signals['hab_pressure_max'] = raw_signals['pressure_profit_D'].rolling(window=hab_cfg['medium']).max().replace(0, 1e-6)
         raw_signals['industry_rank_accel_D'] = self.helper._get_safe_series(df, 'industry_rank_accel_D', 0.0)
-        raw_signals['intraday_distribution_confidence_D'] = self.helper._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0)
-        raw_signals['anomaly_intensity_D'] = self.helper._get_safe_series(df, 'anomaly_intensity_D', 0.0)
         return raw_signals
 
     def _calculate_parabolic_sprint_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -452,40 +450,27 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.2.7 · 命名标准化版】诡道过滤器：校验异常放量与筹码转移的一致性
-        - 逻辑：使用标准化 HAB_MAD_tick_abnormal_volume_ratio_D 判定欺诈惩罚。
-        - 版本号：V7.2.7
+        【V7.2.8 · 健壮探针版】诡道过滤器：校验异常量能与筹码转移的一致性
+        - 逻辑：通过 .get() 安全访问 HAB_LONG_tick_chip_transfer_efficiency_D，消除 KeyError。
+        - 版本号：V7.2.8
         """
-        print(f"tick_abnormal_volume_ratio_D: {raw_signals['tick_abnormal_volume_ratio_D'].iloc[-1]:.4f}")
-        print(f"HAB_LONG_tick_abnormal_volume_ratio_D: {raw_signals['HAB_LONG_tick_abnormal_volume_ratio_D'].iloc[-1]:.4f}")
-        print(f"HAB_STD_tick_abnormal_volume_ratio_D: {raw_signals['HAB_STD_tick_abnormal_volume_ratio_D'].iloc[-1]:.4f}")
-        print(f"tick_chip_transfer_efficiency_D: {raw_signals['tick_chip_transfer_efficiency_D'].iloc[-1]:.4f}")
-        print(f"HAB_LONG_tick_chip_transfer_efficiency_D: {raw_signals['HAB_LONG_tick_chip_transfer_efficiency_D'].iloc[-1]:.4f}")
-        print(f"HAB_STD_tick_chip_transfer_efficiency_D: {raw_signals['HAB_STD_tick_chip_transfer_efficiency_D'].iloc[-1]:.4f}")
-        print(f"intraday_distribution_confidence_D: {raw_signals['intraday_distribution_confidence_D'].iloc[-1]:.4f}")
-        print(f"HAB_LONG_intraday_distribution_confidence_D: {raw_signals['HAB_LONG_intraday_distribution_confidence_D'].iloc[-1]:.4f}")
-        print(f"HAB_STD_intraday_distribution_confidence_D: {raw_signals['HAB_STD_intraday_distribution_confidence_D'].iloc[-1]:.4f}")
-        print(f"anomaly_intensity_D: {raw_signals['anomaly_intensity_D'].iloc[-1]:.4f}")
-        print(f"HAB_LONG_anomaly_intensity_D: {raw_signals['HAB_LONG_anomaly_intensity_D'].iloc[-1]:.4f}")
-        print(f"HAB_STD_anomaly_intensity_D: {raw_signals['HAB_STD_anomaly_intensity_D'].iloc[-1]:.4f}")
-        print(f"intraday_distribution_confidence_D: {raw_signals['intraday_distribution_confidence_D'].iloc[-1]:.4f}")
-        print(f"HAB_LONG_intraday_distribution_confidence_D: {raw_signals['HAB_LONG_intraday_distribution_confidence_D'].iloc[-1]:.4f}")
-        print(f"HAB_STD_intraday_distribution_confidence_D: {raw_signals['HAB_STD_intraday_distribution_confidence_D'].iloc[-1]:.4f}")
-        
-        
         abn_vol = raw_signals.get('tick_abnormal_volume_ratio_D', pd.Series(0.0, index=df_index))
         abn_hab = raw_signals.get('HAB_LONG_tick_abnormal_volume_ratio_D', pd.Series(0.0, index=df_index))
-        # 核心修复：使用对齐清单的标准命名，并提供 1.0 默认值防止除零
         abn_mad = raw_signals.get('HAB_MAD_tick_abnormal_volume_ratio_D', pd.Series(1.0, index=df_index))
         abn_z = np.tanh((abn_vol - abn_hab) / (abn_mad * 1.4826))
-        trans_z = np.tanh((raw_signals.get('tick_chip_transfer_efficiency_D', 0.0) - raw_signals.get('HAB_LONG_tick_chip_transfer_efficiency_D', 0.0)) / raw_signals.get('HAB_STD_tick_chip_transfer_efficiency_D', 1e-6))
+        trans_val = raw_signals.get('tick_chip_transfer_efficiency_D', pd.Series(0.0, index=df_index))
+        trans_hab = raw_signals.get('HAB_LONG_tick_chip_transfer_efficiency_D', pd.Series(0.0, index=df_index))
+        trans_std = raw_signals.get('HAB_STD_tick_chip_transfer_efficiency_D', pd.Series(1e-6, index=df_index))
+        trans_z = np.tanh((trans_val - trans_hab) / trans_std)
         vol_eff_gap = (abn_z.clip(0) - trans_z).clip(0)
         dist_conf = np.tanh(raw_signals.get('intraday_distribution_confidence_D', 0.0))
         anom_int = np.tanh((raw_signals.get('anomaly_intensity_D', 0.0) - raw_signals.get('HAB_LONG_anomaly_intensity_D', 0.0)) / raw_signals.get('HAB_STD_anomaly_intensity_D', 1e-6))
         deception_penalty = (vol_eff_gap * 0.4 + anom_int.clip(0) * 0.3 + dist_conf.clip(0) * 0.3).clip(0, 1)
         deception_filter = 1 - deception_penalty
         _temp_debug_values["deception_dynamics"] = {"vol_eff_gap": vol_eff_gap, "filter": deception_filter}
-        print(f"[PROBE] 诡道过滤 - 量能效率缺口: {vol_eff_gap.iloc[-1]:.4f}, 欺诈惩罚项: {deception_penalty.iloc[-1]:.4f}")
+        # 调试探针
+        if not trans_hab.empty:
+            print(f"[PROBE] 诡道过滤 - HAB_LONG_效率: {trans_hab.iloc[-1]:.4f}, 异常量Z分: {abn_z.iloc[-1]:.4f}")
         return deception_filter
 
     def _calculate_contextual_modulator(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
