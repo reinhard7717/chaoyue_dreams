@@ -187,7 +187,7 @@ class CalculateStormEyeCalm:
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 风暴眼中的寂静诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
         for key, value in debug_output.items():
             if value:
-                # print(f"{key}: {value}")
+                print(f"{key}: {value}")
             else:
                 print(key)
 
