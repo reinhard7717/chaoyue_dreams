@@ -223,10 +223,9 @@ class CalculateStormEyeCalm:
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> list[str]:
         """
-        V51.0.0: 军械库原子化合规清单。
-        说明: 彻底移除所有非军械库原生的衍生导数列，仅请求原始原子信号以避免 KeyError。
+        V54.0.0: 军械库合规化原子信号清单。
+        说明: 仅请求军械库中存在的原始指标，为动态导数引擎提供原子数据支撑。
         """
-        # 仅保留军械库清单明确支持的列
         required_signals = [
             'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
             'BBW_21_2.0_D', 'chip_concentration_ratio_D', 'concentration_entropy_D',
@@ -252,8 +251,8 @@ class CalculateStormEyeCalm:
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V52.0.1: 具备物理限幅功能的动态导数引擎。
-        说明: 在生成 Slope/Accel/Jerk 后立即执行 3-Sigma 限幅，确保军械库数据的鲁棒性。
+        V54.0.1: 具备动态导数生成与 3-Sigma 限幅的数据矩阵引擎。
+        说明: 全量生成物理模型所需的 Slope/Accel/Jerk 衍生列并执行降噪处理。
         """
         raw_data = {}
         target_columns = self._get_required_signals(params, {}, [])
@@ -262,7 +261,7 @@ class CalculateStormEyeCalm:
                 raw_data[col] = df[col]
             else:
                 print(f"[WARNING] 军械库清单中未发现列: {col}")
-        # 1. 动态生成导数并执行物理限幅 (针对高阶导数进行专项降噪)
+        # 1. 动态生成导数并执行物理限幅
         raw_data['JERK_5_VPA_ACCELERATION_5D'] = self._clip_physical_outliers(raw_data['VPA_ACCELERATION_5D'].diff().diff().diff())
         raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['VPA_MF_ADJUSTED_EFF_D'].diff(13))
         raw_data['ACCEL_8_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'].diff(8))
@@ -298,14 +297,13 @@ class CalculateStormEyeCalm:
         raw_data['ACCEL_8_BIAS_5_D'] = self._clip_physical_outliers(raw_data['BIAS_5_D'].diff().diff())
         raw_data['SLOPE_5_RSI_13_D'] = self._clip_physical_outliers(raw_data['RSI_13_D'].diff(5))
         raw_data['SLOPE_5_market_sentiment_score_D'] = self._clip_physical_outliers(raw_data['market_sentiment_score_D'].diff(5))
-        # 2. 补齐痛感代理与历史存量原料
         raw_data['pain_index_proxy'] = 1.0 - raw_data['profit_ratio_D']
         raw_data['JERK_5_profit_ratio_D'] = self._clip_physical_outliers(raw_data['profit_ratio_D'].diff().diff().diff())
         raw_data['JERK_5_pain_index_proxy'] = raw_data['JERK_5_profit_ratio_D'] * -1.0
         raw_data['price_slope_raw'] = raw_data['SLOPE_5_market_sentiment_score_D']
         raw_data['net_mf_sum_13'] = raw_data['net_mf_amount_D'].rolling(window=13, min_periods=1).sum()
         raw_data['net_mf_sum_21'] = raw_data['net_mf_amount_D'].rolling(window=21, min_periods=1).sum()
-        print(f"--- [物理限幅自洽性探针] 导数生成完成，全量 3-Sigma 限幅校验已生效 @ {raw_data['close'].index[-1]} ---")
+        print(f"--- [物理导数自洽性探针] 原子化数据处理完成 @ {raw_data['close'].index[-1]} ---")
         return raw_data
 
     def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False) -> pd.Series:
@@ -942,49 +940,36 @@ class CalculateStormEyeCalm:
 
     def _calculate_volatility_vacuum_contraction(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V42.0.1: 波动率真空收缩模型 (Volatility Vacuum Contraction)。
-        说明: 量化 ATR 的高阶衰减特征，识别波动率进入“绝对真空”状态的临界瞬间。
+        V42.0.1: 波动率真空收缩模型 (VVC)。
+        说明: 量化 ATR 的高阶衰减特征，识别波动率进入绝对真空的临界瞬间。
         """
         print(f"--- [波动率真空收缩探针] @ {df_index[-1]} ---")
-        # 1. 提取 ATR 及其三阶动力学导数
         atr_raw = raw_data['ATR_14_D']
-        atr_slope = raw_data.get('SLOPE_13_ATR_14_D', atr_raw.diff(13))
-        atr_jerk = raw_data.get('JERK_5_ATR_14_D', atr_raw.diff().diff().diff())
-        # 2. 衰减纯度判定：波动率处于低位且处于单调递减状态 (Slope < 0)
+        atr_slope = raw_data.get('SLOPE_13_ATR_14_D', pd.Series(0.0, index=df_index))
+        atr_jerk = raw_data.get('JERK_5_ATR_14_D', pd.Series(0.0, index=df_index))
         atr_low_score = self._calculate_physics_score(atr_raw, mode='limit_low', sensitivity=1.5)
         decay_purity = self._calculate_physics_score(atr_slope, mode='limit_low', sensitivity=10.0, denoise=True)
-        # 3. 真空死寂度：Jerk 归零代表波动率变化完全静止，无任何脉冲噪音
-        # 物理含义：这是爆发前最纯粹的宁静
         vacuum_silence = self._calculate_physics_score(atr_jerk, mode='zero_focus', sensitivity=80.0, denoise=True)
-        # 4. 结合价格静止：波动率真空必须伴随价格斜率的彻底锁定
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
-        # 5. 最终真空收缩分：地量波动 * 衰减纯度 * 真空死寂 * 价格静止
         vvc_score = atr_low_score * decay_purity * vacuum_silence * price_calm
-        print(f"  -- ATR原始值: {atr_raw.iloc[-1]:.4f} | 衰减斜率分: {decay_purity.iloc[-1]:.4f} | 真空死寂分: {vacuum_silence.iloc[-1]:.4f}")
+        print(f"  -- ATR值: {atr_raw.iloc[-1]:.4f} | 真空收缩评分: {vvc_score.iloc[-1]:.4f}")
         return vvc_score.clip(0, 1)
 
     def _calculate_fan_curvature_collapse(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V43.0.1: 扇面曲率塌缩模型 (Fan Curvature Collapse)。
-        说明: 量化均线扇面效率的高阶衰减，识别均线结构从发散向单点共振塌缩的几何瞬间。
+        V43.0.1: 扇面曲率坍塌模型 (FCC)。
+        说明: 量化均线扇面效率的高阶衰减，捕捉几何结构向单点共振塌缩的瞬间。
         """
         print(f"--- [扇面曲率塌缩探针] @ {df_index[-1]} ---")
-        # 1. 提取扇面效率及其三阶动力学导数
         fan_raw = raw_data['MA_FAN_EFFICIENCY_D']
-        fan_accel = raw_data.get('ACCEL_8_MA_FAN_EFFICIENCY_D', fan_raw.diff().diff())
-        fan_jerk = raw_data.get('JERK_5_MA_FAN_EFFICIENCY_D', fan_raw.diff().diff().diff())
-        # 2. 塌缩锁定：扇面效率加速度向零轴回归，代表几何结构趋于稳定
-        # 物理含义：均线排列的变动速度消失，进入极度粘合的静止态
+        fan_accel = raw_data.get('ACCEL_8_MA_FAN_EFFICIENCY_D', pd.Series(0.0, index=df_index))
+        fan_jerk = raw_data.get('JERK_5_MA_FAN_EFFICIENCY_D', pd.Series(0.0, index=df_index))
         accel_focus = self._calculate_physics_score(fan_accel, mode='zero_focus', sensitivity=50.0, denoise=True)
-        # 3. 结构纯净度：Jerk 归零代表扇面曲率变化完全平滑，无结构性脉冲
         jerk_silence = self._calculate_physics_score(fan_jerk, mode='zero_focus', sensitivity=70.0, denoise=True)
-        # 4. 效率存量校验：扇面效率需处于高位 (即均线已完成初步聚拢)
         fan_high_score = self._calculate_physics_score(fan_raw, mode='limit_high', sensitivity=1.2)
-        # 5. 结合价格静止：几何塌缩必须发生在价格斜率锁定的“风暴眼”中
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
-        # 6. 最终塌缩分：效率高位 * 加速锁定 * 结构纯净 * 价格静止
         fcc_score = fan_high_score * accel_focus * jerk_silence * price_calm
-        print(f"  -- 扇面效率: {fan_raw.iloc[-1]:.4f} | 加速锁定分: {accel_focus.iloc[-1]:.4f} | 最终塌缩分: {fcc_score.iloc[-1]:.4f}")
+        print(f"  -- 扇面效率: {fan_raw.iloc[-1]:.4f} | 几何塌缩评分: {fcc_score.iloc[-1]:.4f}")
         return fcc_score.clip(0, 1)
 
     def _calculate_game_neutralization_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -1010,28 +995,20 @@ class CalculateStormEyeCalm:
 
     def _calculate_oversold_momentum_bipolarization(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V45.0.1: 超卖区动能二极化模型 (Oversold Momentum Bipolarization)。
-        说明: 量化 RSI 钝化后的加速度反转斜率与量能一致性比值，识别主力的暴力接管行为。
+        V45.0.1: 超卖区动能二极化模型 (OMB)。
+        说明: 量化 RSI 钝化后的加速度反转斜率与量能一致性，识别暴力接管行为。
         """
         print(f"--- [超卖动能二极化探针] @ {df_index[-1]} ---")
-        # 1. 提取 RSI 及其加速度导数
         rsi_raw = raw_data['RSI_13_D']
-        rsi_accel = raw_data.get('ACCEL_8_RSI_13_D', rsi_raw.diff().diff())
-        # 计算加速度的反转斜率 (即动能回拉速度)
+        rsi_accel = raw_data.get('ACCEL_8_RSI_13_D', pd.Series(0.0, index=df_index))
         accel_rev_slope = rsi_accel.diff(5)
-        # 2. 量能一致性判定：计算成交量的滚动变异系数倒数
-        # 物理含义：一致性越高，说明接管动作越有组织、越稳健
         vol = raw_data['volume_D']
         vol_consistency = 1.0 / (1.0 + vol.rolling(window=8).std() / (vol.rolling(window=8).mean() + 1e-9))
-        # 3. 超卖区锁定：利用高斯核锁定 RSI < 30 的极度钝化区间
-        oversold_lock = self._calculate_physics_score(rsi_raw, mode='limit_low', sensitivity=0.05) # 针对 0-100 尺度调整
-        # 4. 二极化比值：反转斜率 * 量能一致性
+        oversold_lock = self._calculate_physics_score(rsi_raw, mode='limit_low', sensitivity=0.05)
         bipolar_ratio = self._calculate_physics_score(accel_rev_slope * vol_consistency, mode='limit_high', sensitivity=20.0, denoise=True)
-        # 5. 结合价格静止：接管往往发生在价格不再创出新低、进入横盘的瞬间
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
-        # 6. 最终合成：超卖深度 * 二极化强度 * 价格静止度
         omb_score = oversold_lock * bipolar_ratio * price_calm
-        print(f"  -- RSI值: {rsi_raw.iloc[-1]:.4f} | 反转斜率分: {bipolar_ratio.iloc[-1]:.4f} | 二极化总分: {omb_score.iloc[-1]:.4f}")
+        print(f"  -- RSI值: {rsi_raw.iloc[-1]:.4f} | 二极化评分: {omb_score.iloc[-1]:.4f}")
         return omb_score.clip(0, 1)
 
     def _calculate_kinetic_overflow_veto(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], bipolar_gain: pd.Series) -> pd.Series:
@@ -1063,20 +1040,15 @@ class CalculateStormEyeCalm:
     def _calculate_spatio_temporal_asymmetric_reward(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], resonance_confirm: pd.Series) -> pd.Series:
         """
         V48.0.1: 多空时空非对称奖励模型 (STAR)。
-        说明: 基于标的历史 120 日内共振点的获利表现，为当前信号提供个性化的期望奖励。
+        说明: 基于标的历史 120 日共振获利表现，提供个性化期望奖励。
         """
         print(f"--- [时空非对称奖励探针] @ {df_index[-1]} ---")
-        # 1. 计算 5 日远期收益率 (剔除当日，避免未来函数)
         close = raw_data.get('close', pd.Series(1.0, index=df_index))
         fwd_ret = close.shift(-5) / close - 1.0
-        # 2. 锁定历史共振点：使用 5 日前的共振确认，确保其 5 日远期收益已实现
         hist_hit_mask = resonance_confirm.shift(5).fillna(False)
-        # 3. 计算期望获利：过去 120 日内所有信号点的平均收益
-        # 物理含义：该标的历史上对“风暴眼”信号的真实反馈强度
         expected_gain = (fwd_ret * hist_hit_mask).rolling(window=120, min_periods=10).mean()
-        # 4. 映射为奖励系数：期望收益 0% 为 1.0，期望收益 5% 为 1.2 左右
         reward_factor = 1.0 + self._calculate_physics_score(expected_gain.clip(lower=0), mode='limit_high', sensitivity=4.0)
-        print(f"  -- 历史共振点数: {hist_hit_mask.rolling(120).sum().iloc[-1]} | 期望收益: {expected_gain.iloc[-1]:.4f} | 奖励系数: {reward_factor.iloc[-1]:.4f}")
+        print(f"  -- 历史期望收益: {expected_gain.iloc[-1]:.4f} | 奖励系数: {reward_factor.iloc[-1]:.4f}")
         return reward_factor.fillna(1.0)
 
     def _calculate_extreme_panic_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -1111,21 +1083,15 @@ class CalculateStormEyeCalm:
 
     def _calculate_adaptive_phase_transition_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V53.0.0: 自适应相变阈值模型 (Adaptive Phase-Transition Threshold)。
-        说明: 量化标的历史 250 日信噪比分布，动态调整 Fermi 门控的激活阈值，实现因股制宜。
+        V53.0.0: 自适应相变阈值模型 (APTT)。
+        说明: 量化标的历史信噪比，动态调优 Fermi 门控激活阈值。
         """
-        print(f"--- [自适应相变阈值探针] @ {df_index[-1]} ---")
-        # 1. 提取价格斜率作为噪音监测代理
+        print(f"--- [自适应阈值探针] @ {df_index[-1]} ---")
         price_v = raw_data['price_slope_raw']
-        # 2. 计算时序信噪比 (SNR Proxy)：均值 / 标准差 的倒数（变异系数）
-        # 物理含义：变异系数越高，代表标的波动越杂乱，噪音越大
         noise_cv = price_v.rolling(window=250, min_periods=60).std() / (price_v.rolling(window=250, min_periods=60).mean().abs() + 1e-9)
-        # 3. 映射为阈值调节系数：基准阈值 0.45
-        # 逻辑：信噪比越低（Noise 高），阈值越高（最高 0.6），反之最低 0.35
         adaptive_threshold = 0.45 * (0.8 + 0.5 * self._calculate_physics_score(noise_cv, mode='limit_high', sensitivity=2.0))
-        # 填充初始值
         adaptive_threshold = adaptive_threshold.fillna(0.45)
-        print(f"  -- 历史噪音系数: {noise_cv.iloc[-1]:.4f} | 自适应阈值: {adaptive_threshold.iloc[-1]:.4f}")
+        print(f"  -- 噪音系数: {noise_cv.iloc[-1]:.4f} | 动态阈值: {adaptive_threshold.iloc[-1]:.4f}")
         return adaptive_threshold
 
 
