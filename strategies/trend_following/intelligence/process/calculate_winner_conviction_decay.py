@@ -113,9 +113,9 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.3.0 · 异常暴露版】全量加载军械库原始指标并打印末端值
-        - 修改思路：在 targets 循环中增加原始值打印，暴露 nan 数据源。
-        - 版本号：V7.3.0
+        【V7.4.0 · 物理量纲全暴露版】加载全量指标并强制打印末端值以暴露 nan 源头
+        - 修改思路：将 industry_breadth_score_D 等指标补入动力学循环，确保键值存在；打印原始值。
+        - 版本号：V7.4.0
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
@@ -130,23 +130,27 @@ class CalculateWinnerConvictionDecay:
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'tick_chip_transfer_efficiency_D', 'anomaly_intensity_D', 'stealth_flow_ratio_D'
         ]
-        print(f"\n--- [ARMORY DATA SOURCE PROBE] ---")
+        print(f"\n[ARMORY_DATA_EXPOSURE]")
         for col in targets:
             series = self.helper._get_safe_series(df, col, np.nan)
             raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
-            raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().replace(0, 1e-6)
-            if col in ['tick_abnormal_volume_ratio_D', 'anomaly_intensity_D']:
-                raw_signals[f'HAB_MAD_{col}'] = (series - series.rolling(window=hab_cfg['long']).median()).abs().rolling(window=hab_cfg['long']).median().replace(0, 1e-6)
-            print(f"  > {col}: {series.iloc[-1]:.4f} (HAB_STD: {raw_signals[f'HAB_STD_{col}'].iloc[-1]:.4f})")
-        full_kinetic = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 'market_sentiment_score_D']
-        for target in full_kinetic:
+            raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std()
+            print(f"  > {col}: {series.iloc[-1]:.4f} | HAB_STD: {raw_signals[f'HAB_STD_{col}'].iloc[-1]:.4f}")
+        # 补全动力学衍生键值：必须包含报错的 industry_breadth_score_D
+        kinetic_targets = [
+            'mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 
+            'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 
+            'market_sentiment_score_D', 'industry_breadth_score_D', 'industry_stagnation_score_D',
+            'MA_COHERENCE_RESONANCE_D', 'VPA_ACCELERATION_5D', 'breakout_potential_D'
+        ]
+        for target in kinetic_targets:
             for d_type in ['SLOPE', 'ACCEL', 'JERK']:
                 col_name = f'{d_type}_5_{target}'
                 val = self.helper._get_safe_series(df, col_name, np.nan)
                 raw_signals[col_name] = val
                 if d_type == 'JERK':
-                    raw_signals[f'HAB_MAD_{col_name}'] = (val - val.rolling(34).median()).abs().rolling(34).median().replace(0, 1e-6)
+                    raw_signals[f'HAB_MAD_{col_name}'] = (val - val.rolling(34).median()).abs().rolling(34).median()
         raw_signals['STATE_PARABOLIC_WARNING_D'] = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
         raw_signals['STATE_MARKET_LEADER_D'] = self.helper._get_safe_series(df, 'STATE_MARKET_LEADER_D', 0.0)
         raw_signals['STATE_ROUNDING_BOTTOM_D'] = self.helper._get_safe_series(df, 'STATE_ROUNDING_BOTTOM_D', 0.0)
@@ -238,14 +242,13 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.1 · 全量探针审计版】博弈决策中枢：强制暴露 16 维子项分值
-        - 修改思路：补全 kinetic_transition_impact 调用，并对所有加权项执行末端打印。
-        - 版本号：V7.3.1
+        【V7.4.0 · 物理量纲全暴露版】博弈中枢：强制暴露 16 维子项加权详情
+        - 修改思路：补全 kinetic_transition_impact 调用，并对所有加权项执行逐行探针打印。
+        - 版本号：V7.4.0
         """
         w = params_dict['belief_decay_weights']
-        # 1. 基础衰减分生成
-        sync_decay = -np.tanh((raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']) / raw_signals['HAB_STD_mid_long_sync_D'])
-        # 2. 专项判定模块调用
+        sync_num = raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']
+        sync_decay = -np.tanh(sync_num / raw_signals['HAB_STD_mid_long_sync_D'])
         para_r = self._calculate_parabolic_sprint_risk(df_index, raw_signals, _temp_debug_values)
         vpa_r = self._calculate_vpa_exhaustion_risk(df_index, raw_signals, _temp_debug_values)
         domi_r = self._calculate_sector_spillover_domino_risk(df_index, raw_signals, _temp_debug_values)
@@ -261,8 +264,11 @@ class CalculateWinnerConvictionDecay:
         inst_e = self._calculate_institutional_erosion_index(df_index, raw_signals, _temp_debug_values)
         vacu_r = self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values)
         chai_r = self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values)
-        kine_t = self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values) # [核心补全]
-        # 3. 终核加权融合
+        kine_t = self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values)
+        print(f"\n[CONVICTION_COMPONENT_EXPOSURE]")
+        print(f"  > SyncDcy: {sync_decay.iloc[-1]:.4f} | ChainRes: {chai_r.iloc[-1]:.4f} | ChaosRes: {chao_r.iloc[-1]:.4f}")
+        print(f"  > Vacuum: {vacu_r.iloc[-1]:.4f} | StallJrk: {stal_r.iloc[-1]:.4f} | KineTrans: {kine_t.iloc[-1]:.4f}")
+        print(f"  > MacroRisk: {macr_r.iloc[-1]:.4f} | ParaRisk: {para_r.iloc[-1]:.4f} | RegimeRisk: {regi_r.iloc[-1]:.4f}")
         fused = (
             sync_decay.clip(0) * w["mid_long_sync_decay"] + chai_r * w["chain_collapse_resonance"] + 
             chao_r * w["chaotic_collapse_resonance"] + vacu_r * w["institutional_vacuum_meltdown"] + 
@@ -274,24 +280,21 @@ class CalculateWinnerConvictionDecay:
             trap_r * w["golden_trap_risk"] + inst_e * w["inst_erosion_risk"]
         ).clip(-1, 1)
         _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused})
-        print(f"\n--- [FULL SPECTRUM CONVICTION AUDIT] ---")
-        print(f"  > SyncDcy: {sync_decay.iloc[-1]:.4f} | ChainRes: {chai_r.iloc[-1]:.4f} | ChaosRes: {chao_r.iloc[-1]:.4f}")
-        print(f"  > Vacuum: {vacu_r.iloc[-1]:.4f} | StallJrk: {stal_r.iloc[-1]:.4f} | KineTrans: {kine_t.iloc[-1]:.4f}")
-        print(f"  > SecondarySum: {(macr_r*w['macro_sector_slippage'] + para_r*w['parabolic_sprint_risk'] + regi_r*w['regime_switching_risk']).iloc[-1]:.4f}")
-        print(f"  > FUSED_STRENGTH: {fused.iloc[-1]:.4f}")
+        print(f"  >> FINAL_FUSED_STRENGTH: {fused.iloc[-1]:.4f}")
         return fused
 
     def _calculate_sector_spillover_domino_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】判定行业多米诺效应
-        - 修改思路：打印行业广度斜率与滞涨分。
-        - 版本号：V7.3.0
+        【V7.4.0 · 物理量纲全暴露版】判定行业溢出多米诺效应
+        - 修改思路：移除 get 保护，直接暴露缺失 Key 的问题；打印原始斜率与滞涨分。
+        - 版本号：V7.4.0
         """
         breadth_slope = raw_signals['SLOPE_5_industry_breadth_score_D']
         stagnation_val = raw_signals['industry_stagnation_score_D']
-        stagnation_z = np.tanh((stagnation_val - raw_signals['HAB_LONG_industry_stagnation_score_D']) / raw_signals['HAB_STD_industry_stagnation_score_D'])
+        stagnation_num = stagnation_val - raw_signals['HAB_LONG_industry_stagnation_score_D']
+        stagnation_z = np.tanh(stagnation_num / raw_signals['HAB_STD_industry_stagnation_score_D'])
         domino_risk = ((-np.tanh(breadth_slope)).clip(0) * 0.7 + stagnation_z.clip(0) * 0.3).clip(0, 1)
-        print(f"[NODE_PROBE] Sector_Domino - BreadthSlope: {breadth_slope.iloc[-1]:.4f}, StagnationVal: {stagnation_val.iloc[-1]:.4f}")
+        print(f"[NODE_EXPOSURE] Domino - BreadthSlope: {breadth_slope.iloc[-1]:.4f}, StagnationNum: {stagnation_num.iloc[-1]:.4f}, StagnationZ: {stagnation_z.iloc[-1]:.4f}")
         return domino_risk
 
     def _calculate_market_regime_switching_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -344,16 +347,19 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_chaotic_collapse_resonance(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】判定混沌共振
-        - 修改思路：打印双重 Jerk 脉冲分值。
-        - 版本号：V7.3.0
+        【V7.4.0 · 物理量纲全暴露版】判定混沌溃散共振
+        - 修改思路：打印双重 Jerk 脉冲与对应的 MAD 背景值，暴露 nan 风险。
+        - 版本号：V7.4.0
         """
-        inst_jerk = raw_signals['JERK_5_SMART_MONEY_INST_NET_BUY_D']
-        frac_jerk = raw_signals['JERK_5_PRICE_FRACTAL_DIM_D']
-        inst_j_z = -np.tanh(inst_jerk / (raw_signals['HAB_MAD_JERK_5_SMART_MONEY_INST_NET_BUY_D'] * 3.7))
-        frac_j_z = np.tanh(frac_jerk / (raw_signals['HAB_MAD_JERK_5_PRICE_FRACTAL_DIM_D'] * 3.7))
+        inst_j = raw_signals['JERK_5_SMART_MONEY_INST_NET_BUY_D']
+        frac_j = raw_signals['JERK_5_PRICE_FRACTAL_DIM_D']
+        i_mad = raw_signals['HAB_MAD_JERK_5_SMART_MONEY_INST_NET_BUY_D']
+        f_mad = raw_signals['HAB_MAD_JERK_5_PRICE_FRACTAL_DIM_D']
+        inst_j_z = -np.tanh(inst_j / (i_mad * 3.7))
+        frac_j_z = np.tanh(frac_j / (f_mad * 3.7))
         chaos_resonance = (inst_j_z.clip(0) * frac_j_z.clip(0)).clip(0, 1)
-        print(f"[NODE_PROBE] Chaos_Resonance - InstJerkZ: {inst_j_z.iloc[-1]:.4f}, FracJerkZ: {frac_j_z.iloc[-1]:.4f}")
+        print(f"[NODE_EXPOSURE] ChaosRes - InstJerk: {inst_j.iloc[-1]:.4e}, InstMAD: {i_mad.iloc[-1]:.4e}, FracJerk: {frac_j.iloc[-1]:.4e}, FracMAD: {f_mad.iloc[-1]:.4e}")
+        print(f"  > ChaosFinal: {chaos_resonance.iloc[-1]:.4f}")
         return chaos_resonance
 
     def _calculate_institutional_vacuum_meltdown(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -540,38 +546,37 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_kinetic_transition_point(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.1 · 全量探针审计版】精确判定价量加速度的动能转换点
-        - 修改思路：暴露 VPA 加速度原始值与其 HAB 背景，诊断为什么常年为 0。
-        - 版本号：V7.3.1
+        【V7.4.0 · 物理量纲全暴露版】判定价量加速度动能转换点
+        - 修改思路：打印 Z-Score 映射前的原始加速度与 HAB 均值对比。
+        - 版本号：V7.4.0
         """
         acc_v = raw_signals['VPA_ACCELERATION_5D']
         acc_h = raw_signals['HAB_LONG_VPA_ACCELERATION_5D']
         acc_s = raw_signals['HAB_STD_VPA_ACCELERATION_5D']
         acc_z = (acc_v - acc_h) / acc_s
-        slp_v = raw_signals.get('SLOPE_5_VPA_ACCELERATION_5D', pd.Series(0, index=df_index))
+        slp_v = raw_signals['SLOPE_5_VPA_ACCELERATION_5D']
         slp_inv = 1 / (1 + np.exp(slp_v * 10))
         trans_score = (np.tanh(acc_z.clip(0)) * slp_inv).clip(0, 1)
-        _temp_debug_values["kinetic_transition"] = {"score": trans_score}
-        print(f"[NODE_PROBE] KineTrans - AccRaw: {acc_v.iloc[-1]:.4f}, AccHab: {acc_h.iloc[-1]:.4f}, AccStd: {acc_s.iloc[-1]:.4f}")
+        print(f"[NODE_EXPOSURE] KineTrans - AccRaw: {acc_v.iloc[-1]:.4f}, AccHab: {acc_h.iloc[-1]:.4f}, AccStd: {acc_s.iloc[-1]:.4f}")
         print(f"  > SlpRaw: {slp_v.iloc[-1]:.4f}, SlpInvFactor: {slp_inv.iloc[-1]:.4f}, FinalTrans: {trans_score.iloc[-1]:.4f}")
         return trans_score
 
     def _perform_final_fusion(self, df_index: pd.Index, conviction_score: pd.Series, resilience_score: pd.Series, deception_filter: pd.Series, stealth_bonus: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】执行全息衰减终核融合
-        - 修改思路：针对 nan 重灾区，打印所有乘分项与减分项。
-        - 版本号：V7.3.0
+        【V7.4.0 · 物理量纲全暴露版】终核融合：暴露 nan 污染链条
+        - 修改思路：打印指数幂运算前的底数 RawNet，定位 nan 是否由负值底数引起。
+        - 版本号：V7.4.0
         """
         exp = params_dict['final_exponent']
         intensity = (conviction_score * 0.7 + resilience_score * 0.3).clip(0, 1)
         raw_net = (intensity * (2 - deception_filter) - stealth_bonus * 0.4)
         net_decay = raw_net.clip(-1, 1)
         final = np.sign(net_decay) * (net_decay.abs() ** exp)
-        print(f"\n--- [FINAL FUSION PROBE] ---")
-        print(f"  > Intensity: {intensity.iloc[-1]:.4f}, Filter: {deception_filter.iloc[-1]:.4f}")
-        print(f"  > StealthBonus: {stealth_bonus.iloc[-1]:.4f}, RawNet: {raw_net.iloc[-1]:.4f}")
-        print(f"  > FinalScore: {final.iloc[-1]:.4e}")
-        return final.clip(-1, 1).fillna(0)
+        print(f"\n[FINAL_FUSION_EXPOSURE]")
+        print(f"  > Intensity: {intensity.iloc[-1]:.4f} | Filter: {deception_filter.iloc[-1]:.4f}")
+        print(f"  > StealthBonus: {stealth_bonus.iloc[-1]:.4f} | RawNet: {raw_net.iloc[-1]:.4f}")
+        print(f"  > Final_With_Exp: {final.iloc[-1]:.4e}")
+        return final.clip(-1, 1)
 
 
 
