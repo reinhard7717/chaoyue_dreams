@@ -120,9 +120,9 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.2.4 · 信号完整映射版】确保原始指标与HAB背景同步载入字典
-        - 逻辑：修复 targets 仅计算 HAB 未存入字典的问题，彻底消除 KeyError。
-        - 版本号：V7.2.4
+        【V7.2.5 · 数据全景补全版】同步军械库全量指标并消除 Key 缺失风险
+        - 逻辑：遍历所有子计算模块需求，补全包括情绪、压力、强度在内的 30+ 指标。
+        - 版本号：V7.2.5
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
@@ -132,14 +132,15 @@ class CalculateWinnerConvictionDecay:
             'MA_COHERENCE_RESONANCE_D', 'PRICE_FRACTAL_DIM_D', 'industry_leader_score_D',
             'THEME_HOTNESS_SCORE_D', 'industry_rank_slope_D', 'breakout_potential_D', 'SMART_MONEY_SYNERGY_BUY_D',
             'MA_RUBBER_BAND_EXTENSION_D', 'industry_breadth_score_D', 'industry_stagnation_score_D',
-            'tick_abnormal_volume_ratio_D', 'breakout_quality_score_D'
+            'tick_abnormal_volume_ratio_D', 'breakout_quality_score_D', 'market_sentiment_score_D',
+            'uptrend_strength_D', 'pressure_profit_D', 'net_amount_ratio_D'
         ]
         for col in targets:
             series = self.helper._get_safe_series(df, col, 0.0)
-            raw_signals[col] = series # 核心修复：确保原始信号存入字典供逻辑方法调用
+            raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
             raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().replace(0, 1e-6)
-        full_kinetic = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D']
+        full_kinetic = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 'market_sentiment_score_D']
         for target in full_kinetic:
             for d_type in ['SLOPE', 'ACCEL', 'JERK']:
                 col_name = f'{d_type}_5_{target}'
@@ -161,6 +162,11 @@ class CalculateWinnerConvictionDecay:
         raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0)
         raw_signals['SMART_MONEY_HM_NET_BUY_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', 0.0)
         raw_signals['stealth_flow_ratio_D'] = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', 0.0)
+        raw_signals['hab_net_inflow'] = raw_signals['net_amount_ratio_D'].rolling(window=hab_cfg['medium']).sum().fillna(0)
+        raw_signals['hab_pressure_max'] = raw_signals['pressure_profit_D'].rolling(window=hab_cfg['medium']).max().replace(0, 1e-6)
+        raw_signals['industry_rank_accel_D'] = self.helper._get_safe_series(df, 'industry_rank_accel_D', 0.0)
+        raw_signals['intraday_distribution_confidence_D'] = self.helper._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0)
+        raw_signals['anomaly_intensity_D'] = self.helper._get_safe_series(df, 'anomaly_intensity_D', 0.0)
         return raw_signals
 
     def _calculate_parabolic_sprint_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -238,30 +244,27 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.1.1 · 混沌共振修复版】重构信念强度计算逻辑
-        - 逻辑：作为决策中枢，顺序激活并融合所有微观、宏观及长周期结构风险判定。
-        - 版本号：V7.1.1
+        【V7.2.5 · 逻辑链路完整版】顺序激活全量博弈判定模块
+        - 逻辑：作为决策总中枢，顺序调用并融合 15 个子模块的判定结果。
+        - 版本号：V7.2.5
         """
         weights = params_dict['belief_decay_weights']
-        # 1. 跨维度同步性衰减 [cite: 3]
-        sync_decay = -np.tanh((raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']) / raw_signals['HAB_STD_mid_long_sync_D'])
-        # 2. 依次激活所有博弈逻辑方法
-        para_risk = self._calculate_parabolic_sprint_risk(df_index, raw_signals, _temp_debug_values) # 抛物线 
-        vpa_risk = self._calculate_vpa_exhaustion_risk(df_index, raw_signals, _temp_debug_values) # VPA 
-        domino_risk = self._calculate_sector_spillover_domino_risk(df_index, raw_signals, _temp_debug_values) # 行业溢出 [cite: 2]
-        regime_risk = self._calculate_market_regime_switching_risk(df_index, raw_signals, _temp_debug_values) # 状态切换 
-        handover_risk = self._calculate_smart_money_handover_risk(df_index, raw_signals, _temp_debug_values) # 筹码置换 
-        collapse_risk = self._calculate_institutional_resonance_collapse(df_index, raw_signals, _temp_debug_values) # 机构共振 
-        stall_risk = self._calculate_institutional_stalling_jerk_risk(df_index, raw_signals, _temp_debug_values) # 失速冲击 
-        bellwether_risk = self._calculate_market_leader_bellwether_impact(df_index, raw_signals, _temp_debug_values) # 风向标 
-        anchor_risk = self._calculate_long_cycle_structural_anchor(df_index, raw_signals, _temp_debug_values) # 结构锚定 
-        trap_risk = self._calculate_false_golden_pit_trap(df_index, raw_signals, _temp_debug_values) # 黄金坑 
-        chaos_risk = self._calculate_chaotic_collapse_resonance(df_index, raw_signals, _temp_debug_values) # 混沌共振 
-        macro_risk = self._calculate_macro_sector_synergy(df_index, raw_signals, _temp_debug_values) # 行业滑坡 [cite: 2]
-        inst_erosion = self._calculate_institutional_erosion_index(df_index, raw_signals, _temp_debug_values) # 机构侵蚀 
-        vacuum_risk = self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values) # 真空熔断 
-        chain_risk = self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values) # 连锁崩塌 [cite: 3]
-        # 3. 执行物理权重融合
+        sync_decay = -np.tanh((raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals.get('SLOPE_5_mid_long_sync_D', 0.0)) / raw_signals['HAB_STD_mid_long_sync_D'])
+        para_risk = self._calculate_parabolic_sprint_risk(df_index, raw_signals, _temp_debug_values)
+        vpa_risk = self._calculate_vpa_exhaustion_risk(df_index, raw_signals, _temp_debug_values)
+        domino_risk = self._calculate_sector_spillover_domino_risk(df_index, raw_signals, _temp_debug_values)
+        regime_risk = self._calculate_market_regime_switching_risk(df_index, raw_signals, _temp_debug_values)
+        handover_risk = self._calculate_smart_money_handover_risk(df_index, raw_signals, _temp_debug_values)
+        collapse_risk = self._calculate_institutional_resonance_collapse(df_index, raw_signals, _temp_debug_values)
+        stall_risk = self._calculate_institutional_stalling_jerk_risk(df_index, raw_signals, _temp_debug_values)
+        bellwether_risk = self._calculate_market_leader_bellwether_impact(df_index, raw_signals, _temp_debug_values)
+        anchor_risk = self._calculate_long_cycle_structural_anchor(df_index, raw_signals, _temp_debug_values)
+        trap_risk = self._calculate_false_golden_pit_trap(df_index, raw_signals, _temp_debug_values)
+        chaos_risk = self._calculate_chaotic_collapse_resonance(df_index, raw_signals, _temp_debug_values)
+        macro_risk = self._calculate_macro_sector_synergy(df_index, raw_signals, _temp_debug_values)
+        inst_erosion = self._calculate_institutional_erosion_index(df_index, raw_signals, _temp_debug_values)
+        vacuum_risk = self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values)
+        chain_risk = self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values)
         fused_conviction = (
             sync_decay.clip(0) * weights["mid_long_sync_decay"] +
             chain_risk * weights["chain_collapse_resonance"] +
@@ -272,8 +275,8 @@ class CalculateWinnerConvictionDecay:
             para_risk * weights["parabolic_sprint_risk"] +
             regime_risk * weights["regime_switching_risk"]
         ).clip(-1, 1)
-        _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused_conviction, "chaos_risk": chaos_risk, "sync_decay": sync_decay})
-        print(f"[PROBE] 信念强度中枢 - 融合分值: {fused_conviction.iloc[-1]:.4f}, 混沌分分: {chaos_risk.iloc[-1]:.4f}, 连锁崩塌分: {chain_risk.iloc[-1]:.4f}")
+        _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused_conviction, "sync_decay": sync_decay, "chain_risk": chain_risk})
+        print(f"[PROBE] 终核决策 - 同步衰减: {sync_decay.iloc[-1]:.4f}, 连锁风险: {chain_risk.iloc[-1]:.4f}, 混沌风险: {chaos_risk.iloc[-1]:.4f}")
         return fused_conviction
 
     def _calculate_sector_spillover_domino_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -416,28 +419,21 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V4.6 · 动力学激活版】重构HAB抛压韧性，采用对数占比压缩
-        - 逻辑：当日流出与HAB流入的比例，使用Log2与Sigmoid结合映射至[-1, 1]。
+        【V7.2.5 · 鲁棒抛压版】基于HAB对齐的抛压韧性计算
+        - 逻辑：判定资金流出与历史峰值压力的占比。
+        - 版本号：V7.2.5
         """
-        # 1. 资金流出/HAB流入 占比激活
         current_outflow = raw_signals['net_amount_ratio_D'].clip(upper=0).abs()
         hab_inflow = raw_signals['hab_net_inflow'].clip(lower=1e-6)
-        # 计算流出占比的倍数
-        outflow_ratio = current_outflow / hab_inflow
-        # 使用对数缩放：log2(1.0)=0 代表均衡，>0 代表超额流出
-        log_ratio = np.log2(outflow_ratio + 0.5) # 偏移处理，防止低值塌陷
+        log_ratio = np.log2(current_outflow / hab_inflow + 0.5)
         flow_impact = np.tanh(log_ratio)
-        # 2. 抛压强度/HAB峰值 占比激活
         current_p = raw_signals['pressure_profit_D']
         hab_max_p = raw_signals['hab_pressure_max']
         pressure_ratio = current_p / hab_max_p
         pressure_impact = 2 / (1 + np.exp(-4 * (pressure_ratio - 0.5))) - 1
         resilience_score = (flow_impact * 0.5 + pressure_impact * 0.5).clip(-1, 1)
-        _temp_debug_values["hab_resilience"] = {
-            "flow_impact_tanh": flow_impact,
-            "pressure_impact_sigmoid": pressure_impact,
-            "resilience_score": resilience_score
-        }
+        _temp_debug_values["hab_resilience"] = {"flow_impact": flow_impact, "resilience_score": resilience_score}
+        print(f"[PROBE] 抛压韧性 - 流出影响: {flow_impact.iloc[-1]:.4f}, 韧性分: {resilience_score.iloc[-1]:.4f}")
         return resilience_score
 
     def _calculate_synergy_factor(self, conviction_strength_score: pd.Series, pressure_resilience_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
@@ -488,30 +484,22 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_contextual_modulator(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        【V4.6 · 动力学激活版】重构情境调制，基于动能衰竭模型的条件激活
-        - 逻辑：通过JERK判断情绪动能是否在加速度依然为正的情况下提前“泄力”。
+        【V7.2.5 · 动力学情境版】基于情绪动能衰竭的情境调制
+        - 逻辑：通过 JERK 判定情绪是否在加速期提前泄力。
+        - 版本号：V7.2.5
         """
-        # 1. 情绪高潮衰竭激活 (Exhaustion)
-        sent_accel = raw_signals['ACCEL_5_market_sentiment_score_D']
-        sent_jerk = raw_signals['JERK_5_market_sentiment_score_D']
-        # 捕捉“加速上升中的二阶力转负” (极度危险的情绪顶点)
+        sent_accel = raw_signals.get('ACCEL_5_market_sentiment_score_D', pd.Series(0.0, index=df_index))
+        sent_jerk = raw_signals.get('JERK_5_market_sentiment_score_D', pd.Series(0.0, index=df_index))
         exhaustion_raw = (sent_accel > 0) * (sent_jerk.clip(upper=0).abs())
-        ex_median = exhaustion_raw.rolling(21).median()
-        ex_mad = (exhaustion_raw - ex_median).abs().rolling(21).median().replace(0, 1e-6)
+        ex_mad = (exhaustion_raw - exhaustion_raw.rolling(21).median()).abs().rolling(21).median().replace(0, 1e-6)
         exhaustion_score = np.tanh(exhaustion_raw / (ex_mad * 3.0))
-        # 2. 趋势存量支持比率激活
         trend_val = raw_signals['uptrend_strength_D']
         trend_hab = raw_signals['HAB_LONG_uptrend_strength_D']
-        # 计算当前相对于存量的强弱，使用Sigmoid在1.0处提供平滑过渡
         support_ratio = trend_val / trend_hab.replace(0, 1e-6)
         norm_support = 2 / (1 + np.exp(-2 * support_ratio)) - 1
-        context_base = (1 - exhaustion_score * 0.8) * (0.5 + 0.5 * norm_support)
-        context_modulator = 0.5 + context_base.clip(0, 1)
-        _temp_debug_values["context_dynamics"] = {
-            "exhaustion_score": exhaustion_score,
-            "norm_support": norm_support,
-            "context_modulator": context_modulator
-        }
+        context_modulator = 0.5 + ((1 - exhaustion_score * 0.8) * (0.5 + 0.5 * norm_support)).clip(0, 1)
+        _temp_debug_values["context_dynamics"] = {"exhaustion": exhaustion_score, "modulator": context_modulator}
+        print(f"[PROBE] 情境调制 - 情绪耗尽分: {exhaustion_score.iloc[-1]:.4f}, 调制系数: {context_modulator.iloc[-1]:.4f}")
         return context_modulator
 
     def _calculate_stealth_accumulation_bonus(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
