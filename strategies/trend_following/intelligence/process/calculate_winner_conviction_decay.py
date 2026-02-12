@@ -113,9 +113,9 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.5.0 · 鲁棒量纲版】补全 MAD 物理保护，防止除零 nan 污染
-        - 修改思路：对所有 STD 和 MAD 背景执行 replace(0, 1e-6) 强制物理锁死。
-        - 版本号：V7.5.0
+        【V7.5.1 · 物理确定性增强版】源头拦截背景信号的 nan 污染
+        - 修改思路：在 replace 前增加 fillna(0)，确保统计量在数据不足时为 0 且随后被保底值替换。
+        - 版本号：V7.5.1
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
@@ -133,12 +133,12 @@ class CalculateWinnerConvictionDecay:
         for col in targets:
             series = self.helper._get_safe_series(df, col, 0.0)
             raw_signals[col] = series
-            raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
-            # 物理保护 1：背景标准差强制不为 0
-            raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().replace(0, 1e-6)
+            raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean().fillna(0)
+            # 强物理保底：先填补 nan 再替换 0
+            raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().fillna(0).replace(0, 1e-6)
             if col in ['tick_abnormal_volume_ratio_D', 'anomaly_intensity_D', 'tick_large_order_net_D']:
                 mad_val = (series - series.rolling(window=hab_cfg['long']).median()).abs().rolling(window=hab_cfg['long']).median()
-                raw_signals[f'HAB_MAD_{col}'] = mad_val.replace(0, 1e-6)
+                raw_signals[f'HAB_MAD_{col}'] = mad_val.fillna(0).replace(0, 1e-6)
         kinetic_targets = [
             'mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 
             'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 
@@ -152,16 +152,15 @@ class CalculateWinnerConvictionDecay:
                 raw_signals[col_name] = val
                 if d_type == 'JERK':
                     j_mad = (val - val.rolling(34).median()).abs().rolling(34).median()
-                    # 物理保护 2：动力学 MAD 强制不为 0
-                    raw_signals[f'HAB_MAD_{col_name}'] = j_mad.replace(0, 1e-6)
+                    raw_signals[f'HAB_MAD_{col_name}'] = j_mad.fillna(0).replace(0, 1e-6)
         raw_signals['STATE_PARABOLIC_WARNING_D'] = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
         raw_signals['STATE_MARKET_LEADER_D'] = self.helper._get_safe_series(df, 'STATE_MARKET_LEADER_D', 0.0)
         raw_signals['STATE_ROUNDING_BOTTOM_D'] = self.helper._get_safe_series(df, 'STATE_ROUNDING_BOTTOM_D', 0.0)
         raw_signals['STATE_GOLDEN_PIT_D'] = self.helper._get_safe_series(df, 'STATE_GOLDEN_PIT_D', 0.0)
         raw_signals['STATE_TRENDING_STAGE_D'] = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
         raw_signals['STATE_EMOTIONAL_EXTREME_D'] = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
-        raw_signals['hab_net_inflow'] = raw_signals['net_amount_ratio_D'].rolling(window=hab_cfg['medium']).sum().replace(0, 1e-6)
-        raw_signals['hab_pressure_max'] = raw_signals['pressure_profit_D'].rolling(window=hab_cfg['medium']).max().replace(0, 1e-6)
+        raw_signals['hab_net_inflow'] = raw_signals['net_amount_ratio_D'].rolling(window=hab_cfg['medium']).sum().fillna(0).replace(0, 1e-6)
+        raw_signals['hab_pressure_max'] = raw_signals['pressure_profit_D'].rolling(window=hab_cfg['medium']).max().fillna(0).replace(0, 1e-6)
         raw_signals['industry_rank_accel_D'] = self.helper._get_safe_series(df, 'industry_rank_accel_D', 0.0)
         raw_signals['intraday_distribution_confidence_D'] = self.helper._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0)
         return raw_signals
@@ -504,15 +503,17 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_stealth_accumulation_bonus(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.5.0 · 鲁棒量纲版】隐秘吸筹增益：消除 Z-Score 分母缺失导致的 nan
-        - 修改思路：标准化 STD 处理。
-        - 版本号：V7.5.0
+        【V7.5.1 · 物理确定性增强版】隐秘吸筹增益：强力拦截分母 nan
+        - 修改思路：利用 fillna(1e-7) 确保标准差分母始终有效。
+        - 版本号：V7.5.1
         """
-        s_v = raw_signals['stealth_flow_ratio_D']
-        s_h = raw_signals['HAB_LONG_stealth_flow_ratio_D']
-        s_s = raw_signals['HAB_STD_stealth_flow_ratio_D'].replace(0, 1e-7)
+        s_v = raw_signals['stealth_flow_ratio_D'].fillna(0)
+        s_h = raw_signals['HAB_LONG_stealth_flow_ratio_D'].fillna(0)
+        s_s = raw_signals['HAB_STD_stealth_flow_ratio_D'].fillna(1e-7).replace(0, 1e-7)
         st_z = np.tanh((s_v - s_h) / s_s)
-        bonus = (st_z.clip(0) * 0.5 + np.tanh(raw_signals['tick_chip_transfer_efficiency_D'] / 1e7).clip(0) * 0.5).clip(0, 1).fillna(0)
+        # 对转移效率执行常数缩放，防止量纲溢出
+        trans_eff = raw_signals['tick_chip_transfer_efficiency_D'].fillna(0) / 1e7
+        bonus = (st_z.clip(0) * 0.5 + np.tanh(trans_eff).clip(0) * 0.5).clip(0, 1).fillna(0)
         print(f"[NODE_AUDIT] StealthBonus - Z: {st_z.iloc[-1]:.4f}, Bonus: {bonus.iloc[-1]:.4f}")
         return bonus
 
