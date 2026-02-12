@@ -24,11 +24,10 @@ class CalculateWinnerConvictionDecay:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】计算流程调度中心
-        - 修改思路：移除防御性 fillna，增加启动日志。
-        - 版本号：V7.3.0
+        【V7.8.0 · 真空否决版】计算流程调度中心
+        - 版本号：V7.8.0
         """
-        print(f"\n{'#'*30} [CalculateWinnerConvictionDecay V7.3.0] 开始计算... {'#'*30}")
+        print(f"\n{'#'*30} [CalculateWinnerConvictionDecay V7.8.0] 开始计算... {'#'*30}")
         method_name = "calculate_winner_conviction_decay"
         is_debug_enabled = get_param_value(self.helper.debug_params.get('enabled'), False)
         probe_ts = None
@@ -43,6 +42,7 @@ class CalculateWinnerConvictionDecay:
         if not self.helper._validate_required_signals(df, all_required_signals, method_name): return pd.Series(dtype=np.float32)
         _temp_debug_values = {"conviction_dynamics": {}}
         raw_signals = self._get_raw_signals(df, df_index, params_dict, method_name)
+        # 顺序至关重要：Conviction 计算必须在 Resilience 之前，因为后者依赖前者的 Vacuum 风险
         conv_s = self._calculate_conviction_strength(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         res_s = self._calculate_pressure_resilience(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         dec_f = self._calculate_deception_filter(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
@@ -241,13 +241,19 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.7.0 · 稀释保护版】博弈中枢：实施活跃权重动态重整逻辑
-        - 修改思路：计算触发信号的权重占比，对 Conviction 进行动态补偿，防止多维度导致的 0 值稀释。
-        - 版本号：V7.7.0
+        【V7.8.0 · 真空否决版】博弈中枢：存储真空风险供韧性模块调用
+        - 修改思路：将 vacuum_risk 显式存入 debug 字典，打破模块间信息隔离。
+        - 版本号：V7.8.0
         """
         w = params_dict['belief_decay_weights']
         sync_decay = (-np.tanh((raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']) / raw_signals['HAB_STD_mid_long_sync_D'])).clip(0)
-        # 依次获取各子项结果（内部已含 0 值探针）
+        
+        # 1. 计算所有子风险
+        vacu_r = self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values)
+        
+        # [关键修改] 将真空风险持久化，供韧性模块使用
+        _temp_debug_values["cross_module_signals"] = {"vacuum_risk": vacu_r}
+
         sub_risks = {
             "mid_long_sync_decay": sync_decay,
             "parabolic_sprint_risk": self._calculate_parabolic_sprint_risk(df_index, raw_signals, _temp_debug_values),
@@ -263,11 +269,12 @@ class CalculateWinnerConvictionDecay:
             "chaotic_collapse_resonance": self._calculate_chaotic_collapse_resonance(df_index, raw_signals, _temp_debug_values),
             "macro_sector_slippage": self._calculate_macro_sector_synergy(df_index, raw_signals, _temp_debug_values),
             "inst_erosion_risk": self._calculate_institutional_erosion_index(df_index, raw_signals, _temp_debug_values),
-            "institutional_vacuum_meltdown": self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values),
+            "institutional_vacuum_meltdown": vacu_r,
             "chain_collapse_resonance": self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values),
             "kinetic_transition_impact": self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values)
         }
-        # 活跃权重重整：防止 silent 维度摊薄最终得分
+        
+        # 2. 活跃权重重整
         weighted_sum = pd.Series(0.0, index=df_index)
         active_weight_total = 0.0
         print(f"\n[CONVICTION_ACTIVE_WEIGHT_AUDIT]")
@@ -277,10 +284,10 @@ class CalculateWinnerConvictionDecay:
                 active_weight_total += w.get(key, 0.02)
                 print(f"  > ACTIVE: {key} | RawRisk: {current_risk:.4f} | Weight: {w.get(key):.3f}")
             weighted_sum += risk_series * w.get(key, 0.02)
-        # 如果有活跃信号，则除以活跃权重总和（带保底 0.4 防止单信号过载）
+            
         dilution_compensation = 1.0 / max(active_weight_total, 0.4)
         fused = (weighted_sum * dilution_compensation).clip(-1, 1).fillna(0)
-        _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused, "active_weight": active_weight_total})
+        _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused})
         print(f"  >> WeightedSum: {weighted_sum.iloc[-1]:.4f} | Compensation: {dilution_compensation:.2f} | FUSED_STRENGTH: {fused.iloc[-1]:.4f}")
         return fused
 
@@ -437,9 +444,9 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】重构抛压韧性计算
-        - 修改思路：打印流出比率 log2 分项，识别韧性分 0 值来源。
-        - 版本号：V7.3.0
+        【V7.8.0 · 真空否决版】抛压韧性：引入真空熔断否决逻辑
+        - 修改思路：当真空风险高企时，强制压低韧性分，物理上“没有买盘就没有韧性”。
+        - 版本号：V7.8.0
         """
         outflow = raw_signals['net_amount_ratio_D'].clip(upper=0).abs()
         hab_inflow = raw_signals['hab_net_inflow'].clip(lower=1e-6)
@@ -448,9 +455,16 @@ class CalculateWinnerConvictionDecay:
         curr_p = raw_signals['pressure_profit_D']
         hab_p_max = raw_signals['hab_pressure_max'].replace(0, 1e-6)
         press_imp = 2 / (1 + np.exp(-4 * (curr_p / hab_p_max - 0.5))) - 1
-        resilience = (flow_imp * 0.5 + press_imp * 0.5).clip(-1, 1)
-        print(f"[NODE_PROBE] Pressure_Resilience - FlowLogRatio: {log_ratio.iloc[-1]:.4f}, PressureRatio: {(curr_p/hab_p_max).iloc[-1]:.4f}")
-        return resilience
+        raw_resilience = (flow_imp * 0.5 + press_imp * 0.5).clip(-1, 1)
+        
+        # [关键修改] 获取真空风险并执行否决
+        # 如果真空风险为 1.0，韧性将被强制压至 -1.0
+        vacuum_risk = _temp_debug_values.get("cross_module_signals", {}).get("vacuum_risk", pd.Series(0.0, index=df_index)).fillna(0)
+        final_resilience = (raw_resilience * (1.0 - vacuum_risk) - vacuum_risk).clip(-1, 1)
+        
+        print(f"[NODE_PROBE] Pressure_Resilience - RawRes: {raw_resilience.iloc[-1]:.4f}, VacuumRisk: {vacuum_risk.iloc[-1]:.4f}")
+        print(f"  > FinalResilience (VacuumVetoed): {final_resilience.iloc[-1]:.4f}")
+        return final_resilience
 
     def _calculate_synergy_factor(self, conviction_strength_score: pd.Series, pressure_resilience_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
         """
