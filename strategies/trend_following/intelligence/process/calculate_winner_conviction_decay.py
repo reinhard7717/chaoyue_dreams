@@ -113,9 +113,9 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.4.0 · 物理量纲全暴露版】加载全量指标并强制打印末端值以暴露 nan 源头
-        - 修改思路：将 industry_breadth_score_D 等指标补入动力学循环，确保键值存在；打印原始值。
-        - 版本号：V7.4.0
+        【V7.4.1 · 物理数据透视版】强制加载全量指标并物理锁定 MAD 背景键值
+        - 修改思路：移除条件过滤，强制为 tick_abnormal_volume_ratio_D 生成 HAB_MAD 键，解决 KeyError。
+        - 版本号：V7.4.1
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
@@ -130,14 +130,17 @@ class CalculateWinnerConvictionDecay:
             'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'tick_chip_transfer_efficiency_D', 'anomaly_intensity_D', 'stealth_flow_ratio_D'
         ]
-        print(f"\n[ARMORY_DATA_EXPOSURE]")
+        print(f"\n[ARMORY_PHYSICAL_LOAD_PROBE]")
         for col in targets:
             series = self.helper._get_safe_series(df, col, np.nan)
             raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
             raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std()
-            print(f"  > {col}: {series.iloc[-1]:.4f} | HAB_STD: {raw_signals[f'HAB_STD_{col}'].iloc[-1]:.4f}")
-        # 补全动力学衍生键值：必须包含报错的 industry_breadth_score_D
+            # 强制为诡道过滤与三阶冲击生成 MAD 背景
+            if col in ['tick_abnormal_volume_ratio_D', 'anomaly_intensity_D', 'tick_large_order_net_D']:
+                raw_signals[f'HAB_MAD_{col}'] = (series - series.rolling(window=hab_cfg['long']).median()).abs().rolling(window=hab_cfg['long']).median()
+                print(f"  > KEY_CREATED: HAB_MAD_{col} | Val: {raw_signals[f'HAB_MAD_{col}'].iloc[-1]:.4e}")
+            print(f"  > SOURCE_DATA: {col} = {series.iloc[-1]:.4f}")
         kinetic_targets = [
             'mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 
             'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D', 
@@ -242,9 +245,9 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.4.0 · 物理量纲全暴露版】博弈中枢：强制暴露 16 维子项加权详情
-        - 修改思路：补全 kinetic_transition_impact 调用，并对所有加权项执行逐行探针打印。
-        - 版本号：V7.4.0
+        【V7.4.1 · 物理数据透视版】博弈中枢：补全 kinetic_transition_point 并暴露全量输出
+        - 修改思路：激活 16 个风险因子，强制打印每一个风险组件及其权重后得分。
+        - 版本号：V7.4.1
         """
         w = params_dict['belief_decay_weights']
         sync_num = raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']
@@ -264,11 +267,11 @@ class CalculateWinnerConvictionDecay:
         inst_e = self._calculate_institutional_erosion_index(df_index, raw_signals, _temp_debug_values)
         vacu_r = self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values)
         chai_r = self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values)
-        kine_t = self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values)
-        print(f"\n[CONVICTION_COMPONENT_EXPOSURE]")
-        print(f"  > SyncDcy: {sync_decay.iloc[-1]:.4f} | ChainRes: {chai_r.iloc[-1]:.4f} | ChaosRes: {chao_r.iloc[-1]:.4f}")
-        print(f"  > Vacuum: {vacu_r.iloc[-1]:.4f} | StallJrk: {stal_r.iloc[-1]:.4f} | KineTrans: {kine_t.iloc[-1]:.4f}")
-        print(f"  > MacroRisk: {macr_r.iloc[-1]:.4f} | ParaRisk: {para_r.iloc[-1]:.4f} | RegimeRisk: {regi_r.iloc[-1]:.4f}")
+        kine_t = self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values) # [正式补全调用]
+        print(f"\n[CONVICTION_STRENGTH_AUDIT]")
+        print(f"  > SyncDcy_W: {sync_decay.iloc[-1] * w['mid_long_sync_decay']:.4f} | Chain_W: {chai_r.iloc[-1] * w['chain_collapse_resonance']:.4f}")
+        print(f"  > Chaos_W: {chao_r.iloc[-1] * w['chaotic_collapse_resonance']:.4f} | Vacuum_W: {vacu_r.iloc[-1] * w['institutional_vacuum_meltdown']:.4f}")
+        print(f"  > Stall_W: {stal_r.iloc[-1] * w['institutional_stalling_jerk']:.4f} | KineT_W: {kine_t.iloc[-1] * w['kinetic_transition_impact']:.4f}")
         fused = (
             sync_decay.clip(0) * w["mid_long_sync_decay"] + chai_r * w["chain_collapse_resonance"] + 
             chao_r * w["chaotic_collapse_resonance"] + vacu_r * w["institutional_vacuum_meltdown"] + 
@@ -280,7 +283,7 @@ class CalculateWinnerConvictionDecay:
             trap_r * w["golden_trap_risk"] + inst_e * w["inst_erosion_risk"]
         ).clip(-1, 1)
         _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused})
-        print(f"  >> FINAL_FUSED_STRENGTH: {fused.iloc[-1]:.4f}")
+        print(f"  >> FINAL_CONVICTION_STRENGTH: {fused.iloc[-1]:.4f}")
         return fused
 
     def _calculate_sector_spillover_domino_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -461,13 +464,13 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】诡道过滤器：判定欺诈脉冲
-        - 修改思路：针对 nan 溢出重灾区，打印 MAD 分母与 Z 分子，暴露分母为 0 的风险。
-        - 版本号：V7.3.0
+        【V7.4.1 · 物理数据透视版】诡道过滤器：强引用索引并暴露 nan 污染链
+        - 修改思路：移除防御性获取，直接访问 MAD 背景键，通过探针暴露分母为 0 或 nan 的情况。
+        - 版本号：V7.4.1
         """
         abn_vol = raw_signals['tick_abnormal_volume_ratio_D']
         abn_hab = raw_signals['HAB_LONG_tick_abnormal_volume_ratio_D']
-        abn_mad = raw_signals['HAB_MAD_tick_abnormal_volume_ratio_D']
+        abn_mad = raw_signals['HAB_MAD_tick_abnormal_volume_ratio_D'] # [KeyError 发生点，强引用暴露问题]
         abn_num = abn_vol - abn_hab
         abn_den = abn_mad * 1.4826
         abn_z = np.tanh(abn_num / abn_den)
@@ -477,8 +480,10 @@ class CalculateWinnerConvictionDecay:
         trans_z = np.tanh((trans_v - trans_hab) / trans_std)
         vol_eff_gap = (abn_z.clip(0) - trans_z).clip(0)
         penalty = (vol_eff_gap * 0.4).clip(0, 1)
-        print(f"[NODE_PROBE] Deception_Filter - AbnNum: {abn_num.iloc[-1]:.4f}, AbnDenom: {abn_den.iloc[-1]:.4f}, AbnZ: {abn_z.iloc[-1]:.4f}")
-        print(f"  > Efficiency_Raw: {trans_v.iloc[-1]:.4e}, TransHab: {trans_hab.iloc[-1]:.4e}, TransZ: {trans_z.iloc[-1]:.4f}")
+        print(f"\n[DECEPTION_PHYSICS_AUDIT]")
+        print(f"  > AbnNum: {abn_num.iloc[-1]:.4f} | AbnDenom: {abn_den.iloc[-1]:.4e} | AbnZ: {abn_z.iloc[-1]:.4f}")
+        print(f"  > TransV: {trans_v.iloc[-1]:.4e} | TransHab: {trans_hab.iloc[-1]:.4e} | TransZ: {trans_z.iloc[-1]:.4f}")
+        print(f"  > VolEffGap: {vol_eff_gap.iloc[-1]:.4f} | FinalPenalty: {penalty.iloc[-1]:.4f}")
         return 1 - penalty
 
     def _calculate_contextual_modulator(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, is_debug_enabled: bool, probe_ts: pd.Timestamp) -> pd.Series:
