@@ -77,7 +77,7 @@ class CalculateStormEyeCalm:
         mrkb_factor = self._calculate_mean_reversion_kinetic_bias(df_index, raw_data)
         tes_factor = self._calculate_trend_energy_shearing(df_index, raw_data)
         final_latched_score = (latched_score * veto_factor * reward_factor * mrkb_factor * tes_factor).clip(0, 1)
-        print(f"--- [StormEye 生产输出] 评分: {final_latched_score.iloc[-1]:.4f} | 趋势剪切: {tes_factor.iloc[-1]:.4f} | 锁存倍率: {latch_multiplier[-1]:.2f} ---")
+        # print(f"--- [StormEye 生产输出] 评分: {final_latched_score.iloc[-1]:.4f} | 趋势剪切: {tes_factor.iloc[-1]:.4f} | 锁存倍率: {latch_multiplier[-1]:.2f} ---")
         return final_latched_score.astype(np.float32)
 
     def _calculate_fermi_dirac_gate(self, score_series: pd.Series, threshold: float = 0.5, beta: float = 10.0) -> pd.Series:
@@ -187,7 +187,7 @@ class CalculateStormEyeCalm:
         debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 风暴眼中的寂静诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
         for key, value in debug_output.items():
             if value:
-                print(f"{key}: {value}")
+                # print(f"{key}: {value}")
             else:
                 print(key)
 
@@ -340,7 +340,7 @@ class CalculateStormEyeCalm:
         struct_quality = self._calculate_physics_score(raw_data['chip_stability_D'], mode='limit_high', sensitivity=1.5)
         base_energy = (fcc_factor * 0.3 + vvc_factor * 0.3 + lrf_score * 0.4)
         final_energy = base_energy * struct_quality
-        print(f"  -- 最终能量组件分: {final_energy.iloc[-1]:.4f} | 稳定性因子: {struct_quality.iloc[-1]:.4f}")
+        # print(f"  -- 最终能量组件分: {final_energy.iloc[-1]:.4f} | 稳定性因子: {struct_quality.iloc[-1]:.4f}")
         return final_energy.clip(0, 1)
 
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -348,7 +348,7 @@ class CalculateStormEyeCalm:
         V53.1.1: 修复零基陷阱的量能真空组件。
         说明: 修正了 JERK_5_VPA_EFFICIENCY_D 缺失时的默认值类型，防止物理归一化引擎崩溃。
         """
-        print(f"--- [量能真空与自洽性修复探针] @ {df_index[-1]} ---")
+        # print(f"--- [量能真空与自洽性修复探针] @ {df_index[-1]} ---")
         turnover_score = self._calculate_physics_score(raw_data['turnover_rate_f_D'], mode='limit_low', sensitivity=25.0)
         trough_fill = self._calculate_physics_score(raw_data['intraday_trough_filling_degree_D'], mode='limit_high', sensitivity=3.0)
         mdb_factor = self._calculate_momentum_dissipation_balance(df_index, raw_data)
@@ -359,7 +359,7 @@ class CalculateStormEyeCalm:
         mf_eff = self._calculate_physics_score(raw_data['VPA_MF_ADJUSTED_EFF_D'], mode='limit_high', sensitivity=2.0)
         base_vac = (turnover_score * 0.3 + trough_fill * 0.7)
         final_vol = base_vac * mdb_factor * (0.6 + 0.4 * solid_factor) * (0.8 + 0.2 * mf_eff) * (1.0 - 0.3 * (1.0 - vpa_jerk))
-        print(f"  -- 基础地量分: {base_vac.iloc[-1]:.4f} | 量能锁存因子: {vpa_jerk.iloc[-1]:.4f}")
+        # print(f"  -- 基础地量分: {base_vac.iloc[-1]:.4f} | 量能锁存因子: {vpa_jerk.iloc[-1]:.4f}")
         return final_vol.clip(0, 1)
 
     def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
@@ -367,7 +367,7 @@ class CalculateStormEyeCalm:
         V27.0.2: 引入猎杀时间一致性的意图深度融合模型。
         逻辑：利用 HTC 校验协同攻击的战术纯度，过滤游资诱多杂音。 
         """
-        print(f"--- [主力意图与猎杀一致性集成探针] @ {df_index[-1]} ---")
+        # print(f"--- [主力意图与猎杀一致性集成探针] @ {df_index[-1]} ---")
         # 1. 猎杀协同频率 (CHF) 与突变 Jerk 
         chf_base = raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].rolling(window=8, min_periods=1).mean()
         chf_jerk_score = self._calculate_physics_score(raw_data.get('JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D', 0), mode='limit_high', sensitivity=25.0, denoise=True)
@@ -381,7 +381,7 @@ class CalculateStormEyeCalm:
         # 权重分配：HTC 作为 25% 的核心战术质量修正项
         base_intent = (stealth_score * 0.3 + migration_accel * 0.4 + (chf_base * 0.4 + chf_jerk_score * 0.6) * 0.3)
         final_intent = base_intent * (0.75 + 0.25 * htc_factor) * (0.7 + 0.3 * mf_hab)
-        print(f"  -- 基础意图分: {base_intent.iloc[-1]:.4f} | 时间一致性因子: {htc_factor.iloc[-1]:.4f} | 最终意图分: {final_intent.iloc[-1]:.4f}")
+        # print(f"  -- 基础意图分: {base_intent.iloc[-1]:.4f} | 时间一致性因子: {htc_factor.iloc[-1]:.4f} | 最终意图分: {final_intent.iloc[-1]:.4f}")
         return final_intent.clip(0, 1), {"stealth_score": stealth_score, "htc_factor": htc_factor}
 
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float, _temp_debug_values: Dict) -> pd.Series:
@@ -398,7 +398,7 @@ class CalculateStormEyeCalm:
         cleanse_score = self._calculate_physics_score(raw_data['winner_rate_D'], mode='limit_low', sensitivity=15.0)
         base_subdued = (pain_score.pow(0.4) * cleanse_score.pow(0.2))
         final_sentiment = (base_subdued * (1.0 + 0.3 * order_gain) * (0.4 + 0.2 * short_exhaustion + 0.2 * bipolar_gain + 0.2 * panic_resonance) + 0.25 * despair_burst)
-        print(f"  -- 最终情绪真空分: {final_sentiment.iloc[-1]:.4f} | 恐慌共振: {panic_resonance.iloc[-1]:.4f}")
+        # print(f"  -- 最终情绪真空分: {final_sentiment.iloc[-1]:.4f} | 恐慌共振: {panic_resonance.iloc[-1]:.4f}")
         return final_sentiment.clip(0, 1)
 
     def _calculate_breakout_readiness_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -406,7 +406,7 @@ class CalculateStormEyeCalm:
         V44.0.2: 引入博弈中性化因子的突破准备度终极矩阵。
         说明: 整合物理动能、摩擦衰减、执行质量与空间状态，实现起爆降维打击。
         """
-        print(f"--- [突破准备度-终极矩阵探针] @ {df_index[-1]} ---")
+        # print(f"--- [突破准备度-终极矩阵探针] @ {df_index[-1]} ---")
         grp_score = self._calculate_gravitational_regression_pull(df_index, raw_data)
         plr_score = self._calculate_phase_locked_resonance(df_index, raw_data)
         sed_score = self._calculate_short_exhaustion_divergence(df_index, raw_data)
@@ -425,7 +425,7 @@ class CalculateStormEyeCalm:
         state_part = (well_collapse * 0.25 + long_awakening * 0.25 + aded_score * 0.15 + stress_test * 0.15 + neutral_score * 0.2)
         acc_hab = self._calculate_historical_accumulation_buffer(raw_data['accumulation_signal_score_D'], windows=[21, 34])
         readiness = (momentum_part * 0.15 + friction_part * 0.15 + quality_part * 0.2 + state_part * 0.4 + 0.1) * (0.8 + 0.2 * acc_hab)
-        print(f"  -- 动能子层:{momentum_part.iloc[-1]:.4f} | 状态子层:{state_part.iloc[-1]:.4f} | 最终准备度:{readiness.iloc[-1]:.4f}")
+        # print(f"  -- 动能子层:{momentum_part.iloc[-1]:.4f} | 状态子层:{state_part.iloc[-1]:.4f} | 最终准备度:{readiness.iloc[-1]:.4f}")
         return readiness.clip(0, 1)
 
     def _calculate_market_regulator_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -433,7 +433,7 @@ class CalculateStormEyeCalm:
         V15.0.1: 行业轮动 Jerk 与宏观起爆调节器。
         逻辑：利用行业排名加速度的二级突变捕捉“个股寂静、板块点火”的临界瞬间。
         """
-        print(f"--- [宏观起爆调节探针] @ {df_index[-1]} ---")
+        # print(f"--- [宏观起爆调节探针] @ {df_index[-1]} ---")
         # 1. 行业预热 HAB 缓冲：确保板块热度具备存量底蕴 
         sector_preheat = raw_data['industry_preheat_score_D']
         sector_hab = self._calculate_historical_accumulation_buffer(sector_preheat, windows=[13, 21])
@@ -448,7 +448,7 @@ class CalculateStormEyeCalm:
         # 4. 环境风险抑制 (Fermi-Dirac 函数) [cite: 1]
         adx_raw = raw_data['ADX_14_D']
         adx_supp = 1.0 / (1.0 + np.exp(0.4 * (adx_raw - 28.0)))
-        print(f"  -- 行业HAB系数: {sector_hab.iloc[-1]:.4f} | 板块点火分: {sector_ignite_score.iloc[-1]:.4f} | 宏观共振: {macro_resonance.iloc[-1]:.4f}")
+        # print(f"  -- 行业HAB系数: {sector_hab.iloc[-1]:.4f} | 板块点火分: {sector_ignite_score.iloc[-1]:.4f} | 宏观共振: {macro_resonance.iloc[-1]:.4f}")
         # 最终调节系数：行业存量 * 宏观起爆奖赏 * 环境抑制
         # 基础系数 1.0，起爆瞬时最高可获得 1.5 倍加成
         final_modulator = (0.7 + 0.3 * sector_hab) * (1.0 + 0.5 * macro_resonance) * adx_supp
@@ -465,7 +465,7 @@ class CalculateStormEyeCalm:
         struct_boost = self._calculate_physics_score(raw_data['accumulation_signal_score_D'], mode='limit_high', sensitivity=1.0)
         hunting_boost = 1.0 + 0.4 * (raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].rolling(8).mean() * 0.5).fillna(0)
         final_score = base_score * ewd_factor * struct_boost * (1.0 + 0.5 * ext_calm) * hunting_boost
-        print(f"  -- 融合总分: {final_score.iloc[-1]:.4f} | 协同增益: {hunting_boost.iloc[-1]:.4f}")
+        # print(f"  -- 融合总分: {final_score.iloc[-1]:.4f} | 协同增益: {hunting_boost.iloc[-1]:.4f}")
         return final_score.clip(0, 1)
 
     def _calculate_trend_energy_shearing(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -473,13 +473,13 @@ class CalculateStormEyeCalm:
         V59.0.2: 趋势能量剪切模型 (TES)。
         说明: 量化 ADX 的高位坍塌速度，为阴跌末端的反转提供动力学背离确认。
         """
-        print(f"--- [趋势能量剪切探针] @ {df_index[-1]} ---")
+        # print(f"--- [趋势能量剪切探针] @ {df_index[-1]} ---")
         adx_raw = raw_data['ADX_14_D']
         adx_accel = raw_data.get('ACCEL_8_ADX_14_D', pd.Series(0.0, index=df_index))
         high_context = self._calculate_physics_score(adx_raw - 35.0, mode='limit_high', sensitivity=0.5)
         shearing_ignite = self._calculate_physics_score(adx_accel, mode='limit_low', sensitivity=15.0, denoise=True)
         shearing_factor = 1.0 + 0.2 * (high_context * shearing_ignite).pow(0.5)
-        print(f"  -- ADX强度: {adx_raw.iloc[-1]:.4f} | 剪切因子: {shearing_factor.iloc[-1]:.4f}")
+        # print(f"  -- ADX强度: {adx_raw.iloc[-1]:.4f} | 剪切因子: {shearing_factor.iloc[-1]:.4f}")
         return shearing_factor.fillna(1.0)
 
     def _calculate_historical_accumulation_buffer(self, daily_series: pd.Series, windows: list[int] = [13, 21, 34]) -> pd.Series:
@@ -494,7 +494,7 @@ class CalculateStormEyeCalm:
             buffer_factor = 1.0 - np.tanh(impact_ratio.clip(lower=-1, upper=0).abs() * 5.0)
             buffers.append(buffer_factor)
         final_buffer = pd.concat(buffers, axis=1).mean(axis=1).fillna(1.0)
-        print(f"  -- HAB 缓冲总状态: {final_buffer.iloc[-1]:.4f}")
+        # print(f"  -- HAB 缓冲总状态: {final_buffer.iloc[-1]:.4f}")
         return final_buffer
 
     def _calculate_consensus_entropy(self, scores_dict: dict[str, pd.Series]) -> pd.Series:
@@ -502,14 +502,14 @@ class CalculateStormEyeCalm:
         V40.0.0: 基于多维时空互信息熵的共振校验器。
         说明: 通过计算各物理分量的离散度与时序耦合度，动态识别“伪共振”信号。
         """
-        print(f"--- [时空互信息熵共振探针] 启动协同校验 ---")
+        # print(f"--- [时空互信息熵共振探针] 启动协同校验 ---")
         df_scores = pd.concat(scores_dict.values(), axis=1)
         dispersion = df_scores.std(axis=1).fillna(1.0)
         corr_matrix = df_scores.rolling(window=5).corr()
         coherence = corr_matrix.groupby(level=0).mean().mean(axis=1).fillna(0.0)
         disp_decay = np.exp(- (dispersion * 2.5) ** 2)
         final_decay = disp_decay * (0.6 + 0.4 * coherence.clip(0, 1))
-        print(f"  -- 离散度均值: {dispersion.mean():.4f} | 时序耦合度: {coherence.iloc[-1]:.4f} | 最终熵权因子: {final_decay.iloc[-1]:.4f}")
+        # print(f"  -- 离散度均值: {dispersion.mean():.4f} | 时序耦合度: {coherence.iloc[-1]:.4f} | 最终熵权因子: {final_decay.iloc[-1]:.4f}")
         return final_decay.clip(0, 1)
 
     def _calculate_pressure_backtest_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -517,7 +517,7 @@ class CalculateStormEyeCalm:
         V19.0.1: 压力回测模型 (Pressure Backtest)。
         逻辑：量化惩罚分对价格斜率的“衰减效应”，识别高压下的虚假突破。
         """
-        print(f"--- [压力回测压测探针] @ {df_index[-1]} ---")
+        # print(f"--- [压力回测压测探针] @ {df_index[-1]} ---")
         # 1. 惩罚分强度与斜率
         penalty_raw = raw_data['breakout_penalty_score_D']
         penalty_slope = raw_data.get('SLOPE_13_breakout_penalty_score_D', penalty_raw.diff(13))
@@ -532,7 +532,7 @@ class CalculateStormEyeCalm:
         backtest_factor = 1.0 - (resistance_intensity * np.tanh(np.maximum(0, price_v) * 10.0))
         # 5. 存量修正：消化后的压力不再是阻碍
         final_modulator = (backtest_factor * (1.0 - penalty_hab)) + penalty_hab
-        print(f"  -- 惩罚分强度: {penalty_raw.iloc[-1]:.4f} | 阻力系数: {resistance_intensity.iloc[-1]:.4f} | HAB消化度: {penalty_hab.iloc[-1]:.4f}")
+        # print(f"  -- 惩罚分强度: {penalty_raw.iloc[-1]:.4f} | 阻力系数: {resistance_intensity.iloc[-1]:.4f} | HAB消化度: {penalty_hab.iloc[-1]:.4f}")
         return final_modulator.clip(0.2, 1.0)
 
     def _calculate_level_stress_test_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -540,7 +540,7 @@ class CalculateStormEyeCalm:
         V23.0.1: 盘口关键位压测模型 (Level Stress Test)。
         逻辑：量化主力在阻力位利用开收盘加速度进行“暴力测压”的物理强度。
         """
-        print(f"--- [关键位压测探针] @ {df_index[-1]} ---")
+        # print(f"--- [关键位压测探针] @ {df_index[-1]} ---")
         # 1. OCH 加速度突变捕捉 (Jerk) 
         och_accel = raw_data['OCH_ACCELERATION_D']
         och_jerk = raw_data.get('JERK_5_OCH_ACCELERATION_D', och_accel.diff().diff())
@@ -554,7 +554,7 @@ class CalculateStormEyeCalm:
         level_weight = np.maximum(ma21_proximity, ma55_proximity)
         # 3. 压测评分：仅在阻力位附近且有阻力时，OCH 加速度才被视为“压测”
         stress_test_score = och_jerk_score * level_weight * self._calculate_physics_score(res_strength, mode='limit_high', sensitivity=1.0)
-        print(f"  -- OCH加速度: {och_accel.iloc[-1]:.4f} | 压测Jerk分: {och_jerk_score.iloc[-1]:.4f} | 均线临界度: {level_weight.iloc[-1]:.4f}")
+        # print(f"  -- OCH加速度: {och_accel.iloc[-1]:.4f} | 压测Jerk分: {och_jerk_score.iloc[-1]:.4f} | 均线临界度: {level_weight.iloc[-1]:.4f}")
         return stress_test_score.clip(0, 1)
 
     def _calculate_linear_resonance_failure(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -569,7 +569,7 @@ class CalculateStormEyeCalm:
         reg_slope = raw_data['GEOM_REG_SLOPE_D']
         slope_calm = self._calculate_physics_score(reg_slope, mode='zero_focus', sensitivity=40.0, denoise=True)
         failure_score = r2_hab * failure_burst * slope_calm
-        print(f"  -- R2共振失效评分: {failure_score.iloc[-1]:.4f}")
+        # print(f"  -- R2共振失效评分: {failure_score.iloc[-1]:.4f}")
         return failure_score.clip(0, 1)
 
     def _calculate_micro_order_gain(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -577,7 +577,7 @@ class CalculateStormEyeCalm:
         V25.0.1: 微观有序化增益模型 (Micro-Order Gain)。
         逻辑：量化价格熵的单调递减速率，识别主力高效率锁仓洗盘 。
         """
-        print(f"--- [微观有序化探针] @ {df_index[-1]} ---")
+        # print(f"--- [微观有序化探针] @ {df_index[-1]} ---")
         # 1. 价格熵原始值及其下降斜率 
         entropy_raw = raw_data['PRICE_ENTROPY_D']
         entropy_slope = raw_data.get('SLOPE_13_PRICE_ENTROPY_D', entropy_raw.diff(13))
@@ -591,7 +591,7 @@ class CalculateStormEyeCalm:
         # 5. 最终增益分：有序化趋势 * 价格静止度 * (1 - 历史高熵存量)
         # 如果历史存量熵极高，说明是单纯的沉寂；只有从高熵向低熵转化的过程才是增益 
         gain_score = orderly_score * price_calm * (1.0 - entropy_hab)
-        print(f"  -- 价格熵: {entropy_raw.iloc[-1]:.4f} | 有序化斜率分: {orderly_score.iloc[-1]:.4f} | 存量熵缓冲: {entropy_hab.iloc[-1]:.4f}")
+        # print(f"  -- 价格熵: {entropy_raw.iloc[-1]:.4f} | 有序化斜率分: {orderly_score.iloc[-1]:.4f} | 存量熵缓冲: {entropy_hab.iloc[-1]:.4f}")
         return gain_score.clip(0, 1)
 
     def _calculate_momentum_dissipation_balance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -599,7 +599,7 @@ class CalculateStormEyeCalm:
         V26.0.1: 动量耗散平衡模型 (Momentum Dissipation Balance)。
         逻辑：量化量价加速度向零轴收敛的对称性，识别“高能平衡”下的纯净静止。
         """
-        print(f"--- [动量耗散平衡探针] @ {df_index[-1]} ---")
+        # print(f"--- [动量耗散平衡探针] @ {df_index[-1]} ---")
         # 1. 量价加速度及其收敛脉冲 (Jerk)
         vpa_accel = raw_data['VPA_ACCELERATION_5D']
         vpa_accel_jerk = raw_data.get('JERK_5_VPA_ACCELERATION_5D', vpa_accel.diff().diff())
@@ -613,7 +613,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         # 5. 最终合成：耗散锁定 * 稳定性因子 * 价格静止度
         mdb_score = dissipation_focus * jerk_silence * price_calm
-        print(f"  -- VPA加速度: {vpa_accel.iloc[-1]:.4f} | 耗散锁定分: {dissipation_focus.iloc[-1]:.4f} | 耗散平衡分: {mdb_score.iloc[-1]:.4f}")
+        # print(f"  -- VPA加速度: {vpa_accel.iloc[-1]:.4f} | 耗散锁定分: {dissipation_focus.iloc[-1]:.4f} | 耗散平衡分: {mdb_score.iloc[-1]:.4f}")
         return mdb_score.clip(0, 1)
 
     def _calculate_hunting_temporal_coherence(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -621,7 +621,7 @@ class CalculateStormEyeCalm:
         V27.0.1: 猎杀时间一致性模型 (Hunting Temporal Coherence)。
         逻辑：量化协同攻击信号的时域分布熵，识别主力部队的有序集结节奏。 
         """
-        print(f"--- [猎杀一致性探针] @ {df_index[-1]} ---")
+        # print(f"--- [猎杀一致性探针] @ {df_index[-1]} ---")
         # 1. 提取协同攻击强度及其突变 Jerk 
         attack_raw = raw_data['HM_COORDINATED_ATTACK_D']
         attack_jerk = raw_data.get('JERK_5_HM_COORDINATED_ATTACK_D', attack_raw.diff().diff())
@@ -634,7 +634,7 @@ class CalculateStormEyeCalm:
         top_tier_activity = self._calculate_physics_score(raw_data['HM_ACTIVE_TOP_TIER_D'], mode='limit_high', sensitivity=2.0)
         # 5. 最终一致性系数：平稳性 * 节奏感 * 席位质量
         htc_score = temporal_stability * rhythm_score * (0.8 + 0.2 * top_tier_activity)
-        print(f"  -- 攻击强度: {attack_raw.iloc[-1]:.4f} | 稳定性分: {temporal_stability.iloc[-1]:.4f} | 一致性最终分: {htc_score.iloc[-1]:.4f}")
+        # print(f"  -- 攻击强度: {attack_raw.iloc[-1]:.4f} | 稳定性分: {temporal_stability.iloc[-1]:.4f} | 一致性最终分: {htc_score.iloc[-1]:.4f}")
         return htc_score.clip(0, 1)
 
     def _calculate_liquidity_solidification_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -642,7 +642,7 @@ class CalculateStormEyeCalm:
         V28.0.1: 流动性固化阈值模型 (Liquidity Solidification Threshold)。
         逻辑：量化换手率在低位的结构性稳定趋势，识别筹码从浮动向固化相变的瞬间。
         """
-        print(f"--- [流动性固化探针] @ {df_index[-1]} ---")
+        # print(f"--- [流动性固化探针] @ {df_index[-1]} ---")
         # 1. 换手稳定性索引及其斜率
         stability_raw = raw_data['TURNOVER_STABILITY_INDEX_D']
         stability_slope = raw_data.get('SLOPE_13_TURNOVER_STABILITY_INDEX_D', stability_raw.diff(13))
@@ -655,7 +655,7 @@ class CalculateStormEyeCalm:
         turnover_low = self._calculate_physics_score(raw_data['turnover_rate_f_D'], mode='limit_low', sensitivity=25.0)
         # 5. 最终固化因子：稳定性 * 增长趋势 * 存量缓冲 * 地量背景
         solidification_factor = stability_score * (0.7 + 0.3 * slope_growth) * stability_hab * turnover_low
-        print(f"  -- 稳定性值: {stability_raw.iloc[-1]:.4f} | 稳定性斜率分: {slope_growth.iloc[-1]:.4f} | 固化最终分: {solidification_factor.iloc[-1]:.4f}")
+        # print(f"  -- 稳定性值: {stability_raw.iloc[-1]:.4f} | 稳定性斜率分: {slope_growth.iloc[-1]:.4f} | 固化最终分: {solidification_factor.iloc[-1]:.4f}")
         return solidification_factor.clip(0, 1)
 
     def _calculate_amount_distribution_entropy_delta(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -668,7 +668,7 @@ class CalculateStormEyeCalm:
         interceptive_score = self._calculate_physics_score(entropy_slope, mode='limit_low', sensitivity=10.0, denoise=True)
         entropy_hab = self._calculate_historical_accumulation_buffer(entropy_raw, windows=[21])
         final_score = (interceptive_score * (1.0 - entropy_hab)).clip(0, 1)
-        print(f"  -- 浓度熵拦截评分: {final_score.iloc[-1]:.4f}")
+        # print(f"  -- 浓度熵拦截评分: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _calculate_seat_scatter_decay(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -676,7 +676,7 @@ class CalculateStormEyeCalm:
         V30.0.1: 席位散点衰减模型 (Seat Scatter Decay)。
         说明: 计算任何席位  与顶级席位  活跃度的差值变化，通过 Jerk 识别噪音资金的加速离场。
         """
-        print(f"--- [席位散点衰减探针] @ {df_index[-1]} ---")
+        # print(f"--- [席位散点衰减探针] @ {df_index[-1]} ---")
         # 1. 定义席位散点：总活跃度 - 核心活跃度 
         any_act = raw_data['HM_ACTIVE_ANY_D']
         top_act = raw_data['HM_ACTIVE_TOP_TIER_D']
@@ -689,7 +689,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         # 5. 最终衰减分：消失速度 * 环境静止度
         final_decay = decay_score * price_calm
-        print(f"  -- 散点活跃度: {scatter_raw.iloc[-1]:.4f} | 衰减Jerk分: {decay_score.iloc[-1]:.4f} | 最终衰减分: {final_decay.iloc[-1]:.4f}")
+        # print(f"  -- 散点活跃度: {scatter_raw.iloc[-1]:.4f} | 衰减Jerk分: {decay_score.iloc[-1]:.4f} | 最终衰减分: {final_decay.iloc[-1]:.4f}")
         return final_decay.clip(0, 1)
 
     def _calculate_gravitational_regression_pull(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -697,7 +697,7 @@ class CalculateStormEyeCalm:
         V31.0.1: 引力回归拉力模型 (Gravitational Regression Pull)。
         说明: 量化股价偏离 55 日均线产生的物理拉力，识别超跌相变的引力爆发点。 
         """
-        print(f"--- [引力回归拉力探针] @ {df_index[-1]} ---")
+        # print(f"--- [引力回归拉力探针] @ {df_index[-1]} ---")
         # 1. 55日乖离率及其回归加速度 
         bias_raw = raw_data['BIAS_55_D']
         bias_accel = raw_data.get('ACCEL_8_BIAS_55_D', bias_raw.diff().diff())
@@ -711,7 +711,7 @@ class CalculateStormEyeCalm:
         depth_score = self._calculate_physics_score(bias_raw, mode='limit_low', sensitivity=10.0)
         # 5. 最终引力拉力：深度权重 * 势能存量 * 激活加速度
         pull_score = depth_score * bias_hab * gravity_ignite
-        print(f"  -- BIAS_55: {bias_raw.iloc[-1]:.4f} | 势能HAB: {bias_hab.iloc[-1]:.4f} | 引力激活分: {gravity_ignite.iloc[-1]:.4f}")
+        # print(f"  -- BIAS_55: {bias_raw.iloc[-1]:.4f} | 势能HAB: {bias_hab.iloc[-1]:.4f} | 引力激活分: {gravity_ignite.iloc[-1]:.4f}")
         return pull_score.clip(0, 1)
 
     def _calculate_short_exhaustion_divergence(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -719,7 +719,7 @@ class CalculateStormEyeCalm:
         V32.0.1: 空头力竭背离模型 (Short Exhaustion Divergence)。
         说明: 量化空头趋向指标在价格静止期的加速崩塌，识别空头抛压的物理性终结。
         """
-        print(f"--- [空头力竭背离探针] @ {df_index[-1]} ---")
+        # print(f"--- [空头力竭背离探针] @ {df_index[-1]} ---")
         # 1. 提取空头指标及其加速崩塌脉冲 (Jerk)
         ndi_raw = raw_data['NDI_14_D']
         ndi_jerk = raw_data.get('JERK_5_NDI_14_D', ndi_raw.diff().diff().diff())
@@ -731,7 +731,7 @@ class CalculateStormEyeCalm:
         ndi_hab = self._calculate_historical_accumulation_buffer(ndi_raw, windows=[21])
         # 5. 最终背离分：力竭脉冲 * 环境静止度 * NDI存量意识
         divergence_score = exhaustion_score * price_calm * ndi_hab
-        print(f"  -- NDI原始值: {ndi_raw.iloc[-1]:.4f} | 力竭Jerk分: {exhaustion_score.iloc[-1]:.4f} | 背离最终分: {divergence_score.iloc[-1]:.4f}")
+        # print(f"  -- NDI原始值: {ndi_raw.iloc[-1]:.4f} | 力竭Jerk分: {exhaustion_score.iloc[-1]:.4f} | 背离最终分: {divergence_score.iloc[-1]:.4f}")
         return divergence_score.clip(0, 1)
 
     def _calculate_long_awakening_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -739,7 +739,7 @@ class CalculateStormEyeCalm:
         V33.0.1: 多头觉醒阈值模型 (Long Awakening Threshold)。
         说明: 量化多头趋向指标从低位钝化向主动进攻转化的动力学特征 。
         """
-        print(f"--- [多头觉醒阈值探针] @ {df_index[-1]} ---")
+        # print(f"--- [多头觉醒阈值探针] @ {df_index[-1]} ---")
         # 1. 提取多头指标及其点火脉冲 (Jerk)
         pdi_raw = raw_data['PDI_14_D']
         pdi_slope = raw_data.get('SLOPE_13_PDI_14_D', pdi_raw.diff(13))
@@ -753,7 +753,7 @@ class CalculateStormEyeCalm:
         pdi_hab = self._calculate_historical_accumulation_buffer(pdi_raw, windows=[21])
         # 5. 最终觉醒分：连续性权重 * 点火爆发力 * 存量压抑系数
         awakening_score = awakening_continuity * awakening_ignite * (1.0 - pdi_hab)
-        print(f"  -- PDI原始值: {pdi_raw.iloc[-1]:.4f} | 觉醒斜率分: {awakening_continuity.iloc[-1]:.4f} | 觉醒最终分: {awakening_score.iloc[-1]:.4f}")
+        # print(f"  -- PDI原始值: {pdi_raw.iloc[-1]:.4f} | 觉醒斜率分: {awakening_continuity.iloc[-1]:.4f} | 觉醒最终分: {awakening_score.iloc[-1]:.4f}")
         return awakening_score.clip(0, 1)
 
     def _calculate_abnormal_energy_overflow(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -761,7 +761,7 @@ class CalculateStormEyeCalm:
         V34.0.1: 异常能量溢出模型 (Abnormal Energy Overflow)。
         说明: 量化主力修正效率相对于成交额的非线性突变，识别隐秘的高效率建仓行为 。
         """
-        print(f"--- [异常能量溢出探针] @ {df_index[-1]} ---")
+        # print(f"--- [异常能量溢出探针] @ {df_index[-1]} ---")
         # 1. 提取主力修正效率及其 Jerk 脉冲
         mf_eff = raw_data['VPA_MF_ADJUSTED_EFF_D']
         eff_jerk = raw_data.get('JERK_5_VPA_MF_ADJUSTED_EFF_D', mf_eff.diff().diff().diff())
@@ -773,7 +773,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         # 5. 最终溢出分：效率脉冲 * 量能低位度 * 价格静止度
         overflow_score = overflow_ignite * amount_calm * price_calm
-        print(f"  -- 主力修正效率: {mf_eff.iloc[-1]:.4f} | 效率Jerk分: {overflow_ignite.iloc[-1]:.4f} | 能量溢出分: {overflow_score.iloc[-1]:.4f}")
+        # print(f"  -- 主力修正效率: {mf_eff.iloc[-1]:.4f} | 效率Jerk分: {overflow_ignite.iloc[-1]:.4f} | 能量溢出分: {overflow_score.iloc[-1]:.4f}")
         return overflow_score.clip(0, 1)
 
     def _calculate_phase_locked_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -781,7 +781,7 @@ class CalculateStormEyeCalm:
         V35.0.1: 相位锁定共振模型 (Phase-Locked Resonance)。
         说明: 量化价格加速度与量价加速度的时序协同度，识别多维动能同步锁定的反转瞬间 。
         """
-        print(f"--- [相位锁定共振探针] @ {df_index[-1]} ---")
+        # print(f"--- [相位锁定共振探针] @ {df_index[-1]} ---")
         # 1. 提取量价加速度与价格加速度 
         vpa_accel = raw_data['VPA_ACCELERATION_5D']
         price_accel = raw_data['MA_ACCELERATION_EMA_55_D']
@@ -795,7 +795,7 @@ class CalculateStormEyeCalm:
         vpa_jerk = self._calculate_physics_score(raw_data.get('JERK_5_VPA_ACCELERATION_5D', 0), mode='zero_focus', sensitivity=60.0, denoise=True)
         # 5. 最终共振分：收敛锁定 * 相位协同 * 稳定性
         plr_score = vpa_focus * price_focus * (0.5 + 0.5 * resonance_sim.clip(0, 1)) * vpa_jerk
-        print(f"  -- VPA加速度: {vpa_accel.iloc[-1]:.4f} | 价格加速度: {price_accel.iloc[-1]:.4f} | 相位共振分: {plr_score.iloc[-1]:.4f}")
+        # print(f"  -- VPA加速度: {vpa_accel.iloc[-1]:.4f} | 价格加速度: {price_accel.iloc[-1]:.4f} | 相位共振分: {plr_score.iloc[-1]:.4f}")
         return plr_score.clip(0, 1)
 
     def _calculate_split_order_pulse_entropy(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -803,7 +803,7 @@ class CalculateStormEyeCalm:
         V36.0.1: 拆单频率脉冲熵模型 (Split-Order Pulse Entropy)。
         说明: 量化异常成交比的 Jerk 稳定性，识别主力自动化建仓算法的规律性脉冲。 
         """
-        print(f"--- [拆单脉冲熵探针] @ {df_index[-1]} ---")
+        # print(f"--- [拆单脉冲熵探针] @ {df_index[-1]} ---")
         # 1. 提取分笔异常成交比及其 Jerk 导数 
         abnormal_raw = raw_data['tick_abnormal_volume_ratio_D']
         abnormal_jerk = raw_data.get('JERK_5_tick_abnormal_volume_ratio_D', abnormal_raw.diff().diff().diff())
@@ -818,7 +818,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         # 5. 最终拆单熵增益：有序度 * 价格静止度 
         sope_gain = order_score * price_calm
-        print(f"  -- 异常成交比: {abnormal_raw.iloc[-1]:.4f} | 脉冲有序分: {order_score.iloc[-1]:.4f} | 拆单熵最终分: {sope_gain.iloc[-1]:.4f}")
+        # print(f"  -- 异常成交比: {abnormal_raw.iloc[-1]:.4f} | 脉冲有序分: {order_score.iloc[-1]:.4f} | 拆单熵最终分: {sope_gain.iloc[-1]:.4f}")
         return sope_gain.clip(0, 1)
 
     def _calculate_efficiency_gradient_dissipation(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -826,7 +826,7 @@ class CalculateStormEyeCalm:
         V37.0.1: 效率梯度耗散模型 (Efficiency Gradient Dissipation)。
         说明: 量化主力修正效率的斜率收敛度，识别“高能锁筹”下的平滑能量耗散特征 [cite: 1, 3, 4]。
         """
-        print(f"--- [效率梯度耗散探针] @ {df_index[-1]} ---")
+        # print(f"--- [效率梯度耗散探针] @ {df_index[-1]} ---")
         # 1. 提取主力修正效率及其动力学梯度 (Slope, Accel)
         mf_eff = raw_data['VPA_MF_ADJUSTED_EFF_D']
         eff_slope = raw_data.get('SLOPE_13_VPA_MF_ADJUSTED_EFF_D', mf_eff.diff(13))
@@ -840,7 +840,7 @@ class CalculateStormEyeCalm:
         mf_activity = self._calculate_physics_score(raw_data['main_force_activity_index_D'], mode='limit_high', sensitivity=2.0)
         # 5. 最终耗散平衡分：稳定性 * 梯度锁定 * 活跃度补正
         egd_score = slope_stability * accel_lock * (0.8 + 0.2 * mf_activity)
-        print(f"  -- 修正效率值: {mf_eff.iloc[-1]:.4f} | 梯度锁定分: {accel_lock.iloc[-1]:.4f} | 耗散平衡分: {egd_score.iloc[-1]:.4f}")
+        # print(f"  -- 修正效率值: {mf_eff.iloc[-1]:.4f} | 梯度锁定分: {accel_lock.iloc[-1]:.4f} | 耗散平衡分: {egd_score.iloc[-1]:.4f}")
         return egd_score.clip(0, 1)
 
     def _calculate_potential_well_collapse(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -848,7 +848,7 @@ class CalculateStormEyeCalm:
         V38.0.1: 势能阱塌缩模型 (Potential Well Collapse)。
         说明: 量化黄金坑状态的 Jerk 脉冲，识别股价从“引力囚禁”向“逃逸加速”转换的相变瞬间。
         """
-        print(f"--- [势能阱塌缩探针] @ {df_index[-1]} ---")
+        # print(f"--- [势能阱塌缩探针] @ {df_index[-1]} ---")
         # 1. 提取黄金坑状态及其突变脉冲 (Jerk)
         pit_state = raw_data['STATE_GOLDEN_PIT_D']
         pit_jerk = raw_data.get('JERK_5_STATE_GOLDEN_PIT_D', pit_state.diff().diff().diff())
@@ -862,7 +862,7 @@ class CalculateStormEyeCalm:
         # 5. 最终塌缩分：状态活性 * (逃逸动能 * 0.8 + 囚禁抑制 * 0.2) * 环境静止度
         # 逻辑：处于黄金坑 且 产生逃逸脉冲 且 价格未大幅异动
         well_collapse_score = pit_state * (escape_ignite * 0.8 + (1.0 - trap_lock) * 0.2) * price_calm
-        print(f"  -- 黄金坑状态: {pit_state.iloc[-1]:.4f} | 逃逸Jerk分: {escape_ignite.iloc[-1]:.4f} | 塌缩最终分: {well_collapse_score.iloc[-1]:.4f}")
+        # print(f"  -- 黄金坑状态: {pit_state.iloc[-1]:.4f} | 逃逸Jerk分: {escape_ignite.iloc[-1]:.4f} | 塌缩最终分: {well_collapse_score.iloc[-1]:.4f}")
         return well_collapse_score.clip(0, 1)
 
     def _calculate_high_freq_kinetic_gap_fill(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -870,7 +870,7 @@ class CalculateStormEyeCalm:
         V41.0.1: 高频动能乖离回补模型 (High-Freq Kinetic Gap-Fill)。
         说明: 量化 5 日乖离率的弹性回补强度，识别短线极端超跌后的动力学“瞬时拉回” 。
         """
-        print(f"--- [高频动能回补探针] @ {df_index[-1]} ---")
+        # print(f"--- [高频动能回补探针] @ {df_index[-1]} ---")
         # 1. 提取短线与长线乖离率原料 
         bias5 = raw_data['BIAS_5_D']
         bias55 = raw_data['BIAS_55_D']
@@ -886,7 +886,7 @@ class CalculateStormEyeCalm:
         # 5. 结合价格静止校验：确保回补发生在起爆前夜的静止态 
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         final_fill_score = (elasticity * ignite * gap_score) * price_calm
-        print(f"  -- BIAS_5: {bias5.iloc[-1]:.4f} | 回补Jerk分: {ignite.iloc[-1]:.4f} | 最终回补分: {final_fill_score.iloc[-1]:.4f}")
+        # print(f"  -- BIAS_5: {bias5.iloc[-1]:.4f} | 回补Jerk分: {ignite.iloc[-1]:.4f} | 最终回补分: {final_fill_score.iloc[-1]:.4f}")
         return final_fill_score.clip(0, 1)
 
     def _calculate_volatility_vacuum_contraction(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -894,7 +894,7 @@ class CalculateStormEyeCalm:
         V42.0.1: 波动率真空收缩模型 (VVC)。
         说明: 量化 ATR 的高阶衰减特征，识别波动率进入绝对真空的临界瞬间。
         """
-        print(f"--- [波动率真空收缩探针] @ {df_index[-1]} ---")
+        # print(f"--- [波动率真空收缩探针] @ {df_index[-1]} ---")
         atr_raw = raw_data['ATR_14_D']
         atr_slope = raw_data.get('SLOPE_13_ATR_14_D', pd.Series(0.0, index=df_index))
         atr_jerk = raw_data.get('JERK_5_ATR_14_D', pd.Series(0.0, index=df_index))
@@ -903,7 +903,7 @@ class CalculateStormEyeCalm:
         vacuum_silence = self._calculate_physics_score(atr_jerk, mode='zero_focus', sensitivity=80.0, denoise=True)
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         vvc_score = atr_low_score * decay_purity * vacuum_silence * price_calm
-        print(f"  -- ATR值: {atr_raw.iloc[-1]:.4f} | 真空收缩评分: {vvc_score.iloc[-1]:.4f}")
+        # print(f"  -- ATR值: {atr_raw.iloc[-1]:.4f} | 真空收缩评分: {vvc_score.iloc[-1]:.4f}")
         return vvc_score.clip(0, 1)
 
     def _calculate_fan_curvature_collapse(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -911,7 +911,7 @@ class CalculateStormEyeCalm:
         V43.0.1: 扇面曲率坍塌模型 (FCC)。
         说明: 量化均线扇面效率的高阶衰减，捕捉几何结构向单点共振塌缩的瞬间。
         """
-        print(f"--- [扇面曲率塌缩探针] @ {df_index[-1]} ---")
+        # print(f"--- [扇面曲率塌缩探针] @ {df_index[-1]} ---")
         fan_raw = raw_data['MA_FAN_EFFICIENCY_D']
         fan_accel = raw_data.get('ACCEL_8_MA_FAN_EFFICIENCY_D', pd.Series(0.0, index=df_index))
         fan_jerk = raw_data.get('JERK_5_MA_FAN_EFFICIENCY_D', pd.Series(0.0, index=df_index))
@@ -920,7 +920,7 @@ class CalculateStormEyeCalm:
         fan_high_score = self._calculate_physics_score(fan_raw, mode='limit_high', sensitivity=1.2)
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         fcc_score = fan_high_score * accel_focus * jerk_silence * price_calm
-        print(f"  -- 扇面效率: {fan_raw.iloc[-1]:.4f} | 几何塌缩评分: {fcc_score.iloc[-1]:.4f}")
+        # print(f"  -- 扇面效率: {fan_raw.iloc[-1]:.4f} | 几何塌缩评分: {fcc_score.iloc[-1]:.4f}")
         return fcc_score.clip(0, 1)
 
     def _calculate_game_neutralization_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -928,7 +928,7 @@ class CalculateStormEyeCalm:
         V44.0.1: 多维博弈中性化模型 (Multi-Dimensional Game Neutralization)。
         说明: 量化开收盘强度 OCH_D 的一阶导数归零度，识别多空博弈的力量对等失重态。
         """
-        print(f"--- [博弈中性化探针] @ {df_index[-1]} ---")
+        # print(f"--- [博弈中性化探针] @ {df_index[-1]} ---")
         # 1. 提取开收盘强度及其一阶动力学梯度 (Slope)
         och_raw = raw_data['OCH_D']
         och_slope = raw_data.get('SLOPE_13_OCH_D', och_raw.diff(13))
@@ -941,7 +941,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         # 5. 最终中性化分：强度基准 * 梯度锁定 * 价格静止
         neutral_score = och_intensity * neutralization_focus * price_calm
-        print(f"  -- OCH强度: {och_raw.iloc[-1]:.4f} | 梯度锁定分: {neutralization_focus.iloc[-1]:.4f} | 博弈中性分: {neutral_score.iloc[-1]:.4f}")
+        # print(f"  -- OCH强度: {och_raw.iloc[-1]:.4f} | 梯度锁定分: {neutralization_focus.iloc[-1]:.4f} | 博弈中性分: {neutral_score.iloc[-1]:.4f}")
         return neutral_score.clip(0, 1)
 
     def _calculate_oversold_momentum_bipolarization(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -949,7 +949,7 @@ class CalculateStormEyeCalm:
         V45.0.1: 超卖区动能二极化模型 (OMB)。
         说明: 量化 RSI 钝化后的加速度反转斜率与量能一致性，识别暴力接管行为。
         """
-        print(f"--- [超卖动能二极化探针] @ {df_index[-1]} ---")
+        # print(f"--- [超卖动能二极化探针] @ {df_index[-1]} ---")
         rsi_raw = raw_data['RSI_13_D']
         rsi_accel = raw_data.get('ACCEL_8_RSI_13_D', pd.Series(0.0, index=df_index))
         accel_rev_slope = rsi_accel.diff(5)
@@ -959,7 +959,7 @@ class CalculateStormEyeCalm:
         bipolar_ratio = self._calculate_physics_score(accel_rev_slope * vol_consistency, mode='limit_high', sensitivity=20.0, denoise=True)
         price_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         omb_score = oversold_lock * bipolar_ratio * price_calm
-        print(f"  -- RSI值: {rsi_raw.iloc[-1]:.4f} | 二极化评分: {omb_score.iloc[-1]:.4f}")
+        # print(f"  -- RSI值: {rsi_raw.iloc[-1]:.4f} | 二极化评分: {omb_score.iloc[-1]:.4f}")
         return omb_score.clip(0, 1)
 
     def _calculate_kinetic_overflow_veto(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], bipolar_gain: pd.Series) -> pd.Series:
@@ -967,7 +967,7 @@ class CalculateStormEyeCalm:
         V47.0.1: 三级动能溢出熔断模型。
         说明: 量化价格脉冲与动能二极化的非典型背离，防止情绪顶点的热点追高。
         """
-        print(f"--- [三级动能溢出熔断探针] @ {df_index[-1]} ---")
+        # print(f"--- [三级动能溢出熔断探针] @ {df_index[-1]} ---")
         # 1. Level 1: RSI 超买耗尽 (Momentum Exhaustion)
         rsi_raw = raw_data['RSI_13_D']
         rsi_slope = raw_data.get('SLOPE_5_RSI_13_D', rsi_raw.diff(5))
@@ -985,7 +985,7 @@ class CalculateStormEyeCalm:
         veto_l3 = np.where((price_v > 0.6) & (bipolar_gain < 0.3), 0.6, 1.0)
         # 4. 熔断合成：取三级熔断的最严厉压制值
         final_veto = pd.Series(veto_l1 * veto_l2 * veto_l3, index=df_index)
-        print(f"  -- RSI状态: {rsi_raw.iloc[-1]:.4f} | L2量能脉冲: {vol_spike.iloc[-1]:.4f} | 最终熔断因子: {final_veto.iloc[-1]:.4f}")
+        # print(f"  -- RSI状态: {rsi_raw.iloc[-1]:.4f} | L2量能脉冲: {vol_spike.iloc[-1]:.4f} | 最终熔断因子: {final_veto.iloc[-1]:.4f}")
         return final_veto.clip(0.3, 1.0)
 
     def _calculate_spatio_temporal_asymmetric_reward(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], resonance_confirm: pd.Series) -> pd.Series:
@@ -993,13 +993,13 @@ class CalculateStormEyeCalm:
         V48.0.1: 多空时空非对称奖励模型 (STAR)。
         说明: 基于标的历史 120 日共振获利表现，提供个性化期望奖励。
         """
-        print(f"--- [时空非对称奖励探针] @ {df_index[-1]} ---")
+        # print(f"--- [时空非对称奖励探针] @ {df_index[-1]} ---")
         close = raw_data.get('close', pd.Series(1.0, index=df_index))
         fwd_ret = close.shift(-5) / close - 1.0
         hist_hit_mask = resonance_confirm.shift(5).fillna(False)
         expected_gain = (fwd_ret * hist_hit_mask).rolling(window=120, min_periods=10).mean()
         reward_factor = 1.0 + self._calculate_physics_score(expected_gain.clip(lower=0), mode='limit_high', sensitivity=4.0)
-        print(f"  -- 历史期望收益: {expected_gain.iloc[-1]:.4f} | 奖励系数: {reward_factor.iloc[-1]:.4f}")
+        # print(f"  -- 历史期望收益: {expected_gain.iloc[-1]:.4f} | 奖励系数: {reward_factor.iloc[-1]:.4f}")
         return reward_factor.fillna(1.0)
 
     def _calculate_extreme_panic_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -1007,7 +1007,7 @@ class CalculateStormEyeCalm:
         V50.0.1: 极值恐慌共振模型 (Extreme Panic Resonance)。
         说明: 量化痛感代理在黄金坑内部的 Jerk 峰值，识别主力收集“带血筹码”的物理瞬间。
         """
-        print(f"--- [极值恐慌共振探针] @ {df_index[-1]} ---")
+        # print(f"--- [极值恐慌共振探针] @ {df_index[-1]} ---")
         # 1. 提取痛感 Jerk (由 -JERK_5_profit_ratio_D 转换而来)
         pain_jerk = raw_data.get('JERK_5_pain_index_proxy', pd.Series(0.0, index=df_index))
         # 2. 映射恐慌爆发分：Jerk 越高，代表痛感增加的加速度越快，恐慌感越强
@@ -1016,7 +1016,7 @@ class CalculateStormEyeCalm:
         pit_state = raw_data['STATE_GOLDEN_PIT_D']
         # 4. 最终共振分：恐慌爆发脉冲 * 黄金坑状态激活
         resonance_score = panic_burst * pit_state
-        print(f"  -- 痛感Jerk分: {panic_burst.iloc[-1]:.4f} | 黄金坑状态: {pit_state.iloc[-1]:.4f} | 共振最终分: {resonance_score.iloc[-1]:.4f}")
+        # print(f"  -- 痛感Jerk分: {panic_burst.iloc[-1]:.4f} | 黄金坑状态: {pit_state.iloc[-1]:.4f} | 共振最终分: {resonance_score.iloc[-1]:.4f}")
         return resonance_score.clip(0, 1)
 
     def _clip_physical_outliers(self, series: pd.Series, window: int = 55, sigma_multiplier: float = 3.0) -> pd.Series:
@@ -1037,12 +1037,12 @@ class CalculateStormEyeCalm:
         V53.0.0: 自适应相变阈值模型 (APTT)。
         说明: 量化标的历史信噪比，动态调优 Fermi 门控激活阈值。
         """
-        print(f"--- [自适应阈值探针] @ {df_index[-1]} ---")
+        # print(f"--- [自适应阈值探针] @ {df_index[-1]} ---")
         price_v = raw_data['price_slope_raw']
         noise_cv = price_v.rolling(window=250, min_periods=60).std() / (price_v.rolling(window=250, min_periods=60).mean().abs() + 1e-9)
         adaptive_threshold = 0.45 * (0.8 + 0.5 * self._calculate_physics_score(noise_cv, mode='limit_high', sensitivity=2.0))
         adaptive_threshold = adaptive_threshold.fillna(0.45)
-        print(f"  -- 噪音系数: {noise_cv.iloc[-1]:.4f} | 动态阈值: {adaptive_threshold.iloc[-1]:.4f}")
+        # print(f"  -- 噪音系数: {noise_cv.iloc[-1]:.4f} | 动态阈值: {adaptive_threshold.iloc[-1]:.4f}")
         return adaptive_threshold
 
     def _calculate_mean_reversion_kinetic_bias(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -1050,7 +1050,7 @@ class CalculateStormEyeCalm:
         V57.0.2: 均值回归动力学修正模型 (MRKB)。
         说明: 量化股价偏离半年线的引力拉力与回归加速度，为信号提供额外弹性加成。
         """
-        print(f"--- [均值回归动力学探针] @ {df_index[-1]} ---")
+        # print(f"--- [均值回归动力学探针] @ {df_index[-1]} ---")
         # 1. 提取半年线乖离比率与回归加速度
         bias144 = raw_data['price_vs_ma_144_ratio']
         accel144 = raw_data.get('ACCEL_8_price_vs_ma_144_ratio', pd.Series(0.0, index=df_index))
@@ -1060,7 +1060,7 @@ class CalculateStormEyeCalm:
         slingshot_ignite = self._calculate_physics_score(accel144, mode='limit_high', sensitivity=15.0, denoise=True)
         # 4. 最终回归偏置：基础 1.0，最高获得 1.25 倍引力加成
         bias_factor = 1.0 + 0.25 * (depth_reward * slingshot_ignite).pow(0.5)
-        print(f"  -- MA144乖离比: {bias144.iloc[-1]:.4f} | 回归加速度分: {slingshot_ignite.iloc[-1]:.4f} | 回归偏置: {bias_factor.iloc[-1]:.4f}")
+        # print(f"  -- MA144乖离比: {bias144.iloc[-1]:.4f} | 回归加速度分: {slingshot_ignite.iloc[-1]:.4f} | 回归偏置: {bias_factor.iloc[-1]:.4f}")
         return bias_factor.fillna(1.0)
 
 
