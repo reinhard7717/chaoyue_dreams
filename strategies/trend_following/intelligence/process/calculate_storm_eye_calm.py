@@ -44,12 +44,11 @@ class CalculateStormEyeCalm:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        V53.2.0: 全量整合版主入口逻辑。
-        说明: 包含 Fermi-Dirac 自适应门控、三级熔断、STAR 奖励以及物理限幅自洽性校验。
+        V59.0.3: 集成趋势能量剪切(TES)与引力弹弓(MRKB)的生产级终极计算流程。
+        说明: 融合自适应阈值门控、状态锁存、三级熔断及多维动力学修正，实现对反转起爆的极限捕捉。
         """
         method_name = "calculate_storm_eye_calm"
-        print(f"--- [{method_name}] @ 拆单吸筹强度 探针开始 ---")
-        self.last_df_index = df.index # 存储索引供辅助方法使用
+        self.last_df_index = df.index
         df_index = df.index
         params = self._get_storm_eye_calm_params(config)
         raw_data = self._get_raw_and_atomic_data(df, method_name, params)
@@ -60,29 +59,24 @@ class CalculateStormEyeCalm:
         sentiment_score = self._calculate_subdued_market_sentiment_component(df_index, raw_data, params['subdued_market_sentiment_weights'], 21, 55, 1.0, 0.2, _temp_debug_values)
         readiness_score = self._calculate_breakout_readiness_component(df_index, raw_data, params['breakout_readiness_weights'], _temp_debug_values)
         dynamic_threshold = self._calculate_adaptive_phase_transition_threshold(df_index, raw_data)
-        gate_energy = self._calculate_fermi_dirac_gate(energy_score, threshold=dynamic_threshold, beta=12.0)
-        gate_volume = self._calculate_fermi_dirac_gate(volume_score, threshold=dynamic_threshold, beta=12.0)
-        gate_intent = self._calculate_fermi_dirac_gate(intent_score, threshold=dynamic_threshold, beta=12.0)
-        gate_sentiment = self._calculate_fermi_dirac_gate(sentiment_score, threshold=dynamic_threshold, beta=12.0)
-        gate_readiness = self._calculate_fermi_dirac_gate(readiness_score, threshold=dynamic_threshold, beta=12.0)
         component_scores = {
-            'energy': energy_score * gate_energy, 'volume': volume_score * gate_volume,
-            'intent': intent_score * gate_intent, 'sentiment': sentiment_score * gate_sentiment,
-            'readiness': readiness_score * gate_readiness
+            'energy': energy_score * self._calculate_fermi_dirac_gate(energy_score, threshold=dynamic_threshold, beta=12.0),
+            'volume': volume_score * self._calculate_fermi_dirac_gate(volume_score, threshold=dynamic_threshold, beta=12.0),
+            'intent': intent_score * self._calculate_fermi_dirac_gate(intent_score, threshold=dynamic_threshold, beta=12.0),
+            'sentiment': sentiment_score * self._calculate_fermi_dirac_gate(sentiment_score, threshold=dynamic_threshold, beta=12.0),
+            'readiness': readiness_score * self._calculate_fermi_dirac_gate(readiness_score, threshold=dynamic_threshold, beta=12.0)
         }
         final_fusion_score = self._perform_final_fusion(df_index, component_scores, params['final_fusion_weights'], {}, {}, raw_data, _temp_debug_values)
-        regime_modulator = self._calculate_market_regulator_modulator(df_index, raw_data, params, _temp_debug_values)
-        raw_final_score = final_fusion_score * regime_modulator
-        ewd_factor = self._calculate_consensus_entropy(component_scores)
-        resonance_confirm = (raw_final_score > 0.4) & (ewd_factor > 0.7)
-        latch_count = resonance_confirm.rolling(window=5, min_periods=1).sum()
-        latch_multiplier = np.where(latch_count >= 3, 1.2, 1.0)
-        latched_score = raw_final_score.rolling(window=3, min_periods=1).mean() * latch_multiplier
-        bipolar_gain = self._calculate_oversold_momentum_bipolarization(df_index, raw_data)
-        veto_factor = self._calculate_kinetic_overflow_veto(df_index, raw_data, bipolar_gain)
+        raw_final_score = final_fusion_score * self._calculate_market_regulator_modulator(df_index, raw_data, params, _temp_debug_values)
+        resonance_confirm = (raw_final_score > 0.4) & (self._calculate_consensus_entropy(component_scores) > 0.7)
+        latch_multiplier = np.where(resonance_confirm.rolling(5, min_periods=1).sum() >= 3, 1.2, 1.0)
+        latched_score = raw_final_score.rolling(3, min_periods=1).mean() * latch_multiplier
+        veto_factor = self._calculate_kinetic_overflow_veto(df_index, raw_data, self._calculate_oversold_momentum_bipolarization(df_index, raw_data))
         reward_factor = self._calculate_spatio_temporal_asymmetric_reward(df_index, raw_data, resonance_confirm)
-        final_latched_score = (latched_score * veto_factor * reward_factor).clip(0, 1)
-        print(f"  -- 最终输出: {final_latched_score.iloc[-1]:.4f} | 锁存次数: {latch_count.iloc[-1]} | 动态阈值: {dynamic_threshold.iloc[-1]:.4f}")
+        mrkb_factor = self._calculate_mean_reversion_kinetic_bias(df_index, raw_data)
+        tes_factor = self._calculate_trend_energy_shearing(df_index, raw_data)
+        final_latched_score = (latched_score * veto_factor * reward_factor * mrkb_factor * tes_factor).clip(0, 1)
+        print(f"--- [StormEye 生产输出] 评分: {final_latched_score.iloc[-1]:.4f} | 趋势剪切: {tes_factor.iloc[-1]:.4f} | 锁存倍率: {latch_multiplier[-1]:.2f} ---")
         return final_latched_score.astype(np.float32)
 
     def _calculate_fermi_dirac_gate(self, score_series: pd.Series, threshold: float = 0.5, beta: float = 10.0) -> pd.Series:
@@ -224,8 +218,8 @@ class CalculateStormEyeCalm:
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> list[str]:
         """
-        V56.0.0: 军械库原子化合规清单 (无 NaN 信号版)。
-        说明: 剔除 price_grid_D 与 chip_structure_state_D，改用浓度熵与筹码稳定性。
+        V56.0.0: 军械库原子化合规清单。
+        说明: 彻底移除所有非军械库原生的衍生列，确保 df[col] 访问安全。
         """
         required_signals = [
             'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
@@ -246,25 +240,16 @@ class CalculateStormEyeCalm:
             'OCH_ACCELERATION_D', 'OCH_D', 'PDI_14_D', 'NDI_14_D', 'price_vs_ma_21_ratio_D', 
             'price_vs_ma_55_ratio_D', 'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 
             'amount_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D',
-            'STATE_GOLDEN_PIT_D', 'BIAS_5_D', 'MA_FAN_EFFICIENCY_D', 'RSI_13_D', 'close'
+            'STATE_GOLDEN_PIT_D', 'BIAS_5_D', 'MA_FAN_EFFICIENCY_D', 'RSI_13_D', 'close', 'MA_144_D'
         ]
         return list(set(required_signals))
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V55.0.1: 具备 NaN 全面监控的数据矩阵引擎。
-        说明: 在生成导数前对军械库原始列进行 NaN 探测，暴露数据源层面的空值问题。
+        V58.0.1: 生产级物理限幅数据引擎。
+        说明: 生成 104 项动力学指标并在生成后立即执行 3-Sigma 限幅校验。
         """
-        raw_data = {}
-        target_columns = self._get_required_signals(params, {}, [])
-        print(f"--- [数据源 NaN 扫描探针] @ {df.index[-1]} ---")
-        for col in target_columns:
-            if col in df.columns:
-                raw_data[col] = df[col]
-                if pd.isna(df[col].iloc[-1]): print(f"  !! [警告] 原始列 {col} 在当前时点为 NaN")
-            else:
-                print(f"[WARNING] 军械库清单中未发现列: {col}")
-        # 1. 动态生成导数并执行物理限幅
+        raw_data = {col: df[col] for col in self._get_required_signals(params, {}, []) if col in df.columns}
         raw_data['JERK_5_VPA_ACCELERATION_5D'] = self._clip_physical_outliers(raw_data['VPA_ACCELERATION_5D'].diff().diff().diff())
         raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['VPA_MF_ADJUSTED_EFF_D'].diff(13))
         raw_data['ACCEL_8_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'].diff(8))
@@ -300,31 +285,28 @@ class CalculateStormEyeCalm:
         raw_data['ACCEL_8_BIAS_5_D'] = self._clip_physical_outliers(raw_data['BIAS_5_D'].diff().diff())
         raw_data['SLOPE_5_RSI_13_D'] = self._clip_physical_outliers(raw_data['RSI_13_D'].diff(5))
         raw_data['SLOPE_5_market_sentiment_score_D'] = self._clip_physical_outliers(raw_data['market_sentiment_score_D'].diff(5))
-        # 2. 补齐代理与历史存量原料
+        raw_data['SLOPE_13_ADX_14_D'] = self._clip_physical_outliers(raw_data['ADX_14_D'].diff(13))
+        raw_data['ACCEL_8_ADX_14_D'] = self._clip_physical_outliers(raw_data['SLOPE_13_ADX_14_D'].diff(8))
+        raw_data['price_vs_ma_144_ratio'] = raw_data['close'] / (raw_data['MA_144_D'] + 1e-9)
+        raw_data['ACCEL_8_price_vs_ma_144_ratio'] = self._clip_physical_outliers(raw_data['price_vs_ma_144_ratio'].diff().diff())
         raw_data['pain_index_proxy'] = 1.0 - raw_data['profit_ratio_D']
         raw_data['JERK_5_profit_ratio_D'] = self._clip_physical_outliers(raw_data['profit_ratio_D'].diff().diff().diff())
         raw_data['JERK_5_pain_index_proxy'] = raw_data['JERK_5_profit_ratio_D'] * -1.0
         raw_data['price_slope_raw'] = raw_data['SLOPE_5_market_sentiment_score_D']
         raw_data['net_mf_sum_13'] = raw_data['net_mf_amount_D'].rolling(window=13, min_periods=1).sum()
         raw_data['net_mf_sum_21'] = raw_data['net_mf_amount_D'].rolling(window=21, min_periods=1).sum()
-        # 监控导数生成后的状态
-        nan_count = sum(1 for v in raw_data.values() if pd.isna(v.iloc[-1]))
-        print(f"  -- 导数矩阵扫描: 生成列总数 {len(raw_data)}, 当前时点 NaN 计数: {nan_count}")
         return raw_data
 
     def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False) -> pd.Series:
         """
         V53.1.0: 物理归一化引擎（合规增强版）。
-        说明: 修复了输入非 Series 类型导致的 rolling 崩溃问题，增强了 denoise 逻辑的鲁棒性。
+        说明: 修复非 Series 类型输入引发的滚动计算错误，确保降噪逻辑在所有物理分量中安全生效。
         """
-        # 强制类型转换，防止 'int' object has no attribute 'rolling' 错误
         if not isinstance(series, pd.Series):
-            series = pd.Series(float(series), index=getattr(self, 'last_df_index', series.index if hasattr(series, 'index') else []))
-        if denoise:
-            # 只有当 series 长度足以计算 rolling 时才进行降噪
-            if len(series) >= 21:
-                noise_floor = series.rolling(window=21).std().fillna(0) * 0.1
-                series = series.where(series.abs() > noise_floor, 0.0)
+            series = pd.Series(float(series), index=getattr(self, 'last_df_index', []))
+        if denoise and len(series) >= 21:
+            noise_floor = series.rolling(window=21).std().fillna(0) * 0.1
+            series = series.where(series.abs() > noise_floor, 0.0)
         if mode == 'limit_low':
             return 1.0 - np.tanh(series.abs() * sensitivity)
         elif mode == 'limit_high':
@@ -349,18 +331,15 @@ class CalculateStormEyeCalm:
     def _calculate_energy_compression_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
         V56.0.2: 基于筹码稳定性的能量压缩模型。
-        说明: 置换 chip_structure_state_D 信号，利用稳定度作为结构乘数。
+        说明: 融合 FCC、VVC 与线性失效因子，并利用 chip_stability_D 执行结构性压实。
         """
-        print(f"--- [能量压缩与稳定性集成探针] @ {df_index[-1]} ---")
         fcc_factor = self._calculate_fan_curvature_collapse(df_index, raw_data)
         vvc_factor = self._calculate_volatility_vacuum_contraction(df_index, raw_data)
         lrf_score = self._calculate_linear_resonance_failure(df_index, raw_data)
-        # 置换核心：使用 chip_stability_D
         struct_quality = self._calculate_physics_score(raw_data['chip_stability_D'], mode='limit_high', sensitivity=1.5)
-        # 最终能量合成
         base_energy = (fcc_factor * 0.3 + vvc_factor * 0.3 + lrf_score * 0.4)
         final_energy = base_energy * struct_quality
-        print(f"  -- 几何塌缩: {fcc_factor.iloc[-1]:.4f} | 筹码稳定度: {struct_quality.iloc[-1]:.4f} | 最终能量: {final_energy.iloc[-1]:.4f}")
+        print(f"  -- 最终能量组件分: {final_energy.iloc[-1]:.4f} | 稳定性因子: {struct_quality.iloc[-1]:.4f}")
         return final_energy.clip(0, 1)
 
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -407,28 +386,18 @@ class CalculateStormEyeCalm:
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float, _temp_debug_values: Dict) -> pd.Series:
         """
         V50.0.2: 引入极值恐慌共振的情绪深度融合模型。
-        说明: 利用 EPR 因子捕捉黄金坑末端的带血筹码收集行为，确证情绪底部的真实性。
+        说明: 整合痛感代理、空头力竭与 OMB 因子，识别洗盘末端的恐慌反转点。
         """
-        print(f"--- [情绪与极值恐慌共振集成探针] @ {df_index[-1]} ---")
-        # 1. 痛感代理与绝望脉冲 (1.0 - profit_ratio)
         pain_score = self._calculate_physics_score(raw_data['pain_index_proxy'], mode='limit_high', sensitivity=3.0)
         despair_burst = self._calculate_physics_score(raw_data.get('JERK_5_pain_index_proxy', 0), mode='limit_high', sensitivity=20.0, denoise=True)
-        # 2. 存量情绪与趋势静止度
-        sent_hab = self._calculate_historical_accumulation_buffer(raw_data['market_sentiment_score_D'], windows=[21])
-        slope_silence = self._calculate_physics_score(raw_data.get('SLOPE_13_market_sentiment_score_D', 0), mode='zero_focus', sensitivity=50.0, denoise=True)
-        # 3. 接入物理分量：空头力竭(SED)、二极化接管(OMB) 与 极值恐慌共振(EPR)
         short_exhaustion = self._calculate_short_exhaustion_divergence(df_index, raw_data)
         bipolar_gain = self._calculate_oversold_momentum_bipolarization(df_index, raw_data)
         panic_resonance = self._calculate_extreme_panic_resonance(df_index, raw_data)
-        # 4. 微观有序化增益与获利盘清洗校验
         order_gain = self._calculate_micro_order_gain(df_index, raw_data)
         cleanse_score = self._calculate_physics_score(raw_data['winner_rate_D'], mode='limit_low', sensitivity=15.0)
-        # 5. 非线性情绪融合合成：(基础底迷 * 锁仓有序性) * (1 + 物理力竭 + 二极化接管 + 恐慌共振) + 绝望补偿
-        # 权重分配：EPR 作为 20% 的极值修正项，强化坑底反转信号
-        base_subdued = (pain_score.pow(0.4) * slope_silence.pow(0.3) * sent_hab.pow(0.3) * cleanse_score.pow(0.2))
+        base_subdued = (pain_score.pow(0.4) * cleanse_score.pow(0.2))
         final_sentiment = (base_subdued * (1.0 + 0.3 * order_gain) * (0.4 + 0.2 * short_exhaustion + 0.2 * bipolar_gain + 0.2 * panic_resonance) + 0.25 * despair_burst)
-        print(f"  -- 恐慌共振分: {panic_resonance.iloc[-1]:.4f} | 最终情绪真空分: {final_sentiment.iloc[-1]:.4f}")
-        _temp_debug_values["市场情绪矩阵"] = {"base": base_subdued, "panic_resonance": panic_resonance}
+        print(f"  -- 最终情绪真空分: {final_sentiment.iloc[-1]:.4f} | 恐慌共振: {panic_resonance.iloc[-1]:.4f}")
         return final_sentiment.clip(0, 1)
 
     def _calculate_breakout_readiness_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -486,38 +455,45 @@ class CalculateStormEyeCalm:
 
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: dict[str, pd.Series], final_fusion_weights: dict, price_calmness_params: dict, main_force_control_params: dict, raw_data: dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        V56.0.3: 融合链路军械库合规版。
-        说明: 使用 accumulation_signal_score_D 执行结构性增益，彻底剔除缺失信号。
+        V58.0.5: 融合链路生产优化版。
+        说明: 利用 accumulation_signal_score_D 实现结构增益，维持协同猎杀动力学逻辑。
         """
-        print(f"--- [最终融合合规化探针] @ {df_index[-1]} ---")
         ewd_factor = self._calculate_consensus_entropy(component_scores)
         base_score = _robust_geometric_mean(component_scores, final_fusion_weights, df_index)
-        # 动力学补偿
         ext_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
-        int_boil = self._calculate_physics_score(raw_data.get('ACCEL_8_intraday_cost_center_migration_D', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=20.0)
-        # 结构性增益置换：使用 accumulation_signal_score_D
         struct_boost = self._calculate_physics_score(raw_data['accumulation_signal_score_D'], mode='limit_high', sensitivity=1.0)
-        final_score = base_score * ewd_factor * struct_boost * (1.0 + 0.5 * ext_calm * int_boil)
-        print(f"  -- 基础融合分: {base_score.iloc[-1]:.4f} | 累积增益: {struct_boost.iloc[-1]:.4f} | 最终分状态: {final_score.iloc[-1]:.4f}")
+        hunting_boost = 1.0 + 0.4 * (raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].rolling(8).mean() * 0.5).fillna(0)
+        final_score = base_score * ewd_factor * struct_boost * (1.0 + 0.5 * ext_calm) * hunting_boost
+        print(f"  -- 融合总分: {final_score.iloc[-1]:.4f} | 协同增益: {hunting_boost.iloc[-1]:.4f}")
         return final_score.clip(0, 1)
+
+    def _calculate_trend_energy_shearing(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
+        """
+        V59.0.2: 趋势能量剪切模型 (TES)。
+        说明: 量化 ADX 的高位坍塌速度，为阴跌末端的反转提供动力学背离确认。
+        """
+        print(f"--- [趋势能量剪切探针] @ {df_index[-1]} ---")
+        adx_raw = raw_data['ADX_14_D']
+        adx_accel = raw_data.get('ACCEL_8_ADX_14_D', pd.Series(0.0, index=df_index))
+        high_context = self._calculate_physics_score(adx_raw - 35.0, mode='limit_high', sensitivity=0.5)
+        shearing_ignite = self._calculate_physics_score(adx_accel, mode='limit_low', sensitivity=15.0, denoise=True)
+        shearing_factor = 1.0 + 0.2 * (high_context * shearing_ignite).pow(0.5)
+        print(f"  -- ADX强度: {adx_raw.iloc[-1]:.4f} | 剪切因子: {shearing_factor.iloc[-1]:.4f}")
+        return shearing_factor.fillna(1.0)
 
     def _calculate_historical_accumulation_buffer(self, daily_series: pd.Series, windows: list[int] = [13, 21, 34]) -> pd.Series:
         """
-        V55.0.4: HAB 缓冲记忆深度解构版。
-        说明: 解构存量与当日流量的比例计算，暴露缓冲系数失效的物理原因。
+        V58.0.4: HAB 存量缓冲记忆生产版。
+        说明: 移除解构探针，维持多周期累积存量对当日信号的调节能力。
         """
-        print(f"--- [HAB 深度解构探针] 启动时域积分检查 ---")
         buffers = []
         for w in windows:
             acc_sum = daily_series.rolling(window=w, min_periods=w//2).sum()
             impact_ratio = daily_series / (acc_sum.abs() + 1e-9)
             buffer_factor = 1.0 - np.tanh(impact_ratio.clip(lower=-1, upper=0).abs() * 5.0)
             buffers.append(buffer_factor)
-            if pd.isna(buffer_factor.iloc[-1]):
-                print(f"  !! [HAB 崩溃] 周期 {w}: daily_val={daily_series.iloc[-1]:.4f}, acc_sum={acc_sum.iloc[-1]:.4f}")
-            else:
-                print(f"  -- 周期 {w} 存量均值: {acc_sum.iloc[-1]:.2f} | 缓冲状态: {buffer_factor.iloc[-1]:.4f}")
         final_buffer = pd.concat(buffers, axis=1).mean(axis=1).fillna(1.0)
+        print(f"  -- HAB 缓冲总状态: {final_buffer.iloc[-1]:.4f}")
         return final_buffer
 
     def _calculate_consensus_entropy(self, scores_dict: dict[str, pd.Series]) -> pd.Series:
@@ -582,23 +558,17 @@ class CalculateStormEyeCalm:
 
     def _calculate_linear_resonance_failure(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V55.0.3: 线性共振失效深度探针版。
-        说明: 输出 R2 拟合度及其加速度差分的全路径数值，定位 NaN 传递节点。
+        V58.0.3: 线性共振失效生产模型。
+        说明: 清除分步差分监控，恢复 R2 拟合结构瓦解判定。
         """
-        print(f"--- [线性共振失效深度探针] @ {df_index[-1]} ---")
         r2_raw = raw_data['GEOM_REG_R2_D']
-        # 手动差分以暴露过程
-        r2_diff1 = r2_raw.diff()
-        r2_accel = r2_diff1.diff(7) # 模拟 ACCEL_8
+        r2_accel = r2_raw.diff().diff(7)
         r2_hab = self._calculate_historical_accumulation_buffer(r2_raw, windows=[21])
         failure_burst = self._calculate_physics_score(r2_accel.abs(), mode='limit_high', sensitivity=15.0, denoise=True)
         reg_slope = raw_data['GEOM_REG_SLOPE_D']
         slope_calm = self._calculate_physics_score(reg_slope, mode='zero_focus', sensitivity=40.0, denoise=True)
         failure_score = r2_hab * failure_burst * slope_calm
-        if pd.isna(failure_score.iloc[-1]):
-            print(f"  !! [NaN 报警] R2_raw: {r2_raw.iloc[-1]:.4f} | R2_diff1: {r2_diff1.iloc[-1]:.4f} | R2_accel: {r2_accel.iloc[-1]:.4f}")
-            print(f"  !! [NaN 报警] R2_hab: {r2_hab.iloc[-1]:.4f} | failure_burst: {failure_burst.iloc[-1]:.4f} | slope_calm: {slope_calm.iloc[-1]:.4f}")
-        print(f"  -- R2原始值: {r2_raw.iloc[-1]:.4f} | 最终失效分: {failure_score.iloc[-1]:.4f}")
+        print(f"  -- R2共振失效评分: {failure_score.iloc[-1]:.4f}")
         return failure_score.clip(0, 1)
 
     def _calculate_micro_order_gain(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -689,19 +659,15 @@ class CalculateStormEyeCalm:
 
     def _calculate_amount_distribution_entropy_delta(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V56.0.1: 筹码浓度熵增量模型 (取代成交分布熵)。
-        说明: 利用浓度熵的负向斜率识别主力的“拦截式有序化”行为，规避价格网格信号缺失。
+        V58.0.2: 浓度熵增量生产模型。
+        说明: 利用浓度熵差分识别主力有序化行为，替代缺失的成交分布熵模型。
         """
-        print(f"--- [筹码浓度熵增量探针] @ {df_index[-1]} ---")
-        # 使用 concentration_entropy_D 替代 amount / price_grid
         entropy_raw = raw_data['concentration_entropy_D']
-        # 计算熵减速度：斜率为负代表有序度增加
         entropy_slope = entropy_raw.diff(13)
         interceptive_score = self._calculate_physics_score(entropy_slope, mode='limit_low', sensitivity=10.0, denoise=True)
-        # 结合 HAB 缓冲：判定有序化的时域厚度
         entropy_hab = self._calculate_historical_accumulation_buffer(entropy_raw, windows=[21])
         final_score = (interceptive_score * (1.0 - entropy_hab)).clip(0, 1)
-        print(f"  -- 浓度熵: {entropy_raw.iloc[-1]:.4f} | 有序化评分: {final_score.iloc[-1]:.4f}")
+        print(f"  -- 浓度熵拦截评分: {final_score.iloc[-1]:.4f}")
         return final_score
 
     def _calculate_seat_scatter_decay(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
@@ -1078,7 +1044,23 @@ class CalculateStormEyeCalm:
         print(f"  -- 噪音系数: {noise_cv.iloc[-1]:.4f} | 动态阈值: {adaptive_threshold.iloc[-1]:.4f}")
         return adaptive_threshold
 
-
+    def _calculate_mean_reversion_kinetic_bias(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
+        """
+        V57.0.2: 均值回归动力学修正模型 (MRKB)。
+        说明: 量化股价偏离半年线的引力拉力与回归加速度，为信号提供额外弹性加成。
+        """
+        print(f"--- [均值回归动力学探针] @ {df_index[-1]} ---")
+        # 1. 提取半年线乖离比率与回归加速度
+        bias144 = raw_data['price_vs_ma_144_ratio']
+        accel144 = raw_data.get('ACCEL_8_price_vs_ma_144_ratio', pd.Series(0.0, index=df_index))
+        # 2. 超跌深度奖励：股价越远低于半年线，势能越大 (目标 Bias < 0.85)
+        depth_reward = self._calculate_physics_score(bias144, mode='limit_low', sensitivity=5.0)
+        # 3. 回归动力学激活：当加速度转正，代表引力弹弓启动
+        slingshot_ignite = self._calculate_physics_score(accel144, mode='limit_high', sensitivity=15.0, denoise=True)
+        # 4. 最终回归偏置：基础 1.0，最高获得 1.25 倍引力加成
+        bias_factor = 1.0 + 0.25 * (depth_reward * slingshot_ignite).pow(0.5)
+        print(f"  -- MA144乖离比: {bias144.iloc[-1]:.4f} | 回归加速度分: {slingshot_ignite.iloc[-1]:.4f} | 回归偏置: {bias_factor.iloc[-1]:.4f}")
+        return bias_factor.fillna(1.0)
 
 
 
