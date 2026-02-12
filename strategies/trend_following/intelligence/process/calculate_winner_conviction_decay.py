@@ -29,6 +29,7 @@ class CalculateWinnerConvictionDecay:
         - 版本号：V7.1.1
         """
         method_name = "calculate_winner_conviction_decay"
+        print(f"【{method_name}】开始计算...")
         is_debug_enabled = get_param_value(self.helper.debug_params.get('enabled'), False)
         probe_ts = None
         if is_debug_enabled and self.helper.probe_dates:
