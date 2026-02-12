@@ -75,9 +75,9 @@ class CalculateWinnerConvictionDecay:
 
     def _get_decay_params_and_signals(self, config: Dict, method_name: str) -> Tuple[Dict, List[str]]:
         """
-        【V7.6.0 · 物理信号保护版】重构权重体系与非线性压缩指数
-        - 修改思路：下调 final_exponent 以防止微弱信号坍塌；补全所有军械库依赖列。
-        - 版本号：V7.6.0
+        【V7.7.0 · 稀释保护版】重构非线性压缩指数与依赖清单
+        - 修改思路：下调 exponent 至 3.5 防止信号坍塌；补全所有军械库监控列。
+        - 版本号：V7.7.0
         """
         decay_params = get_param_value(config.get('winner_conviction_decay_params'), {})
         fibo_periods = ["5", "13", "21", "34"]
@@ -86,7 +86,7 @@ class CalculateWinnerConvictionDecay:
             "institutional_vacuum_meltdown": 0.10, "institutional_stalling_jerk": 0.10, "kinetic_transition_impact": 0.10,
             "macro_sector_slippage": 0.05, "parabolic_sprint_risk": 0.05, "regime_switching_risk": 0.05,
             "structural_anchor_risk": 0.04, "vpa_exhaustion_risk": 0.04, "sector_domino_risk": 0.04,
-            "handover_risk": 0.04, "resonance_collapse_risk": 0.04, "golden_trap_risk": 0.03, "inst_erosion_risk": 0.02
+            "handover_risk": 0.04, "resonance_collapse_risk": 0.03, "golden_trap_risk": 0.03, "inst_erosion_risk": 0.03
         }
         required_df_columns = [
             'mid_long_sync_D', 'volatility_adjusted_concentration_D', 'STATE_TRENDING_STAGE_D',
@@ -109,7 +109,7 @@ class CalculateWinnerConvictionDecay:
             'decay_params': decay_params, 'fibo_periods': fibo_periods, 'belief_decay_weights': belief_decay_weights,
             'hab_settings': {"short": 13, "medium": 21, "long": 34},
             'latch_params': {"window": 5, "hit_count": 3, "high_score_threshold": 0.618, "core_threshold": 0.382, "momentum_protection_factor": 0.95, "entropy_threshold": 0.75},
-            'vacuum_threshold': 0.1, 'final_exponent': 8.0 # [修正：防止信号在幂运算后消失]
+            'vacuum_threshold': 0.1, 'final_exponent': 3.5 # [修正：3.5 次幂保证信号具备穿透力]
         }
         return params_dict, list(set(required_df_columns))
 
@@ -241,78 +241,79 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.6.0 · 物理信号保护版】博弈中枢：强化 0 值数据穿透探针
-        - 修改思路：打印每项权重的原始输入（Raw）与加权后分值（W-Score），识别“虚假 0 值”。
-        - 版本号：V7.6.0
+        【V7.7.0 · 稀释保护版】博弈中枢：实施活跃权重动态重整逻辑
+        - 修改思路：计算触发信号的权重占比，对 Conviction 进行动态补偿，防止多维度导致的 0 值稀释。
+        - 版本号：V7.7.0
         """
         w = params_dict['belief_decay_weights']
-        # 1. 跨维度同步性：增加 Raw 原始值探针
-        sync_raw = raw_signals['mid_long_sync_D'].iloc[-1]
-        sync_num = raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']
-        sync_decay = -np.tanh(sync_num / raw_signals['HAB_STD_mid_long_sync_D'])
-        # 2. 调用子风险判定
-        para_r = self._calculate_parabolic_sprint_risk(df_index, raw_signals, _temp_debug_values)
-        vpa_r = self._calculate_vpa_exhaustion_risk(df_index, raw_signals, _temp_debug_values)
-        domi_r = self._calculate_sector_spillover_domino_risk(df_index, raw_signals, _temp_debug_values)
-        regi_r = self._calculate_market_regime_switching_risk(df_index, raw_signals, _temp_debug_values)
-        hand_r = self._calculate_smart_money_handover_risk(df_index, raw_signals, _temp_debug_values)
-        coll_r = self._calculate_institutional_resonance_collapse(df_index, raw_signals, _temp_debug_values)
-        stal_r = self._calculate_institutional_stalling_jerk_risk(df_index, raw_signals, _temp_debug_values)
-        bell_r = self._calculate_market_leader_bellwether_impact(df_index, raw_signals, _temp_debug_values)
-        anch_r = self._calculate_long_cycle_structural_anchor(df_index, raw_signals, _temp_debug_values)
-        trap_r = self._calculate_false_golden_pit_trap(df_index, raw_signals, _temp_debug_values)
-        chao_r = self._calculate_chaotic_collapse_resonance(df_index, raw_signals, _temp_debug_values)
-        macr_r = self._calculate_macro_sector_synergy(df_index, raw_signals, _temp_debug_values)
-        inst_e = self._calculate_institutional_erosion_index(df_index, raw_signals, _temp_debug_values)
-        vacu_r = self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values)
-        chai_r = self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values)
-        kine_t = self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values)
-        # 3. 全量输出审计（包含 0 值来源）
-        print(f"\n[CONVICTION_COMPONENT_RAW_AUDIT]")
-        print(f"  > Sync(Raw:{sync_raw:.1f}) W-Score: {sync_decay.iloc[-1]*w['mid_long_sync_decay']:.4f}")
-        print(f"  > Vacuum(Raw:{raw_signals['SMART_MONEY_INST_NET_BUY_D'].iloc[-1]:.1f}) W-Score: {vacu_r.iloc[-1]*w['institutional_vacuum_meltdown']:.4f}")
-        print(f"  > Chain(Stage:{raw_signals['STATE_TRENDING_STAGE_D'].iloc[-1]:.2f}) W-Score: {chai_r.iloc[-1]*w['chain_collapse_resonance']:.4f}")
-        fused = (
-            sync_decay.clip(0) * w["mid_long_sync_decay"] + chai_r * w["chain_collapse_resonance"] + 
-            chao_r * w["chaotic_collapse_resonance"] + vacu_r * w["institutional_vacuum_meltdown"] + 
-            stal_r * w["institutional_stalling_jerk"] + kine_t * w["kinetic_transition_impact"] +
-            macr_r * w["macro_sector_slippage"] + para_r * w["parabolic_sprint_risk"] + 
-            regi_r * w["regime_switching_risk"] + anch_r * w["structural_anchor_risk"] +
-            vpa_r * w["vpa_exhaustion_risk"] + domi_r * w["sector_domino_risk"] + 
-            hand_r * w["handover_risk"] + coll_r * w["resonance_collapse_risk"] + 
-            trap_r * w["golden_trap_risk"] + inst_e * w["inst_erosion_risk"]
-        ).clip(-1, 1).fillna(0)
-        _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused})
-        print(f"  >> FUSED_TOTAL: {fused.iloc[-1]:.4f}")
+        sync_decay = (-np.tanh((raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']) / raw_signals['HAB_STD_mid_long_sync_D'])).clip(0)
+        # 依次获取各子项结果（内部已含 0 值探针）
+        sub_risks = {
+            "mid_long_sync_decay": sync_decay,
+            "parabolic_sprint_risk": self._calculate_parabolic_sprint_risk(df_index, raw_signals, _temp_debug_values),
+            "vpa_exhaustion_risk": self._calculate_vpa_exhaustion_risk(df_index, raw_signals, _temp_debug_values),
+            "sector_domino_risk": self._calculate_sector_spillover_domino_risk(df_index, raw_signals, _temp_debug_values),
+            "regime_switching_risk": self._calculate_market_regime_switching_risk(df_index, raw_signals, _temp_debug_values),
+            "handover_risk": self._calculate_smart_money_handover_risk(df_index, raw_signals, _temp_debug_values),
+            "resonance_collapse_risk": self._calculate_institutional_resonance_collapse(df_index, raw_signals, _temp_debug_values),
+            "institutional_stalling_jerk": self._calculate_institutional_stalling_jerk_risk(df_index, raw_signals, _temp_debug_values),
+            "market_leader_impact": self._calculate_market_leader_bellwether_impact(df_index, raw_signals, _temp_debug_values),
+            "structural_anchor_risk": self._calculate_long_cycle_structural_anchor(df_index, raw_signals, _temp_debug_values),
+            "golden_trap_risk": self._calculate_false_golden_pit_trap(df_index, raw_signals, _temp_debug_values),
+            "chaotic_collapse_resonance": self._calculate_chaotic_collapse_resonance(df_index, raw_signals, _temp_debug_values),
+            "macro_sector_slippage": self._calculate_macro_sector_synergy(df_index, raw_signals, _temp_debug_values),
+            "inst_erosion_risk": self._calculate_institutional_erosion_index(df_index, raw_signals, _temp_debug_values),
+            "institutional_vacuum_meltdown": self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values),
+            "chain_collapse_resonance": self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values),
+            "kinetic_transition_impact": self._calculate_kinetic_transition_point(df_index, raw_signals, _temp_debug_values)
+        }
+        # 活跃权重重整：防止 silent 维度摊薄最终得分
+        weighted_sum = pd.Series(0.0, index=df_index)
+        active_weight_total = 0.0
+        print(f"\n[CONVICTION_ACTIVE_WEIGHT_AUDIT]")
+        for key, risk_series in sub_risks.items():
+            current_risk = risk_series.iloc[-1]
+            if current_risk > 1e-4:
+                active_weight_total += w.get(key, 0.02)
+                print(f"  > ACTIVE: {key} | RawRisk: {current_risk:.4f} | Weight: {w.get(key):.3f}")
+            weighted_sum += risk_series * w.get(key, 0.02)
+        # 如果有活跃信号，则除以活跃权重总和（带保底 0.4 防止单信号过载）
+        dilution_compensation = 1.0 / max(active_weight_total, 0.4)
+        fused = (weighted_sum * dilution_compensation).clip(-1, 1).fillna(0)
+        _temp_debug_values["conviction_dynamics"].update({"fused_conviction": fused, "active_weight": active_weight_total})
+        print(f"  >> WeightedSum: {weighted_sum.iloc[-1]:.4f} | Compensation: {dilution_compensation:.2f} | FUSED_STRENGTH: {fused.iloc[-1]:.4f}")
         return fused
 
     def _calculate_sector_spillover_domino_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.4.0 · 物理量纲全暴露版】判定行业溢出多米诺效应
-        - 修改思路：移除 get 保护，直接暴露缺失 Key 的问题；打印原始斜率与滞涨分。
-        - 版本号：V7.4.0
+        【V7.7.0 · 零值穿透版】判定行业多米诺风险
+        - 修改思路：暴露原始行业广度数据。
+        - 版本号：V7.7.0
         """
+        raw_breadth = raw_signals['industry_breadth_score_D']
         breadth_slope = raw_signals['SLOPE_5_industry_breadth_score_D']
         stagnation_val = raw_signals['industry_stagnation_score_D']
         stagnation_num = stagnation_val - raw_signals['HAB_LONG_industry_stagnation_score_D']
-        stagnation_z = np.tanh(stagnation_num / raw_signals['HAB_STD_industry_stagnation_score_D'])
-        domino_risk = ((-np.tanh(breadth_slope)).clip(0) * 0.7 + stagnation_z.clip(0) * 0.3).clip(0, 1)
-        print(f"[NODE_EXPOSURE] Domino - BreadthSlope: {breadth_slope.iloc[-1]:.4f}, StagnationNum: {stagnation_num.iloc[-1]:.4f}, StagnationZ: {stagnation_z.iloc[-1]:.4f}")
-        return domino_risk
+        stagnation_z = np.tanh(stagnation_num / (raw_signals['HAB_STD_industry_stagnation_score_D'] + 1e-4))
+        risk = ((-np.tanh(breadth_slope)).clip(0) * 0.7 + stagnation_z.clip(0) * 0.3).clip(0, 1)
+        if risk.iloc[-1] <= 1e-4:
+            print(f"[ZERO_PROBE] Domino - BreadthRaw: {raw_breadth.iloc[-1]:.2f}, Slope: {breadth_slope.iloc[-1]:.4f}, StagnationRaw: {stagnation_val.iloc[-1]:.2f}")
+        return risk
 
     def _calculate_market_regime_switching_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】判定市场状态切换
-        - 修改思路：监控一致性共振斜率。
-        - 版本号：V7.3.0
+        【V7.7.0 · 零值穿透版】判定状态切换风险
+        - 修改思路：暴露原始分形维度与共振数据。
+        - 版本号：V7.7.0
         """
+        raw_frac = raw_signals['PRICE_FRACTAL_DIM_D']
+        raw_coher = raw_signals['MA_COHERENCE_RESONANCE_D']
         coherence_slope = raw_signals['SLOPE_5_MA_COHERENCE_RESONANCE_D']
         chaos_accel = raw_signals['SLOPE_5_PRICE_FRACTAL_DIM_D']
-        coherence_inv = -np.tanh(coherence_slope)
-        chaos_norm = np.tanh(chaos_accel)
-        regime_risk = (coherence_inv.clip(0) * 0.5 + chaos_norm.clip(0) * 0.5).clip(0, 1)
-        print(f"[NODE_PROBE] Regime_Switch - CoherenceSlope: {coherence_slope.iloc[-1]:.4f}, ChaosAccel: {chaos_accel.iloc[-1]:.4f}")
-        return regime_risk
+        risk = ((-np.tanh(coherence_slope)).clip(0) * 0.5 + np.tanh(chaos_accel).clip(0) * 0.5).clip(0, 1)
+        if risk.iloc[-1] <= 1e-4:
+            print(f"[ZERO_PROBE] Regime - FracRaw: {raw_frac.iloc[-1]:.4f}, CoherRaw: {raw_coher.iloc[-1]:.4f}, ChaosSlope: {chaos_accel.iloc[-1]:.4f}")
+        return risk
 
     def _calculate_smart_money_handover_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
@@ -338,15 +339,17 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_institutional_stalling_jerk_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】判定三阶失速冲击
-        - 修改思路：打印 Jerk 冲击值与 MAD 分母。
-        - 版本号：V7.3.0
+        【V7.7.0 · 零值穿透版】判定三阶失速冲击
+        - 修改思路：暴露原始机构净买入数据及其 Jerk。
+        - 版本号：V7.7.0
         """
+        raw_inst = raw_signals['SMART_MONEY_INST_NET_BUY_D']
         jerk_val = raw_signals['JERK_5_SMART_MONEY_INST_NET_BUY_D']
         jerk_mad = raw_signals['HAB_MAD_JERK_5_SMART_MONEY_INST_NET_BUY_D']
-        stall_risk = -np.tanh(jerk_val / (jerk_mad * 1.4826)).clip(0, 1)
-        print(f"[NODE_PROBE] Stall_Jerk - InstNet_Jerk: {jerk_val.iloc[-1]:.4f}, Mad_Denom: {jerk_mad.iloc[-1]:.4f}")
-        return stall_risk
+        risk = (-np.tanh(jerk_val / (jerk_mad * 1.4826 + 1e-4))).clip(0, 1)
+        if risk.iloc[-1] <= 1e-4:
+            print(f"[ZERO_PROBE] StallJerk - InstNetRaw: {raw_inst.iloc[-1]:.1f}, JerkVal: {jerk_val.iloc[-1]:.4e}, MAD: {jerk_mad.iloc[-1]:.4e}")
+        return risk
 
     def _calculate_chaotic_collapse_resonance(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
@@ -571,21 +574,21 @@ class CalculateWinnerConvictionDecay:
 
     def _perform_final_fusion(self, df_index: pd.Index, conviction_score: pd.Series, resilience_score: pd.Series, deception_filter: pd.Series, stealth_bonus: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.6.0 · 物理信号保护版】重构终核融合逻辑：从“减法对冲”升级为“乘法抑制”
-        - 修改思路：Signal * (1 - StealthBonus * 0.5) 确保隐秘吸筹不会将衰减信号彻底抹除或反转。
-        - 版本号：V7.6.0
+        【V7.7.0 · 稀释保护版】重构终核融合：采用乘法抑制并调整非线性压缩
+        - 修改思路：使用 3.5 次幂保证信号可见度；将对冲逻辑改为 (1 - Bonus * 0.5)。
+        - 版本号：V7.7.0
         """
         exp = params_dict['final_exponent']
         intensity = (conviction_score * 0.7 + resilience_score * 0.3).clip(0, 1).fillna(0)
-        # 修改点：采用乘法抑制逻辑。即便 StealthBonus 很高，也只是削弱衰减，而非将其变成负数
+        # 修改点：乘法抑制代替减法。即便吸筹分很高，也只能将信念分压低，不会抹除。
         raw_net = (intensity * (2 - deception_filter.fillna(1))) * (1 - stealth_bonus.fillna(0) * 0.5)
         net_decay = raw_net.clip(-1, 1).fillna(0)
         final = np.sign(net_decay) * (net_decay.abs() ** exp)
-        # 持久化中间变量供探针调用
         _temp_debug_values["final_fusion_debug"] = {"intensity": intensity.iloc[-1], "raw_net": raw_net.iloc[-1], "exponent": exp}
-        print(f"[NODE_AUDIT] FinalFusion - Intensity: {intensity.iloc[-1]:.4f}, MultiplicativeNet: {raw_net.iloc[-1]:.4f}")
+        print(f"\n[FINAL_FUSION_COMPONENTS]")
+        print(f"  > Intensity: {intensity.iloc[-1]:.4f} | MultiplicativeNet: {raw_net.iloc[-1]:.4f}")
+        print(f"  > Final_With_Exp{exp}: {final.iloc[-1]:.4e}")
         return final.clip(-1, 1).fillna(0)
-
 
 
 
