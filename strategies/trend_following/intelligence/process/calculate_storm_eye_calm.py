@@ -225,8 +225,8 @@ class CalculateStormEyeCalm:
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> list[str]:
         """
-        V48.0.0: 多空时空非对称奖励版信号清单。
-        说明: 新增 close 价格信号，用于量化历史信号的获利期望与个性化奖励。
+        V49.0.0: 军械库合规版信号清单。
+        说明: 移除非清单指标 sell_sm_amount_rate_D 和 loser_pain_index_D，引入 profit_ratio_D 作为痛感原始原料。 [cite: 1, 4]
         """
         required_signals = [
             'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
@@ -236,7 +236,7 @@ class CalculateStormEyeCalm:
             'tick_abnormal_volume_ratio_D', 'afternoon_flow_ratio_D', 'absorption_energy_D',
             'stealth_flow_ratio_D', 'tick_clustering_index_D', 'accumulation_signal_score_D',
             'SMART_MONEY_HM_NET_BUY_D', 'HM_ACTIVE_TOP_TIER_D', 'net_mf_amount_D',
-            'loser_pain_index_D', 'sell_sm_amount_rate_D', 'winner_rate_D',
+            'profit_ratio_D', 'winner_rate_D',
             'market_sentiment_score_D', 'breakout_potential_D', 'breakout_confidence_D',
             'breakout_penalty_score_D', 'resistance_strength_D', 'GEOM_REG_R2_D', 'GEOM_REG_SLOPE_D',
             'ATR_14_D', 'chip_stability_D', 'ADX_14_D', 'flow_impact_ratio_D',
@@ -261,23 +261,28 @@ class CalculateStormEyeCalm:
             'SLOPE_13_MA_FAN_EFFICIENCY_D', 'ACCEL_8_MA_FAN_EFFICIENCY_D', 'JERK_5_MA_FAN_EFFICIENCY_D',
             'SLOPE_13_TURNOVER_STABILITY_INDEX_D', 'ACCEL_8_TURNOVER_STABILITY_INDEX_D', 'SLOPE_13_amount_D',
             'JERK_5_HM_ACTIVE_ANY_D', 'JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D', 'SLOPE_13_HM_COORDINATED_ATTACK_D',
-            'JERK_5_HM_COORDINATED_ATTACK_D', 'JERK_5_BIAS_5_D', 'ACCEL_8_BIAS_5_D'
+            'JERK_5_HM_COORDINATED_ATTACK_D', 'JERK_5_BIAS_5_D', 'ACCEL_8_BIAS_5_D', 'JERK_5_profit_ratio_D'
         ])
         return list(set(required_signals))
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V10.0.1: 映射军械库数据，加入强制探针。
+        V49.0.2: 映射军械库数据，加入痛感代理转换逻辑。
+        说明: 利用 1.0 - profit_ratio_D 替代缺失的 loser_pain_index_D。 
         """
         raw_data = {}
         target_columns = self._get_required_signals(params, params.get('mtf_slope_accel_weights', {}), [])
         for col in target_columns:
             if col not in df.columns: print(f"[CRITICAL ERROR] 军械库缺失关键列: {col}")
             raw_data[col] = df[col]
+        # 痛感代理转换逻辑：盈利比例越低，痛感越高 
+        raw_data['pain_index_proxy'] = 1.0 - raw_data['profit_ratio_D']
+        raw_data['JERK_5_pain_index_proxy'] = raw_data.get('JERK_5_profit_ratio_D', raw_data['profit_ratio_D'].diff().diff().diff()) * -1.0
         raw_data['net_mf_sum_13'] = raw_data['net_mf_amount_D'].rolling(window=13, min_periods=1).sum()
         raw_data['net_mf_sum_21'] = raw_data['net_mf_amount_D'].rolling(window=21, min_periods=1).sum()
         raw_data['price_slope_raw'] = df[f'SLOPE_5_market_sentiment_score_D']
-        raw_data['stealth_jerk_raw'] = df[f'JERK_5_stealth_flow_ratio_D']
+        # 确保 stealth_jerk 在清单中有效，若缺失则通过 atomic 计算
+        raw_data['stealth_jerk_raw'] = df.get('JERK_5_stealth_flow_ratio_D', raw_data['stealth_flow_ratio_D'].diff().diff().diff())
         return raw_data
 
     def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False) -> pd.Series:
@@ -380,13 +385,13 @@ class CalculateStormEyeCalm:
 
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float, _temp_debug_values: Dict) -> pd.Series:
         """
-        V45.0.2: 引入超卖动能二极化(OMB)的情绪深度融合模型。
-        说明: 利用动能反转斜率识别主力暴力接管，将情绪真空由“死寂”转为“反击点点火”。
+        V49.0.1: 军械库兼容版情绪深度融合模型。
+        说明: 使用 pain_index_proxy (基于 profit_ratio_D) 刻画情绪底部的痛感特征。 
         """
-        print(f"--- [情绪与动能二极化集成探针] @ {df_index[-1]} ---")
-        # 1. 物理痛感与绝望脉冲 (Despair Compensation)
-        pain_score = self._calculate_physics_score(raw_data['loser_pain_index_D'], mode='limit_high', sensitivity=3.0)
-        despair_burst = self._calculate_physics_score(raw_data.get('JERK_5_loser_pain_index_D', 0), mode='limit_high', sensitivity=20.0, denoise=True)
+        print(f"--- [情绪与痛感代理集成探针] @ {df_index[-1]} ---")
+        # 1. 使用痛感代理与绝望脉冲 (1.0 - profit_ratio) 
+        pain_score = self._calculate_physics_score(raw_data['pain_index_proxy'], mode='limit_high', sensitivity=3.0)
+        despair_burst = self._calculate_physics_score(raw_data.get('JERK_5_pain_index_proxy', 0), mode='limit_high', sensitivity=20.0, denoise=True)
         # 2. 存量情绪 HAB 与 趋势静止度
         sent_hab = self._calculate_historical_accumulation_buffer(raw_data['market_sentiment_score_D'], windows=[21])
         slope_silence = self._calculate_physics_score(raw_data.get('SLOPE_13_market_sentiment_score_D', 0), mode='zero_focus', sensitivity=50.0, denoise=True)
@@ -394,15 +399,13 @@ class CalculateStormEyeCalm:
         short_exhaustion = self._calculate_short_exhaustion_divergence(df_index, raw_data)
         order_gain = self._calculate_micro_order_gain(df_index, raw_data)
         bipolar_gain = self._calculate_oversold_momentum_bipolarization(df_index, raw_data)
-        # 4. 获利盘清洗纯度校验
+        # 4. 获利盘清洗纯度校验：使用 winner_rate_D 代替 loser_pain 
         cleanse_score = self._calculate_physics_score(raw_data['winner_rate_D'], mode='limit_low', sensitivity=15.0)
-        # 5. 非线性情绪融合合成：(基础底迷 * 锁仓有序性) * (1 + 物理力竭补正 + 二极化接管增益) + 绝望瞬间补偿
-        # 物理逻辑：基础低迷分代表“冷”，有序增益代表“纯”，力竭与二极化代表“底”
+        # 5. 非线性情绪融合合成
         base_subdued = (pain_score.pow(0.4) * slope_silence.pow(0.3) * sent_hab.pow(0.3) * cleanse_score.pow(0.2))
-        # 最终合成公式：权重分配侧重于 OMB 动能接管的突变
         final_sentiment = (base_subdued * (1.0 + 0.3 * order_gain) * (0.5 + 0.25 * short_exhaustion + 0.25 * bipolar_gain) + 0.25 * despair_burst)
-        print(f"  -- 基础低迷分: {base_subdued.iloc[-1]:.4f} | 动能二极化增益: {bipolar_gain.iloc[-1]:.4f}")
-        print(f"  -- 空头力竭分: {short_exhaustion.iloc[-1]:.4f} | 最终情绪真空分: {final_sentiment.iloc[-1]:.4f}")
+        print(f"  -- 痛感代理分: {pain_score.iloc[-1]:.4f} | 动能二极化增益: {bipolar_gain.iloc[-1]:.4f}")
+        print(f"  -- 最终情绪真空分: {final_sentiment.iloc[-1]:.4f}")
         _temp_debug_values["市场情绪矩阵"] = {"base": base_subdued, "order_gain": order_gain, "bipolar": bipolar_gain}
         return final_sentiment.clip(0, 1)
 
