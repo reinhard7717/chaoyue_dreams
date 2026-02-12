@@ -120,9 +120,9 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.2.1 · 动力学链条补全版】同步指标大小写并构建全量导数 HAB 背景
-        - 逻辑：补全 industry_breadth_score_D 等指标的 SLOPE/ACCEL 生成逻辑，消除 KeyError。
-        - 版本号：V7.2.1
+        【V7.2.3 · 动力学冗余消除版】优化导数请求链条，消除高阶导数缺失警告
+        - 逻辑：区分基础指标与高阶导数，针对 VPA_ACCELERATION_5D 仅提取斜率。
+        - 版本号：V7.2.3
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
@@ -131,26 +131,29 @@ class CalculateWinnerConvictionDecay:
             'tick_large_order_net_D', 'VPA_ACCELERATION_5D', 'VPA_EFFICIENCY_D',
             'MA_COHERENCE_RESONANCE_D', 'PRICE_FRACTAL_DIM_D', 'industry_leader_score_D',
             'THEME_HOTNESS_SCORE_D', 'industry_rank_slope_D', 'breakout_potential_D', 'SMART_MONEY_SYNERGY_BUY_D',
-            'MA_RUBBER_BAND_EXTENSION_D', 'industry_breadth_score_D', 'industry_stagnation_score_D'
+            'MA_RUBBER_BAND_EXTENSION_D', 'industry_breadth_score_D', 'industry_stagnation_score_D',
+            'tick_abnormal_volume_ratio_D'
         ]
         for col in targets:
             series = self.helper._get_safe_series(df, col, 0.0)
             raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
             raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().replace(0, 1e-6)
-        # 核心修复：扩展 kinetic_list 以涵盖报错涉及的衍生指标
-        kinetic_list = [
-            'mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 
-            'volatility_adjusted_concentration_D', 'VPA_ACCELERATION_5D', 'SMART_MONEY_SYNERGY_BUY_D',
-            'industry_breadth_score_D', 'industry_stagnation_score_D', 'MA_COHERENCE_RESONANCE_D', 'breakout_potential_D'
-        ]
-        for target in kinetic_list:
+        # 全量导数列表 (Slope/Accel/Jerk)
+        full_kinetic = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_SYNERGY_BUY_D']
+        for target in full_kinetic:
             for d_type in ['SLOPE', 'ACCEL', 'JERK']:
                 col_name = f'{d_type}_5_{target}'
-                val = self.helper._get_safe_series(df, col_name, 0.0) # 优先取物理列
+                val = self.helper._get_safe_series(df, col_name, 0.0)
                 raw_signals[col_name] = val
                 if d_type == 'JERK':
                     raw_signals[f'HAB_MAD_{col_name}'] = (val - val.rolling(34).median()).abs().rolling(34).median().replace(0, 1e-6)
+        # 仅斜率列表 (防止 VPA_ACCELERATION_5D 的四阶/五阶导数请求触发警告)
+        slope_only_kinetic = ['VPA_ACCELERATION_5D', 'industry_breadth_score_D', 'industry_stagnation_score_D', 'MA_COHERENCE_RESONANCE_D', 'breakout_potential_D', 'tick_abnormal_volume_ratio_D']
+        for target in slope_only_kinetic:
+            col_name = f'SLOPE_5_{target}'
+            raw_signals[col_name] = self.helper._get_safe_series(df, col_name, 0.0)
+        # 状态指标与其余信号
         raw_signals['STATE_PARABOLIC_WARNING_D'] = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
         raw_signals['STATE_MARKET_LEADER_D'] = self.helper._get_safe_series(df, 'STATE_MARKET_LEADER_D', 0.0)
         raw_signals['STATE_ROUNDING_BOTTOM_D'] = self.helper._get_safe_series(df, 'STATE_ROUNDING_BOTTOM_D', 0.0)
@@ -544,15 +547,21 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_kinetic_transition_point(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.1 · 动能转换拐点版】判定推力达峰 [cite: 1]
-        - 版本号：V7.1.0
+        【V7.2.3 · 鲁棒拐点版】增加衍生指标获取的安全性
+        - 逻辑：通过 .get() 防御缺失斜率，判定价量加速度的动能枯竭点。
+        - 版本号：V7.2.3
         """
-        accel_z = np.tanh((raw_signals['VPA_ACCELERATION_5D'] - raw_signals['HAB_LONG_VPA_ACCELERATION_5D']) / raw_signals['HAB_STD_VPA_ACCELERATION_5D'])
-        slope_inv = 1 / (1 + np.exp(raw_signals['SLOPE_5_VPA_ACCELERATION_5D'] * 10))
-        transition_score = (accel_z.clip(0) * slope_inv).clip(0, 1)
-        _temp_debug_values["kinetic_transition"] = {"transition_score": transition_score}
-        print(f"[PROBE] 动能转换点 - 加速度Z: {accel_z.iloc[-1]:.4f}, 衰减系数: {slope_inv.iloc[-1]:.4f}")
-        return transition_score
+        vpa_accel = raw_signals.get('VPA_ACCELERATION_5D', pd.Series(0.0, index=df_index))
+        accel_hab = raw_signals.get('HAB_LONG_VPA_ACCELERATION_5D', pd.Series(0.0, index=df_index))
+        accel_std = raw_signals.get('HAB_STD_VPA_ACCELERATION_5D', pd.Series(1e-6, index=df_index))
+        accel_z = np.tanh((vpa_accel - accel_hab) / accel_std)
+        # 获取斜率：若不存在则不触发衰减
+        slope_val = raw_signals.get('SLOPE_5_VPA_ACCELERATION_5D', pd.Series(0.0, index=df_index))
+        slope_inv = 1 / (1 + np.exp(slope_val * 10))
+        transition_point = (accel_z.clip(0) * slope_inv).clip(0, 1)
+        _temp_debug_values["kinetic_transition"] = {"transition_score": transition_point}
+        print(f"[PROBE] 动能转换 - 加速度Z: {accel_z.iloc[-1]:.4f}, 斜率衰减项: {slope_inv.iloc[-1]:.4f}, 最终拐点分: {transition_point.iloc[-1]:.4f}")
+        return transition_point
 
     def _perform_final_fusion(self, df_index: pd.Index, conviction_score: pd.Series, resilience_score: pd.Series, deception_filter: pd.Series, stealth_bonus: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
