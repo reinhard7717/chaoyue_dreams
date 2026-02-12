@@ -44,32 +44,26 @@ class CalculateStormEyeCalm:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        V53.0.1: 集成自适应相变阈值的终极主计算流程。
-        说明: 利用 250 日 SNR 动态调整 Fermi 门控阈值，实现对不同股性标的的个性化相变捕捉。
+        V53.2.0: 全量整合版主入口逻辑。
+        说明: 包含 Fermi-Dirac 自适应门控、三级熔断、STAR 奖励以及物理限幅自洽性校验。
         """
         method_name = "calculate_storm_eye_calm"
+        self.last_df_index = df.index # 存储索引供辅助方法使用
         df_index = df.index
         params = self._get_storm_eye_calm_params(config)
-        required_signals = self._get_required_signals(params, params.get('mtf_slope_accel_weights', {}), [])
-        for col in required_signals:
-            if col not in df.columns: print(f"[FATAL ERROR] 军械库缺失关键列: {col}")
         raw_data = self._get_raw_and_atomic_data(df, method_name, params)
         _temp_debug_values = {"raw": raw_data}
-        # 1. 计算核心物理组件分值
         energy_score = self._calculate_energy_compression_component(df_index, raw_data, {}, params['energy_compression_weights'], _temp_debug_values)
         volume_score = self._calculate_volume_exhaustion_component(df_index, raw_data, {}, params['volume_exhaustion_weights'], _temp_debug_values)
         intent_score, _ = self._calculate_main_force_covert_intent_component(df_index, raw_data, {}, params['main_force_covert_intent_weights'], {}, _temp_debug_values)
         sentiment_score = self._calculate_subdued_market_sentiment_component(df_index, raw_data, params['subdued_market_sentiment_weights'], 21, 55, 1.0, 0.2, _temp_debug_values)
         readiness_score = self._calculate_breakout_readiness_component(df_index, raw_data, params['breakout_readiness_weights'], _temp_debug_values)
-        # 2. 接入自适应相变阈值
         dynamic_threshold = self._calculate_adaptive_phase_transition_threshold(df_index, raw_data)
-        # 3. 执行自适应 Fermi-Dirac 博弈门控
         gate_energy = self._calculate_fermi_dirac_gate(energy_score, threshold=dynamic_threshold, beta=12.0)
         gate_volume = self._calculate_fermi_dirac_gate(volume_score, threshold=dynamic_threshold, beta=12.0)
         gate_intent = self._calculate_fermi_dirac_gate(intent_score, threshold=dynamic_threshold, beta=12.0)
         gate_sentiment = self._calculate_fermi_dirac_gate(sentiment_score, threshold=dynamic_threshold, beta=12.0)
         gate_readiness = self._calculate_fermi_dirac_gate(readiness_score, threshold=dynamic_threshold, beta=12.0)
-        # 4. 后续融合、锁存、熔断与 STAR 奖励
         component_scores = {
             'energy': energy_score * gate_energy, 'volume': volume_score * gate_volume,
             'intent': intent_score * gate_intent, 'sentiment': sentiment_score * gate_sentiment,
@@ -87,7 +81,7 @@ class CalculateStormEyeCalm:
         veto_factor = self._calculate_kinetic_overflow_veto(df_index, raw_data, bipolar_gain)
         reward_factor = self._calculate_spatio_temporal_asymmetric_reward(df_index, raw_data, resonance_confirm)
         final_latched_score = (latched_score * veto_factor * reward_factor).clip(0, 1)
-        print(f"  -- 最终输出: {final_latched_score.iloc[-1]:.4f} | 动态门控阈值: {dynamic_threshold.iloc[-1]:.4f}")
+        print(f"  -- 最终输出: {final_latched_score.iloc[-1]:.4f} | 锁存次数: {latch_count.iloc[-1]} | 动态阈值: {dynamic_threshold.iloc[-1]:.4f}")
         return final_latched_score.astype(np.float32)
 
     def _calculate_fermi_dirac_gate(self, score_series: pd.Series, threshold: float = 0.5, beta: float = 10.0) -> pd.Series:
@@ -316,20 +310,22 @@ class CalculateStormEyeCalm:
 
     def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False) -> pd.Series:
         """
-        V11.0.1: 物理归一化引擎，包含降噪与零基陷阱过滤。
+        V53.1.0: 物理归一化引擎（合规增强版）。
+        说明: 修复了输入非 Series 类型导致的 rolling 崩溃问题，增强了 denoise 逻辑的鲁棒性。
         """
-        # 降噪预处理：计算指标的滚动变异系数，低于门限的视为无效背景 
+        # 强制类型转换，防止 'int' object has no attribute 'rolling' 错误
+        if not isinstance(series, pd.Series):
+            series = pd.Series(float(series), index=getattr(self, 'last_df_index', series.index if hasattr(series, 'index') else []))
         if denoise:
-            noise_floor = series.rolling(window=21).std().fillna(0) * 0.1
-            series = series.where(series.abs() > noise_floor, 0.0)
+            # 只有当 series 长度足以计算 rolling 时才进行降噪
+            if len(series) >= 21:
+                noise_floor = series.rolling(window=21).std().fillna(0) * 0.1
+                series = series.where(series.abs() > noise_floor, 0.0)
         if mode == 'limit_low':
-            # 强化型 Tanh：1 - tanh(|x| * k)，专门用于量能枯竭 [cite: 2]
             return 1.0 - np.tanh(series.abs() * sensitivity)
         elif mode == 'limit_high':
-            # 饱和映射：用于主力意图爆发 
             return np.tanh(series * sensitivity).clip(0, 1)
         elif mode == 'zero_focus':
-            # 高斯核锁定：用于价格斜率死寂，物理映射 0 点为 1 
             return np.exp(- (series * sensitivity) ** 2)
         elif mode == 'relative_rank':
             roll_min = series.rolling(window=window, min_periods=1).min()
@@ -370,24 +366,21 @@ class CalculateStormEyeCalm:
 
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V28.0.2: 引入流动性固化阈值的量能真空模型。
-        逻辑：利用固化因子校验量能枯竭的结构质量，区分“良性锁仓”与“恶性阴跌”。
+        V53.1.1: 修复零基陷阱的量能真空组件。
+        说明: 修正了 JERK_5_VPA_EFFICIENCY_D 缺失时的默认值类型，防止物理归一化引擎崩溃。
         """
-        print(f"--- [量能真空与固化校验集成探针] @ {df_index[-1]} ---")
-        # 1. 基础换手、地量填充与动量耗散平衡
+        print(f"--- [量能真空与自洽性修复探针] @ {df_index[-1]} ---")
         turnover_score = self._calculate_physics_score(raw_data['turnover_rate_f_D'], mode='limit_low', sensitivity=25.0)
         trough_fill = self._calculate_physics_score(raw_data['intraday_trough_filling_degree_D'], mode='limit_high', sensitivity=3.0)
         mdb_factor = self._calculate_momentum_dissipation_balance(df_index, raw_data)
-        # 2. 接入流动性固化因子 (Solidification)
         solid_factor = self._calculate_liquidity_solidification_threshold(df_index, raw_data)
-        # 3. 效率与锁仓逻辑 (VPA 效率修正)
-        vpa_jerk = self._calculate_physics_score(raw_data.get('JERK_5_VPA_EFFICIENCY_D', 0), mode='limit_low', sensitivity=20.0, denoise=True)
+        # 修复：提供全零 Series 而非整数 0
+        default_zero_series = pd.Series(0.0, index=df_index)
+        vpa_jerk = self._calculate_physics_score(raw_data.get('JERK_5_VPA_EFFICIENCY_D', default_zero_series), mode='limit_low', sensitivity=20.0, denoise=True)
         mf_eff = self._calculate_physics_score(raw_data['VPA_MF_ADJUSTED_EFF_D'], mode='limit_high', sensitivity=2.0)
-        # 4. 最终合成：(换手分 + 填充分) * MDB 耗散 * 固化因子 * 主力效率
-        # 权重分配：固化因子作为核心质量约束，权重占比提高
         base_vac = (turnover_score * 0.3 + trough_fill * 0.7)
         final_vol = base_vac * mdb_factor * (0.6 + 0.4 * solid_factor) * (0.8 + 0.2 * mf_eff) * (1.0 - 0.3 * (1.0 - vpa_jerk))
-        print(f"  -- 基础地量分: {base_vac.iloc[-1]:.4f} | 流动性固化因子: {solid_factor.iloc[-1]:.4f} | 最终量能分: {final_vol.iloc[-1]:.4f}")
+        print(f"  -- 基础地量分: {base_vac.iloc[-1]:.4f} | 量能锁存因子: {vpa_jerk.iloc[-1]:.4f}")
         return final_vol.clip(0, 1)
 
     def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
