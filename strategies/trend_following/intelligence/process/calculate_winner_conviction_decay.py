@@ -24,10 +24,10 @@ class CalculateWinnerConvictionDecay:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.9.0 · 韧性共振倍增版】计算流程调度中心
-        - 版本号：V7.9.0
+        【V7.9.1 · 真空极速锁存版】计算流程调度中心
+        - 版本号：V7.9.1
         """
-        print(f"\n{'#'*30} [CalculateWinnerConvictionDecay V7.9.0] 开始计算... {'#'*30}")
+        print(f"\n{'#'*30} [CalculateWinnerConvictionDecay V7.9.1] 开始计算... {'#'*30}")
         method_name = "calculate_winner_conviction_decay"
         is_debug_enabled = get_param_value(self.helper.debug_params.get('enabled'), False)
         probe_ts = None
@@ -42,35 +42,50 @@ class CalculateWinnerConvictionDecay:
         if not self.helper._validate_required_signals(df, all_required_signals, method_name): return pd.Series(dtype=np.float32)
         _temp_debug_values = {"conviction_dynamics": {}}
         raw_signals = self._get_raw_signals(df, df_index, params_dict, method_name)
+        
+        # 1. 核心计算链
         conv_s = self._calculate_conviction_strength(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         res_s = self._calculate_pressure_resilience(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         dec_f = self._calculate_deception_filter(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         ctx_m = self._calculate_contextual_modulator(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values, is_debug_enabled, probe_ts)
         st_b = self._calculate_stealth_accumulation_bonus(df_index, raw_signals, _temp_debug_values)
+        
+        # 2. 融合与锁存
         syn_f = self._calculate_synergy_factor(conv_s, res_s, _temp_debug_values)
         final_s = self._perform_final_fusion(df_index, conv_s, res_s, dec_f, st_b, params_dict, _temp_debug_values)
         ewd_f = self._calculate_ewd_factor(conv_s, res_s, ctx_m, _temp_debug_values)
         latched_s = self._apply_latch_logic(df_index, final_s, ewd_f, params_dict, _temp_debug_values)
+        
         if is_debug_enabled and probe_ts: self._execute_intelligence_probe(method_name, probe_ts, _temp_debug_values, latched_s)
         return latched_s.astype(np.float32)
 
     def _execute_intelligence_probe(self, method_name: str, probe_ts: pd.Timestamp, _temp_debug_values: Dict, final_score: pd.Series):
         """
-        【V7.6.0 · 物理信号保护版】全息审计探针更新
-        - 修改思路：暴露指数幂运算前的底数 RawNet，防止 10^-39 级别的信号坍塌。
-        - 版本号：V7.6.0
+        【V7.9.1 · 极速锁存审计版】全息诊断探针
+        - 修改思路：增加对 EWD、紧急通道及最终决策逻辑的透视。
+        - 版本号：V7.9.1
         """
-        print(f"\n{'='*38} [V7.6 PHYSICAL AUDIT: {probe_ts.strftime('%Y-%m-%d')}] {'='*38}")
-        conv = _temp_debug_values.get("conviction_dynamics", {})
-        latch = _temp_debug_values.get("latch_state", {})
+        print(f"\n{'='*40} [V7.9.1 DIAGNOSTIC PROBE: {probe_ts.strftime('%Y-%m-%d')}] {'='*40}")
+        
+        # 1. 核心驱动力
         fus = _temp_debug_values.get("final_fusion_debug", {})
-        print(f"--- [FUSION BASELINE] ---")
-        print(f"  > RawIntensity: {fus.get('intensity', 0.0):.4f} | NetAfterStealth: {fus.get('raw_net', 0.0):.4f}")
-        print(f"  > PowerExponent: {fus.get('exponent', 0.0):.1f}")
-        print(f"--- [FINAL DECISION] ---")
-        print(f"  > LatchTrigger: {latch.get('latch_trigger').loc[probe_ts]} | Count: {latch.get('rolling_count').loc[probe_ts]}")
-        print(f"  > FINAL_SCORE: {final_score.loc[probe_ts]:.4e}")
-        print(f"{'='*105}\n")
+        print(f"--- [PHYSICS DRIVER] ---")
+        print(f"  > Intensity: {fus.get('intensity', 0.0):.4f} (Base Strength)")
+        print(f"  > NetAfterStealth: {fus.get('raw_net', 0.0):.4f} (After Hedging)")
+        
+        # 2. 锁存逻辑
+        latch = _temp_debug_values.get("latch_state", {})
+        ewd = _temp_debug_values.get("ewd_analysis", {})
+        print(f"--- [LATCH LOGIC] ---")
+        print(f"  > EWD_Factor: {ewd.get('ewd_factor', pd.Series([0])).loc[probe_ts]:.4f}")
+        print(f"  > RollingCount: {latch.get('rolling_count').loc[probe_ts]} / Hit: 3")
+        print(f"  > EmergencyOverride: {latch.get('is_emergency').loc[probe_ts]} (Vacuum > 0.8)")
+        
+        # 3. 最终裁决
+        print(f"--- [FINAL VERDICT] ---")
+        print(f"  > Triggered: {latch.get('latch_trigger').loc[probe_ts]}")
+        print(f"  > FINAL_SCORE: {final_score.loc[probe_ts]:.4f}")
+        print(f"{'='*108}\n")
 
     def _get_decay_params_and_signals(self, config: Dict, method_name: str) -> Tuple[Dict, List[str]]:
         """
@@ -191,49 +206,73 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_ewd_factor(self, conviction: pd.Series, resilience: pd.Series, context: pd.Series, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V4.7 · 动态锁存共振版】计算熵权衰减系数 (EWD Factor)
-        - 逻辑: 衡量系统多维分量的共振度。标准差越小，熵值越低，共振度越高，锁存效力越强。
+        【V7.9.1 · 物理熵权版】计算 EWD 因子，融入真空一致性校验
+        - 修改思路：当真空风险高时，强制认定为低熵有序状态（一致性看空），提升 EWD。
+        - 版本号：V7.9.1
         """
-        # 将各分量对齐到 [0, 1] 区间进行方差分析
+        # 1. 基础方差分析
         s1 = (conviction.abs() + 1) / 2
         s2 = (resilience.abs() + 1) / 2
-        s3 = context # 情境调制器本就在 [0.5, 1.5] 或类似区间，此处简化
+        s3 = context
         components_df = pd.concat([s1, s2, s3], axis=1)
-        # 计算行标准差
         std_series = components_df.std(axis=1).fillna(1.0)
-        # 映射至 [0, 1] 的 EWD 因子，使用指数函数强化共振敏感度
-        ewd_factor = np.exp(-std_series * 2.5)
-        _temp_debug_values["ewd_analysis"] = {"ewd_factor": ewd_factor, "component_std": std_series}
-        return ewd_factor
+        
+        # 2. 原始 EWD (标准差越小，EWD 越高)
+        raw_ewd = np.exp(-std_series * 2.5)
+        
+        # 3. 真空一致性修正
+        # 如果真空风险极高，说明市场物理状态高度一致（空头排列），应强制提升 EWD
+        vacuum_risk = _temp_debug_values.get("cross_module_signals", {}).get("vacuum_risk", pd.Series(0.0, index=conviction.index)).fillna(0)
+        vacuum_boost = np.tanh(vacuum_risk * 2.0) # 0.8 -> 0.92
+        
+        final_ewd = np.maximum(raw_ewd, vacuum_boost).clip(0, 1)
+        
+        _temp_debug_values["ewd_analysis"] = {"ewd_factor": final_ewd, "component_std": std_series}
+        print(f"[NODE_PROBE] EWD_Factor - Std: {std_series.iloc[-1]:.4f}, RawEWD: {raw_ewd.iloc[-1]:.4f}, VacBoost: {vacuum_boost.iloc[-1]:.4f}")
+        return final_ewd
 
     def _apply_latch_logic(self, df_index: pd.Index, fused_score: pd.Series, ewd_factor: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V4.7 · 动态锁存共振版】执行时域积分锁存与动能保护
-        - 逻辑: 统计窗口内高分频率，结合EWD因子通过Tanh加速锁定，并提供回撤保护。
+        【V7.9.1 · 真空极速锁存版】执行时域积分锁存，并增加真空紧急通道
+        - 修改思路：若检测到 vacuum_risk > 0.8，无视时间窗口，立即触发锁存。
+        - 版本号：V7.9.1
         """
         lp = params_dict['latch_params']
-        # 1. 时域积分：计算窗口内处于高分区间的频次
+        
+        # 1. 常规时域积分
         is_high = fused_score.abs() > lp["high_score_threshold"]
         rolling_count = is_high.rolling(window=lp["window"]).sum()
-        # 2. 锁存触发条件：频次达标且处于低熵共振状态
-        latch_trigger = (rolling_count >= lp["hit_count"]) & (ewd_factor > lp["entropy_threshold"])
-        # 3. 执行非线性锁存加速
-        latched_score = np.tanh(fused_score * 1.5) # 初步加速
-        # 4. 动能保护：利用 cummax 思想在锁存激活期间维持信号
-        # 如果锁存触发，且分值未跌破核心阈值，则保持前期高点的一定比例
+        
+        # 2. 获取真空风险（跨模块通信）
+        vacuum_risk = _temp_debug_values.get("cross_module_signals", {}).get("vacuum_risk", pd.Series(0.0, index=df_index)).fillna(0)
+        
+        # 3. 锁存触发条件：
+        #    A. 常规：频次达标 (>=3) 且 熵权达标
+        #    B. 紧急：真空熔断 (>0.8) -> 立即触发
+        is_emergency = vacuum_risk > 0.8
+        latch_trigger = ((rolling_count >= lp["hit_count"]) & (ewd_factor > lp["entropy_threshold"])) | is_emergency
+        
+        # 4. 执行非线性锁存加速
+        latched_score = np.tanh(fused_score * 1.5)
+        
+        # 5. 动能保护逻辑
         protected_score = fused_score.copy()
         for i in range(1, len(fused_score)):
             if latch_trigger.iloc[i]:
-                # 动能锁存：取当前分值与昨日分值衰减后的较大者（仅限未跌破核心阈值时）
-                if abs(fused_score.iloc[i]) > lp["core_threshold"]:
+                # 紧急状态下，直接取当前极值，不做动能衰减保护（加速离场）
+                if is_emergency.iloc[i]:
+                     protected_score.iloc[i] = latched_score.iloc[i]
+                elif abs(fused_score.iloc[i]) > lp["core_threshold"]:
                     prev_val = protected_score.iloc[i-1]
                     curr_val = fused_score.iloc[i]
                     if np.sign(prev_val) == np.sign(curr_val):
                         protected_score.iloc[i] = curr_val if abs(curr_val) > abs(prev_val) else prev_val * lp["momentum_protection_factor"]
+        
         final_output = protected_score.clip(-1, 1)
         _temp_debug_values["latch_state"] = {
             "rolling_count": rolling_count,
             "latch_trigger": latch_trigger,
+            "is_emergency": is_emergency,
             "protected_score": protected_score
         }
         return final_output
