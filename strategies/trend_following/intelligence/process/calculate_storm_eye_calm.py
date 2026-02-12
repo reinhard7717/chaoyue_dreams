@@ -224,8 +224,8 @@ class CalculateStormEyeCalm:
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> list[str]:
         """
-        V54.0.0: 军械库合规化原子信号清单。
-        说明: 仅请求军械库中存在的原始指标，为动态导数引擎提供原子数据支撑。
+        V56.0.0: 军械库原子化合规清单 (无 NaN 信号版)。
+        说明: 剔除 price_grid_D 与 chip_structure_state_D，改用浓度熵与筹码稳定性。
         """
         required_signals = [
             'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
@@ -240,12 +240,12 @@ class CalculateStormEyeCalm:
             'resistance_strength_D', 'GEOM_REG_R2_D', 'GEOM_REG_SLOPE_D',
             'ATR_14_D', 'chip_stability_D', 'ADX_14_D', 'flow_impact_ratio_D',
             'industry_preheat_score_D', 'industry_rank_accel_D', 'industry_strength_rank_D',
-            'trend_confirmation_score_D', 'chip_structure_state_D', 'main_force_activity_index_D',
+            'trend_confirmation_score_D', 'main_force_activity_index_D',
             'intraday_cost_center_migration_D', 'migration_convergence_ratio_D', 'tick_chip_balance_ratio_D',
             'VPA_EFFICIENCY_D', 'VPA_MF_ADJUSTED_EFF_D', 'VPA_ACCELERATION_5D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
             'OCH_ACCELERATION_D', 'OCH_D', 'PDI_14_D', 'NDI_14_D', 'price_vs_ma_21_ratio_D', 
             'price_vs_ma_55_ratio_D', 'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 
-            'amount_D', 'price_grid_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D',
+            'amount_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D',
             'STATE_GOLDEN_PIT_D', 'BIAS_5_D', 'MA_FAN_EFFICIENCY_D', 'RSI_13_D', 'close'
         ]
         return list(set(required_signals))
@@ -348,24 +348,19 @@ class CalculateStormEyeCalm:
 
     def _calculate_energy_compression_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        V24.0.2: 引入线性共振失效的能量压缩模型。
-        新增：GEOM_REG_R2_D 失效因子对能量爆发临界点的动态补正。
+        V56.0.2: 基于筹码稳定性的能量压缩模型。
+        说明: 置换 chip_structure_state_D 信号，利用稳定度作为结构乘数。
         """
-        print(f"--- [能量压缩与共振失效集成探针] @ {df_index[-1]} ---")
-        # 1. 均线压缩动力学 
-        resonance = self._calculate_physics_score(raw_data['MA_COHERENCE_RESONANCE_D'], mode='limit_high', sensitivity=2.0)
-        # 2. 筹码集中动力学与 HAB [cite: 2, 4]
-        conc_raw = raw_data['chip_concentration_ratio_D']
-        conc_hab = self._calculate_historical_accumulation_buffer(conc_raw, windows=[13, 21])
-        conc_slope = self._calculate_physics_score(raw_data.get('SLOPE_13_chip_concentration_ratio_D', conc_raw.diff(13)), mode='limit_high', sensitivity=10.0, denoise=True)
-        # 3. 接入线性共振失效因子 
+        print(f"--- [能量压缩与稳定性集成探针] @ {df_index[-1]} ---")
+        fcc_factor = self._calculate_fan_curvature_collapse(df_index, raw_data)
+        vvc_factor = self._calculate_volatility_vacuum_contraction(df_index, raw_data)
         lrf_score = self._calculate_linear_resonance_failure(df_index, raw_data)
-        # 4. 结构质量校验 [cite: 2]
-        struct_quality = self._calculate_physics_score(raw_data['chip_structure_state_D'], mode='limit_high', sensitivity=2.0)
-        # 5. 最终合成：(均线共振 + 集中度斜率 + 线性共振失效) * 结构质量 * 存量缓冲
-        # 权重分配：均线 30%，筹码 30%，共振失效 40% (作为主爆发点)
-        final_energy = (resonance * 0.3 + conc_slope * 0.3 + lrf_score * 0.4) * struct_quality * (0.8 + 0.2 * conc_hab)
-        print(f"  -- 均线共振分: {resonance.iloc[-1]:.4f} | 共振失效分: {lrf_score.iloc[-1]:.4f} | 最终能量分: {final_energy.iloc[-1]:.4f}")
+        # 置换核心：使用 chip_stability_D
+        struct_quality = self._calculate_physics_score(raw_data['chip_stability_D'], mode='limit_high', sensitivity=1.5)
+        # 最终能量合成
+        base_energy = (fcc_factor * 0.3 + vvc_factor * 0.3 + lrf_score * 0.4)
+        final_energy = base_energy * struct_quality
+        print(f"  -- 几何塌缩: {fcc_factor.iloc[-1]:.4f} | 筹码稳定度: {struct_quality.iloc[-1]:.4f} | 最终能量: {final_energy.iloc[-1]:.4f}")
         return final_energy.clip(0, 1)
 
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -491,29 +486,19 @@ class CalculateStormEyeCalm:
 
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: dict[str, pd.Series], final_fusion_weights: dict, price_calmness_params: dict, main_force_control_params: dict, raw_data: dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        V55.0.5: 融合链路全状态监控版。
-        说明: 在几何平均前对组件分值进行全覆盖扫描，精确定位 NaN 污染源。
+        V56.0.3: 融合链路军械库合规版。
+        说明: 使用 accumulation_signal_score_D 执行结构性增益，彻底剔除缺失信号。
         """
-        print(f"--- [最终融合链路状态探针] @ {df_index[-1]} ---")
-        # 1. 组件状态扫描
-        for name, series in component_scores.items():
-            if pd.isna(series.iloc[-1]): print(f"  !! [重大污染] 组件 '{name}' 输出为 NaN")
+        print(f"--- [最终融合合规化探针] @ {df_index[-1]} ---")
         ewd_factor = self._calculate_consensus_entropy(component_scores)
-        # 2. 几何平均输入校验
         base_score = _robust_geometric_mean(component_scores, final_fusion_weights, df_index)
-        if pd.isna(base_score.iloc[-1]): print(f"  !! [融合崩溃] _robust_geometric_mean 输出结果为 NaN")
-        # 3. 动力学补偿状态
+        # 动力学补偿
         ext_calm = self._calculate_physics_score(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
-        int_boil = self._calculate_physics_score(raw_data.get('ACCEL_8_intraday_cost_center_migration_D', 0), mode='limit_high', sensitivity=20.0)
-        pressure_mult = 1.0 + 1.2 * (ext_calm * int_boil)
-        mf_hab = self._calculate_historical_accumulation_buffer(raw_data['net_mf_amount_D'], windows=[13, 21, 34])
-        # 4. 猎杀协同状态
-        hunting_boost = 1.0 + 0.4 * (raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].rolling(8).mean() * 0.5)
-        # 5. 最终合成
-        final_score = base_score * ewd_factor * (0.7 + 0.3 * mf_hab) * pressure_mult * hunting_boost
-        if pd.isna(final_score.iloc[-1]):
-            print(f"  !! [全链路失败] base:{base_score.iloc[-1]:.4f} | ewd:{ewd_factor.iloc[-1]:.4f} | mf_hab:{mf_hab.iloc[-1]:.4f}")
-        print(f"  -- 最终融合分状态: {final_score.iloc[-1]:.4f}")
+        int_boil = self._calculate_physics_score(raw_data.get('ACCEL_8_intraday_cost_center_migration_D', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=20.0)
+        # 结构性增益置换：使用 accumulation_signal_score_D
+        struct_boost = self._calculate_physics_score(raw_data['accumulation_signal_score_D'], mode='limit_high', sensitivity=1.0)
+        final_score = base_score * ewd_factor * struct_boost * (1.0 + 0.5 * ext_calm * int_boil)
+        print(f"  -- 基础融合分: {base_score.iloc[-1]:.4f} | 累积增益: {struct_boost.iloc[-1]:.4f} | 最终分状态: {final_score.iloc[-1]:.4f}")
         return final_score.clip(0, 1)
 
     def _calculate_historical_accumulation_buffer(self, daily_series: pd.Series, windows: list[int] = [13, 21, 34]) -> pd.Series:
@@ -704,27 +689,20 @@ class CalculateStormEyeCalm:
 
     def _calculate_amount_distribution_entropy_delta(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
-        V55.0.2: 成交金额分布熵增深度探针版。
-        说明: 监控 amount/price_grid 比例的稳定性，暴露导致熵值为 NaN 的具体因子。
+        V56.0.1: 筹码浓度熵增量模型 (取代成交分布熵)。
+        说明: 利用浓度熵的负向斜率识别主力的“拦截式有序化”行为，规避价格网格信号缺失。
         """
-        print(f"--- [成交分布熵增深度探针] @ {df_index[-1]} ---")
-        amount = raw_data['amount_D']
-        price_grid = raw_data['price_grid_D']
-        # 计算分布核心比例
-        base_ratio = amount / (price_grid + 1e-9)
-        if pd.isna(base_ratio.iloc[-1]): print(f"  !! [警告] amount/price_grid 比例计算结果为 NaN")
-        # 联合计算金额与价格格点的互信息熵代理值
-        dist_entropy = base_ratio.rolling(window=13).std() / (amount.rolling(window=13).mean() + 1e-9)
-        entropy_delta = dist_entropy.diff(5)
-        # 映射为有序化得分
-        interceptive_score = self._calculate_physics_score(entropy_delta, mode='limit_low', sensitivity=20.0, denoise=True)
-        # 结合 HAB 缓冲
-        entropy_hab = self._calculate_historical_accumulation_buffer(dist_entropy, windows=[21])
-        if pd.isna(dist_entropy.iloc[-1]): 
-            print(f"  -- [状态诊断] amount_last: {amount.iloc[-1]:.4f} | grid_last: {price_grid.iloc[-1]:.4f}")
-            print(f"  -- [状态诊断] rolling_std: {base_ratio.rolling(13).std().iloc[-1]:.4f} | rolling_mean: {amount.rolling(13).mean().iloc[-1]:.4f}")
-        print(f"  -- 分布熵代理: {dist_entropy.iloc[-1]:.4f} | 熵增斜率: {entropy_delta.iloc[-1]:.4f} | 最终拦截分: {interceptive_score.iloc[-1]:.4f}")
-        return (interceptive_score * (1.0 - entropy_hab)).clip(0, 1)
+        print(f"--- [筹码浓度熵增量探针] @ {df_index[-1]} ---")
+        # 使用 concentration_entropy_D 替代 amount / price_grid
+        entropy_raw = raw_data['concentration_entropy_D']
+        # 计算熵减速度：斜率为负代表有序度增加
+        entropy_slope = entropy_raw.diff(13)
+        interceptive_score = self._calculate_physics_score(entropy_slope, mode='limit_low', sensitivity=10.0, denoise=True)
+        # 结合 HAB 缓冲：判定有序化的时域厚度
+        entropy_hab = self._calculate_historical_accumulation_buffer(entropy_raw, windows=[21])
+        final_score = (interceptive_score * (1.0 - entropy_hab)).clip(0, 1)
+        print(f"  -- 浓度熵: {entropy_raw.iloc[-1]:.4f} | 有序化评分: {final_score.iloc[-1]:.4f}")
+        return final_score
 
     def _calculate_seat_scatter_decay(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         """
