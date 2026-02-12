@@ -603,16 +603,22 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_institutional_erosion_index(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】判定机构资金侵蚀
-        - 修改思路：打印净买入相对 HAB 偏离度。
-        - 版本号：V7.3.0
+        【V7.9.2 · 语义对齐修正版】判定机构资金侵蚀
+        - 修改思路：修正数据源错误，将 HM (游资) 更改为 INST (机构)，确保名副其实。
+        - 版本号：V7.9.2
         """
-        sm_val = raw_signals['SMART_MONEY_HM_NET_BUY_D']
-        sm_hab = raw_signals['HAB_LONG_SMART_MONEY_HM_NET_BUY_D']
-        sm_std = raw_signals['HAB_STD_SMART_MONEY_HM_NET_BUY_D']
-        erosion_z = (sm_val - sm_hab) / sm_std
+        # [核心修正] 切换至机构资金流列
+        inst_val = raw_signals['SMART_MONEY_INST_NET_BUY_D']
+        inst_hab = raw_signals['HAB_LONG_SMART_MONEY_INST_NET_BUY_D']
+        inst_std = raw_signals['HAB_STD_SMART_MONEY_INST_NET_BUY_D']
+        
+        # 计算机构资金相对于历史均值的偏离度 (Z-Score)
+        erosion_z = (inst_val - inst_hab) / inst_std
+        
+        # 负向偏离越大，侵蚀风险越高
         erosion_index = -np.tanh(erosion_z).clip(0, 1)
-        print(f"[NODE_PROBE] Inst_Erosion - NetBuy: {sm_val.iloc[-1]:.4f}, ErosionZ: {erosion_z.iloc[-1]:.4f}")
+        
+        print(f"[NODE_PROBE] Inst_Erosion - InstNet: {inst_val.iloc[-1]:.1f}, Hab: {inst_hab.iloc[-1]:.1f}, ErosionZ: {erosion_z.iloc[-1]:.4f}")
         return erosion_index
 
     def _calculate_kinetic_transition_point(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
