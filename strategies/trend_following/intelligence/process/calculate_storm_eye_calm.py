@@ -48,6 +48,7 @@ class CalculateStormEyeCalm:
         说明: 包含 Fermi-Dirac 自适应门控、三级熔断、STAR 奖励以及物理限幅自洽性校验。
         """
         method_name = "calculate_storm_eye_calm"
+        print(f"--- [{method_name}] @ 拆单吸筹强度 探针开始 ---")
         self.last_df_index = df.index # 存储索引供辅助方法使用
         df_index = df.index
         params = self._get_storm_eye_calm_params(config)
