@@ -120,9 +120,9 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.2.5 · 数据全景补全版】同步军械库全量指标并消除 Key 缺失风险
-        - 逻辑：遍历所有子计算模块需求，补全包括情绪、压力、强度在内的 30+ 指标。
-        - 版本号：V7.2.5
+        【V7.2.6 · 资金面背景补全版】同步军械库全量指标并消除 Key 缺失风险
+        - 逻辑：补全 SMART_MONEY_HM_NET_BUY_D 等指标的 HAB 均值与标准差计算链。
+        - 版本号：V7.2.6
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
@@ -133,7 +133,8 @@ class CalculateWinnerConvictionDecay:
             'THEME_HOTNESS_SCORE_D', 'industry_rank_slope_D', 'breakout_potential_D', 'SMART_MONEY_SYNERGY_BUY_D',
             'MA_RUBBER_BAND_EXTENSION_D', 'industry_breadth_score_D', 'industry_stagnation_score_D',
             'tick_abnormal_volume_ratio_D', 'breakout_quality_score_D', 'market_sentiment_score_D',
-            'uptrend_strength_D', 'pressure_profit_D', 'net_amount_ratio_D'
+            'uptrend_strength_D', 'pressure_profit_D', 'net_amount_ratio_D',
+            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D' # [核心修复：加入HAB计算清单]
         ]
         for col in targets:
             series = self.helper._get_safe_series(df, col, 0.0)
@@ -159,8 +160,6 @@ class CalculateWinnerConvictionDecay:
         raw_signals['STATE_TRENDING_STAGE_D'] = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
         raw_signals['STATE_EMOTIONAL_EXTREME_D'] = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
         raw_signals['tick_chip_transfer_efficiency_D'] = self.helper._get_safe_series(df, 'tick_chip_transfer_efficiency_D', 0.0)
-        raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0)
-        raw_signals['SMART_MONEY_HM_NET_BUY_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', 0.0)
         raw_signals['stealth_flow_ratio_D'] = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', 0.0)
         raw_signals['hab_net_inflow'] = raw_signals['net_amount_ratio_D'].rolling(window=hab_cfg['medium']).sum().fillna(0)
         raw_signals['hab_pressure_max'] = raw_signals['pressure_profit_D'].rolling(window=hab_cfg['medium']).max().replace(0, 1e-6)
@@ -527,11 +526,18 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_institutional_erosion_index(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.1 · 机构侵蚀版】计算聪明钱净买入 [cite: 1] 侵蚀
-        - 版本号：V7.1.0
+        【V7.2.6 · 鲁棒判定版】判定机构资金净买入侵蚀
+        - 逻辑：通过 .get() 安全获取指标，判定当前净买入相对 HAB 历史均值的负向偏离。
+        - 版本号：V7.2.6
         """
-        erosion_index = -np.tanh(raw_signals['SMART_MONEY_HM_NET_BUY_D'] - raw_signals['HAB_LONG_SMART_MONEY_HM_NET_BUY_D']).clip(0, 1)
-        print(f"[PROBE] 机构侵蚀指数: {erosion_index.iloc[-1]:.4f}")
+        print(f"SMART_MONEY_HM_NET_BUY_D: {raw_signals['SMART_MONEY_HM_NET_BUY_D'].iloc[-1]:.4f}")
+        print(f"HAB_LONG_SMART_MONEY_HM_NET_BUY_D: {raw_signals['HAB_LONG_SMART_MONEY_HM_NET_BUY_D'].iloc[-1]:.4f}")
+        print(f"HAB_STD_SMART_MONEY_HM_NET_BUY_D: {raw_signals['HAB_STD_SMART_MONEY_HM_NET_BUY_D'].iloc[-1]:.4f}")
+        smart_val = raw_signals.get('SMART_MONEY_HM_NET_BUY_D', pd.Series(0.0, index=df_index))
+        smart_hab = raw_signals.get('HAB_LONG_SMART_MONEY_HM_NET_BUY_D', pd.Series(0.0, index=df_index))
+        smart_std = raw_signals.get('HAB_STD_SMART_MONEY_HM_NET_BUY_D', pd.Series(1e-6, index=df_index))
+        erosion_index = -np.tanh((smart_val - smart_hab) / smart_std).clip(0, 1)
+        print(f"[PROBE] 机构侵蚀 - 净买入异常Z: {((smart_val - smart_hab) / smart_std).iloc[-1]:.4f}, 侵蚀分: {erosion_index.iloc[-1]:.4f}")
         return erosion_index
 
     def _calculate_kinetic_transition_point(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
