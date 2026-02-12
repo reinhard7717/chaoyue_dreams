@@ -120,39 +120,49 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V7.1 · 全息时空审判版】构建HAB背景池与高阶动力学导数
-        - 逻辑：为20+核心指标建立34日均值与MAD稳态，计算一阶至三阶导数。
-        - 版本号：V7.1.0
+        【V7.2.1 · 动力学链条补全版】同步指标大小写并构建全量导数 HAB 背景
+        - 逻辑：补全 industry_breadth_score_D 等指标的 SLOPE/ACCEL 生成逻辑，消除 KeyError。
+        - 版本号：V7.2.1
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
         targets = [
-            'mid_long_sync_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_INST_NET_BUY_D', # [cite: 1, 3]
-            'tick_large_order_net_D', 'VPA_ACCELERATION_5D', 'VPA_EFFICIENCY_D', # [cite: 1]
-            'MA_COHERENCE_RESONANCE_D', 'PRICE_FRACTAL_DIM_D', 'industry_leader_score_D', # [cite: 1, 2]
-            'THEME_HOTNESS_SCORE_D', 'industry_rank_slope_D', 'breakout_potential_D', # [cite: 1, 2]
-            'SMART_MONEY_SYNERGY_BUY_D', 'tick_abnormal_volume_ratio_D', 'MA_RUBBER_BAND_EXTENSION_D' # [cite: 1, 3]
+            'mid_long_sync_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_INST_NET_BUY_D',
+            'tick_large_order_net_D', 'VPA_ACCELERATION_5D', 'VPA_EFFICIENCY_D',
+            'MA_COHERENCE_RESONANCE_D', 'PRICE_FRACTAL_DIM_D', 'industry_leader_score_D',
+            'THEME_HOTNESS_SCORE_D', 'industry_rank_slope_D', 'breakout_potential_D', 'SMART_MONEY_SYNERGY_BUY_D',
+            'MA_RUBBER_BAND_EXTENSION_D', 'industry_breadth_score_D', 'industry_stagnation_score_D'
         ]
         for col in targets:
             series = self.helper._get_safe_series(df, col, 0.0)
             raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
             raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().replace(0, 1e-6)
-        kinetic_list = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'volatility_adjusted_concentration_D', 'PRICE_FRACTAL_DIM_D', 'SMART_MONEY_SYNERGY_BUY_D']
+        # 核心修复：扩展 kinetic_list 以涵盖报错涉及的衍生指标
+        kinetic_list = [
+            'mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 
+            'volatility_adjusted_concentration_D', 'VPA_ACCELERATION_5D', 'SMART_MONEY_SYNERGY_BUY_D',
+            'industry_breadth_score_D', 'industry_stagnation_score_D', 'MA_COHERENCE_RESONANCE_D', 'breakout_potential_D'
+        ]
         for target in kinetic_list:
             for d_type in ['SLOPE', 'ACCEL', 'JERK']:
                 col_name = f'{d_type}_5_{target}'
-                val = self.helper._get_safe_series(df, col_name, 0.0)
+                val = self.helper._get_safe_series(df, col_name, 0.0) # 优先取物理列
                 raw_signals[col_name] = val
                 if d_type == 'JERK':
                     raw_signals[f'HAB_MAD_{col_name}'] = (val - val.rolling(34).median()).abs().rolling(34).median().replace(0, 1e-6)
-        raw_signals['STATE_PARABOLIC_WARNING_D'] = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0) # [cite: 1]
-        raw_signals['STATE_MARKET_LEADER_D'] = self.helper._get_safe_series(df, 'STATE_MARKET_LEADER_D', 0.0) # [cite: 1]
-        raw_signals['STATE_ROUNDING_BOTTOM_D'] = self.helper._get_safe_series(df, 'STATE_ROUNDING_BOTTOM_D', 0.0) # [cite: 1]
-        raw_signals['STATE_GOLDEN_PIT_D'] = self.helper._get_safe_series(df, 'STATE_GOLDEN_PIT_D', 0.0) # [cite: 1]
-        raw_signals['STATE_TRENDING_STAGE_D'] = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0) # [cite: 1]
-        raw_signals['STATE_EMOTIONAL_EXTREME_D'] = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0) # [cite: 1]
-        raw_signals['tick_chip_transfer_efficiency_D'] = self.helper._get_safe_series(df, 'tick_chip_transfer_efficiency_D', 0.0) # [cite: 3]
+        raw_signals['STATE_PARABOLIC_WARNING_D'] = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
+        raw_signals['STATE_MARKET_LEADER_D'] = self.helper._get_safe_series(df, 'STATE_MARKET_LEADER_D', 0.0)
+        raw_signals['STATE_ROUNDING_BOTTOM_D'] = self.helper._get_safe_series(df, 'STATE_ROUNDING_BOTTOM_D', 0.0)
+        raw_signals['STATE_GOLDEN_PIT_D'] = self.helper._get_safe_series(df, 'STATE_GOLDEN_PIT_D', 0.0)
+        raw_signals['STATE_TRENDING_STAGE_D'] = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
+        raw_signals['STATE_EMOTIONAL_EXTREME_D'] = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
+        raw_signals['tick_chip_transfer_efficiency_D'] = self.helper._get_safe_series(df, 'tick_chip_transfer_efficiency_D', 0.0)
+        raw_signals['intraday_distribution_confidence_D'] = self.helper._get_safe_series(df, 'intraday_distribution_confidence_D', 0.0)
+        raw_signals['anomaly_intensity_D'] = self.helper._get_safe_series(df, 'anomaly_intensity_D', 0.0)
+        raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0)
+        raw_signals['SMART_MONEY_HM_NET_BUY_D'] = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', 0.0)
+        raw_signals['stealth_flow_ratio_D'] = self.helper._get_safe_series(df, 'stealth_flow_ratio_D', 0.0)
         return raw_signals
 
     def _calculate_parabolic_sprint_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
@@ -270,25 +280,32 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_sector_spillover_domino_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.1 · 行业多米诺版】识别板块负向溢出
-        - 逻辑：行业广度 [cite: 2] 衰减与下行趋势 [cite: 2] 加速共振。
-        - 版本号：V7.1.0
+        【V7.2.1 · 健壮性增强版】判定行业溢出多米诺效应
+        - 逻辑：通过 .get() 防御 KeyError，同步计算行业广度衰竭。
+        - 版本号：V7.2.1
         """
-        breadth_decay = -np.tanh(raw_signals['SLOPE_5_industry_breadth_score_D'])
-        domino_risk = (breadth_decay.clip(0) * 0.7 + np.tanh(raw_signals['industry_stagnation_score_D']) * 0.3).clip(0, 1)
-        print(f"[PROBE] 行业溢出风险 - 广度斜率: {breadth_decay.iloc[-1]:.4f}")
+        breadth_slope = raw_signals.get('SLOPE_5_industry_breadth_score_D', pd.Series(0.0, index=df_index))
+        breadth_decay = -np.tanh(breadth_slope)
+        stagnation_val = raw_signals.get('industry_stagnation_score_D', pd.Series(0.0, index=df_index))
+        stagnation_hab = raw_signals.get('HAB_LONG_industry_stagnation_score_D', pd.Series(0.0, index=df_index))
+        stagnation_std = raw_signals.get('HAB_STD_industry_stagnation_score_D', pd.Series(1e-6, index=df_index))
+        stagnation_z = np.tanh((stagnation_val - stagnation_hab) / stagnation_std)
+        domino_risk = (breadth_decay.clip(0) * 0.7 + stagnation_z.clip(0) * 0.3).clip(0, 1)
+        print(f"[PROBE] 行业溢出风险 - 广度斜率: {breadth_slope.iloc[-1]:.4f}, 滞涨Z分: {stagnation_z.iloc[-1]:.4f}, 综合多米诺分: {domino_risk.iloc[-1]:.4f}")
         return domino_risk
 
     def _calculate_market_regime_switching_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.1 · 状态切换版】判定市场有序度崩溃
-        - 逻辑：一致性共振 [cite: 1] 下降与分形混沌 [cite: 1] 增加。
-        - 版本号：V7.1.0
+        【V7.2.1 · 健壮性增强版】判定市场状态切换风险
+        - 逻辑：利用 .get() 确保 MA_COHERENCE_RESONANCE_D 及其导数安全加载。
+        - 版本号：V7.2.1
         """
-        chaos_z = np.tanh(raw_signals['SLOPE_5_PRICE_FRACTAL_DIM_D'])
-        coherence_inv = -np.tanh(raw_signals['SLOPE_5_MA_COHERENCE_RESONANCE_D'])
-        regime_risk = (chaos_z.clip(0) * 0.5 + coherence_inv.clip(0) * 0.5).clip(0, 1)
-        print(f"[PROBE] 状态切换风险 - 混沌加速: {chaos_z.iloc[-1]:.4f}, 共振瓦解: {coherence_inv.iloc[-1]:.4f}")
+        coherence_slope = raw_signals.get('SLOPE_5_MA_COHERENCE_RESONANCE_D', pd.Series(0.0, index=df_index))
+        coherence_inv = -np.tanh(coherence_slope)
+        fractal_slope = raw_signals.get('SLOPE_5_PRICE_FRACTAL_DIM_D', pd.Series(0.0, index=df_index))
+        chaos_accel = np.tanh(fractal_slope)
+        regime_risk = (coherence_inv.clip(0) * 0.5 + chaos_accel.clip(0) * 0.5).clip(0, 1)
+        print(f"[PROBE] 状态切换风险 - 共振衰减分: {coherence_inv.iloc[-1]:.4f}, 结构熵增分: {chaos_accel.iloc[-1]:.4f}, 综合状态分: {regime_risk.iloc[-1]:.4f}")
         return regime_risk
 
     def _calculate_smart_money_handover_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
