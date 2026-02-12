@@ -24,10 +24,10 @@ class CalculateWinnerConvictionDecay:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.8.0 · 真空否决版】计算流程调度中心
-        - 版本号：V7.8.0
+        【V7.9.0 · 韧性共振倍增版】计算流程调度中心
+        - 版本号：V7.9.0
         """
-        print(f"\n{'#'*30} [CalculateWinnerConvictionDecay V7.8.0] 开始计算... {'#'*30}")
+        print(f"\n{'#'*30} [CalculateWinnerConvictionDecay V7.9.0] 开始计算... {'#'*30}")
         method_name = "calculate_winner_conviction_decay"
         is_debug_enabled = get_param_value(self.helper.debug_params.get('enabled'), False)
         probe_ts = None
@@ -42,7 +42,6 @@ class CalculateWinnerConvictionDecay:
         if not self.helper._validate_required_signals(df, all_required_signals, method_name): return pd.Series(dtype=np.float32)
         _temp_debug_values = {"conviction_dynamics": {}}
         raw_signals = self._get_raw_signals(df, df_index, params_dict, method_name)
-        # 顺序至关重要：Conviction 计算必须在 Resilience 之前，因为后者依赖前者的 Vacuum 风险
         conv_s = self._calculate_conviction_strength(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         res_s = self._calculate_pressure_resilience(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         dec_f = self._calculate_deception_filter(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
@@ -468,14 +467,22 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_synergy_factor(self, conviction_strength_score: pd.Series, pressure_resilience_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3.0 · 异常暴露版】共振因子计算
-        - 修改思路：显式打印归一化后的信念与韧性组件。
-        - 版本号：V7.3.0
+        【V7.9.0 · 向量对齐版】共振因子：修正方向判定
+        - 修改思路：Conviction > 0 (看空) 且 Resilience < 0 (看空) 时，应为高共振。
+        - 版本号：V7.9.0
         """
-        n_conv = (conviction_strength_score + 1) / 2
-        n_res = (pressure_resilience_score + 1) / 2
-        syn = (n_conv * n_res + (1 - n_conv) * (1 - n_res)).clip(0, 1)
-        print(f"[NODE_PROBE] Synergy - NormConv: {n_conv.iloc[-1]:.4f}, NormRes: {n_res.iloc[-1]:.4f}")
+        # 归一化方向：两者都指向“空头”时为 1
+        # Conviction: 1 = 极度看空
+        norm_conv = (conviction_strength_score + 1) / 2
+        
+        # Resilience: -1 = 极度看空 (崩塌)
+        # 将其反转：-1 -> 1 (空头共振), 1 -> 0 (多头抵抗)
+        norm_res_collapse = (pressure_resilience_score * -1 + 1) / 2
+        
+        # 简单几何平均共振
+        syn = np.sqrt(norm_conv * norm_res_collapse).clip(0, 1)
+        
+        print(f"[NODE_PROBE] Synergy - NormConv(Bear): {norm_conv.iloc[-1]:.4f}, NormRes(Bear): {norm_res_collapse.iloc[-1]:.4f}, Syn: {syn.iloc[-1]:.4f}")
         return syn
 
     def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
@@ -588,22 +595,39 @@ class CalculateWinnerConvictionDecay:
 
     def _perform_final_fusion(self, df_index: pd.Index, conviction_score: pd.Series, resilience_score: pd.Series, deception_filter: pd.Series, stealth_bonus: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.7.0 · 稀释保护版】重构终核融合：采用乘法抑制并调整非线性压缩
-        - 修改思路：使用 3.5 次幂保证信号可见度；将对冲逻辑改为 (1 - Bonus * 0.5)。
-        - 版本号：V7.7.0
+        【V7.9.0 · 韧性共振倍增版】重构融合逻辑：将负向韧性转化为衰减倍增器
+        - 修改思路：当 resilience < 0 时，说明支撑崩塌，应放大 conviction 的衰减力度，而非抵消。
+        - 公式：Intensity = Conviction * (1 + |Resilience| * 0.6)
+        - 版本号：V7.9.0
         """
         exp = params_dict['final_exponent']
-        intensity = (conviction_score * 0.7 + resilience_score * 0.3).clip(0, 1).fillna(0)
-        # 修改点：乘法抑制代替减法。即便吸筹分很高，也只能将信念分压低，不会抹除。
-        raw_net = (intensity * (2 - deception_filter.fillna(1))) * (1 - stealth_bonus.fillna(0) * 0.5)
+        st_b = stealth_bonus.fillna(0)
+        
+        # [关键重构] 
+        # 旧逻辑：Conviction * 0.7 + Resilience * 0.3 (负分抵消了正分，错误)
+        # 新逻辑：如果韧性为负（崩塌），则放大信念分；如果韧性为正（抵抗），则阻碍信念分。
+        # 1. 提取韧性的崩塌分量（负值取反）
+        res_collapse = resilience_score.clip(upper=0).abs()
+        # 2. 提取韧性的抵抗分量（正值保留）
+        res_resist = resilience_score.clip(lower=0)
+        
+        # 3. 融合：信念基础 + 崩塌加成 - 抵抗阻滞
+        # 如果 VacuumVeto 触发，res_collapse 接近 1.0，Intensity 将倍增
+        raw_intensity = conviction_score * (1.0 + res_collapse * 0.6) - res_resist * 0.3
+        
+        # 4. 施加诡道过滤与隐秘抑制
+        intensity = raw_intensity.clip(0, 1).fillna(0)
+        raw_net = (intensity * (2 - deception_filter.fillna(1))) * (1 - st_b * 0.5)
+        
         net_decay = raw_net.clip(-1, 1).fillna(0)
         final = np.sign(net_decay) * (net_decay.abs() ** exp)
+        
         _temp_debug_values["final_fusion_debug"] = {"intensity": intensity.iloc[-1], "raw_net": raw_net.iloc[-1], "exponent": exp}
-        print(f"\n[FINAL_FUSION_COMPONENTS]")
-        print(f"  > Intensity: {intensity.iloc[-1]:.4f} | MultiplicativeNet: {raw_net.iloc[-1]:.4f}")
+        print(f"\n[FINAL_FUSION_COMPONENTS_V7.9]")
+        print(f"  > Conviction: {conviction_score.iloc[-1]:.4f} | Res_Collapse(+): {res_collapse.iloc[-1]:.4f}")
+        print(f"  > Intensity(Boosted): {intensity.iloc[-1]:.4f} | MultiplicativeNet: {raw_net.iloc[-1]:.4f}")
         print(f"  > Final_With_Exp{exp}: {final.iloc[-1]:.4e}")
         return final.clip(-1, 1).fillna(0)
-
 
 
 
