@@ -94,7 +94,7 @@ class CalculateWinnerConvictionDecay:
             "regime_switching_risk": 0.15 # 市场状态切换 
         }
         required_df_columns = [
-            'MID_LONG_SYNC_D', 'volatility_adjusted_concentration_D', 'STATE_TRENDING_STAGE_D', # 
+            'mid_long_sync_D', 'volatility_adjusted_concentration_D', 'STATE_TRENDING_STAGE_D', # 
             'SMART_MONEY_INST_NET_BUY_D', 'tick_large_order_net_D', 'PRICE_ENTROPY_D', # 
             'MA_COHERENCE_RESONANCE_D', 'PRICE_FRACTAL_DIM_D', 'STATE_MARKET_LEADER_D', # 
             'SMART_MONEY_SYNERGY_BUY_D', 'industry_leader_score_D', 'THEME_HOTNESS_SCORE_D', # [cite: 1, 2]
@@ -106,7 +106,7 @@ class CalculateWinnerConvictionDecay:
             'intraday_distribution_confidence_D', 'anomaly_intensity_D', 'stealth_flow_ratio_D', # [cite: 3]
             'uptrend_strength_D', 'market_sentiment_score_D', 'pressure_profit_D', 'net_amount_ratio_D' # [cite: 3]
         ]
-        kinetic_targets = ['MID_LONG_SYNC_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'SMART_MONEY_SYNERGY_BUY_D'] # 
+        kinetic_targets = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'PRICE_FRACTAL_DIM_D', 'SMART_MONEY_SYNERGY_BUY_D'] # 
         for target in kinetic_targets:
             for p in ["5"]:
                 required_df_columns.extend([f'SLOPE_{p}_{target}', f'ACCEL_{p}_{target}', f'JERK_{p}_{target}'])
@@ -127,7 +127,7 @@ class CalculateWinnerConvictionDecay:
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
         targets = [
-            'MID_LONG_SYNC_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_INST_NET_BUY_D', # [cite: 1, 3]
+            'mid_long_sync_D', 'volatility_adjusted_concentration_D', 'SMART_MONEY_INST_NET_BUY_D', # [cite: 1, 3]
             'tick_large_order_net_D', 'VPA_ACCELERATION_5D', 'VPA_EFFICIENCY_D', # [cite: 1]
             'MA_COHERENCE_RESONANCE_D', 'PRICE_FRACTAL_DIM_D', 'industry_leader_score_D', # [cite: 1, 2]
             'THEME_HOTNESS_SCORE_D', 'industry_rank_slope_D', 'breakout_potential_D', # [cite: 1, 2]
@@ -138,7 +138,7 @@ class CalculateWinnerConvictionDecay:
             raw_signals[col] = series
             raw_signals[f'HAB_LONG_{col}'] = series.rolling(window=hab_cfg['long']).mean()
             raw_signals[f'HAB_STD_{col}'] = series.rolling(window=hab_cfg['long']).std().replace(0, 1e-6)
-        kinetic_list = ['MID_LONG_SYNC_D', 'SMART_MONEY_INST_NET_BUY_D', 'volatility_adjusted_concentration_D', 'PRICE_FRACTAL_DIM_D', 'SMART_MONEY_SYNERGY_BUY_D']
+        kinetic_list = ['mid_long_sync_D', 'SMART_MONEY_INST_NET_BUY_D', 'volatility_adjusted_concentration_D', 'PRICE_FRACTAL_DIM_D', 'SMART_MONEY_SYNERGY_BUY_D']
         for target in kinetic_list:
             for d_type in ['SLOPE', 'ACCEL', 'JERK']:
                 col_name = f'{d_type}_5_{target}'
@@ -236,7 +236,7 @@ class CalculateWinnerConvictionDecay:
         """
         weights = params_dict['belief_decay_weights']
         # 1. 跨维度同步性衰减 [cite: 3]
-        sync_decay = -np.tanh((raw_signals['MID_LONG_SYNC_D'] - raw_signals['HAB_LONG_MID_LONG_SYNC_D'] + raw_signals['SLOPE_5_MID_LONG_SYNC_D']) / raw_signals['HAB_STD_MID_LONG_SYNC_D'])
+        sync_decay = -np.tanh((raw_signals['mid_long_sync_D'] - raw_signals['HAB_LONG_mid_long_sync_D'] + raw_signals['SLOPE_5_mid_long_sync_D']) / raw_signals['HAB_STD_mid_long_sync_D'])
         # 2. 依次激活所有博弈逻辑方法
         para_risk = self._calculate_parabolic_sprint_risk(df_index, raw_signals, _temp_debug_values) # 抛物线 
         vpa_risk = self._calculate_vpa_exhaustion_risk(df_index, raw_signals, _temp_debug_values) # VPA 
