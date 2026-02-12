@@ -225,9 +225,10 @@ class CalculateStormEyeCalm:
 
     def _get_required_signals(self, params: Dict, mtf_slope_accel_weights: Dict, mtf_cohesion_base_signals: List) -> list[str]:
         """
-        V49.0.0: 军械库合规版信号清单。
-        说明: 移除非清单指标 sell_sm_amount_rate_D 和 loser_pain_index_D，引入 profit_ratio_D 作为痛感原始原料。 [cite: 1, 4]
+        V51.0.0: 军械库原子化合规清单。
+        说明: 彻底移除所有非军械库原生的衍生导数列，仅请求原始原子信号以避免 KeyError。
         """
+        # 仅保留军械库清单明确支持的列
         required_signals = [
             'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
             'BBW_21_2.0_D', 'chip_concentration_ratio_D', 'concentration_entropy_D',
@@ -236,53 +237,77 @@ class CalculateStormEyeCalm:
             'tick_abnormal_volume_ratio_D', 'afternoon_flow_ratio_D', 'absorption_energy_D',
             'stealth_flow_ratio_D', 'tick_clustering_index_D', 'accumulation_signal_score_D',
             'SMART_MONEY_HM_NET_BUY_D', 'HM_ACTIVE_TOP_TIER_D', 'net_mf_amount_D',
-            'profit_ratio_D', 'winner_rate_D',
-            'market_sentiment_score_D', 'breakout_potential_D', 'breakout_confidence_D',
-            'breakout_penalty_score_D', 'resistance_strength_D', 'GEOM_REG_R2_D', 'GEOM_REG_SLOPE_D',
+            'profit_ratio_D', 'winner_rate_D', 'market_sentiment_score_D', 
+            'breakout_potential_D', 'breakout_confidence_D', 'breakout_penalty_score_D', 
+            'resistance_strength_D', 'GEOM_REG_R2_D', 'GEOM_REG_SLOPE_D',
             'ATR_14_D', 'chip_stability_D', 'ADX_14_D', 'flow_impact_ratio_D',
             'industry_preheat_score_D', 'industry_rank_accel_D', 'industry_strength_rank_D',
             'trend_confirmation_score_D', 'chip_structure_state_D', 'main_force_activity_index_D',
             'intraday_cost_center_migration_D', 'migration_convergence_ratio_D', 'tick_chip_balance_ratio_D',
             'VPA_EFFICIENCY_D', 'VPA_MF_ADJUSTED_EFF_D', 'VPA_ACCELERATION_5D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
-            'OCH_ACCELERATION_D', 'OCH_D', 'price_vs_ma_21_ratio_D', 'price_vs_ma_55_ratio_D',
-            'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 'amount_D', 'price_grid_D',
-            'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'NDI_14_D', 'PDI_14_D', 'MA_ACCELERATION_EMA_55_D',
+            'OCH_ACCELERATION_D', 'OCH_D', 'PDI_14_D', 'NDI_14_D', 'price_vs_ma_21_ratio_D', 
+            'price_vs_ma_55_ratio_D', 'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 
+            'amount_D', 'price_grid_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D',
             'STATE_GOLDEN_PIT_D', 'BIAS_5_D', 'MA_FAN_EFFICIENCY_D', 'RSI_13_D', 'close'
         ]
-        required_signals.extend([
-            'SLOPE_5_RSI_13_D', 'ACCEL_5_RSI_13_D', 'SLOPE_5_market_sentiment_score_D',
-            'SLOPE_13_VPA_MF_ADJUSTED_EFF_D', 'ACCEL_8_VPA_MF_ADJUSTED_EFF_D', 'JERK_5_VPA_MF_ADJUSTED_EFF_D',
-            'JERK_5_tick_abnormal_volume_ratio_D', 'JERK_5_MA_ACCELERATION_EMA_55_D', 'JERK_5_VPA_ACCELERATION_5D',
-            'SLOPE_13_PRICE_ENTROPY_D', 'ACCEL_8_PRICE_ENTROPY_D', 'SLOPE_13_STATE_GOLDEN_PIT_D',
-            'JERK_5_STATE_GOLDEN_PIT_D', 'SLOPE_13_BIAS_55_D', 'ACCEL_8_BIAS_55_D', 'JERK_5_NDI_14_D',
-            'SLOPE_13_PDI_14_D', 'JERK_5_PDI_14_D', 'SLOPE_13_breakout_penalty_score_D',
-            'SLOPE_13_RSI_13_D', 'ACCEL_8_RSI_13_D', 'JERK_5_RSI_13_D', 'SLOPE_13_OCH_D',
-            'ACCEL_8_OCH_D', 'SLOPE_13_ATR_14_D', 'ACCEL_8_ATR_14_D', 'JERK_5_ATR_14_D',
-            'SLOPE_13_MA_FAN_EFFICIENCY_D', 'ACCEL_8_MA_FAN_EFFICIENCY_D', 'JERK_5_MA_FAN_EFFICIENCY_D',
-            'SLOPE_13_TURNOVER_STABILITY_INDEX_D', 'ACCEL_8_TURNOVER_STABILITY_INDEX_D', 'SLOPE_13_amount_D',
-            'JERK_5_HM_ACTIVE_ANY_D', 'JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D', 'SLOPE_13_HM_COORDINATED_ATTACK_D',
-            'JERK_5_HM_COORDINATED_ATTACK_D', 'JERK_5_BIAS_5_D', 'ACCEL_8_BIAS_5_D', 'JERK_5_profit_ratio_D'
-        ])
         return list(set(required_signals))
 
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
         """
-        V49.0.2: 映射军械库数据，加入痛感代理转换逻辑。
-        说明: 利用 1.0 - profit_ratio_D 替代缺失的 loser_pain_index_D。 
+        V51.0.1: 原子化数据映射与动态导数生成引擎。
+        说明: 在此处动态计算所有高阶物理导数(Slope/Accel/Jerk)，彻底解决军械库列缺失导致的崩溃。
         """
         raw_data = {}
-        target_columns = self._get_required_signals(params, params.get('mtf_slope_accel_weights', {}), [])
+        target_columns = self._get_required_signals(params, {}, [])
+        # 1. 安全映射军械库原生原子信号
         for col in target_columns:
-            if col not in df.columns: print(f"[CRITICAL ERROR] 军械库缺失关键列: {col}")
-            raw_data[col] = df[col]
-        # 痛感代理转换逻辑：盈利比例越低，痛感越高 
+            if col in df.columns:
+                raw_data[col] = df[col]
+            else:
+                print(f"[WARNING] 军械库清单中未发现列: {col}, 请检查数据源。")
+        # 2. 动态生成所有必需的高阶物理导数
+        # 针对 KeyError: 'JERK_5_VPA_ACCELERATION_5D' 的专项修复
+        raw_data['JERK_5_VPA_ACCELERATION_5D'] = raw_data['VPA_ACCELERATION_5D'].diff().diff().diff()
+        # 补全主力意图、能量溢出与博弈中性化所需的其他衍生列
+        raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'] = raw_data['VPA_MF_ADJUSTED_EFF_D'].diff(13)
+        raw_data['ACCEL_8_VPA_MF_ADJUSTED_EFF_D'] = raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'].diff(8)
+        raw_data['JERK_5_VPA_MF_ADJUSTED_EFF_D'] = raw_data['VPA_MF_ADJUSTED_EFF_D'].diff().diff().diff()
+        raw_data['JERK_5_tick_abnormal_volume_ratio_D'] = raw_data['tick_abnormal_volume_ratio_D'].diff().diff().diff()
+        raw_data['JERK_5_MA_ACCELERATION_EMA_55_D'] = raw_data['MA_ACCELERATION_EMA_55_D'].diff().diff().diff()
+        raw_data['SLOPE_13_PRICE_ENTROPY_D'] = raw_data['PRICE_ENTROPY_D'].diff(13)
+        raw_data['ACCEL_8_PRICE_ENTROPY_D'] = raw_data['PRICE_ENTROPY_D'].diff().diff()
+        raw_data['SLOPE_13_STATE_GOLDEN_PIT_D'] = raw_data['STATE_GOLDEN_PIT_D'].diff(13)
+        raw_data['JERK_5_STATE_GOLDEN_PIT_D'] = raw_data['STATE_GOLDEN_PIT_D'].diff().diff().diff()
+        raw_data['SLOPE_13_BIAS_55_D'] = raw_data['BIAS_55_D'].diff(13)
+        raw_data['ACCEL_8_BIAS_55_D'] = raw_data['BIAS_55_D'].diff().diff()
+        raw_data['JERK_5_NDI_14_D'] = raw_data['NDI_14_D'].diff().diff().diff()
+        raw_data['SLOPE_13_PDI_14_D'] = raw_data['PDI_14_D'].diff(13)
+        raw_data['JERK_5_PDI_14_D'] = raw_data['PDI_14_D'].diff().diff().diff()
+        raw_data['SLOPE_13_breakout_penalty_score_D'] = raw_data['breakout_penalty_score_D'].diff(13)
+        raw_data['SLOPE_13_RSI_13_D'] = raw_data['RSI_13_D'].diff(13)
+        raw_data['ACCEL_8_RSI_13_D'] = raw_data['RSI_13_D'].diff().diff()
+        raw_data['JERK_5_RSI_13_D'] = raw_data['RSI_13_D'].diff().diff().diff()
+        raw_data['SLOPE_13_OCH_D'] = raw_data['OCH_D'].diff(13)
+        raw_data['ACCEL_8_OCH_D'] = raw_data['OCH_D'].diff().diff()
+        raw_data['SLOPE_13_ATR_14_D'] = raw_data['ATR_14_D'].diff(13)
+        raw_data['ACCEL_8_ATR_14_D'] = raw_data['ATR_14_D'].diff().diff()
+        raw_data['JERK_5_ATR_14_D'] = raw_data['ATR_14_D'].diff().diff().diff()
+        raw_data['SLOPE_13_MA_FAN_EFFICIENCY_D'] = raw_data['MA_FAN_EFFICIENCY_D'].diff(13)
+        raw_data['ACCEL_8_MA_FAN_EFFICIENCY_D'] = raw_data['MA_FAN_EFFICIENCY_D'].diff().diff()
+        raw_data['JERK_5_MA_FAN_EFFICIENCY_D'] = raw_data['MA_FAN_EFFICIENCY_D'].diff().diff().diff()
+        raw_data['JERK_5_HM_ACTIVE_ANY_D'] = raw_data['HM_ACTIVE_ANY_D'].diff().diff().diff()
+        raw_data['JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D'] = raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].diff().diff().diff()
+        raw_data['SLOPE_13_HM_COORDINATED_ATTACK_D'] = raw_data['HM_COORDINATED_ATTACK_D'].diff(13)
+        raw_data['JERK_5_HM_COORDINATED_ATTACK_D'] = raw_data['HM_COORDINATED_ATTACK_D'].diff().diff().diff()
+        raw_data['JERK_5_BIAS_5_D'] = raw_data['BIAS_5_D'].diff().diff().diff()
+        raw_data['ACCEL_8_BIAS_5_D'] = raw_data['BIAS_5_D'].diff().diff()
+        raw_data['SLOPE_5_RSI_13_D'] = raw_data['RSI_13_D'].diff(5)
+        raw_data['SLOPE_5_market_sentiment_score_D'] = raw_data['market_sentiment_score_D'].diff(5)
+        # 3. 痛感代理与 HAB 原料补齐
         raw_data['pain_index_proxy'] = 1.0 - raw_data['profit_ratio_D']
-        raw_data['JERK_5_pain_index_proxy'] = raw_data.get('JERK_5_profit_ratio_D', raw_data['profit_ratio_D'].diff().diff().diff()) * -1.0
-        raw_data['net_mf_sum_13'] = raw_data['net_mf_amount_D'].rolling(window=13, min_periods=1).sum()
-        raw_data['net_mf_sum_21'] = raw_data['net_mf_amount_D'].rolling(window=21, min_periods=1).sum()
-        raw_data['price_slope_raw'] = df[f'SLOPE_5_market_sentiment_score_D']
-        # 确保 stealth_jerk 在清单中有效，若缺失则通过 atomic 计算
-        raw_data['stealth_jerk_raw'] = df.get('JERK_5_stealth_flow_ratio_D', raw_data['stealth_flow_ratio_D'].diff().diff().diff())
+        raw_data['JERK_5_profit_ratio_D'] = raw_data['profit_ratio_D'].diff().diff().diff()
+        raw_data['JERK_5_pain_index_proxy'] = raw_data['JERK_5_profit_ratio_D'] * -1.0
+        raw_data['price_slope_raw'] = raw_data['SLOPE_5_market_sentiment_score_D']
         return raw_data
 
     def _calculate_physics_score(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False) -> pd.Series:
@@ -385,28 +410,29 @@ class CalculateStormEyeCalm:
 
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float, _temp_debug_values: Dict) -> pd.Series:
         """
-        V49.0.1: 军械库兼容版情绪深度融合模型。
-        说明: 使用 pain_index_proxy (基于 profit_ratio_D) 刻画情绪底部的痛感特征。 
+        V50.0.2: 引入极值恐慌共振的情绪深度融合模型。
+        说明: 利用 EPR 因子捕捉黄金坑末端的带血筹码收集行为，确证情绪底部的真实性。
         """
-        print(f"--- [情绪与痛感代理集成探针] @ {df_index[-1]} ---")
-        # 1. 使用痛感代理与绝望脉冲 (1.0 - profit_ratio) 
+        print(f"--- [情绪与极值恐慌共振集成探针] @ {df_index[-1]} ---")
+        # 1. 痛感代理与绝望脉冲 (1.0 - profit_ratio)
         pain_score = self._calculate_physics_score(raw_data['pain_index_proxy'], mode='limit_high', sensitivity=3.0)
         despair_burst = self._calculate_physics_score(raw_data.get('JERK_5_pain_index_proxy', 0), mode='limit_high', sensitivity=20.0, denoise=True)
-        # 2. 存量情绪 HAB 与 趋势静止度
+        # 2. 存量情绪与趋势静止度
         sent_hab = self._calculate_historical_accumulation_buffer(raw_data['market_sentiment_score_D'], windows=[21])
         slope_silence = self._calculate_physics_score(raw_data.get('SLOPE_13_market_sentiment_score_D', 0), mode='zero_focus', sensitivity=50.0, denoise=True)
-        # 3. 接入高级物理分量：空头力竭(SED)、微观有序增益(MOG) 与 动能二极化(OMB)
+        # 3. 接入物理分量：空头力竭(SED)、二极化接管(OMB) 与 极值恐慌共振(EPR)
         short_exhaustion = self._calculate_short_exhaustion_divergence(df_index, raw_data)
-        order_gain = self._calculate_micro_order_gain(df_index, raw_data)
         bipolar_gain = self._calculate_oversold_momentum_bipolarization(df_index, raw_data)
-        # 4. 获利盘清洗纯度校验：使用 winner_rate_D 代替 loser_pain 
+        panic_resonance = self._calculate_extreme_panic_resonance(df_index, raw_data)
+        # 4. 微观有序化增益与获利盘清洗校验
+        order_gain = self._calculate_micro_order_gain(df_index, raw_data)
         cleanse_score = self._calculate_physics_score(raw_data['winner_rate_D'], mode='limit_low', sensitivity=15.0)
-        # 5. 非线性情绪融合合成
+        # 5. 非线性情绪融合合成：(基础底迷 * 锁仓有序性) * (1 + 物理力竭 + 二极化接管 + 恐慌共振) + 绝望补偿
+        # 权重分配：EPR 作为 20% 的极值修正项，强化坑底反转信号
         base_subdued = (pain_score.pow(0.4) * slope_silence.pow(0.3) * sent_hab.pow(0.3) * cleanse_score.pow(0.2))
-        final_sentiment = (base_subdued * (1.0 + 0.3 * order_gain) * (0.5 + 0.25 * short_exhaustion + 0.25 * bipolar_gain) + 0.25 * despair_burst)
-        print(f"  -- 痛感代理分: {pain_score.iloc[-1]:.4f} | 动能二极化增益: {bipolar_gain.iloc[-1]:.4f}")
-        print(f"  -- 最终情绪真空分: {final_sentiment.iloc[-1]:.4f}")
-        _temp_debug_values["市场情绪矩阵"] = {"base": base_subdued, "order_gain": order_gain, "bipolar": bipolar_gain}
+        final_sentiment = (base_subdued * (1.0 + 0.3 * order_gain) * (0.4 + 0.2 * short_exhaustion + 0.2 * bipolar_gain + 0.2 * panic_resonance) + 0.25 * despair_burst)
+        print(f"  -- 恐慌共振分: {panic_resonance.iloc[-1]:.4f} | 最终情绪真空分: {final_sentiment.iloc[-1]:.4f}")
+        _temp_debug_values["市场情绪矩阵"] = {"base": base_subdued, "panic_resonance": panic_resonance}
         return final_sentiment.clip(0, 1)
 
     def _calculate_breakout_readiness_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -1056,7 +1082,22 @@ class CalculateStormEyeCalm:
         print(f"  -- 历史共振点数: {hist_hit_mask.rolling(120).sum().iloc[-1]} | 期望收益: {expected_gain.iloc[-1]:.4f} | 奖励系数: {reward_factor.iloc[-1]:.4f}")
         return reward_factor.fillna(1.0)
 
-
+    def _calculate_extreme_panic_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
+        """
+        V50.0.1: 极值恐慌共振模型 (Extreme Panic Resonance)。
+        说明: 量化痛感代理在黄金坑内部的 Jerk 峰值，识别主力收集“带血筹码”的物理瞬间。
+        """
+        print(f"--- [极值恐慌共振探针] @ {df_index[-1]} ---")
+        # 1. 提取痛感 Jerk (由 -JERK_5_profit_ratio_D 转换而来)
+        pain_jerk = raw_data.get('JERK_5_pain_index_proxy', pd.Series(0.0, index=df_index))
+        # 2. 映射恐慌爆发分：Jerk 越高，代表痛感增加的加速度越快，恐慌感越强
+        panic_burst = self._calculate_physics_score(pain_jerk, mode='limit_high', sensitivity=25.0, denoise=True)
+        # 3. 坑位限制：共振必须发生在黄金坑状态内 (STATE_GOLDEN_PIT_D)
+        pit_state = raw_data['STATE_GOLDEN_PIT_D']
+        # 4. 最终共振分：恐慌爆发脉冲 * 黄金坑状态激活
+        resonance_score = panic_burst * pit_state
+        print(f"  -- 痛感Jerk分: {panic_burst.iloc[-1]:.4f} | 黄金坑状态: {pit_state.iloc[-1]:.4f} | 共振最终分: {resonance_score.iloc[-1]:.4f}")
+        return resonance_score.clip(0, 1)
 
 
 
