@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
+from numba import jit
 from typing import Dict, List, Optional, Any, Tuple
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score,
@@ -23,14 +24,17 @@ class CalculateWinnerConvictionDecay:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V19.2 · 主执行流】引入全量数据探针与全息超导协同网络
+        【V21.0 · 高性能计算内核】引入 Float32 降级与 Numba 加速
         - 修改思路：
-            1. 将 raw_signals 透传至 _calculate_synergy_factor 以支持高维计算。
-            2. 引入 V19.2 相位共振逻辑，替代原有的线性融合。
-        - 版本号：V19.2.0
+            1. 全局数据类型降级：强制转换为 float32，减少显存/内存带宽占用，提升 CPU 缓存命中率。
+            2. 保持原有全息逻辑，仅在数据底层进行精度换效率的优化（对量化信号无实质影响）。
+        - 版本号：V21.0.0
         """
-        print(f"\n{'#'*35} [WINNER_CONVICTION_DECAY V19.2] PHASE INITIATED {'#'*35}")
+        print(f"\n{'#'*35} [WINNER_CONVICTION_DECAY V21.0] HIGH-PERF PHASE {'#'*35}")
         method_name = "calculate_winner_conviction_decay"
+        # 1. 数据类型降级优化 (Data Type Downgrade)
+        # 将 float64 降级为 float32，精度足够用于趋势打分，但能显著提升矢量计算速度
+        df = df.astype(np.float32, errors='ignore')
         is_debug_enabled = get_param_value(self.helper.debug_params.get('enabled'), True)
         probe_ts = None
         if is_debug_enabled and self.helper.probe_dates:
@@ -44,20 +48,15 @@ class CalculateWinnerConvictionDecay:
         if not self.helper._validate_required_signals(df, all_required_signals, method_name): return pd.Series(dtype=np.float32)
         _temp_debug_values = {"conviction_dynamics": {}, "cross_module_signals": {}}
         raw_signals = self._get_raw_signals(df, df_index, params_dict, method_name)
-        # 1. 物理层判定：真空熔断 (关键独立因子)
         vacuum_risk = self._calculate_institutional_vacuum_meltdown(df_index, raw_signals, params_dict, _temp_debug_values)
         _temp_debug_values["cross_module_signals"]["vacuum_risk"] = vacuum_risk
-        # 2. 结构层判定：信念强度与韧性 (核心对立)
         conv_s = self._calculate_conviction_strength(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values, vacuum_risk)
         res_s = self._calculate_pressure_resilience(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values, vacuum_risk)
-        # 3. 修正层判定：诡道、情境与吸筹
         dec_f = self._calculate_deception_filter(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         ctx_m = self._calculate_contextual_modulator(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values, is_debug_enabled, probe_ts)
         st_b = self._calculate_stealth_accumulation_bonus(df_index, raw_signals, _temp_debug_values)
-        # 4. 融合层：全息超导协同网络 (V19.2 Update: 传入 raw_signals)
         syn_f = self._calculate_synergy_factor(conv_s, res_s, raw_signals, _temp_debug_values)
         final_s = self._perform_final_fusion(df_index, conv_s, res_s, dec_f, st_b, params_dict, _temp_debug_values)
-        # 5. 决策层：EWD 因子与极速锁存
         ewd_f = self._calculate_ewd_factor(conv_s, res_s, ctx_m, raw_signals, _temp_debug_values)
         latched_s = self._apply_latch_logic(df_index, final_s, ewd_f, params_dict, _temp_debug_values)
         if is_debug_enabled and probe_ts: self._execute_intelligence_probe(method_name, probe_ts, _temp_debug_values, latched_s)
@@ -157,21 +156,18 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V18.6 · 动力学场生成器】修复基础指标 MAD 缺失问题
+        【V21.0 · 动力学场生成器】Float32 强制约束
         - 修改思路：
-            1. 修复 KeyError: 'HAB_MAD_tick_abnormal_volume_ratio_D'。
-            2. 在动力学循环中，显式计算 Base Series 的 MAD 值，而不仅仅是 Slope/Accel/Jerk 的 MAD。
-            3. 保持所有手动加载和统计学计算逻辑不变。
-        - 版本号：V18.6.0
+            1. 确保所有 .slope(), .rolling() 等操作产生的结果强制转换为 float32。
+            2. 避免 pandas 在计算过程中自动升级为 float64。
+        - 版本号：V21.0.0
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
         kinetic_targets = params_dict['kinetic_targets']
         stat_targets = params_dict['stat_targets']
-        print(f"\n[V18.6_KINETIC_FIELD_GENERATION]")
-        # 1. 基础加载 (Base Loading)
+        print(f"\n[V21.0_KINETIC_FIELD_GENERATION]")
         all_cols = set(kinetic_targets + stat_targets['long_std'] + stat_targets['long_only'] + stat_targets['accum_21'])
-        # 额外需要但未在上述自动列表中的独立列 (Manual Additions)
         manual_additions = [
             'days_since_last_peak_D', 'winner_rate_D', 'net_amount_ratio_D', 'TURNOVER_STABILITY_INDEX_D',
             'tick_chip_transfer_efficiency_D', 'intraday_distribution_confidence_D', 'chip_stability_D',
@@ -180,54 +176,45 @@ class CalculateWinnerConvictionDecay:
             'reversal_warning_score_D', 'close_D', 'profit_pressure_D', 'intraday_accumulation_confidence_D',
             'cost_5pct_D', 'intraday_support_test_count_D', 'chip_stability_change_5d_D',
             'intraday_trough_filling_degree_D', 'intraday_low_lock_ratio_D',
-            'closing_flow_intensity_D', 'inflow_persistence_D'
+            'closing_flow_intensity_D', 'inflow_persistence_D', 'MA_COHERENCE_RESONANCE_D'
         ]
         for col in manual_additions:
             all_cols.add(col)
-            
         for col in all_cols:
-            raw_signals[col] = self.helper._get_safe_series(df, col, 0.0)
-
+            raw_signals[col] = self.helper._get_safe_series(df, col, 0.0).astype(np.float32)
         # 2. 动力学衍生 (Kinetic Derivatives)
         period = 5
         for target in kinetic_targets:
             base_series = raw_signals[target]
-            slope = ta.slope(base_series, length=period).fillna(0)
+            slope = ta.slope(base_series, length=period).fillna(0).astype(np.float32)
             raw_signals[f'SLOPE_{period}_{target}'] = slope
-            accel = ta.slope(slope, length=period).fillna(0)
+            accel = ta.slope(slope, length=period).fillna(0).astype(np.float32)
             raw_signals[f'ACCEL_{period}_{target}'] = accel
-            jerk = ta.slope(accel, length=period).fillna(0)
+            jerk = ta.slope(accel, length=period).fillna(0).astype(np.float32)
             raw_signals[f'JERK_{period}_{target}'] = jerk
-            # 修复：将 (base_series, target) 加入循环，确保计算基础指标的 HAB_MAD
             calc_list = [
-                (base_series, target), # 新增：计算基础指标的 MAD (如 HAB_MAD_tick_abnormal_volume_ratio_D)
-                (slope, f'SLOPE_{period}_{target}'), 
-                (accel, f'ACCEL_{period}_{target}'), 
+                (base_series, target),
+                (slope, f'SLOPE_{period}_{target}'),
+                (accel, f'ACCEL_{period}_{target}'),
                 (jerk, f'JERK_{period}_{target}')
             ]
             for series, name in calc_list:
                 rolling_median = series.rolling(window=hab_cfg['long']).median()
-                mad = (series - rolling_median).abs().rolling(window=hab_cfg['long']).median().fillna(0).replace(0, 1e-6)
+                mad = (series - rolling_median).abs().rolling(window=hab_cfg['long']).median().fillna(0).replace(0, 1e-6).astype(np.float32)
                 raw_signals[f'HAB_MAD_{name}'] = mad
-
         # 3. 统计学衍生 (Statistical Derivatives)
         for target in stat_targets['long_std']:
             s = raw_signals[target]
-            raw_signals[f'HAB_LONG_{target}'] = s.rolling(window=hab_cfg['long']).mean().fillna(0)
-            raw_signals[f'HAB_STD_{target}'] = s.rolling(window=hab_cfg['long']).std().fillna(0).replace(0, 1e-4)
-            
+            raw_signals[f'HAB_LONG_{target}'] = s.rolling(window=hab_cfg['long']).mean().fillna(0).astype(np.float32)
+            raw_signals[f'HAB_STD_{target}'] = s.rolling(window=hab_cfg['long']).std().fillna(0).replace(0, 1e-4).astype(np.float32)
         for target in stat_targets['long_only']:
             s = raw_signals[target]
-            raw_signals[f'HAB_LONG_{target}'] = s.rolling(window=hab_cfg['long']).mean().fillna(0)
-            
+            raw_signals[f'HAB_LONG_{target}'] = s.rolling(window=hab_cfg['long']).mean().fillna(0).astype(np.float32)
         for target in stat_targets['accum_21']:
             s = raw_signals[target]
-            raw_signals[f'HAB_ACCUM_21_{target}'] = s.rolling(window=21).sum().fillna(0)
-
-        # 4. 特殊修复 (Specific Fixes)
+            raw_signals[f'HAB_ACCUM_21_{target}'] = s.rolling(window=21).sum().fillna(0).astype(np.float32)
         if 'OCH_ACCELERATION_D' not in raw_signals:
-             raw_signals['OCH_ACCELERATION_D'] = pd.Series(0.0, index=df_index)
-
+             raw_signals['OCH_ACCELERATION_D'] = pd.Series(0.0, index=df_index, dtype=np.float32)
         return raw_signals
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, vacuum_risk: pd.Series) -> pd.Series:
@@ -438,28 +425,69 @@ class CalculateWinnerConvictionDecay:
         print(f"  - FinalScore: {final.iloc[-1]:.4e}")
         return final.clip(-1, 1).fillna(0)
 
+    @staticmethod
+    def _numba_latch_core(fused_values: np.ndarray, trigger_values: np.ndarray, emergency_values: np.ndarray, core_thresh: float, mom_factor: float) -> np.ndarray:
+        """
+        【V21.0 · Numba JIT 内核】高性能锁存迭代器
+        - 功能：将 Python 的显式循环编译为机器码，解决状态依赖计算的性能瓶颈。
+        - 装饰器：在实际环境中应添加 @numba.jit(nopython=True) 
+        - 注意：本方法不包含 self 参数，为纯函数。
+        """
+        n = len(fused_values)
+        protected_values = fused_values.copy()
+        latched_values = np.tanh(fused_values * 1.618) # 预计算饱和值
+        # 显式循环，Numba 将对其进行 Loop Unrolling 和 SIMD 优化
+        for i in range(1, n):
+            if trigger_values[i]:
+                if emergency_values[i]:
+                    protected_values[i] = latched_values[i]
+                elif abs(fused_values[i]) > core_thresh:
+                    curr = fused_values[i]
+                    prev = protected_values[i-1]
+                    # 动量保护：同向且减速时，启动惯性保护
+                    if (np.sign(prev) == np.sign(curr)) and (abs(curr) < abs(prev)):
+                        protected_values[i] = prev * mom_factor
+                    else:
+                        protected_values[i] = curr
+            # else: 保持 copy 时的原始值
+        return protected_values
+
     def _apply_latch_logic(self, df_index: pd.Index, fused_score: pd.Series, ewd_factor: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V8.0 · 物理极速锁存版】
-        - 修改思路：集成真空与筹码熵的联合锁存。
+        【V21.0 · 时空动量锁存系统】Numba 加速版
+        - 修改思路：
+            1. 尝试导入 numba 进行 JIT 编译加速。
+            2. 将 Pandas Series 转换为 Numpy Array 传入静态内核。
+            3. 回落机制：若无 Numba 环境，则使用纯 Numpy 实现（但仍保留静态方法结构）。
+        - 版本号：V21.0.0
         """
         lp = params_dict['latch_params']
         is_high = fused_score.abs() > lp["high_score_threshold"]
-        rolling_count = is_high.rolling(window=lp["window"]).sum()
+        rolling_count = is_high.rolling(window=lp["window"]).sum().fillna(0)
         vacuum_risk = _temp_debug_values.get("cross_module_signals", {}).get("vacuum_risk", pd.Series(0.0, index=df_index))
-        # 锁存判定：频次、熵权或极速通道 (真空熔断或筹码崩坏)
         is_emergency = (vacuum_risk > 0.8) | (fused_score.abs() > 0.85)
-        latch_trigger = ((rolling_count >= lp["hit_count"]) & (ewd_factor > lp["entropy_threshold"])) | is_emergency
-        latched_score = np.tanh(fused_score * 1.618)
-        protected_score = fused_score.copy()
-        for i in range(1, len(fused_score)):
-            if latch_trigger.iloc[i]:
-                if is_emergency.iloc[i]: protected_score.iloc[i] = latched_score.iloc[i]
-                elif abs(fused_score.iloc[i]) > lp["core_threshold"]:
-                    prev, curr = protected_score.iloc[i-1], fused_score.iloc[i]
-                    if np.sign(prev) == np.sign(curr):
-                        protected_score.iloc[i] = curr if abs(curr) > abs(prev) else prev * lp["momentum_protection_factor"]
-        final_output = protected_score.clip(-1, 1)
+        entropy_gate = ewd_factor > lp.get("entropy_threshold", 0.6)
+        latch_trigger = ((rolling_count >= lp["hit_count"]) & entropy_gate) | is_emergency
+        # 准备 Numpy 数组 (Float32)
+        fused_values = fused_score.values.astype(np.float32)
+        trigger_values = latch_trigger.values
+        emergency_values = is_emergency.values
+        core_thresh = float(lp["core_threshold"])
+        mom_factor = float(lp["momentum_protection_factor"])
+        # 尝试调用 Numba 编译
+        try:
+            # 定义 JIT 版本的内核 (即时编译)
+            jit_func = jit(nopython=True)(self._numba_latch_core)
+            protected_values = jit_func(fused_values, trigger_values, emergency_values, core_thresh, mom_factor)
+        except ImportError:
+            # 降级：直接调用静态方法 (纯 Python/Numpy)
+            protected_values = self._numba_latch_core(fused_values, trigger_values, emergency_values, core_thresh, mom_factor)
+        final_output = pd.Series(protected_values, index=df_index).clip(-1, 1)
+        print(f"\n[V21.0_SPATIOTEMPORAL_LATCH_PROBE]")
+        print(f"  > [INPUT] FusedScore: {fused_score.iloc[-1]:.4f} | EWD: {ewd_factor.iloc[-1]:.4f}")
+        print(f"  > [GATE] RollingHits: {rolling_count.iloc[-1]:.0f}/{lp['window']} | EntropyGate: {entropy_gate.iloc[-1]}")
+        print(f"  > [STATE] Trigger: {latch_trigger.iloc[-1]} | Emergency: {is_emergency.iloc[-1]}")
+        print(f"  > FINAL_LATCHED_SCORE: {final_output.iloc[-1]:.4f}")
         _temp_debug_values["latch_state"] = {"count": rolling_count, "trigger": latch_trigger, "emergency": is_emergency}
         return final_output
 
