@@ -25,12 +25,11 @@ class CalculateProcessCovertAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.0·全维全息隐蔽吸筹引擎】计算“隐蔽吸筹”的专属信号。
+        【V7.1·熵权锁存终极版】计算“隐蔽吸筹”的专属信号。
         -核心升级:
-        1.集成热力学熵减(Entropy)与微观博弈(GameFriction)逻辑。
-        2.引入黄金坑(GoldenPit)与阻力最小路径(SpaceEfficiency)的空间判定。
-        3.构建记忆-动力学(HAB-Kinematics)混合系统，捕捉吸筹的持续性与爆发力。
-        4.全链路显性化数据校验，移除防御性填充，暴露真实的市场缺口。
+        1.新增'_apply_signal_latching'后处理模块，构建"反脆弱"锁存器。
+        2.引入时域积分与非线性锁定，过滤A股常见的"洗盘假动作"。
+        3.基于各维度的共振熵(Entropy)决定锁存力度，实现"低熵稳态"保护。
         """
         method_name = "_calculate_process_covert_accumulation"
         is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
@@ -44,28 +43,22 @@ class CalculateProcessCovertAccumulation:
         debug_output = {}
         _temp_debug_values = {}
         if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 深度透视(V7.0) @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-        # 1.获取配置参数(V2.16版本)
+            debug_output[f"--- {method_name} 深度透视(V7.1) @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        # 1.获取配置参数
         fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights, daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, new_raw_signals_weights, main_force_accumulation_resonance_weight, new_raw_signals_weights_v2, covert_order_flow_resonance_weight = self._get_covert_accumulation_config(config)
         df_index = df.index
-        # 2.全维数据提取与动力学计算(V6.12版本)
-        # 集成了HAB(历史存量)、Kinematics(动力学导数)、Thermodynamics(热力学熵)
+        # 2.全维数据提取与动力学计算
         raw_signals = self._validate_and_get_raw_signals(df, method_name, mtf_slope_accel_weights, is_debug_enabled_for_method, probe_ts, _temp_debug_values, cumulative_flow_windows)
         # 3.三维全息评分计算
-        # 3.1 市场背景:黄金坑+势能背离+行业共振(V6.9版本)
         market_context_score = self._calculate_market_context_score(df, df_index, raw_signals, market_context_weights, _temp_debug_values)
-        # 3.2 隐蔽行动:冰山博弈+痛苦吸筹+一致性检查(V6.6版本)
         covert_action_score = self._calculate_covert_action_score(df, df_index, raw_signals, covert_action_weights, _temp_debug_values, cumulative_flow_windows)
-        # 3.3 筹码优化:熵减有序化+微观支撑+形态动力学(V6.12版本)
         chip_optimization_score = self._calculate_chip_optimization_score(df, df_index, raw_signals, chip_optimization_weights, _temp_debug_values)
-        # 4.最终合成(鲁棒几何平均)
-        final_score = self._fuse_final_score(df_index, market_context_score, covert_action_score, chip_optimization_score, fusion_weights, _temp_debug_values)
+        # 4.初步合成
+        raw_final_score = self._fuse_final_score(df_index, market_context_score, covert_action_score, chip_optimization_score, fusion_weights, _temp_debug_values)
+        # 5.[V7.1新增]熵权锁存与动量保护
+        # 将三维分量传入以计算共振熵
+        final_score = self._apply_signal_latching(raw_final_score, market_context_score, covert_action_score, chip_optimization_score, df_index, _temp_debug_values)
         _temp_debug_values["final_score"] = final_score
-        # 5.输出调试堆栈
-        if is_debug_enabled_for_method and probe_ts:
-            print(f"DEBUG_PROBE:CalculationFinished|FinalScore={final_score.loc[probe_ts] if probe_ts in final_score.index else 0.0}")
-            self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
-        return final_score
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
         """
