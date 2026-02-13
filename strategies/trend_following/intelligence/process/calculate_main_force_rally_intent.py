@@ -386,7 +386,7 @@ class CalculateMainForceRallyIntent:
             hri = (thrust[i] * structure[i] * (1.0 + raw['gap_momentum'].values[i]) * (1.0 + (raw['is_leader'].values[i]*0.5)) * k_burst) / (1.0 + eff_drag)
             res_gain = 1.0 + np.expm1(np.clip(hri - 3.0, 0.0, 2.5) * 1.5)
             report = [
-                f"\n=== [PROBE V33.0] Holographic Resonance Audit @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V33.0] CalculateMainForceRallyIntent Holographic Resonance Audit @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【A. Kinematics (动力学)】 Burst: x{k_burst:.4f} | Damping: {energy_damping:.4f} | Jerk: {raw['sm_jerk_13'].values[i]:.2f}",
                 f"【B. HAB (存量意识)】 21d/55d Inv: {raw['flow_21d'].values[i]:.0f}/{raw['flow_55d'].values[i]:.0f} | Immunity: {hab_imm*100:.1f}%",
                 f"【C. Ecosystem (生态)】 Leader: {raw['is_leader'].values[i]} | LockRatio: {raw['lock_ratio'].values[i]:.2f}% | Attack: {raw['coordinated_attack'].values[i]}",
