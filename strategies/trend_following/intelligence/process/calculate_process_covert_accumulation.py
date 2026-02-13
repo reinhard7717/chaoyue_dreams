@@ -1,5 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_process_covert_accumulation.py
-# 【V2.12 · 微观订单流与结构共振版】“隐蔽吸筹”专属信号计算引擎
+# 【V2.12 · 微观订单流与结构共振版】“隐蔽吸筹”专属信号计算引擎 已完成pro
 import json
 import os
 import pandas as pd

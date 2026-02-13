@@ -991,62 +991,42 @@
                     "sigmoid_center": 0.6
                 }
             },
-            {
+{
                 "name": "PROCESS_META_COST_ADVANTAGE_TREND",
                 "type": "meta_analysis",
                 "task_type": "base",
                 "relationship_type": "custom",
-                "description": "【V4.0 · 深度情境与诡道博弈增强版】诊断'价格'与'主力成本优势'的共识趋势，并深度融合主力资金流、筹码集中度、微观行为等证据，区分吸筹与派发意图。新增情境自适应权重、动态指数和信号交互项。",
-                "mtf_slope_accel_weights": {
-                    "slope_periods": {"5": 0.6, "13": 0.4, "21": 0.2},
-                    "accel_periods": {"5": 0.7, "13": 0.3}
+                "description": "【V11.0 · 全息成本资金五维共振版】基于五维超平面模型诊断趋势。新增'成本迁移弹性'捕捉锁仓特征，新增'结构熵逆'捕捉控盘有序度。核心模型：筹码势垒(20%)+捕食者攻击(30%)+趋势效率(20%)+成本弹性(15%)+结构熵逆(15%) + 张量共振。",
+                "required_signals": [
+                    "winner_rate_D",
+                    "chip_stability_D",
+                    "chip_concentration_ratio_D",
+                    "SMART_MONEY_HM_NET_BUY_D",
+                    "SMART_MONEY_HM_COORDINATED_ATTACK_D",
+                    "SMART_MONEY_INST_NET_BUY_D",
+                    "MA_VELOCITY_EMA_55_D",
+                    "VPA_EFFICIENCY_D",
+                    "market_sentiment_score_D",
+                    "cost_50pct_D",
+                    "close_D",
+                    "chip_entropy_D",
+                    "intraday_chip_entropy_D"
+                ],
+                "pentagonal_weights": {
+                    "chip_solidity_weight": 0.20,
+                    "predator_attack_weight": 0.30,
+                    "trend_efficiency_weight": 0.20,
+                    "cost_elasticity_weight": 0.15,
+                    "structure_negentropy_weight": 0.15,
+                    "resonance_factor": 0.4
                 },
-                "context_modulator_weights": {
-                    "description": "情境调节融合权重，用于动态调整各象限确认信号的权重。",
-                    "volatility_inverse": 0.2,
-                    "trend_strength_inverse": 0.15,
-                    "sentiment_neutrality": 0.15,
-                    "liquidity_authenticity_score": 0.15,
-                    "ma_potential_orderliness_score": 0.2,
-                    "microstructure_efficiency_index": 0.15
+                "cost_elasticity_params": {
+                    "lookback_period": 5,
+                    "cost_drag_factor": 0.8
                 },
-                "dynamic_exponent_modulator_weights": {
-                    "description": "动态融合指数参数，根据市场波动率调整最终分数的非线性放大/平滑。",
-                    "modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
-                    "sensitivity": 0.5,
-                    "base_exponent": 1.5,
-                    "min_exponent": 1.0,
-                    "max_exponent": 2.0
-                },
-                "interaction_terms_weights": {
-                    "description": "显式交互项权重，用于捕捉信号间的协同效应。",
-                    "Q1_mf_conviction_flow_credibility_synergy": 0.1,
-                    "Q3_suppressive_absorb_synergy": 0.15,
-                    "Q4_distribution_mf_outflow_synergy": 0.1
-                },
-                "Q1_confirmation_weights": {
-                    "mtf_main_force_conviction": 0.4,
-                    "mtf_upward_purity": 0.3,
-                    "flow_credibility_norm": 0.2,
-                    "main_force_buy_execution_alpha_norm": 0.1
-                },
-                "Q2_confirmation_weights": {
-                    "profit_taking_flow_norm": 0.4,
-                    "mtf_active_selling": 0.3,
-                    "mtf_distribution_intensity": 0.2,
-                    "main_force_sell_execution_alpha_norm": 0.1
-                },
-                "Q3_confirmation_weights": {
-                    "suppressive_accum_norm": 0.4,
-                    "lower_shadow_absorb": 0.3,
-                    "flow_credibility_norm": 0.2,
-                    "liquidity_authenticity_score_norm": 0.1
-                },
-                "Q4_confirmation_weights": {
-                    "mtf_distribution_intensity": 0.4,
-                    "active_buying_support_inverted_norm": 0.3,
-                    "main_force_net_flow_outflow_norm": 0.2,
-                    "micro_price_impact_asymmetry_norm": 0.1
+                "structure_negentropy_params": {
+                    "entropy_threshold": 0.4,
+                    "gain_factor": 3.0
                 }
             },
             {
