@@ -23,6 +23,9 @@ class CalculateCostAdvantageTrendRelationship:
         self.probe_dates = self.helper.probe_dates
 
     def _initialize_debug_context(self, method_name: str, df: pd.DataFrame) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
+        print(f"self.debug_params: {self.debug_params}")
+        print(f"self.debug_params.get('enabled'): {self.debug_params.get('enabled')}")
+        print(f"get_param_value(self.debug_params.get('enabled'), False): {get_param_value(self.debug_params.get('enabled'), False)}")
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
         probe_ts = None
         if is_debug and self.probe_dates:
