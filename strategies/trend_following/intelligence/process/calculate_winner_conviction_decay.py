@@ -182,7 +182,7 @@ class CalculateWinnerConvictionDecay:
             'tick_chip_transfer_efficiency_D', 'intraday_distribution_confidence_D', 'chip_stability_D',
             'uptrend_strength_D', 'industry_rank_accel_D', 'industry_rank_slope_D', 'SMART_MONEY_SYNERGY_BUY_D',
             'daily_monthly_sync_D', 'industry_downtrend_score_D', 'OCH_ACCELERATION_D', 'energy_concentration_D',
-            'reversal_warning_score_D', 'close_D', 'profit_pressure_D',
+            'reversal_warning_score_D', 'close_D', 'profit_pressure_D', 'intraday_accumulation_confidence_D',
             'cost_5pct_D', 'intraday_support_test_count_D', 'chip_stability_change_5d_D',
             'intraday_trough_filling_degree_D', 'intraday_low_lock_ratio_D',
             'closing_flow_intensity_D', 'inflow_persistence_D'
