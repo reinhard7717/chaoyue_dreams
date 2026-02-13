@@ -69,15 +69,46 @@ class CalculateProcessCovertAccumulation:
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
         """
-        【V2.16·热力学熵减版】获取配置参数。
-        -核心升级:注册'entropy_reduction'(熵减)与'cost_center_support'(成本支撑)权重。
+        【V2.17·配置安全合并版】获取配置参数。
+        -核心修正:采用Dict.update()逻辑进行权重合并，防止旧配置覆盖新指标的默认权重，解决EntropyWeight=None的问题。
         """
         covert_accum_params = get_param_value(self.helper.params.get('covert_accumulation_params'), {})
-        fusion_weights = get_param_value(covert_accum_params.get('fusion_weights'), {"market_context": 0.35, "covert_action": 0.35, "chip_optimization": 0.3})
-        market_context_weights = get_param_value(covert_accum_params.get('market_context_weights'), {
+        
+        # 定义默认权重
+        default_fusion = {"market_context": 0.35, "covert_action": 0.35, "chip_optimization": 0.3}
+        default_context = {
             "golden_pit_state": 0.15, "space_efficiency": 0.10, "theme_resonance": 0.15,
-            "smart_divergence": 0.20, "turnover_stability": 0.10, "pressure_release": 0.10
-        })
+            "smart_divergence": 0.20, "turnover_stability": 0.10, "pressure_release": 0.10,
+            "sentiment_extreme": 0.05, "vol_compression": 0.05, "is_consolidating": 0.05, "breakout_potential": 0.05
+        }
+        default_action = {
+            "pain_accumulation": 0.15, "game_friction": 0.10, "behavior_confirmation": 0.05,
+            "iceberg_friction": 0.15, "whale_active_drive": 0.10, "hab_accumulation": 0.15,
+            "kinetic_surge": 0.10, "intraday_confidence": 0.10, "flow_consistency": 0.10,
+            "stealth_ops": 0.0, "inst_net_buy": 0.0, "contextualized_accum": 0.0 # 兼容旧键
+        }
+        default_chip = {
+            "entropy_reduction": 0.15, "cost_center_support": 0.10,
+            "chip_morphology": 0.10, "iron_floor_hab": 0.10,
+            "transfer_efficiency_hab": 0.15, "trapped_pressure_release": 0.15,
+            "concentration_accel": 0.10, "chip_locking": 0.10, "chip_stability": 0.05,
+            "chip_concentration": 0.0 # 兼容旧键
+        }
+
+        # 安全合并逻辑: 使用默认值作为底板，更新用户配置
+        fusion_weights = default_fusion.copy()
+        fusion_weights.update(covert_accum_params.get('fusion_weights', {}))
+
+        market_context_weights = default_context.copy()
+        market_context_weights.update(covert_accum_params.get('market_context_weights', {}))
+
+        covert_action_weights = default_action.copy()
+        covert_action_weights.update(covert_accum_params.get('covert_action_weights', {}))
+
+        chip_optimization_weights = default_chip.copy()
+        chip_optimization_weights.update(covert_accum_params.get('chip_optimization_weights', {}))
+
+        # 其他常规参数获取
         new_raw_signals_weights = get_param_value(covert_accum_params.get('new_raw_signals_weights'), {
             "ask_side_liquidity_inverted": 0.03, "mf_level5_buy_ofi": 0.05, "mf_buy_execution_alpha": 0.05,
             "upper_shadow_selling_pressure_inverted": 0.03, "smart_money_inst_net_buy": 0.05, "microstructure_efficiency": 0.03
@@ -88,18 +119,7 @@ class CalculateProcessCovertAccumulation:
         })
         main_force_accumulation_resonance_weight = get_param_value(covert_accum_params.get('main_force_accumulation_resonance_weight'), 0.1)
         covert_order_flow_resonance_weight = get_param_value(covert_accum_params.get('covert_order_flow_resonance_weight'), 0.08)
-        covert_action_weights = get_param_value(covert_accum_params.get('covert_action_weights'), {
-            "pain_accumulation": 0.15, "game_friction": 0.10, "behavior_confirmation": 0.05,
-            "iceberg_friction": 0.15, "whale_active_drive": 0.10, "hab_accumulation": 0.15,
-            "kinetic_surge": 0.10, "intraday_confidence": 0.10, "flow_consistency": 0.10
-        })
-        chip_optimization_weights = get_param_value(covert_accum_params.get('chip_optimization_weights'), {
-            "entropy_reduction": 0.15, # [新增]核心权重:熵减(有序化)
-            "cost_center_support": 0.10, # [新增]核心权重:成本重心支撑
-            "chip_morphology": 0.10, "iron_floor_hab": 0.10,
-            "transfer_efficiency_hab": 0.15, "trapped_pressure_release": 0.15,
-            "concentration_accel": 0.10, "chip_locking": 0.10, "chip_stability": 0.05
-        })
+        
         price_weakness_slope_window = get_param_value(covert_accum_params.get('price_weakness_slope_window'), 5)
         low_volatility_bbw_window = get_param_value(covert_accum_params.get('low_volatility_bbw_window'), 21)
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
@@ -112,6 +132,7 @@ class CalculateProcessCovertAccumulation:
         cumulative_mf_flow_weight = get_param_value(covert_accum_params.get('cumulative_mf_flow_weight'), 0.6)
         daily_acc_weight = get_param_value(covert_accum_params.get('daily_acc_weight'), 0.4)
         cumulative_acc_weight = get_param_value(covert_accum_params.get('cumulative_acc_weight'), 0.6)
+        
         print(f"DEBUG_PROBE:CoherencyConfigLoaded|EntropyWeight={chip_optimization_weights.get('entropy_reduction')}")
         return fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights, daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, new_raw_signals_weights, main_force_accumulation_resonance_weight, new_raw_signals_weights_v2, covert_order_flow_resonance_weight
 
@@ -263,21 +284,16 @@ class CalculateProcessCovertAccumulation:
 
     def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], covert_action_weights: Dict, _temp_debug_values: Dict, cumulative_flow_windows: List[int]) -> pd.Series:
         """
-        【V6.6 · 痛苦博弈融合版】计算隐蔽行动分数。
-        - 核心升级:
-            1. 痛苦吸筹 (Pain Accumulation): (1 - 获利盘) * 机构买入。识别"带血筹码"。
-            2. 博弈强度 (Game Friction): 博弈指数 / (波动率 + 1)。识别"强压强买"。
-            3. 行为锚点: 将上游的 behavior_accumulation_D 作为加分项。
+        【V6.13·调试键修正版】计算隐蔽行动分数。
+        -核心修正:修复调试信息键名不匹配导致日志打印为空的问题。
         """
-        # 1. 提取 HAB 存量信号
         hab_elg = df.get('HAB_buy_elg_amount_rate_D', pd.Series(0, index=df_index))
         hab_stealth = df.get('HAB_stealth_flow_ratio_D', pd.Series(0, index=df_index))
         s_hab_elg = self.helper._normalize_series(hab_elg, df_index, bipolar=False)
         s_hab_stealth = self.helper._normalize_series(hab_stealth, df_index, bipolar=False)
-        # 2. 提取 Kinematics 信号
         jerk_confidence = df.get('JERK_3_intraday_accumulation_confidence_D', pd.Series(0, index=df_index))
         s_jerk_conf = self.helper._normalize_series(jerk_confidence, df_index, bipolar=True)
-        # 3. 基础信号归一化
+        
         s_stealth = self.helper._normalize_series(raw_signals['stealth_flow'], df_index, bipolar=False)
         s_inst_buy = self.helper._normalize_series(raw_signals['inst_buy'], df_index, bipolar=True)
         s_support = self.helper._normalize_series(raw_signals['intraday_support'], df_index, bipolar=False)
@@ -285,29 +301,22 @@ class CalculateProcessCovertAccumulation:
         s_elg_drive = self.helper._normalize_series(raw_signals['elg_buy_rate'], df_index, bipolar=False)
         s_consistency = self.helper._normalize_series(raw_signals['flow_consistency'], df_index, bipolar=False)
         s_confidence = self.helper._normalize_series(raw_signals['accum_confidence'], df_index, bipolar=False)
-        # 4. [V6.6 新增] 痛苦与博弈计算
-        # 4.1 痛苦因子 (Pain Factor): 散户越痛苦(获利盘越少)，主力吸筹价值越高
-        # winner_rate 可能为 NaN，fillna(0.5) 中性处理
+        
         winner_rate = raw_signals['winner_rate'].fillna(0.5) / 100.0 if raw_signals['winner_rate'].max() > 1.0 else raw_signals['winner_rate'].fillna(0.5)
-        pain_factor = (1.0 - winner_rate).clip(0, 1) # 获利盘 10% -> 痛苦因子 0.9
-        # 痛苦吸筹 = 痛苦因子 * 机构净买入(归一化后)
-        # 只关心机构买入时的痛苦，如果机构在卖，痛苦因子无意义，所以用 s_inst_buy.clip(0,1)
+        pain_factor = (1.0 - winner_rate).clip(0, 1)
         s_pain_accum = pain_factor * s_inst_buy.clip(lower=0)
-        # 4.2 博弈摩擦 (Game Friction)
-        # 逻辑：高博弈指数(High Game) + 低波动(Low ATR) = 强庄压盘
+        
         s_game_index = self.helper._normalize_series(raw_signals['game_index'], df_index, bipolar=False)
-        atr_norm = self.helper._normalize_series(raw_signals['stealth_density'], df_index, bipolar=False) # 借用密度中的低波概念
-        # 这里的 s_stealth_density 实际上是 Vol/ATR，所以密度高意味着波动相对量小
         s_friction = (s_game_index * 0.6 + s_stealth * 0.4)
-        # 4.3 行为锚点 (Behavior Tag)
-        s_behavior = raw_signals['behavior_tag'].fillna(0).clip(0, 1) # 0/1 信号
-        # 5. 组合评分 (Compound Scores)
+        s_behavior = raw_signals['behavior_tag'].fillna(0).clip(0, 1)
+        
         s_iceberg = (s_support * 0.3 + s_elg_drive * 0.3 + s_hab_elg * 0.2 + s_confidence * 0.2)
         s_surge = s_jerk_conf * s_consistency
+        
         scores = {
-            "pain_accumulation": s_pain_accum,   # [新增] 收集带血筹码
-            "game_friction": s_friction,         # [新增] 强力博弈
-            "behavior_confirmation": s_behavior, # [新增] 行为验证
+            "pain_accumulation": s_pain_accum,
+            "game_friction": s_friction,
+            "behavior_confirmation": s_behavior,
             "iceberg_friction": s_iceberg,
             "whale_active_drive": s_elg_drive,
             "hab_accumulation": s_hab_stealth,
@@ -317,21 +326,19 @@ class CalculateProcessCovertAccumulation:
             "stealth_ops": s_stealth,
             "contextualized_accum": self.helper._normalize_series(raw_signals['acc_score'], df_index, bipolar=False)
         }
-        # 6. 权重调整
+        
         final_weights = covert_action_weights.copy()
-        final_weights.setdefault("pain_accumulation", 0.15)    # 高权重：这是最真实的吸筹逻辑
-        final_weights.setdefault("game_friction", 0.10)        # 中权重
-        final_weights.setdefault("behavior_confirmation", 0.05)# 辅助加分
+        final_weights.setdefault("pain_accumulation", 0.15)
         final_weights.setdefault("iceberg_friction", 0.15)
-        final_weights.setdefault("hab_accumulation", 0.15)
-        # 7. 计算最终得分
+        
         covert_action_score = _robust_geometric_mean(scores, final_weights, df_index)
+        
+        # 修正: 使用统一的键名 "隐蔽行动"，以便与 _print_debug_info 匹配
+        _temp_debug_values["隐蔽行动"] = scores
         _temp_debug_values["隐蔽行动_痛苦博弈"] = {
             "Pain_Factor": float(pain_factor.iloc[-1]) if len(pain_factor)>0 else 0.0,
-            "Game_Index": float(s_game_index.iloc[-1]) if len(s_game_index)>0 else 0.0,
-            "Pain_Accum_Score": float(s_pain_accum.iloc[-1]) if len(s_pain_accum)>0 else 0.0
+            "Game_Index": float(s_game_index.iloc[-1]) if len(s_game_index)>0 else 0.0
         }
-        _temp_debug_values["隐蔽行动_归一化"] = scores
         return covert_action_score
 
     def _calculate_context_derived_signals(self, df: pd.DataFrame, _temp_debug_values: Dict):
