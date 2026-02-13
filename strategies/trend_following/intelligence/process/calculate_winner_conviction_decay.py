@@ -96,7 +96,7 @@ class CalculateWinnerConvictionDecay:
             'intraday_high_lock_ratio_D', 'high_position_lock_ratio_90_D',
             'intraday_chip_consolidation_degree_D', 'intraday_chip_game_index_D',
             'intraday_cost_center_migration_D', 'intraday_cost_center_volatility_D',
-            'intraday_support_intent_D', 'intraday_accumulation_confidence_D',
+            'INTRADAY_SUPPORT_INTENT_D', 'intraday_accumulation_confidence_D',
             'intraday_distribution_confidence_D', 'main_force_activity_index_D',
             'intraday_support_test_count_D', 'cost_5pct_D', # V8.6
             'intraday_trough_filling_degree_D', 'intraday_low_lock_ratio_D', # V8.8 新增
@@ -133,7 +133,7 @@ class CalculateWinnerConvictionDecay:
                 'tick_abnormal_volume_ratio_D', 'price_flow_divergence_D', 'buy_sm_amount_rate_D', 
                 'high_position_lock_ratio_90_D', 'THEME_HOTNESS_SCORE_D', 'market_sentiment_score_D', 
                 'main_force_activity_index_D', 'flow_resistance_level_D', 'flow_impact_ratio_D', 
-                'intraday_support_intent_D', 'intraday_cost_center_migration_D', 'intraday_cost_center_volatility_D', 
+                'INTRADAY_SUPPORT_INTENT_D', 'intraday_cost_center_migration_D', 'intraday_cost_center_volatility_D', 
                 'chip_kurtosis_D', 'PRICE_ENTROPY_D', 'concentration_entropy_D', 'high_freq_flow_divergence_D', 
                 'GEOM_ARC_CURVATURE_D', 'flow_cluster_intensity_D', 'industry_stagnation_score_D', 
                 'industry_markup_score_D', 'OCH_D'
@@ -264,7 +264,7 @@ class CalculateWinnerConvictionDecay:
         """
         # --- 1. Base Modulus V8.6 (弹性 + 刚性 + 自愈) ---
         test_count = raw_signals['intraday_support_test_count_D']
-        intent = raw_signals['intraday_support_intent_D']
+        intent = raw_signals['INTRADAY_SUPPORT_INTENT_D']
         intent_factor = np.tanh((intent - 40.0) / 20.0)
         stress_log = np.log1p(test_count)
         elastic_modulus = intent_factor * stress_log # 弹性
@@ -301,7 +301,7 @@ class CalculateWinnerConvictionDecay:
             i_factor = np.tanh(impact_ratio.iloc[-1] / 5.0)
             shock_energy = (v_factor * (1.0 + i_factor)).clip(0, 1.5)
             
-        intent_slope = raw_signals['SLOPE_5_intraday_support_intent_D']
+        intent_slope = raw_signals['SLOPE_5_INTRADAY_SUPPORT_INTENT_D']
         fatigue_penalty = 0.0
         if intent_slope.iloc[-1] < 0:
             fatigue_penalty = np.tanh(abs(intent_slope.iloc[-1]) * 0.5).clip(0, 1)
@@ -401,7 +401,7 @@ class CalculateWinnerConvictionDecay:
         【V11.0 · 盾构防御熔断核心】
         逻辑公式：Risk = (攻击冲击 * 消耗率) / (防御意愿 * 存量缓冲 * 买盘厚度)
         - 攻击冲击：Jerk Shock + Consistency Collapse。
-        - 防御意愿：intraday_support_intent_D。意愿低 -> 风险极大。
+        - 防御意愿：INTRADAY_SUPPORT_INTENT_D。意愿低 -> 风险极大。
         - 买盘厚度：buy_lg_amount_rate_D。如果买盘占比在加速下降(Accel<0)，说明在撤单。
         - 版本号：V11.0.0
         """
@@ -420,7 +420,7 @@ class CalculateWinnerConvictionDecay:
         # --- B. 防御侧 (Defense Side) - NEW ---
         # 1. 护盘意愿 (Support Intent)
         # 假设 intent 范围 0~100。归一化后，意愿越高(1.0)，分母越大，风险越小。
-        support_intent = raw_signals['intraday_support_intent_D']
+        support_intent = raw_signals['INTRADAY_SUPPORT_INTENT_D']
         intent_factor = (support_intent / 80.0).clip(0.1, 1.2) # 0.1保底防止除零
         
         # 2. 买盘撤退 (Bid Withdrawal)
@@ -804,7 +804,7 @@ class CalculateWinnerConvictionDecay:
         inst_std = raw_signals['HAB_STD_SMART_MONEY_INST_NET_BUY_D'] * np.sqrt(21)
         mass_inertia = (1 / (1 + np.exp(-inst_accum / (inst_std + 1e-6) * 1.5))).clip(0.2, 1.0)
         # 意愿修正
-        intent_slope = raw_signals['SLOPE_5_intraday_support_intent_D']
+        intent_slope = raw_signals['SLOPE_5_INTRADAY_SUPPORT_INTENT_D']
         intent_risk_factor = 1.0 + (-np.tanh(intent_slope)).clip(0)
         
         # --- E. 综合计算 ---
