@@ -159,33 +159,41 @@ class CalculateWinnerConvictionDecay:
 
     def _get_raw_signals(self, df: pd.DataFrame, df_index: pd.Index, params_dict: Dict, method_name: str) -> Dict[str, pd.Series]:
         """
-        【V18.4 · 动力学场生成器】
+        【V18.6 · 动力学场生成器】修复基础指标 MAD 缺失问题
         - 修改思路：
-            1. 增加 V8.8 韧性计算所需的 intraday_trough_filling_degree_D 和 intraday_low_lock_ratio_D 到手动加载列表。
-        - 版本号：V18.4.0
+            1. 修复 KeyError: 'HAB_MAD_tick_abnormal_volume_ratio_D'。
+            2. 在动力学循环中，显式计算 Base Series 的 MAD 值，而不仅仅是 Slope/Accel/Jerk 的 MAD。
+            3. 保持所有手动加载和统计学计算逻辑不变。
+        - 版本号：V18.6.0
         """
         raw_signals = {}
         hab_cfg = params_dict['hab_settings']
         kinetic_targets = params_dict['kinetic_targets']
         stat_targets = params_dict['stat_targets']
-        print(f"\n[V18.4_KINETIC_FIELD_GENERATION]")
+        
+        print(f"\n[V18.6_KINETIC_FIELD_GENERATION]")
+        
         # 1. 基础加载 (Base Loading)
         all_cols = set(kinetic_targets + stat_targets['long_std'] + stat_targets['long_only'] + stat_targets['accum_21'])
-        # 额外需要但未在上述列表中的独立列 (Manual Additions)
+        
+        # 额外需要但未在上述自动列表中的独立列 (Manual Additions)
         manual_additions = [
             'days_since_last_peak_D', 'winner_rate_D', 'net_amount_ratio_D', 'TURNOVER_STABILITY_INDEX_D',
             'tick_chip_transfer_efficiency_D', 'intraday_distribution_confidence_D', 'chip_stability_D',
             'uptrend_strength_D', 'industry_rank_accel_D', 'industry_rank_slope_D', 'SMART_MONEY_SYNERGY_BUY_D',
             'daily_monthly_sync_D', 'industry_downtrend_score_D', 'OCH_ACCELERATION_D', 'energy_concentration_D',
-            'reversal_warning_score_D', 'close_D', 'closing_flow_intensity_D', 'inflow_persistence_D',
-            # V8.6 & V8.8 新增
+            'reversal_warning_score_D', 'close_D',
             'cost_5pct_D', 'intraday_support_test_count_D', 'chip_stability_change_5d_D',
-            'intraday_trough_filling_degree_D', 'intraday_low_lock_ratio_D'
+            'intraday_trough_filling_degree_D', 'intraday_low_lock_ratio_D',
+            'closing_flow_intensity_D', 'inflow_persistence_D'
         ]
+        
         for col in manual_additions:
             all_cols.add(col)
+            
         for col in all_cols:
             raw_signals[col] = self.helper._get_safe_series(df, col, 0.0)
+
         # 2. 动力学衍生 (Kinetic Derivatives)
         period = 5
         for target in kinetic_targets:
@@ -196,24 +204,36 @@ class CalculateWinnerConvictionDecay:
             raw_signals[f'ACCEL_{period}_{target}'] = accel
             jerk = ta.slope(accel, length=period).fillna(0)
             raw_signals[f'JERK_{period}_{target}'] = jerk
-            for series, name in [(slope, f'SLOPE_{period}_{target}'), (accel, f'ACCEL_{period}_{target}'), (jerk, f'JERK_{period}_{target}')]:
+            # 修复：将 (base_series, target) 加入循环，确保计算基础指标的 HAB_MAD
+            calc_list = [
+                (base_series, target), # 新增：计算基础指标的 MAD (如 HAB_MAD_tick_abnormal_volume_ratio_D)
+                (slope, f'SLOPE_{period}_{target}'), 
+                (accel, f'ACCEL_{period}_{target}'), 
+                (jerk, f'JERK_{period}_{target}')
+            ]
+            for series, name in calc_list:
                 rolling_median = series.rolling(window=hab_cfg['long']).median()
                 mad = (series - rolling_median).abs().rolling(window=hab_cfg['long']).median().fillna(0).replace(0, 1e-6)
                 raw_signals[f'HAB_MAD_{name}'] = mad
+
         # 3. 统计学衍生 (Statistical Derivatives)
         for target in stat_targets['long_std']:
             s = raw_signals[target]
             raw_signals[f'HAB_LONG_{target}'] = s.rolling(window=hab_cfg['long']).mean().fillna(0)
             raw_signals[f'HAB_STD_{target}'] = s.rolling(window=hab_cfg['long']).std().fillna(0).replace(0, 1e-4)
+            
         for target in stat_targets['long_only']:
             s = raw_signals[target]
             raw_signals[f'HAB_LONG_{target}'] = s.rolling(window=hab_cfg['long']).mean().fillna(0)
+            
         for target in stat_targets['accum_21']:
             s = raw_signals[target]
             raw_signals[f'HAB_ACCUM_21_{target}'] = s.rolling(window=21).sum().fillna(0)
+
         # 4. 特殊修复 (Specific Fixes)
         if 'OCH_ACCELERATION_D' not in raw_signals:
              raw_signals['OCH_ACCELERATION_D'] = pd.Series(0.0, index=df_index)
+
         return raw_signals
 
     def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, vacuum_risk: pd.Series) -> pd.Series:
