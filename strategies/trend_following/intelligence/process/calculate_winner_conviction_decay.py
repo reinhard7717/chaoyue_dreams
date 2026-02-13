@@ -417,7 +417,7 @@ class CalculateWinnerConvictionDecay:
         # --- B. 防御侧 (Defense Side) - NEW ---
         # 1. 护盘意愿 (Support Intent)
         # 假设 intent 范围 0~100。归一化后，意愿越高(1.0)，分母越大，风险越小。
-        support_intent = raw_signals['intraday_support_intent_D']
+        support_intent = raw_signals['INTRADAY_SUPPORT_INTENT_D']
         intent_factor = (support_intent / 80.0).clip(0.1, 1.2) # 0.1保底防止除零
         # 2. 买盘撤退 (Bid Withdrawal)
         # 关注 buy_lg_amount_rate_D 的 Slope。如果 Slope < 0，说明买盘在撤退。
