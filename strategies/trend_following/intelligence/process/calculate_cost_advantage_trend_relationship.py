@@ -53,7 +53,7 @@ class CalculateCostAdvantageTrendRelationship:
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """【V11.0.0 · 五维共振计算主入口】"""
         method_name = "CalculateCostAdvantage_V11"
-        print(f"【V11.0.0】启动五维成本资金共振计算，数据形状: {df.shape}")
+        print(f" ====== Start【V11.0.0】启动五维成本资金共振计算，数据形状: {df.shape} ======")
         is_debug, probe_ts, debug_out, temp_vals = self._initialize_debug_context(method_name, df)
         df_processed = self._check_and_repair_signals(df.copy(), method_name)
         df_index = df_processed.index
@@ -75,6 +75,7 @@ class CalculateCostAdvantageTrendRelationship:
         )
         if is_debug:
             self._log_debug_values(debug_out, temp_vals, probe_ts, method_name)
+        print(f" ====== End【V11.0.0】五维成本资金共振计算完成 ======")
         return final_score.astype(np.float32).fillna(0).clip(-1, 1)
 
     def _calculate_chip_barrier_solidity(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
