@@ -398,12 +398,11 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_institutional_vacuum_meltdown(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V11.0 · 盾构防御熔断核心】
-        逻辑公式：Risk = (攻击冲击 * 消耗率) / (防御意愿 * 存量缓冲 * 买盘厚度)
-        - 攻击冲击：Jerk Shock + Consistency Collapse。
-        - 防御意愿：INTRADAY_SUPPORT_INTENT_D。意愿低 -> 风险极大。
-        - 买盘厚度：buy_lg_amount_rate_D。如果买盘占比在加速下降(Accel<0)，说明在撤单。
-        - 版本号：V11.0.0
+        【V11.1 · 盾构防御熔断核心】修复探针打印格式错误
+        - 修改思路：
+            1. 修复在 print f-string 中直接格式化 Series 导致的 TypeError。
+            2. 确保所有探针输出均使用 .iloc[-1] 获取最新标量值。
+        - 版本号：V11.1.1
         """
         # --- A. 攻击侧 (Attack Side) ---
         # 1. 动力学冲击 (Kinetic Shock - Jerk)
@@ -414,37 +413,30 @@ class CalculateWinnerConvictionDecay:
         cons_slope = raw_signals['SLOPE_5_flow_consistency_D']
         cons_mad = raw_signals['HAB_MAD_SLOPE_5_flow_consistency_D']
         consistency_risk = (-np.tanh(cons_slope / (cons_mad + 1e-6))).clip(0, 1)
-        
         attack_force = (np.tanh(shock_norm) * 0.6 + consistency_risk * 0.4).clip(0, 1)
-        
         # --- B. 防御侧 (Defense Side) - NEW ---
         # 1. 护盘意愿 (Support Intent)
         # 假设 intent 范围 0~100。归一化后，意愿越高(1.0)，分母越大，风险越小。
-        support_intent = raw_signals['INTRADAY_SUPPORT_INTENT_D']
+        support_intent = raw_signals['intraday_support_intent_D']
         intent_factor = (support_intent / 80.0).clip(0.1, 1.2) # 0.1保底防止除零
-        
         # 2. 买盘撤退 (Bid Withdrawal)
         # 关注 buy_lg_amount_rate_D 的 Slope。如果 Slope < 0，说明买盘在撤退。
         buy_rate_slope = raw_signals['SLOPE_5_buy_lg_amount_rate_D']
         # 如果 Slope < 0，def_factor < 1，风险放大；Slope > 0，def_factor > 1，风险缩小
         withdrawal_factor = 1.0 + np.tanh(buy_rate_slope * 5.0) # 范围 0~2
         withdrawal_factor = withdrawal_factor.clip(0.2, 1.5)
-        
         # 3. 尾盘放弃 (Closing Failure)
         closing_flow = raw_signals['closing_flow_intensity_D']
         # 如果尾盘流出( < 0)，防御力打折
         closing_penalty = 1.0
         if closing_flow.iloc[-1] < 0:
             closing_penalty = 1.0 - np.tanh(abs(closing_flow.iloc[-1]) / 1e7) # 流出越大，系数越小
-        
         # 综合防御系数
         defense_power = (intent_factor * withdrawal_factor * closing_penalty).clip(0.1, 2.0)
-        
         # --- C. 存量缓冲 (Inventory Buffer) ---
         accum_21 = raw_signals['HAB_ACCUM_21_SMART_MONEY_INST_NET_BUY_D']
         std_accum_ref = raw_signals['HAB_STD_SMART_MONEY_INST_NET_BUY_D'] * np.sqrt(21)
         buffer_strength = (1 / (1 + np.exp(-accum_21 / (std_accum_ref + 1e-6) * 2))).clip(0.1, 1.0) # 0.1保底
-        
         # --- D. 消耗率 (Depletion) ---
         inst_net = raw_signals['SMART_MONEY_INST_NET_BUY_D']
         is_outflow = inst_net < 0
@@ -454,34 +446,27 @@ class CalculateWinnerConvictionDecay:
                  depletion_impact = (abs(inst_net.iloc[-1]) / accum_21.iloc[-1]).clip(0, 1)
              else:
                  depletion_impact = 1.0 # 存量为负还在流出，消耗率拉满
-        
         # --- E. 综合熔断计算 ---
         # 核心公式：Risk = (Attack * (1 + Depletion)) / (Defense * Buffer)
         # 解释：攻击力越强、消耗越快，分子越大；护盘越强、存量越厚，分母越大。
-        
         numerator = attack_force * (1.0 + depletion_impact * 1.5)
         denominator = defense_power * buffer_strength
-        
         raw_risk = (numerator / denominator).clip(0, 2.0) # 允许溢出
-        
         # Sigmoid 映射到 0~1
         final_risk = (2 / (1 + np.exp(-raw_risk * 3)) - 1).clip(0, 1)
-        
         # 极端修正：如果意愿极低(intent<20)且流出，强制熔断
         critical_override = 0.0
         if support_intent.iloc[-1] < 20 and is_outflow.iloc[-1]:
             critical_override = 0.4
-            
         final_risk = (final_risk + critical_override).clip(0, 1)
-        
         # F. 全息探针
-        print(f"\n[V11.0_SHIELD_FAILURE_PROBE]")
+        print(f"\n[V11.1_SHIELD_FAILURE_PROBE]")
         print(f"  > [ATTACK] Shock: {shock_norm.iloc[-1]:.4f} | ConsRisk: {consistency_risk.iloc[-1]:.4f} -> Force: {attack_force.iloc[-1]:.4f}")
         print(f"  > [DEFENSE] Intent: {support_intent.iloc[-1]:.1f} | BuySlope: {buy_rate_slope.iloc[-1]:.4f} | Closing: {closing_flow.iloc[-1]:.2e}")
-        print(f"  > [DEFENSE_COEF] Power: {defense_power.iloc[-1]:.4f} (IntentF:{intent_factor:.2f} * WithD:{withdrawal_factor:.2f})")
+        # 修复：intent_factor 和 withdrawal_factor 增加 .iloc[-1]
+        print(f"  > [DEFENSE_COEF] Power: {defense_power.iloc[-1]:.4f} (IntentF:{intent_factor.iloc[-1]:.2f} * WithD:{withdrawal_factor.iloc[-1]:.2f})")
         print(f"  > [BUFFER] Strength: {buffer_strength.iloc[-1]:.4f} | Depletion: {depletion_impact:.4f}")
         print(f"  > FINAL_VACUUM_RISK: {final_risk.iloc[-1]:.4f} (Raw: {raw_risk.iloc[-1]:.4f})")
-        
         _temp_debug_values["cross_module_signals"]["vacuum_risk"] = final_risk
         return final_risk
 
