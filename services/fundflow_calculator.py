@@ -1011,12 +1011,10 @@ class FundFlowFactorCalculator:
                 # Savitzky-Golay 求二阶导
                 acc_curve = savgol_filter(recent_10, 5, 2, deriv=2)
                 raw_acc = acc_curve[-1]
-                
                 # 归一化: 加速度相对于波动率的比值
                 # 正常波动下，norm_acc 通常在 -0.5 ~ 0.5 之间
                 # 主力发力时，可能达到 2.0 ~ 5.0
                 norm_acc = raw_acc / (denom + 1e-6)
-                
                 # [关键修改] Tanh 压缩
                 # x=1.0 (强加速) -> tanh(1.0)=0.76 -> 76分
                 # x=2.0 (爆发) -> tanh(2.0)=0.96 -> 96分

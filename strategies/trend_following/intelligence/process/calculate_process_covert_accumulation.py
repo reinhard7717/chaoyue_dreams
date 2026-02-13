@@ -1,4 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_process_covert_accumulation.py
+# 【V2.12 · 微观订单流与结构共振版】“隐蔽吸筹”专属信号计算引擎
 import json
 import os
 import pandas as pd
@@ -24,11 +25,14 @@ class CalculateProcessCovertAccumulation:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.12 · 微观订单流与结构共振版】计算“隐蔽吸筹”的专属信号。
-        - 核心升级: 引入更多微观订单流和市场结构信号，新增微观订单流共振机制，提供更全面和协同的隐蔽吸筹判断。
+        【V6.0 · 量价时空四维隐匿吸筹版】计算“隐蔽吸筹”的专属信号。
+        - 核心升级: 
+            1. 引入INTRADAY_SUPPORT_INTENT(盘口护盘)与TICK_ABNORMAL_VOLUME(微观异动)构建博弈层。
+            2. 构建“隐匿密度”物理模型：高量/低波 = 高密度吸筹。
+            3. 移除防御性填充，全量暴露数据缺口。
         """
         method_name = "_calculate_process_covert_accumulation"
-        # --- 调试信息构建 ---
+        # --- 调试模式构建 ---
         is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
         if is_debug_enabled_for_method and self.helper.probe_dates:
@@ -37,14 +41,12 @@ class CalculateProcessCovertAccumulation:
                 if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
                     probe_ts = date
                     break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
         debug_output = {}
-        _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
+        _temp_debug_values = {} # 全量数据捕获容器
         if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算隐蔽吸筹..."] = ""
-        # 1. 获取配置参数
+            debug_output[f"--- {method_name} 深度透视 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+
+        # 1. 获取配置参数 (复用原有逻辑，新增部分权重在下方动态注入)
         fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, \
         price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, \
         neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, \
@@ -53,96 +55,57 @@ class CalculateProcessCovertAccumulation:
         new_raw_signals_weights, main_force_accumulation_resonance_weight, \
         new_raw_signals_weights_v2, covert_order_flow_resonance_weight = self._get_covert_accumulation_config(config)
         df_index = df.index
-        # 2. 校验并获取原始信号 (此方法内部会先计算所有派生信号)
-        raw_signals = self._validate_and_get_raw_signals(df, method_name, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, is_debug_enabled_for_method, probe_ts, _temp_debug_values, cumulative_flow_windows, cumulative_acc_windows)
-        if raw_signals is None:
-            return pd.Series(0.0, index=df.index)
-        # 3. 计算维度一：市场背景 (Market Context)
-        market_context_score = self._calculate_market_context_score(df, df_index, raw_signals, mtf_slope_accel_weights, market_context_weights, price_weakness_slope_window, low_volatility_bbw_window, method_name, _temp_debug_values, neutral_range_threshold)
-        # 4. 计算维度二：隐蔽行动 (Covert Action)
-        covert_action_score = self._calculate_covert_action_score(df, df_index, raw_signals, mtf_slope_accel_weights, covert_action_weights, method_name, _temp_debug_values, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights, daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, new_raw_signals_weights, main_force_accumulation_resonance_weight, new_raw_signals_weights_v2, covert_order_flow_resonance_weight)
-        # 5. 计算维度三：筹码优化 (Chip Optimization)
-        chip_optimization_score = self._calculate_chip_optimization_score(df, df_index, raw_signals, mtf_slope_accel_weights, chip_optimization_weights, method_name, _temp_debug_values)
-        # 6. 最终合成：三维融合
+
+        # 2. 原始信号提取与物理导数计算 (不再静默失败)
+        raw_signals = self._validate_and_get_raw_signals(df, method_name, mtf_slope_accel_weights, is_debug_enabled_for_method, probe_ts, _temp_debug_values, cumulative_flow_windows)
+        
+        # 3. 维度计算
+        market_context_score = self._calculate_market_context_score(df, df_index, raw_signals, market_context_weights, _temp_debug_values)
+        covert_action_score = self._calculate_covert_action_score(df, df_index, raw_signals, covert_action_weights, _temp_debug_values, cumulative_flow_windows)
+        chip_optimization_score = self._calculate_chip_optimization_score(df, df_index, raw_signals, chip_optimization_weights, _temp_debug_values)
+
+        # 4. 最终合成
         final_score = self._fuse_final_score(df_index, market_context_score, covert_action_score, chip_optimization_score, fusion_weights, _temp_debug_values)
-        _temp_debug_values["final_score"] = final_score # 存储最终分数用于调试输出
-        # --- 统一输出调试信息 ---
-        # if is_debug_enabled_for_method and probe_ts:
-        #     self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
+        _temp_debug_values["final_score"] = final_score
+
+        # 5. 输出调试堆栈
+        if is_debug_enabled_for_method and probe_ts:
+            self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
+            
         return final_score
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
         """
-        【V2.12 · 微观订单流与结构共振版】获取隐蔽吸筹计算所需的所有配置参数。
-        - 核心修改: 引入新的原始信号权重，新增微观订单流共振信号权重，并更新隐蔽行动和市场背景的默认权重。
+        【V2.16·热力学熵减版】获取配置参数。
+        -核心升级:注册'entropy_reduction'(熵减)与'cost_center_support'(成本支撑)权重。
         """
         covert_accum_params = get_param_value(self.helper.params.get('covert_accumulation_params'), {})
-        fusion_weights = get_param_value(covert_accum_params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})
+        fusion_weights = get_param_value(covert_accum_params.get('fusion_weights'), {"market_context": 0.35, "covert_action": 0.35, "chip_optimization": 0.3})
         market_context_weights = get_param_value(covert_accum_params.get('market_context_weights'), {
-            "retail_panic": 0.1, "price_weakness": 0.1, "low_volatility": 0.1,
-            "sentiment_pendulum_inverted": 0.1, "tension_inverted": 0.1, "market_sentiment_inverted": 0.05,
-            "volatility_instability_inverted": 0.05, "equilibrium_compression": 0.1,
-            "price_volume_entropy_inverted": 0.05, "fractal_dimension_inverted": 0.05,
-            "hurst_inverted": 0.05, "is_consolidating": 0.05, "dynamic_consolidation_duration": 0.05,
-            "volume_burstiness_inverted": 0.05, "market_impact_cost_inverted": 0.05,
-            "liquidity_authenticity": 0.05, "order_book_imbalance_neutral": 0.05,
-            "micro_price_impact_asymmetry_neutral": 0.05,
-            # 新增市场背景信号权重
-            "order_book_liquidity_supply": 0.05,
-            "is_high_potential_consolidation": 0.05
+            "golden_pit_state": 0.15, "space_efficiency": 0.10, "theme_resonance": 0.15,
+            "smart_divergence": 0.20, "turnover_stability": 0.10, "pressure_release": 0.10
         })
-        # 新增的原始信号权重 (V2.11)
         new_raw_signals_weights = get_param_value(covert_accum_params.get('new_raw_signals_weights'), {
-            "ask_side_liquidity_inverted": 0.03,
-            "mf_level5_buy_ofi": 0.05,
-            "mf_buy_execution_alpha": 0.05,
-            "upper_shadow_selling_pressure_inverted": 0.03,
-            "smart_money_inst_net_buy": 0.05,
-            "microstructure_efficiency": 0.03
+            "ask_side_liquidity_inverted": 0.03, "mf_level5_buy_ofi": 0.05, "mf_buy_execution_alpha": 0.05,
+            "upper_shadow_selling_pressure_inverted": 0.03, "smart_money_inst_net_buy": 0.05, "microstructure_efficiency": 0.03
         })
-        # 新增的原始信号权重 (V2.12)
         new_raw_signals_weights_v2 = get_param_value(covert_accum_params.get('new_raw_signals_weights_v2'), {
-            "buy_flow_efficiency": 0.05,
-            "sell_flow_efficiency_inverted": 0.03,
-            "main_force_vwap_up_guidance": 0.05,
-            "observed_large_order_size_avg_inverted": 0.03
+            "buy_flow_efficiency": 0.05, "sell_flow_efficiency_inverted": 0.03,
+            "main_force_vwap_up_guidance": 0.05, "observed_large_order_size_avg_inverted": 0.03
         })
-        # 主力吸筹共振信号权重
         main_force_accumulation_resonance_weight = get_param_value(covert_accum_params.get('main_force_accumulation_resonance_weight'), 0.1)
-        # 微观订单流共振信号权重
         covert_order_flow_resonance_weight = get_param_value(covert_accum_params.get('covert_order_flow_resonance_weight'), 0.08)
         covert_action_weights = get_param_value(covert_accum_params.get('covert_action_weights'), {
-            "suppressive_accum": 0.08, "contextualized_main_force_flow": 0.15, "deception_lure_long": 0.1,
-            "stealth_ops": 0.1, "contextualized_hidden_accumulation": 0.15, "chip_historical_potential": 0.05,
-            "mf_buy_ofi": 0.05, "mf_cost_advantage": 0.05, "mf_flow_slope": 0.05,
-            "suppressive_accum_slope": 0.05, "internal_accumulation": 0.05, "gathering_by_support": 0.05,
-            "main_force_flow_gini": 0.05,
-            "mf_t0_buy_efficiency": 0.05,
-            "buy_quote_exhaustion_inverted": 0.05, "bid_side_liquidity": 0.05,
-            "net_lg_amount": 0.05, "dip_buy_absorption": 0.05, "mf_slippage_inverted": 0.05,
-            "micro_impact_elasticity_inverted": 0.05,
-            # V2.11新增信号的默认权重
-            "ask_side_liquidity_inverted": new_raw_signals_weights["ask_side_liquidity_inverted"],
-            "mf_level5_buy_ofi": new_raw_signals_weights["mf_level5_buy_ofi"],
-            "mf_buy_execution_alpha": new_raw_signals_weights["mf_buy_execution_alpha"],
-            "upper_shadow_selling_pressure_inverted": new_raw_signals_weights["upper_shadow_selling_pressure_inverted"],
-            "smart_money_inst_net_buy": new_raw_signals_weights["smart_money_inst_net_buy"],
-            "microstructure_efficiency": new_raw_signals_weights["microstructure_efficiency"],
-            "main_force_accumulation_resonance": main_force_accumulation_resonance_weight,
-            # V2.12新增信号的默认权重
-            "buy_flow_efficiency": new_raw_signals_weights_v2["buy_flow_efficiency"],
-            "sell_flow_efficiency_inverted": new_raw_signals_weights_v2["sell_flow_efficiency_inverted"],
-            "main_force_vwap_up_guidance": new_raw_signals_weights_v2["main_force_vwap_up_guidance"],
-            "observed_large_order_size_avg_inverted": new_raw_signals_weights_v2["observed_large_order_size_avg_inverted"],
-            "covert_order_flow_resonance": covert_order_flow_resonance_weight
+            "pain_accumulation": 0.15, "game_friction": 0.10, "behavior_confirmation": 0.05,
+            "iceberg_friction": 0.15, "whale_active_drive": 0.10, "hab_accumulation": 0.15,
+            "kinetic_surge": 0.10, "intraday_confidence": 0.10, "flow_consistency": 0.10
         })
         chip_optimization_weights = get_param_value(covert_accum_params.get('chip_optimization_weights'), {
-            "chip_fatigue": 0.15, "loser_pain": 0.15, "holder_sentiment_inverted": 0.1,
-            "turnover_purity_cost_opt": 0.1, "floating_chip_cleansing": 0.1, "total_loser_rate": 0.05,
-            "winner_concentration_inverted": 0.05, "loser_concentration": 0.05,
-            "cost_dispersion_inverted": 0.05, "dominant_peak_solidity": 0.05,
-            "chip_health": 0.05, "lower_shadow_absorption": 0.05,
-            "panic_sell_contribution": 0.05, "profit_realization_inverted": 0.05
+            "entropy_reduction": 0.15, # [新增]核心权重:熵减(有序化)
+            "cost_center_support": 0.10, # [新增]核心权重:成本重心支撑
+            "chip_morphology": 0.10, "iron_floor_hab": 0.10,
+            "transfer_efficiency_hab": 0.15, "trapped_pressure_release": 0.15,
+            "concentration_accel": 0.10, "chip_locking": 0.10, "chip_stability": 0.05
         })
         price_weakness_slope_window = get_param_value(covert_accum_params.get('price_weakness_slope_window'), 5)
         low_volatility_bbw_window = get_param_value(covert_accum_params.get('low_volatility_bbw_window'), 21)
@@ -156,160 +119,444 @@ class CalculateProcessCovertAccumulation:
         cumulative_mf_flow_weight = get_param_value(covert_accum_params.get('cumulative_mf_flow_weight'), 0.6)
         daily_acc_weight = get_param_value(covert_accum_params.get('daily_acc_weight'), 0.4)
         cumulative_acc_weight = get_param_value(covert_accum_params.get('cumulative_acc_weight'), 0.6)
-        return fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, \
-               price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, \
-               neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, \
-               cumulative_acc_windows, cumulative_acc_weights, \
-               daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, \
-               new_raw_signals_weights, main_force_accumulation_resonance_weight, \
-               new_raw_signals_weights_v2, covert_order_flow_resonance_weight
+        print(f"DEBUG_PROBE:CoherencyConfigLoaded|EntropyWeight={chip_optimization_weights.get('entropy_reduction')}")
+        return fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights, daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, new_raw_signals_weights, main_force_accumulation_resonance_weight, new_raw_signals_weights_v2, covert_order_flow_resonance_weight
 
-    def _calculate_derived_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]):
+    def _validate_and_get_raw_signals(self, df: pd.DataFrame, method_name: str, mtf_slope_accel_weights: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict, cumulative_flow_windows: List[int]) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 物理高阶导数全量版】计算基于斐波那契窗口的 SLOPE, ACCEL, JERK。
-        - 逻辑：针对资金流和结构指标计算三阶物理导数，识别吸筹动能的非线性爆发。
-        - 版本：5.0.0
+        【V6.12·热力学指标提取版】提取关键军械库指标。
+        -核心升级:
+        1.'chip_entropy_D':筹码熵，衡量有序度。
+        2.'intraday_cost_center_migration_D':日内成本迁移，衡量微观支撑。
         """
-        fib_windows = [5, 8, 13, 21, 34, 55]
-        derivative_targets = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'VPA_MF_ADJUSTED_EFF_D', 'chip_stability_D']
-        for base in derivative_targets:
-            if base not in df.columns:
-                continue
-            for period in fib_windows:
-                s_col = f'SLOPE_{period}_{base}'
-                if s_col not in df.columns:
-                    df[s_col] = ta.slope(df[base], length=period)
-                a_col = f'ACCEL_{period}_{base}'
-                if a_col not in df.columns and s_col in df.columns:
-                    df[a_col] = ta.slope(df[s_col], length=period)
-                j_col = f'JERK_{period}_{base}'
-                if j_col not in df.columns and a_col in df.columns:
-                    df[j_col] = ta.slope(df[a_col], length=period)
-        for base in ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']:
-            if base in df.columns:
-                for window in cumulative_flow_windows:
-                    c_col = f'{base}_{window}d_sum'
-                    if c_col not in df.columns:
-                        df[c_col] = df[base].rolling(window, min_periods=1).sum()
-
-    def _validate_and_get_raw_signals(self, df: pd.DataFrame, method_name: str, price_weakness_slope_window: int, low_volatility_bbw_window: int, mtf_slope_accel_weights: Dict, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int]) -> Optional[Dict[str, pd.Series]]:
-        """
-        【V5.0 · 严密数据预检版】执行全量列存在性检查并构建语义映射。
-        - 逻辑：在计算前强制验证军械库清单原始列，并动态注入高阶物理导数 Key。
-        - 版本：5.0.0
-        """
-        essential_cols = [
+        required_cols = [
             'STATE_EMOTIONAL_EXTREME_D', 'BBW_21_2.0_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
-            'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'GEOM_ARC_CURVATURE_D',
-            'afternoon_flow_ratio_D', 'closing_flow_intensity_D', 'flow_consistency_D',
-            'long_term_chip_ratio_D', 'chip_stability_D', 'VPA_MF_ADJUSTED_EFF_D',
-            'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'accumulation_score_D',
-            'MA_POTENTIAL_TENSION_INDEX_D', 'market_sentiment_score_D', 'chip_concentration_ratio_D',
-            'chip_convergence_ratio_D', 'winner_rate_D', 'chip_cost_to_ma21_diff_D', 'buy_lg_amount_rate_D'
+            'INTRADAY_SUPPORT_INTENT_D', 'tick_abnormal_volume_ratio_D', 'pressure_release_index_D',
+            'VPA_MF_ADJUSTED_EFF_D', 'stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D',
+            'accumulation_score_D', 'chip_stability_D', 'chip_concentration_ratio_D',
+            'ATR_14_D', 'volume_vs_ma_5_ratio_D',
+            'buy_elg_amount_rate_D', 'flow_consistency_D', 'intraday_accumulation_confidence_D',
+            'winner_rate_D', 'intraday_chip_game_index_D', 'behavior_accumulation_D',
+            'THEME_HOTNESS_SCORE_D', 'industry_strength_rank_D',
+            'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
+            'TURNOVER_STABILITY_INDEX_D', 'breakout_potential_D',
+            'STATE_GOLDEN_PIT_D', 'support_resistance_ratio_D', 'industry_breadth_score_D',
+            'tick_chip_transfer_efficiency_D', 'pressure_trapped_D', 'pressure_profit_D',
+            'chip_skewness_D', 'chip_kurtosis_D',
+            'chip_entropy_D', 'intraday_cost_center_migration_D' # [V6.12新增]
         ]
-        missing_cols = [c for c in essential_cols if c not in df.columns]
-        if missing_cols:
-            return None
-        self._calculate_derived_signals(df, mtf_slope_accel_weights, cumulative_flow_windows, cumulative_acc_windows)
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            _temp_debug_values["__MISSING_COLUMNS__"] = missing
+            for c in missing:
+                df[c] = np.nan
+        self._calculate_chip_dynamics(df, _temp_debug_values)
+        vol_ratio = df.get('volume_vs_ma_5_ratio_D', pd.Series(np.nan, index=df.index))
+        close_safe = df['close'].replace(0, np.nan)
+        norm_atr = df.get('ATR_14_D', pd.Series(np.nan, index=df.index)) / (close_safe + 0.001)
+        stealth_density = vol_ratio / (norm_atr + 0.001)
         raw_signals = {
-            'emo_extreme': df['STATE_EMOTIONAL_EXTREME_D'],
-            'vol_bbw': df['BBW_21_2.0_D'],
-            'ma_compression': df['MA_POTENTIAL_COMPRESSION_RATE_D'],
-            'rounding_bottom': df['STATE_ROUNDING_BOTTOM_D'],
-            'golden_pit': df['STATE_GOLDEN_PIT_D'],
-            'arc_curvature': df['GEOM_ARC_CURVATURE_D'],
-            'afternoon_flow': df['afternoon_flow_ratio_D'],
-            'closing_intensity': df['closing_flow_intensity_D'],
-            'flow_consistency': df['flow_consistency_D'],
-            'long_term_chip': df['long_term_chip_ratio_D'],
-            'chip_stability': df['chip_stability_D'],
-            'mf_efficiency': df['VPA_MF_ADJUSTED_EFF_D'],
-            'stealth_flow': df['stealth_flow_ratio_D'],
-            'inst_buy': df['SMART_MONEY_INST_NET_BUY_D'],
-            'acc_score': df['accumulation_score_D'],
-            'structural_tension': df['MA_POTENTIAL_TENSION_INDEX_D'],
-            'market_sentiment': df['market_sentiment_score_D'],
-            'chip_concentration': df['chip_concentration_ratio_D'],
-            'chip_convergence': df['chip_convergence_ratio_D'],
-            'winner_rate': df['winner_rate_D'],
-            'cost_ma_diff': df['chip_cost_to_ma21_diff_D'],
-            'lg_buy_rate': df['buy_lg_amount_rate_D']
+            'emo_extreme': df.get('STATE_EMOTIONAL_EXTREME_D'),
+            'vol_bbw': df.get('BBW_21_2.0_D'),
+            'ma_compression': df.get('MA_POTENTIAL_COMPRESSION_RATE_D'),
+            'intraday_support': df.get('INTRADAY_SUPPORT_INTENT_D'),
+            'abnormal_vol': df.get('tick_abnormal_volume_ratio_D'),
+            'pressure_release': df.get('pressure_release_index_D'),
+            'mf_efficiency': df.get('VPA_MF_ADJUSTED_EFF_D'),
+            'stealth_flow': df.get('stealth_flow_ratio_D'),
+            'inst_buy': df.get('SMART_MONEY_INST_NET_BUY_D'),
+            'acc_score': df.get('accumulation_score_D'),
+            'chip_stability': df.get('chip_stability_D'),
+            'chip_concentration': df.get('chip_concentration_ratio_D'),
+            'stealth_density': stealth_density,
+            'elg_buy_rate': df.get('buy_elg_amount_rate_D'),
+            'flow_consistency': df.get('flow_consistency_D'),
+            'accum_confidence': df.get('intraday_accumulation_confidence_D'),
+            'winner_rate': df.get('winner_rate_D'),
+            'game_index': df.get('intraday_chip_game_index_D'),
+            'behavior_tag': df.get('behavior_accumulation_D'),
+            'theme_hotness': df.get('THEME_HOTNESS_SCORE_D'),
+            'industry_rank': df.get('industry_strength_rank_D'),
+            'smart_divergence': df.get('SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'),
+            'turnover_stability': df.get('TURNOVER_STABILITY_INDEX_D'),
+            'breakout_potential': df.get('breakout_potential_D'),
+            'golden_pit': df.get('STATE_GOLDEN_PIT_D'),
+            'sr_ratio': df.get('support_resistance_ratio_D'),
+            'industry_breadth': df.get('industry_breadth_score_D'),
+            'transfer_eff': df.get('tick_chip_transfer_efficiency_D'),
+            'pressure_trapped': df.get('pressure_trapped_D'),
+            'pressure_profit': df.get('pressure_profit_D'),
+            'skewness': df.get('chip_skewness_D'),
+            'kurtosis': df.get('chip_kurtosis_D'),
+            'entropy': df.get('chip_entropy_D'), # [新增]
+            'cost_migration': df.get('intraday_cost_center_migration_D') # [新增]
         }
-        fib_windows = [5, 8, 13, 21, 34, 55]
-        derivative_bases = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'MA_POTENTIAL_COMPRESSION_RATE_D']
-        for base in derivative_bases:
+        fib_windows = [3, 8, 13]
+        for base in ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']:
             for p in fib_windows:
-                for prefix in ['SLOPE', 'ACCEL', 'JERK']:
-                    col_name = f'{prefix}_{p}_{base}'
-                    col_key = f'{prefix.lower()}_{base}_{p}'
-                    raw_signals[col_key] = df[col_name] if col_name in df.columns else pd.Series(0.0, index=df.index)
+                key = f'jerk_{base}_{p}'
+                col = f'JERK_{p}_{base}'
+                raw_signals[key] = df[col] if col in df.columns else pd.Series(np.nan, index=df.index)
+        print(f"DEBUG_PROBE:RawSignalsExtracted|EntropyLen={len(raw_signals['entropy'])}|MigrationLen={len(raw_signals['cost_migration'])}")
+        _temp_debug_values["原始信号值"] = raw_signals
         return raw_signals
 
-    def _calculate_market_context_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, market_context_weights: Dict, price_weakness_slope_window: int, low_volatility_bbw_window: int, method_name: str, _temp_debug_values: Dict, neutral_range_threshold: float) -> pd.Series:
+    def _calculate_derived_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int], _temp_debug_values: Optional[Dict] = None):
         """
-        【V4.1 · 物理高阶导数修正版】计算市场背景评分。
-        - 逻辑深化：利用修复后的 emo_extreme 捕捉情绪冰点，并结合均线压缩加速度识别横盘末端的结构爆发力。
+        【V6.4 · 记忆与动力学注入版】计算高阶物理导数(Kinematics)与历史累积记忆(HAB)。
+        - 核心升级:
+            1. HAB系统: 对 '特大单' 和 '隐蔽流' 建立有损记忆池，防止信号闪烁。
+            2. 动力学: 计算 Jerk (加加速度) 以识别主力的"抢筹"意图。
         """
-        # 引入均线压缩的加速度 (21日周期) 识别结构紧凑度变化
-        accel_compression = raw_signals.get('accel_MA_POTENTIAL_COMPRESSION_RATE_D_21', pd.Series(0.0, index=df_index))
-        scores = {
-            "sentiment_extreme": self.helper._normalize_series(raw_signals['emo_extreme'], df_index, bipolar=False),
-            "vol_compression": self.helper._normalize_series(raw_signals['vol_bbw'], df_index, ascending=False),
-            "rounding_bottom": self.helper._normalize_series(raw_signals['rounding_bottom'], df_index, bipolar=False),
-            "golden_pit": self.helper._normalize_series(raw_signals['golden_pit'], df_index, bipolar=False),
-            "arc_curvature": self.helper._normalize_series(raw_signals['arc_curvature'], df_index, bipolar=False),
-            "is_consolidating": self.helper._normalize_series(raw_signals['ma_compression'], df_index, bipolar=False),
-            "structural_tension": (1 - self.helper._normalize_series(raw_signals['structural_tension'], df_index)),
-            "compression_accel": self.helper._normalize_series(accel_compression, df_index, bipolar=True)
-        }
-        # 更新权重配置以匹配新增的 compression_accel (若配置中未定义则通过 helper 容错)
-        market_context_score = _robust_geometric_mean(scores, market_context_weights, df_index)
-        _temp_debug_values["market_context_v41"] = scores
-        return market_context_score
+        # 1. 定义物理量目标
+        # 流量型 (Flow) -> 需要积分 (HAB)
+        flow_targets = [
+            'buy_elg_amount_rate_D',       # 特大单买入占比
+            'stealth_flow_ratio_D',        # 隐蔽资金意图
+            'SMART_MONEY_INST_NET_BUY_D'   # 机构净买入
+        ]
+        # 状态型 (State) -> 需要微分 (Slope/Jerk)
+        kinematic_targets = [
+            'intraday_accumulation_confidence_D', # 吸筹置信度
+            'flow_consistency_D',                 # 资金一致性
+            'stealth_flow_ratio_D'                # 既是流也是态
+        ]
+        # 2. HAB (存量记忆) 计算核心逻辑 (The Leaky Bucket)
+        # 设定34天为主要的机构筹码沉淀周期，模拟"吸筹后锁仓"
+        hab_decay_span = 34
+        for base in flow_targets:
+            if base in df.columns:
+                clean_series = df[base].fillna(0) # 流量缺失视为0
+                hab_col = f'HAB_{base}'
+                # EWM 模拟有损累积：今日流入 + 昨日存量的衰减
+                # adjust=False 意味着 y_t = alpha * x_t + (1 - alpha) * y_{t-1}
+                # 我们放大结果以匹配量级 ( * hab_decay_span)
+                df[hab_col] = clean_series.ewm(span=hab_decay_span, adjust=False).mean() * hab_decay_span
+                # 计算"势能密度" (Potential Energy Density): 存量 / 当前波动率
+                # 逻辑：在低波动率下积累了大量筹码 = 极高的爆发势能
+                atr = df.get('ATR_14_D', pd.Series(1.0, index=df.index))
+                norm_atr = atr / (df['close'] + 0.001)
+                pe_col = f'POTENTIAL_{base}'
+                df[pe_col] = df[hab_col] / (norm_atr + 0.001)
+                if _temp_debug_values is not None:
+                    _temp_debug_values[f"HAB_STATS_{base}"] = {
+                        "last_hab": float(df[hab_col].iloc[-1] if len(df) > 0 else 0),
+                        "last_potential": float(df[pe_col].iloc[-1] if len(df) > 0 else 0)
+                    }
+        # 3. 动力学导数计算 (Slope/Accel/Jerk)
+        # 缩短窗口以捕捉微观变化：3日(超短) / 8日(波段)
+        fib_windows = [3, 8]
+        for base in kinematic_targets:
+            if base not in df.columns: continue
+            # 保持NaN以避免错误导数，但计算slope时pandas_ta会自动处理
+            series_clean = df[base]
+            # 预平滑，防止Tick级噪点造成导数爆炸
+            series_smooth = ta.ema(series_clean.fillna(method='ffill'), length=3)
+            for period in fib_windows:
+                # 3.1 速度 (Velocity/Slope)
+                s_col = f'SLOPE_{period}_{base}'
+                slope_series = ta.slope(series_smooth, length=period)
+                df[s_col] = slope_series
+                # 3.2 加速度 (Acceleration)
+                # 加速度 = 速度的斜率
+                a_col = f'ACCEL_{period}_{base}'
+                accel_series = ta.slope(slope_series, length=3)
+                df[a_col] = accel_series
+                # 3.3 加加速度 (Jerk) - 仅对短周期计算，捕捉突变
+                if period == 3:
+                    j_col = f'JERK_{period}_{base}'
+                    # Jerk = 加速度的斜率
+                    df[j_col] = ta.slope(accel_series, length=3)
 
-    def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, covert_action_weights: Dict, method_name: str, _temp_debug_values: Dict, cumulative_flow_windows: List[int], cumulative_flow_weights: Dict, cumulative_acc_windows: List[int], cumulative_acc_weights: Dict, daily_mf_flow_weight: float, cumulative_mf_flow_weight: float, daily_acc_weight: float, cumulative_acc_weight: float, new_raw_signals_weights: Dict, main_force_accumulation_resonance_weight: float, new_raw_signals_weights_v2: Dict, covert_order_flow_resonance_weight: float) -> pd.Series:
+    def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], covert_action_weights: Dict, _temp_debug_values: Dict, cumulative_flow_windows: List[int]) -> pd.Series:
         """
-        【V5.0 · 物理突变修复版】计算隐蔽行动分数。
-        - 逻辑：对齐 19 个位置参数。集成斐波那契 JERK 评分，识别资金流的瞬时爆发。
-        - 版本：5.0.0
+        【V6.6 · 痛苦博弈融合版】计算隐蔽行动分数。
+        - 核心升级:
+            1. 痛苦吸筹 (Pain Accumulation): (1 - 获利盘) * 机构买入。识别"带血筹码"。
+            2. 博弈强度 (Game Friction): 博弈指数 / (波动率 + 1)。识别"强压强买"。
+            3. 行为锚点: 将上游的 behavior_accumulation_D 作为加分项。
         """
-        fib_windows = [5, 8, 13, 21, 34, 55]
-        jerk_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        for p in fib_windows:
-            key = f'jerk_stealth_flow_ratio_D_{p}'
-            if key in raw_signals:
-                jerk_score += self.helper._normalize_series(raw_signals[key], df_index, bipolar=True)
-        jerk_score = (jerk_score / len(fib_windows) + 1) / 2
+        # 1. 提取 HAB 存量信号
+        hab_elg = df.get('HAB_buy_elg_amount_rate_D', pd.Series(0, index=df_index))
+        hab_stealth = df.get('HAB_stealth_flow_ratio_D', pd.Series(0, index=df_index))
+        s_hab_elg = self.helper._normalize_series(hab_elg, df_index, bipolar=False)
+        s_hab_stealth = self.helper._normalize_series(hab_stealth, df_index, bipolar=False)
+        # 2. 提取 Kinematics 信号
+        jerk_confidence = df.get('JERK_3_intraday_accumulation_confidence_D', pd.Series(0, index=df_index))
+        s_jerk_conf = self.helper._normalize_series(jerk_confidence, df_index, bipolar=True)
+        # 3. 基础信号归一化
+        s_stealth = self.helper._normalize_series(raw_signals['stealth_flow'], df_index, bipolar=False)
+        s_inst_buy = self.helper._normalize_series(raw_signals['inst_buy'], df_index, bipolar=True)
+        s_support = self.helper._normalize_series(raw_signals['intraday_support'], df_index, bipolar=False)
+        s_abnormal = self.helper._normalize_series(raw_signals['abnormal_vol'], df_index, bipolar=False)
+        s_elg_drive = self.helper._normalize_series(raw_signals['elg_buy_rate'], df_index, bipolar=False)
+        s_consistency = self.helper._normalize_series(raw_signals['flow_consistency'], df_index, bipolar=False)
+        s_confidence = self.helper._normalize_series(raw_signals['accum_confidence'], df_index, bipolar=False)
+        # 4. [V6.6 新增] 痛苦与博弈计算
+        # 4.1 痛苦因子 (Pain Factor): 散户越痛苦(获利盘越少)，主力吸筹价值越高
+        # winner_rate 可能为 NaN，fillna(0.5) 中性处理
+        winner_rate = raw_signals['winner_rate'].fillna(0.5) / 100.0 if raw_signals['winner_rate'].max() > 1.0 else raw_signals['winner_rate'].fillna(0.5)
+        pain_factor = (1.0 - winner_rate).clip(0, 1) # 获利盘 10% -> 痛苦因子 0.9
+        # 痛苦吸筹 = 痛苦因子 * 机构净买入(归一化后)
+        # 只关心机构买入时的痛苦，如果机构在卖，痛苦因子无意义，所以用 s_inst_buy.clip(0,1)
+        s_pain_accum = pain_factor * s_inst_buy.clip(lower=0)
+        # 4.2 博弈摩擦 (Game Friction)
+        # 逻辑：高博弈指数(High Game) + 低波动(Low ATR) = 强庄压盘
+        s_game_index = self.helper._normalize_series(raw_signals['game_index'], df_index, bipolar=False)
+        atr_norm = self.helper._normalize_series(raw_signals['stealth_density'], df_index, bipolar=False) # 借用密度中的低波概念
+        # 这里的 s_stealth_density 实际上是 Vol/ATR，所以密度高意味着波动相对量小
+        s_friction = (s_game_index * 0.6 + s_stealth * 0.4)
+        # 4.3 行为锚点 (Behavior Tag)
+        s_behavior = raw_signals['behavior_tag'].fillna(0).clip(0, 1) # 0/1 信号
+        # 5. 组合评分 (Compound Scores)
+        s_iceberg = (s_support * 0.3 + s_elg_drive * 0.3 + s_hab_elg * 0.2 + s_confidence * 0.2)
+        s_surge = s_jerk_conf * s_consistency
         scores = {
-            "stealth_ops": self.helper._normalize_series(raw_signals['stealth_flow'], df_index, bipolar=False),
-            "inst_net_buy": self.helper._normalize_series(raw_signals['inst_buy'], df_index, bipolar=True),
-            "stealth_flow_jerk": jerk_score,
-            "afternoon_bias": self.helper._normalize_series(raw_signals['afternoon_flow'], df_index, bipolar=False),
-            "closing_intensity": self.helper._normalize_series(raw_signals['closing_intensity'], df_index, bipolar=False),
-            "mf_efficiency": self.helper._normalize_series(raw_signals['mf_efficiency'], df_index, bipolar=False),
-            "flow_consistency": self.helper._normalize_series(raw_signals['flow_consistency'], df_index, bipolar=False),
-            "contextualized_hidden_accumulation": self.helper._normalize_series(raw_signals['acc_score'], df_index, bipolar=False)
+            "pain_accumulation": s_pain_accum,   # [新增] 收集带血筹码
+            "game_friction": s_friction,         # [新增] 强力博弈
+            "behavior_confirmation": s_behavior, # [新增] 行为验证
+            "iceberg_friction": s_iceberg,
+            "whale_active_drive": s_elg_drive,
+            "hab_accumulation": s_hab_stealth,
+            "kinetic_surge": s_surge,
+            "intraday_confidence": s_confidence,
+            "flow_consistency": s_consistency,
+            "stealth_ops": s_stealth,
+            "contextualized_accum": self.helper._normalize_series(raw_signals['acc_score'], df_index, bipolar=False)
         }
-        current_weights = covert_action_weights.copy()
-        if "stealth_flow_jerk" not in current_weights:
-            current_weights["stealth_flow_jerk"] = 0.12
-        covert_action_score = _robust_geometric_mean(scores, current_weights, df_index)
-        _temp_debug_values["covert_action_score"] = covert_action_score
+        # 6. 权重调整
+        final_weights = covert_action_weights.copy()
+        final_weights.setdefault("pain_accumulation", 0.15)    # 高权重：这是最真实的吸筹逻辑
+        final_weights.setdefault("game_friction", 0.10)        # 中权重
+        final_weights.setdefault("behavior_confirmation", 0.05)# 辅助加分
+        final_weights.setdefault("iceberg_friction", 0.15)
+        final_weights.setdefault("hab_accumulation", 0.15)
+        # 7. 计算最终得分
+        covert_action_score = _robust_geometric_mean(scores, final_weights, df_index)
+        _temp_debug_values["隐蔽行动_痛苦博弈"] = {
+            "Pain_Factor": float(pain_factor.iloc[-1]) if len(pain_factor)>0 else 0.0,
+            "Game_Index": float(s_game_index.iloc[-1]) if len(s_game_index)>0 else 0.0,
+            "Pain_Accum_Score": float(s_pain_accum.iloc[-1]) if len(s_pain_accum)>0 else 0.0
+        }
+        _temp_debug_values["隐蔽行动_归一化"] = scores
         return covert_action_score
 
-    def _calculate_chip_optimization_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], mtf_slope_accel_weights: Dict, chip_optimization_weights: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_context_derived_signals(self, df: pd.DataFrame, _temp_debug_values: Dict):
         """
-        【V3.1 · 多维深度探测版】计算筹码优化分数。
-        - 逻辑：关注筹码成熟度。当长线筹码比例提升且现价处于均线密集成本区（Proximity）时，反转动力最强。
+        【新增辅助方法】专门计算市场背景的 HAB (势能) 和 Slope (动量)。
         """
+        # 1. 势能 (Potential): 针对背离信号
+        # 背离信号通常是 0 或 1，或者是强度分。我们需要累积它。
+        if 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D' in df.columns:
+            div_series = df['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'].fillna(0)
+            # 衰减累积：13天窗口，模拟"主力持续吸筹"的势能
+            df['HAB_SMART_DIVERGENCE'] = div_series.ewm(span=13, adjust=False).mean() * 13
+        # 2. 动量 (Momentum): 针对热度和情绪
+        # 我们只关心趋势方向 (Slope)，不关心加速度 (Accel/Jerk)
+        momentum_targets = ['THEME_HOTNESS_SCORE_D', 'STATE_EMOTIONAL_EXTREME_D']
+        for target in momentum_targets:
+            if target in df.columns:
+                # 5日线性回归斜率
+                df[f'SLOPE_5_{target}'] = ta.slope(df[target], length=5)
+
+    def _calculate_market_context_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], market_context_weights: Dict, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V6.9 · 黄金坑与空间效率融合版】计算市场背景分数。
+        - 核心升级:
+            1. 黄金坑 (Golden Pit): 作为强有力的加分项。
+            2. 空间效率 (Space Efficiency): 基于支撑/阻力比，S/R > 1.5 为优。
+            3. 行业健康 (Theme Health): 融合热度(Hotness)与宽度(Breadth)。
+        """
+        # 1. 提取衍生信号 (HAB & Slope)
+        hab_divergence = df.get('HAB_SMART_DIVERGENCE', pd.Series(0, index=df_index))
+        slope_theme = df.get('SLOPE_5_THEME_HOTNESS_SCORE_D', pd.Series(0, index=df_index))
+        
+        # 归一化衍生信号
+        s_hab_div = self.helper._normalize_series(hab_divergence, df_index, bipolar=False)
+        s_slope_theme = self.helper._normalize_series(slope_theme, df_index, bipolar=True)
+
+        # 2. [V6.9 新增] 结构与空间信号归一化
+        # 黄金坑: 0/1 状态。无需复杂归一化，直接用。
+        s_golden_pit = raw_signals['golden_pit'].fillna(0).clip(0, 1)
+        
+        # 阻力最小路径: Ratio。通常 0~3+。 
+        # > 1 是好，> 2 极好。我们希望 S/R 越大越好。
+        sr_ratio = raw_signals['sr_ratio'].fillna(1.0) # 默认为 1 (平衡)
+        s_sr_efficiency = (sr_ratio / 2.0).clip(0, 1) # 简单归一化: 2.0 为满分 cap
+        
+        # 行业宽度: 0-100。
+        s_breadth = self.helper._normalize_series(raw_signals['industry_breadth'], df_index, bipolar=False)
+
+        # 3. 基础信号归一化
+        s_sentiment = self.helper._normalize_series(raw_signals['emo_extreme'], df_index, bipolar=False)
+        s_vol_comp = self.helper._normalize_series(raw_signals['vol_bbw'], df_index, ascending=False)
+        s_consolidating = self.helper._normalize_series(raw_signals['ma_compression'], df_index, bipolar=False)
+        s_pressure = self.helper._normalize_series(raw_signals['pressure_release'], df_index, bipolar=False)
+        s_breakout = self.helper._normalize_series(raw_signals['breakout_potential'], df_index, bipolar=False)
+        s_stability = self.helper._normalize_series(raw_signals['turnover_stability'], df_index, bipolar=False)
+
+        # 4. 复合维度计算
+        # [V6.9] 行业健康 (Theme Health): 热度(天花板) + 宽度(基础) + 动量(趋势) + 排名(爆发)
+        theme_hotness = raw_signals['theme_hotness'].fillna(0)
+        industry_rank = raw_signals['industry_rank'].fillna(100)
+        norm_hotness = (theme_hotness / 100.0).clip(0, 1)
+        norm_rank = (1.0 - industry_rank / 100.0).clip(0, 1)
+        
+        s_theme_health = (
+            norm_hotness * 0.3 + 
+            s_breadth * 0.3 +       # 宽度验证热度
+            norm_rank * 0.2 + 
+            s_slope_theme * 0.2
+        )
+
+        # [V6.1] 势能背离 (Potential Divergence)
+        div_signal = raw_signals['smart_divergence'].fillna(0)
+        s_div_raw = self.helper._normalize_series(div_signal, df_index, bipolar=False)
+        s_divergence_complex = (s_div_raw * 0.3 + s_hab_div * 0.7)
+
+        # 5. 组合评分
         scores = {
-            "chip_stability": self.helper._normalize_series(raw_signals['chip_stability'], df_index, bipolar=False),
-            "long_term_ratio": self.helper._normalize_series(raw_signals['long_term_chip'], df_index, bipolar=False),
-            "cost_ma_proximity": (1 - self.helper._normalize_series(raw_signals['cost_ma_diff'].abs(), df_index)),
-            "chip_concentration": self.helper._normalize_series(raw_signals['chip_concentration'], df_index, ascending=False)
+            "golden_pit_state": s_golden_pit,      # [新增] 黄金坑状态
+            "space_efficiency": s_sr_efficiency,   # [新增] 阻力最小路径
+            "theme_resonance": s_theme_health,     # [升级] 行业健康度
+            "smart_divergence": s_divergence_complex,
+            "turnover_stability": s_stability,
+            "sentiment_extreme": s_sentiment,
+            "vol_compression": s_vol_comp,
+            "is_consolidating": s_consolidating,
+            "pressure_release": s_pressure,
+            "breakout_potential": s_breakout
         }
-        chip_optimization_score = _robust_geometric_mean(scores, chip_optimization_weights, df_index)
-        _temp_debug_values["chip_optimization_score"] = chip_optimization_score
+
+        # 6. 权重动态注入
+        final_weights = market_context_weights.copy()
+        # 黄金坑是稀缺状态，给予高权重
+        final_weights.setdefault("golden_pit_state", 0.15)
+        # 空间效率决定了是否容易拉升
+        final_weights.setdefault("space_efficiency", 0.10)
+        # 保持其他核心权重
+        final_weights.setdefault("smart_divergence", 0.20)
+        final_weights.setdefault("theme_resonance", 0.15)
+        final_weights.setdefault("turnover_stability", 0.10)
+        final_weights.setdefault("pressure_release", 0.10)
+
+        # 7. 计算最终得分
+        market_context_score = _robust_geometric_mean(scores, final_weights, df_index)
+
+        # 8. 详细探针
+        _temp_debug_values["市场背景_结构空间"] = {
+            "Golden_Pit": int(s_golden_pit.iloc[-1]) if len(s_golden_pit)>0 else 0,
+            "SR_Ratio_Norm": float(s_sr_efficiency.iloc[-1]) if len(s_sr_efficiency)>0 else 0.0,
+            "Breadth_Norm": float(s_breadth.iloc[-1]) if len(s_breadth)>0 else 0.0
+        }
+        _temp_debug_values["市场背景"] = scores
+        return market_context_score
+
+    def _calculate_chip_dynamics(self, df: pd.DataFrame, _temp_debug_values: Dict):
+        """
+        【V6.12升级】计算筹码的HAB,Kinematics以及热力学动态。
+        """
+        if 'tick_chip_transfer_efficiency_D' in df.columns:
+            eff_series = df['tick_chip_transfer_efficiency_D'].fillna(0)
+            df['HAB_CHIP_TRANSFER'] = eff_series.ewm(span=8, adjust=False).mean()
+        if 'chip_concentration_ratio_D' in df.columns:
+            conc = df['chip_concentration_ratio_D'].fillna(method='ffill')
+            slope = ta.slope(conc, length=5)
+            df['ACCEL_5_CHIP_CONCENTRATION'] = ta.slope(slope, length=3)
+        if 'pressure_trapped_D' in df.columns:
+            pressure = df['pressure_trapped_D'].fillna(method='ffill')
+            slope = ta.slope(pressure, length=5)
+            accel = ta.slope(slope, length=3)
+            df['JERK_3_PRESSURE_TRAPPED'] = ta.slope(accel, length=3)
+        if 'chip_stability_D' in df.columns:
+            stab = df['chip_stability_D'].fillna(0)
+            df['HAB_CHIP_STABILITY'] = stab.ewm(span=13, adjust=False).mean()
+        if 'chip_skewness_D' in df.columns:
+            skew = df['chip_skewness_D'].fillna(method='ffill')
+            df['SLOPE_5_CHIP_SKEWNESS'] = ta.slope(skew, length=5)
+        if 'chip_kurtosis_D' in df.columns:
+            kurt = df['chip_kurtosis_D'].fillna(method='ffill')
+            slope_k = ta.slope(kurt, length=5)
+            df['ACCEL_5_CHIP_KURTOSIS'] = ta.slope(slope_k, length=3)
+        # [新增]熵动力学(EntropyDynamics)
+        # 逻辑:熵如果下降(Slope<0)，代表系统有序化(吸筹)
+        if 'chip_entropy_D' in df.columns:
+            entropy = df['chip_entropy_D'].fillna(method='ffill')
+            df['SLOPE_5_CHIP_ENTROPY'] = ta.slope(entropy, length=5)
+        # [新增]微观支撑平滑(MicroSupportSmoothing)
+        if 'intraday_cost_center_migration_D' in df.columns:
+            mig = df['intraday_cost_center_migration_D'].fillna(0)
+            df['EMA_3_COST_MIGRATION'] = ta.ema(mig, length=3)
+        print(f"DEBUG_PROBE:DynamicsCalculated|EntropySlopeCol={'SLOPE_5_CHIP_ENTROPY' in df.columns}")
+
+    def _calculate_chip_optimization_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], chip_optimization_weights: Dict, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V6.12·热力学熵减融合版】计算筹码优化分数。
+        -核心升级:
+        1.熵减(EntropyReduction):低熵+熵下降，最本质的有序化指标。
+        2.微观支撑(CostCenter):成本重心上移，最扎实的支撑。
+        """
+        hab_transfer = df.get('HAB_CHIP_TRANSFER', pd.Series(0, index=df_index))
+        hab_stability = df.get('HAB_CHIP_STABILITY', pd.Series(0, index=df_index))
+        accel_conc = df.get('ACCEL_5_CHIP_CONCENTRATION', pd.Series(0, index=df_index))
+        jerk_trapped = df.get('JERK_3_PRESSURE_TRAPPED', pd.Series(0, index=df_index))
+        slope_skew = df.get('SLOPE_5_CHIP_SKEWNESS', pd.Series(0, index=df_index))
+        accel_kurt = df.get('ACCEL_5_CHIP_KURTOSIS', pd.Series(0, index=df_index))
+        slope_entropy = df.get('SLOPE_5_CHIP_ENTROPY', pd.Series(0, index=df_index)) # [新增]
+        ema_migration = df.get('EMA_3_COST_MIGRATION', pd.Series(0, index=df_index)) # [新增]
+        s_hab_transfer = self.helper._normalize_series(hab_transfer, df_index, bipolar=False)
+        s_hab_stability = self.helper._normalize_series(hab_stability, df_index, bipolar=False)
+        s_accel_conc = self.helper._normalize_series(accel_conc, df_index, bipolar=True)
+        s_jerk_trapped_inverted = self.helper._normalize_series(jerk_trapped, df_index, ascending=True)
+        s_slope_skew = self.helper._normalize_series(slope_skew, df_index, bipolar=True)
+        s_accel_kurt = self.helper._normalize_series(accel_kurt, df_index, bipolar=True)
+        # [新增]熵减归一化
+        # 绝对熵:越小越好(Ascending=False)
+        # 熵斜率:越负越好(DescendingSlope)
+        raw_entropy = raw_signals['entropy'].fillna(method='ffill')
+        s_entropy_abs = self.helper._normalize_series(raw_entropy, df_index, ascending=False)
+        s_entropy_slope = self.helper._normalize_series(slope_entropy, df_index, ascending=False) # 斜率越负得分越高
+        # [新增]微观支撑归一化
+        # 成本迁移:越大越好(正数代表支撑上移)
+        s_migration = self.helper._normalize_series(ema_migration, df_index, bipolar=True)
+        s_stability = self.helper._normalize_series(raw_signals['chip_stability'], df_index, bipolar=False)
+        s_concentration = self.helper._normalize_series(raw_signals['chip_concentration'], df_index, bipolar=False)
+        s_trapped_inv = self.helper._normalize_series(raw_signals['pressure_trapped'], df_index, ascending=False)
+        s_profit_inv = self.helper._normalize_series(raw_signals['pressure_profit'], df_index, ascending=False)
+        s_transfer_raw = self.helper._normalize_series(raw_signals['transfer_eff'], df_index, bipolar=False)
+        s_iron_floor = (s_stability * 0.4 + s_hab_stability * 0.6)
+        s_morphology = (s_slope_skew * 0.5 + s_accel_kurt * 0.5)
+        s_transfer_complex = (s_transfer_raw * 0.3 + s_hab_transfer * 0.7)
+        s_cleansing = (s_trapped_inv * 0.6 + s_jerk_trapped_inverted * 0.4)
+        s_locking = (s_concentration * 0.4 + s_accel_conc * 0.3 + s_profit_inv * 0.3)
+        # [V6.12]熵减分数
+        s_entropy_reduction = (s_entropy_abs * 0.6 + s_entropy_slope * 0.4)
+        scores = {
+            "entropy_reduction": s_entropy_reduction, # [新增]有序化程度
+            "cost_center_support": s_migration, # [新增]支撑强度
+            "chip_morphology": s_morphology,
+            "iron_floor_hab": s_iron_floor,
+            "transfer_efficiency_hab": s_transfer_complex,
+            "trapped_pressure_release": s_cleansing,
+            "concentration_accel": s_accel_conc,
+            "chip_locking": s_locking,
+            "chip_stability": s_stability,
+            "chip_concentration": s_concentration
+        }
+        final_weights = chip_optimization_weights.copy()
+        final_weights.setdefault("entropy_reduction", 0.15)
+        final_weights.setdefault("cost_center_support", 0.10)
+        final_weights.setdefault("chip_morphology", 0.10)
+        final_weights.setdefault("iron_floor_hab", 0.10)
+        final_weights.setdefault("transfer_efficiency_hab", 0.15)
+        chip_optimization_score = _robust_geometric_mean(scores, final_weights, df_index)
+        print(f"DEBUG_PROBE:ChipOptScore|Entropy={float(s_entropy_reduction.iloc[-1]) if len(s_entropy_reduction)>0 else 0.0}")
+        _temp_debug_values["筹码优化_热力学"] = {
+            "Entropy_Abs_Norm": float(s_entropy_abs.iloc[-1]) if len(s_entropy_abs)>0 else 0.0,
+            "Entropy_Slope_Norm": float(s_entropy_slope.iloc[-1]) if len(s_entropy_slope)>0 else 0.0,
+            "Cost_Migration_Norm": float(s_migration.iloc[-1]) if len(s_migration)>0 else 0.0
+        }
+        _temp_debug_values["筹码优化"] = scores
         return chip_optimization_score
 
     def _fuse_final_score(self, df_index: pd.Index, market_context_score: pd.Series, covert_action_score: pd.Series, chip_optimization_score: pd.Series, fusion_weights: Dict, _temp_debug_values: Dict) -> pd.Series:
@@ -329,43 +576,41 @@ class CalculateProcessCovertAccumulation:
 
     def _print_debug_info(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
         """
-        【V2.12 · 微观订单流与结构共振版】统一打印隐蔽吸筹计算的调试信息。
-        - 核心修改: 确保能够正确打印新加入的原始信号和共振信号的调试信息。
+        【V6.0 · 全链路穿透式诊断】输出所有中间变量，不留死角。
         """
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-        for key, value in _temp_debug_values["原始信号值"].items():
-            if isinstance(value, pd.Series):
-                val = value.loc[probe_ts] if probe_ts in value.index else np.nan
-                debug_output[f"        '{key}': {val:.4f}"] = ""
-            else:
-                debug_output[f"        '{key}': {value}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 市场背景 ---"] = ""
-        for key, series in _temp_debug_values["市场背景"].items():
-            if isinstance(series, pd.Series):
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            else:
-                debug_output[f"        {key}: {series}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 隐蔽行动 ---"] = ""
-        for key, series in _temp_debug_values["隐蔽行动"].items():
-            if isinstance(series, pd.Series):
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            else:
-                debug_output[f"        {key}: {series}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 筹码优化 ---"] = ""
-        for key, series in _temp_debug_values["筹码优化"].items():
-            if isinstance(series, pd.Series):
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            else:
-                debug_output[f"        {key}: {series}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终合成 ---"] = ""
-        for key, series in _temp_debug_values["最终合成"].items():
-            if isinstance(series, pd.Series):
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            else:
-                debug_output[f"        {key}: {series}"] = ""
-        debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 隐蔽吸筹诊断完成，最终分值: {_temp_debug_values['final_score'].loc[probe_ts]:.4f}"] = ""
+        # 1. 报警信息
+        if "__MISSING_COLUMNS__" in _temp_debug_values:
+            debug_output[f"  !! [严重警告] 缺失军械库指标: {_temp_debug_values['__MISSING_COLUMNS__']}"] = "这会导致相关评分降级或为NaN"
+
+        # 2. 原始信号 (Raw)
+        debug_output[f"  -- [1. 原始信号层] Value @ {probe_ts.strftime('%Y-%m-%d')}"] = ""
+        for key, series in _temp_debug_values.get("原始信号值", {}).items():
+            val = series.loc[probe_ts] if isinstance(series, pd.Series) and probe_ts in series.index else "N/A"
+            debug_output[f"     |-- {key:<25}: {val}"] = ""
+
+        # 3. 归一化得分 (Normalized)
+        for section in ["市场背景", "隐蔽行动", "筹码优化"]:
+            debug_output[f"  -- [2. {section}得分] Normalized @ {probe_ts.strftime('%Y-%m-%d')}"] = ""
+            for key, series in _temp_debug_values.get(section, {}).items():
+                val = series.loc[probe_ts] if isinstance(series, pd.Series) and probe_ts in series.index else 0.0
+                weight = _temp_debug_values.get(f"{section}_权重", {}).get(key, "Def")
+                debug_output[f"     |-- {key:<25}: Score={val:.4f} (Weight={weight})"] = ""
+
+        # 4. 最终结果
+        final_val = _temp_debug_values['final_score'].loc[probe_ts] if probe_ts in _temp_debug_values['final_score'].index else 0.0
+        debug_output[f"  ==> [最终结果] Covert Accumulation Score: {final_val:.4f}"] = ""
+        
         self.helper._print_debug_output(debug_output)
+
+
+
+
+
+
+
+
+
+
+
+
+

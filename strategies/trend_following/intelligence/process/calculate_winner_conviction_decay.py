@@ -1,4 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_winner_conviction_decay.py
+# 【V8.0 · 全息相位坍塌版】“赢家信念衰减”高端计算引擎 已完成pro
 import json
 import os
 import pandas as pd

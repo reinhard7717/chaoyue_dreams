@@ -1194,7 +1194,6 @@ class FeatureEngineeringService:
                 # 逻辑: 所有均线的标准差越小，压缩越紧。除以ATR进行归一化。
                 ma_std = np.std(ma_matrix, axis=1)
                 normalized_spread = np.divide(ma_std, atr_arr, out=np.zeros_like(ma_std), where=atr_arr!=0)
-                
                 # 使用 Rank Percentile量化压缩程度 (0-1)
                 # 使用 df.index 创建 Series 以保持对齐，便于 rolling 计算
                 spread_series = pd.Series(normalized_spread, index=df.index)
@@ -1204,7 +1203,6 @@ class FeatureEngineeringService:
                 # 逻辑: 价格相对于最长周期均线(如144日)的偏离程度，经过ATR标准化
                 longest_ma = df[f"{ma_type}_{max(all_periods)}_{timeframe}"].values.astype(np.float64)
                 extension_raw = np.divide(close_arr - longest_ma, atr_arr, out=np.zeros_like(close_arr), where=atr_arr!=0)
-                
                 extension_series = pd.Series(extension_raw, index=df.index)
                 extension_mean = extension_series.rolling(250).mean()
                 extension_std = extension_series.rolling(250).std().replace(0, 1)
@@ -1216,13 +1214,10 @@ class FeatureEngineeringService:
                 # np.diff 结果长度会少1，需要补一行 0
                 ma_diff = np.zeros_like(ma_matrix)
                 ma_diff[1:] = ma_matrix[1:] - ma_matrix[:-1]
-                
                 ma_rising = (ma_diff > 0).sum(axis=1) # 统计上升的均线数量
-                
                 # 均线多头排列得分
                 ranks_x = np.arange(len(all_periods), dtype=np.float64) # 理想排名
                 orderliness = _numba_spearman_orderliness(ma_matrix, ranks_x)
-                
                 # 共振度 = (上升均线数量占比 + 排列有序度) / 2
                 coherence = (ma_rising / len(all_periods) + orderliness) / 2
                 df[f'MA_COHERENCE_RESONANCE_{timeframe}'] = coherence
@@ -1230,17 +1225,14 @@ class FeatureEngineeringService:
                 # 逻辑: 价格涨幅 / 均线组发散增量。
                 # 修复核心: 统一提取为 numpy values，避免 Series 索引不一致导致的广播错误
                 spread_delta = spread_series.diff(3).fillna(0).values # (N,) array
-                
                 # 计算价格变化的绝对值 (N,) array
                 close_diff_values = df[f"close_{timeframe}"].diff(3).abs().fillna(0).values
                 price_delta = np.divide(close_diff_values, atr_arr, out=np.zeros_like(close_diff_values), where=atr_arr!=0)
-                
                 # 向量化计算效率，避免除以0
                 efficiency = np.zeros_like(spread_delta)
                 # 创建 mask，只计算分母大于阈值的部分
                 mask = spread_delta > 0.01
                 efficiency[mask] = price_delta[mask] / spread_delta[mask]
-                
                 df[f'MA_FAN_EFFICIENCY_{timeframe}'] = np.clip(efficiency, 0, 10)
                 # 6. 计算 MA_POTENTIAL_TENSION_INDEX (原有张力指标)
                 # 使用短期均线(5)与中期均线(21)的距离作为"攻击张力"
