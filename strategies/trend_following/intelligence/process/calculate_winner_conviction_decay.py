@@ -255,12 +255,11 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, vacuum_risk: pd.Series) -> pd.Series:
         """
-        【V8.8 · 超材料力学与主动修复核心】
-        逻辑公式：Resilience = (Base_V8.7 + Active_Repair + Superconductive_Lock) * Kinetics * HAB
-        - Active_Repair (主动修复): intraday_trough_filling_degree_D。跌得下去还能拉回来，才是真韧性。
-        - Superconductive_Lock (低位超导): intraday_low_lock_ratio_D。低位锁仓率高，说明底部抛压真空。
-        - 记忆硬化 (Hardening): 结合“测试次数”与“填坑能力”的双重记忆。
-        - 版本号：V8.8.0
+        【V8.8.1 · 超材料力学与主动修复核心】修复探针打印格式错误
+        - 修改思路：
+            1. 修复 hardening_bonus 和 corrosion_penalty 在打印时未转为标量的 TypeError。
+            2. 确保 shock_energy 和 fatigue_penalty 保持标量计算逻辑不变。
+        - 版本号：V8.8.1
         """
         # --- 1. Base Modulus V8.6 (弹性 + 刚性 + 自愈) ---
         test_count = raw_signals['intraday_support_test_count_D']
@@ -295,6 +294,7 @@ class CalculateWinnerConvictionDecay:
         # --- 3. Kinetic Dynamics V8.7 (动力学修正) ---
         price_velocity = raw_signals['SLOPE_5_OCH_D']
         impact_ratio = raw_signals['flow_impact_ratio_D']
+        # 注意：shock_energy 和 fatigue_penalty 在此处通过 iloc[-1] 计算，已经是标量
         shock_energy = 0.0
         if price_velocity.iloc[-1] < 0:
             v_factor = abs(price_velocity.iloc[-1]) * 20.0
@@ -332,11 +332,13 @@ class CalculateWinnerConvictionDecay:
         
         final_resilience = (raw_resilience - brittle_fracture).clip(-1, 1)
         
-        # 7. 全息探针
-        print(f"\n[V8.8_HYPER_MATERIAL_MECHANICS_PROBE]")
+        # 7. 全息探针 (修复：增加 .iloc[-1] 给 Series 变量)
+        print(f"\n[V8.8.1_HYPER_MATERIAL_MECHANICS_PROBE]")
         print(f"  > [BASE] Modulus: {base_modulus.iloc[-1]:.4f} (Repair:{active_repair.iloc[-1]:.2f}, Lock:{lock_bonus.iloc[-1]:.2f})")
+        # shock_energy 和 fatigue_penalty 已经是标量，直接打印
         print(f"  > [KINETIC] ShockEnergy: {shock_energy:.4f} | Fatigue: {fatigue_penalty:.4f}")
-        print(f"  > [MEMORY] Hardening: +{hardening_bonus:.4f} (AccumFill:{accum_fill.iloc[-1]:.0f}) | Corrosion: -{corrosion_penalty:.4f}")
+        # hardening_bonus 和 corrosion_penalty 是 Series，需要 iloc[-1]
+        print(f"  > [MEMORY] Hardening: +{hardening_bonus.iloc[-1]:.4f} (AccumFill:{accum_fill.iloc[-1]:.0f}) | Corrosion: -{corrosion_penalty.iloc[-1]:.4f}")
         print(f"  > FINAL_RESILIENCE: {final_resilience.iloc[-1]:.4f}")
         
         _temp_debug_values["resilience_analysis"] = {
@@ -937,13 +939,11 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_macro_sector_synergy(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V16.8 · 维度共振协同核心】
-        逻辑公式：Synergy = 基础爆发 * 时空共振 * 主升浪加速 * 结构否决
-        - 基础爆发 (Base): 滞涨突变 + 聚类加速 + 竞速动量。
-        - 时空共振 (Timeframe): Daily-Monthly Sync > 0.
-        - 主升浪加速 (Markup): Markup Score Accel > 0.
-        - 结构否决 (Veto): Downtrend Score 高 -> 归零。
-        - 版本号：V16.8.0
+        【V16.8.1 · 维度共振协同核心】修复探针打印格式错误
+        - 修改思路：
+            1. 修复 breakout_force, cohesion_force, sync_factor 等 Series 变量在打印时未转为标量的 TypeError。
+            2. 确保所有中间变量在输出时均使用 .iloc[-1] 转为标量。
+        - 版本号：V16.8.1
         """
         # --- A. 基础爆发 (Base Explosion - V16.5 保留) ---
         stag_jerk = raw_signals['JERK_5_industry_stagnation_score_D']
@@ -988,12 +988,12 @@ class CalculateWinnerConvictionDecay:
         
         final_synergy = np.tanh(raw_synergy * 1.2).clip(0, 1)
         
-        # F. 全息探针
-        print(f"\n[V16.8_DIMENSIONAL_RESONANCE_PROBE]")
-        print(f"  > [BASE] Breakout:{breakout_force:.2f} | Cohesion:{cohesion_force:.2f} | Pot:{potential_factor:.2f}")
-        print(f"  > [CHRONOS] SyncVal:{sync_val.iloc[-1]:.2f} -> Factor:{sync_factor:.2f}")
-        print(f"  > [KAIROS] MarkupAccel:{markup_accel.iloc[-1]:.2f} -> Boost:{markup_boost:.2f}")
-        print(f"  > [VETO] DownScore:{downtrend_score.iloc[-1]:.1f} -> Factor:{veto_factor:.2f}")
+        # F. 全息探针 (修复：增加 .iloc[-1])
+        print(f"\n[V16.8.1_DIMENSIONAL_RESONANCE_PROBE]")
+        print(f"  > [BASE] Breakout:{breakout_force.iloc[-1]:.2f} | Cohesion:{cohesion_force.iloc[-1]:.2f} | Pot:{potential_factor.iloc[-1]:.2f}")
+        print(f"  > [CHRONOS] SyncVal:{sync_val.iloc[-1]:.2f} -> Factor:{sync_factor.iloc[-1]:.2f}")
+        print(f"  > [KAIROS] MarkupAccel:{markup_accel.iloc[-1]:.2f} -> Boost:{markup_boost.iloc[-1]:.2f}")
+        print(f"  > [VETO] DownScore:{downtrend_score.iloc[-1]:.1f} -> Factor:{veto_factor.iloc[-1]:.2f}")
         print(f"  > FINAL_SYNERGY_SCORE: {final_synergy.iloc[-1]:.4f}")
         
         _temp_debug_values["cross_module_signals"]["macro_synergy"] = final_synergy
@@ -1001,12 +1001,12 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_chain_collapse_resonance(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V18.0 · 多米诺奇点链式核心】
-        逻辑公式：Collapse = 物理崩塌(V17.5) * (1 + 派发意图) * 反转临界
-        - 物理崩塌：触发+势能+恐慌+冻结。
-        - 派发意图 (Intent): Distribution Accel > 0 (加速派发)。
-        - 反转临界 (Criticality): Reversal Prob > 0.8 (高危区)。
-        - 版本号：V18.0.0
+        【V18.1 · 多米诺奇点链式核心】修复探针打印格式错误
+        - 修改思路：
+            1. 修复在 print f-string 中直接格式化 Series (physical_collapse, freeze_factor 等) 导致的 TypeError。
+            2. 确保 freeze_factor 始终初始化为 Series，避免类型不一致导致的打印错误。
+            3. 确保所有探针输出均使用 .iloc[-1] 获取最新标量值。
+        - 版本号：V18.1.1
         """
         # --- A. 物理崩塌 (Physical Collapse - V17.5 保留) ---
         lock_jerk = raw_signals['JERK_5_intraday_high_lock_ratio_D']
@@ -1034,7 +1034,9 @@ class CalculateWinnerConvictionDecay:
         price_slope = raw_signals['SLOPE_5_OCH_D']
         turn_jerk = raw_signals['JERK_5_turnover_rate_D']
         turn_mad = raw_signals['HAB_MAD_JERK_5_turnover_rate_D']
-        freeze_factor = 1.0
+        
+        # 修复：初始化为 Series 确保类型统一
+        freeze_factor = pd.Series(1.0, index=df_index)
         if price_slope.iloc[-1] < 0 and turn_jerk.iloc[-1] < 0:
             freeze_severity = (-np.tanh(turn_jerk / (turn_mad * 2.0 + 1e-6))).clip(0)
             freeze_factor = 1.0 + freeze_severity
@@ -1068,11 +1070,11 @@ class CalculateWinnerConvictionDecay:
         
         final_collapse = np.tanh(raw_resonance).clip(0, 1)
         
-        # E. 全息探针
-        print(f"\n[V18.0_DOMINO_SINGULARITY_PROBE]")
-        print(f"  > [PHYSICAL] Base:{physical_collapse:.4f} (Panic:{panic_spread:.2f}, Freeze:{freeze_factor:.2f})")
-        print(f"  > [INTENT] DistAccel:{dist_accel.iloc[-1]:.2e} | Accum:{dist_accum.iloc[-1]:.0f} -> Risk:{distribution_risk:.2f}")
-        print(f"  > [CRITICAL] RevProb:{rev_prob.iloc[-1]:.2f} -> Coef:{criticality:.2f}")
+        # E. 全息探针 (修复：增加 .iloc[-1])
+        print(f"\n[V18.1_DOMINO_SINGULARITY_PROBE]")
+        print(f"  > [PHYSICAL] Base:{physical_collapse.iloc[-1]:.4f} (Panic:{panic_spread.iloc[-1]:.2f}, Freeze:{freeze_factor.iloc[-1]:.2f})")
+        print(f"  > [INTENT] DistAccel:{dist_accel.iloc[-1]:.2e} | Accum:{dist_accum.iloc[-1]:.0f} -> Risk:{distribution_risk.iloc[-1]:.2f}")
+        print(f"  > [CRITICAL] RevProb:{rev_prob.iloc[-1]:.2f} -> Coef:{criticality.iloc[-1]:.2f}")
         print(f"  > FINAL_CHAIN_COLLAPSE: {final_collapse.iloc[-1]:.4f}")
         
         _temp_debug_values["cross_module_signals"]["chain_collapse"] = final_collapse
