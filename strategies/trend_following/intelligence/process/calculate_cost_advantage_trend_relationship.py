@@ -33,7 +33,6 @@ class CalculateCostAdvantageTrendRelationship:
             if self.probe_dates:
                 # 兼容处理：确保输入转为字符串
                 target_dates_str = set(pd.to_datetime(d).strftime('%Y-%m-%d') for d in self.probe_dates)
-            
             # 遍历数据索引（倒序查找，优先匹配最近的日期）
             for date in reversed(df.index):
                 # 将当前数据的索引日期也转为字符串
@@ -43,7 +42,6 @@ class CalculateCostAdvantageTrendRelationship:
                 if current_date_str in target_dates_str:
                     probe_ts = date
                     break
-            
             # 【兜底机制】如果比对失败（例如数据日期是 2025-12-29 而探针是 30 号），强制使用最后一行数据
             if probe_ts is None and target_dates_str:
                 last_date = df.index[-1]
@@ -59,7 +57,6 @@ class CalculateCostAdvantageTrendRelationship:
             ts_display = pd.to_datetime(probe_ts).strftime('%Y-%m-%d')
             print(f"【V11.0探针激活】目标日期: {ts_display} | 方法: {method_name}")
             debug_output[f"--- {method_name} Probe @ {ts_display} ---"] = ""
-            
         return is_debug and (probe_ts is not None), probe_ts, debug_output, temp_vals
 
     def _probe_val(self, key: str, val: Any, temp_vals: Dict, section: str = "General"):
@@ -361,7 +358,6 @@ class CalculateCostAdvantageTrendRelationship:
             print(f"  > 模量: JailbreakBonus={p_val(jailbreak_bonus):.2f} -> Modulus={p_val(dim_modulus):.2f}")
             print(f"  > 最终结果: Final={p_val(final_score):.4f}")
             self._probe_val("Final_Elasticity", final_score.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
-            
         return final_score
 
     def _calculate_structure_negentropy(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
@@ -425,7 +421,6 @@ class CalculateCostAdvantageTrendRelationship:
             print(f"  > 门控状态: FractalGate={p_val(fractal_gate):.2f}, LaminarGate={p_val(laminar_gate):.2f}")
             print(f"  > 最终结果: Synergized={p_val(synergized_negentropy):.3f} -> Final={p_val(final_score):.4f}")
             self._probe_val("Final_Negentropy", final_score.loc[probe_ts], temp_vals, "Negentropy_V30.1")
-            
         return final_score
 
     def _calculate_pentagonal_resonance(self, D1: pd.Series, D2: pd.Series, D3: pd.Series, D4: pd.Series, D5: pd.Series, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
@@ -503,7 +498,6 @@ class CalculateCostAdvantageTrendRelationship:
             is_active = (kinematic_score > 0.4) | (norm_accel > 0.1)
             churning_mask = (turnover > 25.0) & (status_multiplier < 1.2) & (~is_active)
             liquidity_factor = pd.Series(np.where(zombie_mask | churning_mask, 0.8, 1.0), index=idx)
-            
         breakout_factor = pd.Series(1.0, index=idx)
         if breakout_quality is not None:
             norm_bq = breakout_quality / 100.0
@@ -514,7 +508,6 @@ class CalculateCostAdvantageTrendRelationship:
                          np.where(norm_bq > 0.8, 1.1, 1.0)), 
                 index=idx
             )
-            
         intermediate_score = core_score * status_multiplier * liquidity_factor * breakout_factor
         if sm_divergence is not None:
              veto_multiplier = pd.Series(np.where(sm_divergence > 1.5, 0.0, np.where(sm_divergence > 0.8, 0.5, 1.0)), index=idx)
@@ -560,7 +553,6 @@ class CalculateCostAdvantageTrendRelationship:
             print(f"  > 核心转换: Core={p_val(core_score):.3f} -> PreAPT={p_val(final_score):.3f}")
             print(f"  > 最终结果: Threshold={p_val(dyn_threshold):.2f} -> APT_Score={p_val(apt_score):.4f}")
             self._probe_val("Final_V36_APT_Score", apt_score.loc[probe_ts], temp_vals, "Pentagonal_V36.1")
-            
         return apt_score
 
     def _check_and_repair_signals(self, df: pd.DataFrame, method_name: str) -> pd.DataFrame:

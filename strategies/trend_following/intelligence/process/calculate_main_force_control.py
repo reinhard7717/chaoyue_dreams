@@ -211,7 +211,6 @@ class CalculateMainForceControlRelationship:
                 for k, v in cat_data.items():
                     raw_snapshot[f"{cat_name}.{k}"] = v.loc[probe_ts] if probe_ts in v.index else np.nan
             _temp_debug_values["原料数据快照"] = raw_snapshot
-            
         return context
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
@@ -296,7 +295,6 @@ class CalculateMainForceControlRelationship:
         if avg_raw > 0 and avg_close / avg_raw > 50:
             unit_correction = 100.0 if avg_close / avg_raw < 500 else 10000.0
             print(f"[探针] HAB-VWAP 成本量级修正因子: {unit_correction}")
-            
         hab_buy_price = (raw_buy_price * unit_correction).fillna(close_price)
         hab_sell_price = (hab_sell_amt / hab_sell_vol.replace(0, np.nan) * unit_correction).fillna(close_price)
         # 4. 基于 HAB 成本的动力学计算 (Kinematics on HAB)
