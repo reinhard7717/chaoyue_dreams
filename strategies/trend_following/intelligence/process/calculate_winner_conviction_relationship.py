@@ -37,7 +37,6 @@ class CalculateWinnerConvictionRelationship:
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._setup_debug_context(df, method_name)
         all_params = self._get_all_params(config)
         signals_data = self._get_and_validate_signals(df, df_index, method_name, all_params, _temp_debug_values)
-        
         if signals_data is None:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
 
@@ -49,10 +48,8 @@ class CalculateWinnerConvictionRelationship:
         pressure_digestion_score = self._calculate_pressure_digestion(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
         # 3. 资金共识度 (原有)
         flow_consensus_score = self._calculate_flow_consensus(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
-        
         # 4. 【新增】对手盘投降度 (Adversary Capitulation)
         adversary_capitulation_score = self._calculate_adversary_capitulation(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
-        
         # 5. 【新增】微观隐蔽度 (Micro-Stealth)
         micro_stealth_score = self._calculate_micro_stealth(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
 
@@ -71,7 +68,6 @@ class CalculateWinnerConvictionRelationship:
             all_params, 
             _temp_debug_values
         )
-        
         self._print_debug_info(method_name, final_score, is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values)
         return final_score.astype(np.float32)
 
@@ -439,19 +435,16 @@ class CalculateWinnerConvictionRelationship:
         adversary_penalty = dist_conf * 0.8
         gap_defense = normalized["gap_defense_norm"]
         defense_bonus = 1.0 + (gap_defense * 0.3)
-        
         adjusted_base = base_digestion * (0.8 + 0.4 * quality_coef)
         if_positive = adjusted_base * defense_bonus * (1.0 - adversary_penalty)
         if_negative = adjusted_base * (1.0 + adversary_penalty)
         linear_digestion = if_positive.where(adjusted_base > 0, if_negative).clip(-1, 1)
-        
         # --- V6.2 非线性相变增益模块 ---
         # 因子1: 趋势强度 (Trend Strength) - 顺势消化事半功倍
         uptrend = normalized["uptrend_strength_norm"]
         # 因子2: VPA效率 (Volume Efficiency) - 高效量能验证消化质量
         # vpa_norm 是 [-1, 1]，我们需要将其映射到 [0, 1] 用于指数计算 (越接近1越好)
         vpa_factor = (normalized["vpa_efficiency_norm"] + 1) / 2
-        
         # 动态指数构建
         # 基准指数 2.0 (平方级惩罚，对应弱势震荡)
         # 趋势和VPA越好，指数越小，直至接近 1.0 (线性保留)
@@ -459,17 +452,14 @@ class CalculateWinnerConvictionRelationship:
         dynamic_exponent = 2.0 - (uptrend * 0.5 + vpa_factor * 0.5)
         # 限制指数范围 [1.0, 3.0] (防止过度奖励或计算溢出)
         dynamic_exponent = dynamic_exponent.clip(1.0, 3.0)
-        
         # 应用非线性变换: Sign * |Base|^Exponent
         phase_transition_digestion = np.sign(linear_digestion) * (linear_digestion.abs().pow(dynamic_exponent))
-        
         final_digestion = phase_transition_digestion.clip(-1, 1)
 
         print(f"  [Probe] 压力消化V6.2详情 (前3行):")
         print(f"    LinearDigestion: {linear_digestion.head(3).values}")
         print(f"    DynamicExponent: {dynamic_exponent.head(3).values} (Trend: {uptrend.head(3).values}, VPA: {vpa_factor.head(3).values})")
         print(f"    Final Digestion: {final_digestion.head(3).values}")
-        
         _temp_debug_values["压力消化力"] = {
             "snapshot_coverage": snapshot_coverage,
             "hab_capacity": hab_capacity,
@@ -537,78 +527,63 @@ class CalculateWinnerConvictionRelationship:
     def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
         【V10.0 · 非线性共振激活】在V9.0全息场的基础上，引入时空相干性(Coherence)作为非线性增益的开关。
-        
         逻辑演进：
         1. 线性基座 (Linear Base): 计算热力-摩擦-HAB修正后的线性调节系数。
         2. 相干性检测 (Coherence Check): 检测"状态(Snapshot)"、"速度(Kinematics)"、"记忆(HAB)"三者是否共振。
         3. 非线性激活 (Non-linear Activation): 
            - 高相干 (Resonance): 线性保留甚至凸性奖励 (Exponent -> 0.8)。
            - 低相干 (Conflict): 平方级抑制 (Exponent -> 2.0)，过滤虚假信号。
-        
         公式：Final = 1.0 + Sign(Linear-1) * |Linear-1| ^ (2.0 - Coherence * 1.2)
         """
         weights = params["context_weights"]
         hab_weights = params.get("hab_weights", {})
         env_weights = params.get("environment_weights", {})
         res_params = params.get("resonance_params", {})
-        
         # --- Layer 1: 物理场快照 (Snapshot) ---
         sentiment = normalized["market_sentiment_norm"]
         trend = normalized["trend_confirmation_norm"] * 2 - 1 
         stability_factor = normalized["stability_factor"]
         order_factor = normalized["structural_order_factor"]
-        
         base_snapshot = (
             sentiment * weights["market_sentiment"] + 
             trend * weights["trend_confirmation"] +
             (stability_factor * 2 - 1) * weights["volatility_stability"] + 
             (order_factor * 2 - 1) * weights["structural_order"]
         ).clip(-1, 1)
-        
         # --- Layer 2: 动力学修正 (Kinematics) ---
         k_sent = normalized["kinetic_sentiment"]
         k_stab = normalized["kinetic_stability"]
         kinematic_score = (k_sent * 0.6 + k_stab * 0.4).clip(-1, 1)
-        
         modified_field = base_snapshot + kinematic_score * 0.3
-        
         # --- Layer 3: 存量记忆缓冲 (HAB) ---
         hab_flow = normalized["hab_flow_inertia"]
         hab_sent = normalized["hab_sentiment_memory"]
         hab_vol = normalized["hab_volatility_memory"]
-        
         hab_score = (
             hab_flow * hab_weights["flow_inertia"] + 
             hab_sent * hab_weights["sentiment_memory"] + 
             (hab_vol * 2 - 1) * hab_weights["volatility_memory"]
         ).clip(-0.5, 1.0)
-        
         # --- Layer 4: 环境热力与摩擦 (Environment) ---
         thermal_boost = normalized["theme_thermal_norm"] * env_weights["theme_thermal"]
         friction_drag = normalized["game_friction_norm"] * env_weights["game_friction"]
         reversion_drag = normalized["reversion_freq_norm"] * weights["reversion_penalty"]
-        
         # --- V9.0 线性基座计算 ---
         numerator = (1.0 + modified_field * 0.6 + hab_score * 0.4) * (1.0 + thermal_boost)
         denominator = 1.0 + reversion_drag + friction_drag
         linear_modulator = numerator / denominator
-        
         # --- V10.0 非线性共振模块 (Resonance Module) ---
-        
         # 1. 计算相干性 (Coherence) [0, 1]
         # 逻辑：判断 Snapshot, Kinematics, HAB 三个向量的方向一致性
         # 使用简单的符号乘积和幅值加权来估算
         # 如果三者同向（且幅值显著），Coherence 趋近 1.0
         # 如果方向冲突，Coherence 趋近 0.0
-        
         # 为了计算方便，先将 hab_score 映射回 [-1, 1] 的逻辑空间用于方向判断
         hab_direction = hab_score.clip(-1, 1)
-        
         # 向量组
         v1 = base_snapshot
         v2 = kinematic_score
         v3 = hab_direction
-        
         # 计算两两的点积 (Dot Product Proxy)，这里简化为符号一致性 * 幅值
         # 只有当大家都强且同向时，才是真共振
         # 这里的 coherence 算法：(v1*v2 + v2*v3 + v3*v1) / 3，再归一化到 [0, 1]
@@ -621,7 +596,6 @@ class CalculateWinnerConvictionRelationship:
         # 映射：1.0 -> 1.0 (完美共振), 0.0 -> 0.0 (无关), -1.0 -> 0.0 (冲突/反向共振视同无多头共振)
         # 这里为了稳健，如果三个指标都为负，alignment是正的，这会增强"负分"（即抑制信念），逻辑通顺。
         coherence = ((alignment_magnitude + 1.0) / 2.0).clip(0, 1)
-        
         # 2. 动态指数构建
         # Base Exp = 2.0 (平方级衰减，默认不信任)
         # Target Exp = 0.8 (凸性奖励，信任并放大)
@@ -629,27 +603,22 @@ class CalculateWinnerConvictionRelationship:
         base_exp = res_params["base_exponent"]
         min_exp = res_params["min_exponent"]
         dynamic_exponent = base_exp - coherence * (base_exp - min_exp)
-        
         # 3. 非线性变换
         # Modulator 中心是 1.0
         # Final = 1.0 + Sign(Linear-1) * |Linear-1|^Exp
         deviation = linear_modulator - 1.0
         sign_dev = np.sign(deviation)
         abs_dev = deviation.abs()
-        
         # 应用指数
         # 注意：当 deviation 很小 (<1) 时，Exp越小，结果越大(放大)；Exp越大，结果越小(抑制)。
         # 这符合逻辑：Coherence高 -> Exp小 -> 放大微小的正向偏差。
         # Coherence低 -> Exp大 -> 抑制微小的偏差（视为噪音）。
         final_modulator = 1.0 + sign_dev * (abs_dev.pow(dynamic_exponent))
-        
         # 4. 最终数值安全钳位 [0.5, 2.0]
         final_modulator = final_modulator.clip(0.5, 2.0)
-        
         print(f"  [Probe] 情境调制V10.0: Linear={linear_modulator.tail(1).values[0]:.3f}, "
               f"Coherence={coherence.tail(1).values[0]:.3f}, "
               f"Exp={dynamic_exponent.tail(1).values[0]:.3f} -> Final={final_modulator.tail(1).values[0]:.4f}")
-        
         _temp_debug_values["情境调制"] = {
             "linear_modulator": linear_modulator,
             "coherence": coherence,
@@ -661,52 +630,41 @@ class CalculateWinnerConvictionRelationship:
     def _calculate_adversary_capitulation(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
         【V14.0 · 非线性伽马膨胀】三体共振驱动的相变模型。
-        
         核心逻辑：
         1. 痛苦势能 (Pain): 存量与深度的积累。
         2. 清洗效率 (Cleaning): 放量与换手的确认。
         3. 恐慌烈度 (Panic): 情绪的引爆。
-        
         非线性变换 (Gamma Expansion):
         - Coherence = GeometricMean(Pain, Cleaning, Panic)
         - Gamma = Base - Coherence * (Base - Min)
         - Final = Raw ^ Gamma
-        
         效果：
         - 阴跌无量 (Low Coherence) -> Gamma > 1 -> 分数被压缩 (Trap Identified).
         - 放量暴跌 (High Coherence) -> Gamma < 1 -> 分数被膨胀 (Opportunity Amplified).
         """
         weights = params["capitulation_weights"]
-        
         # 1. 痛苦势能 (Pain Potential)
         static_pain = (normalized["loser_pain_norm"] * 0.6 + normalized["trapped_pressure_norm"] * 0.4).clip(0, 1)
         kinetic_pain = normalized["kinetic_pain"].clip(0, 1)
         saturation_score = (normalized["hab_pain_saturation"] * 0.6 + normalized["hab_trapped_saturation"] * 0.4).clip(0, 1)
-        
         pain_force = (
             static_pain * weights["static_pain"] + 
             kinetic_pain * weights["kinetic_pain"] + 
             saturation_score * weights["pain_saturation"]
         ).clip(0, 1)
-        
         # 2. 清洗效率 (Cleansing Efficiency)
         turnover_score = normalized["turnover_relative_norm"]
         abnormal_score = normalized["abnormal_vol_norm"]
         kinetic_release = normalized["kinetic_release"]
-        
         raw_release = (turnover_score * 0.4 + abnormal_score * 0.3 + kinetic_release * 0.3).clip(0, 1)
         cleaning_efficiency = 0.4 + 0.6 * raw_release
-        
         # 3. 恐慌烈度 (Panic Intensity)
         panic_intensity = normalized["panic_cascade_norm"]
-        
         # --- V14.0 三体共振与伽马计算 ---
-        
         # 原始线性分 (Raw Linear Score)
         # 基础逻辑：痛苦 * 清洗。恐慌作为共振因子参与 Gamma 计算，不再直接乘入 Base。
         # (恐慌是催化剂，不是燃料本身)
         raw_score = pain_force * cleaning_efficiency
-        
         # 计算相干性 (Coherence)
         # 使用几何平均数来衡量三者的"协同高度"。只有当三者都强时，几何平均才高。
         # 为了防止0值过度惩罚，添加微小常数 epsilon
@@ -717,34 +675,27 @@ class CalculateWinnerConvictionRelationship:
         )
         # 归一化调整，因为加了epsilon，最大值约 1+epsilon，稍微clip一下
         coherence = coherence.clip(0, 1)
-        
         # 动态伽马 (Dynamic Gamma)
         # Base=2.0 (压缩), Min=0.6 (膨胀)
         gamma_base = weights.get("gamma_base", 2.0)
         gamma_min = weights.get("gamma_min", 0.6)
-        
         # Coherence 越高，Gamma 越小 (趋向于 Min)
         dynamic_gamma = gamma_base - coherence * (gamma_base - gamma_min)
-        
         # 非线性激活
         # Score = Raw ^ Gamma
         # 例1 (Trap): Raw=0.3 (Pain高, Clean低), Coh=0.3 -> Gamma=1.6 -> Final = 0.3^1.6 = 0.14 (抑制)
         # 例2 (Gold): Raw=0.8 (Pain高, Clean高), Coh=0.9 -> Gamma=0.7 -> Final = 0.8^0.7 = 0.85 (提升)
         capitulation_score = raw_score.pow(dynamic_gamma)
-        
         # 最后应用恐慌作为极值倍增器 (仅在Gamma处理后，作为额外的Bonus，防止 Gamma把高分压得太平)
         # 或者，直接由 Gamma 承担所有非线性工作。
         # V14策略：Gamma 已经包含了 Panic 的信息（在 Coherence 中），
         # 但为了保留 Panic 的"爆发性"，我们可以对最终结果做一个微调。
         # 这里选择不再额外乘 Panic，信任 Gamma 模型的相变能力。
-        
         capitulation_score = capitulation_score.clip(0, 1)
-        
         print(f"  [Probe] 投降共振V14.0: Raw={raw_score.tail(1).values[0]:.2f} (Pain:{pain_force.tail(1).values[0]:.2f}, Clean:{cleaning_efficiency.tail(1).values[0]:.2f}), "
               f"Panic={panic_intensity.tail(1).values[0]:.2f} -> "
               f"Coh={coherence.tail(1).values[0]:.2f}, Gamma={dynamic_gamma.tail(1).values[0]:.2f} -> "
               f"Final={capitulation_score.tail(1).values[0]:.4f}")
-        
         _temp_debug_values["对手盘投降度"] = {
             "pain_force": pain_force,
             "cleaning_efficiency": cleaning_efficiency,

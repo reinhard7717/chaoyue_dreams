@@ -96,7 +96,6 @@ class CalculateProcessCovertAccumulation:
         -核心修正:采用Dict.update()逻辑进行权重合并，防止旧配置覆盖新指标的默认权重，解决EntropyWeight=None的问题。
         """
         covert_accum_params = get_param_value(self.helper.params.get('covert_accumulation_params'), {})
-        
         # 定义默认权重
         default_fusion = {"market_context": 0.35, "covert_action": 0.35, "chip_optimization": 0.3}
         default_context = {
@@ -142,7 +141,6 @@ class CalculateProcessCovertAccumulation:
         })
         main_force_accumulation_resonance_weight = get_param_value(covert_accum_params.get('main_force_accumulation_resonance_weight'), 0.1)
         covert_order_flow_resonance_weight = get_param_value(covert_accum_params.get('covert_order_flow_resonance_weight'), 0.08)
-        
         price_weakness_slope_window = get_param_value(covert_accum_params.get('price_weakness_slope_window'), 5)
         low_volatility_bbw_window = get_param_value(covert_accum_params.get('low_volatility_bbw_window'), 21)
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
@@ -155,7 +153,6 @@ class CalculateProcessCovertAccumulation:
         cumulative_mf_flow_weight = get_param_value(covert_accum_params.get('cumulative_mf_flow_weight'), 0.6)
         daily_acc_weight = get_param_value(covert_accum_params.get('daily_acc_weight'), 0.4)
         cumulative_acc_weight = get_param_value(covert_accum_params.get('cumulative_acc_weight'), 0.6)
-        
         print(f"DEBUG_PROBE:CoherencyConfigLoaded|EntropyWeight={chip_optimization_weights.get('entropy_reduction')}")
         return fusion_weights, market_context_weights, covert_action_weights, chip_optimization_weights, price_weakness_slope_window, low_volatility_bbw_window, mtf_slope_accel_weights, neutral_range_threshold, cumulative_flow_windows, cumulative_flow_weights, cumulative_acc_windows, cumulative_acc_weights, daily_mf_flow_weight, cumulative_mf_flow_weight, daily_acc_weight, cumulative_acc_weight, new_raw_signals_weights, main_force_accumulation_resonance_weight, new_raw_signals_weights_v2, covert_order_flow_resonance_weight
 
@@ -535,7 +532,6 @@ class CalculateProcessCovertAccumulation:
         # 4. 最终结果
         final_val = _temp_debug_values['final_score'].loc[probe_ts] if probe_ts in _temp_debug_values['final_score'].index else 0.0
         debug_output[f"  ==> [最终结果] Covert Accumulation Score: {final_val:.4f}"] = ""
-        
         self.helper._print_debug_output(debug_output)
 
     @staticmethod

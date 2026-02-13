@@ -26,7 +26,6 @@ class CalculateCostAdvantageTrendRelationship:
         # 1. 获取调试开关状态
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
         probe_ts = None
-        
         # 2. 只有开启调试且数据不为空时才进行匹配
         if is_debug and not df.empty:
             # 【核心修复】将目标日期转为字符串集合 (例如 {'2025-12-30'})，彻底解决时区/时间精度不一致问题
@@ -54,7 +53,6 @@ class CalculateCostAdvantageTrendRelationship:
 
         debug_output = {}
         temp_vals = {}
-        
         # 3. 激活探针上下文
         if is_debug and probe_ts is not None:
             # 打印时也用字符串，确保显示整洁
@@ -273,7 +271,7 @@ class CalculateCostAdvantageTrendRelationship:
         return final_efficiency_series
 
     def _calculate_cost_migration_elasticity(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V26.1.2 · 超弹性共振 (修复:主升浪锚定误杀)】"""
+        """【V26.1.3 · 超弹性共振 (修复:趋势共振逻辑修正)】"""
         close = self.helper._get_safe_series(df, 'close_D', 1.0, "close")
         cost_50 = self.helper._get_safe_series(df, 'cost_50pct_D', 1.0, "cost_50")
         cost_5 = self.helper._get_safe_series(df, 'cost_5pct_D', 1.0, "cost_5")
@@ -283,6 +281,7 @@ class CalculateCostAdvantageTrendRelationship:
         trapped_pressure = self.helper._get_safe_series(df, 'pressure_trapped_D', 0.0, "trapped_pressure")
         intra_migration = self.helper._get_safe_series(df, 'intraday_cost_center_migration_D', 0.0, "intra_migration")
         intra_volatility = self.helper._get_safe_series(df, 'intraday_cost_center_volatility_D', 0.0, "intra_volatility")
+        # 1. 计算斜率与导数
         slope_c50 = cost_50.diff(13).fillna(0)
         slope_c5 = cost_5.diff(13).fillna(0)
         slope_price = close.diff(13).fillna(0)
@@ -298,11 +297,22 @@ class CalculateCostAdvantageTrendRelationship:
         norm_slope_price = np.tanh(slope_price / (scale_price + 1e-8))
         norm_accel_c5 = np.tanh(accel_c5 / (scale_accel + 1e-8))
         norm_jerk_c5 = np.tanh(jerk_c5 / (scale_jerk + 1e-8))
+
+        # 2. 【核心修复】趋势共振判定 (Trend Resonance)
+        # 如果价格和成本都在上涨，这是良性的“垫高成本”，给予高分
+        # 只有当价格下跌(-)、成本上涨(+)时，才是危险的背离
+        alignment = np.sign(norm_slope_price) * np.sign(norm_slope_c50)
+        # 基础剪刀差：价格斜率优势
+        raw_scissor = norm_slope_price - norm_slope_c50 * 0.5 
+        # 共振修正：如果同向且为正，强制拉高分数
+        resonance_bonus = np.where((norm_slope_price > 0) & (norm_slope_c50 > 0), 0.5 * norm_slope_c50, 0.0)
         turnover_score = 0.5 + 0.7 * np.exp(-((turnover - 5.5)**2) / 50.0)
-        scissor_inst = norm_slope_price - (norm_slope_c50 * 0.8)
-        viscous_inst = scissor_inst * turnover_score
+        # 修正后的剪刀差逻辑
+        viscous_inst = (raw_scissor + resonance_bonus) * turnover_score
         viscous_hab = viscous_inst.rolling(window=34, min_periods=1).mean()
-        dim_hab = np.tanh(viscous_hab * 2.0)
+        dim_hab = np.tanh(viscous_hab * 2.5) # 增强信号强度
+
+        # 3. 模量与分形
         norm_stress = np.tanh(profit_pressure / 10.0)
         norm_strain = np.abs(norm_slope_c50)
         raw_modulus = norm_stress * (1.0 - norm_strain) * 2.5
@@ -310,17 +320,24 @@ class CalculateCostAdvantageTrendRelationship:
         norm_intra_mig = np.tanh(intra_migration * 5.0)
         norm_intra_vol = np.tanh(intra_volatility * 5.0)
         dim_fractal = (norm_intra_mig * 0.6 + (1.0 - norm_intra_vol) * 0.4).clip(-1, 1)
+
+        # 4. 维度协同
         dims = np.column_stack([dim_hab, dim_modulus, dim_fractal])
         synergy_std = pd.Series(np.std(dims, axis=1), index=idx)
         synergy_factor = (1.0 - synergy_std * 1.2).clip(0.3, 1.0)
         base_score = (dim_hab * 0.4 + dim_modulus * 0.4 + dim_fractal * 0.2)
         synergized_score = base_score * synergy_factor
+
+        # 5. 激活与惩罚
         threshold = 0.6
         raw_elast = np.where(synergized_score > threshold, synergized_score * (1.0 + 0.8 * np.exp(2.5 * (synergized_score - threshold))), synergized_score)
         final_elasticity = pd.Series(raw_elast, index=idx)
+
+        # 【保护机制】主升浪豁免
         rally_protection = np.maximum(0, norm_slope_price)
         raw_violation = (np.maximum(0, norm_slope_c5) * 0.2 + np.maximum(0, norm_accel_c5) * 0.3 + np.maximum(0, norm_jerk_c5) * 0.5)
-        violation = raw_violation * (1.0 - rally_protection * 0.8)
+        # 如果价格强势上涨，大幅豁免底仓上移的惩罚
+        violation = raw_violation * (1.0 - rally_protection * 0.9) 
         anchorage_penalty = pd.Series(np.exp(-violation * 4.0), index=idx)
         ceiling_penalty = pd.Series(np.exp(-trapped_pressure * 2.5), index=idx)
         span = (cost_95 - cost_5) / (cost_50 + 1e-8)
@@ -329,19 +346,21 @@ class CalculateCostAdvantageTrendRelationship:
         norm_slope_span = np.tanh(slope_span / (scale_span + 1e-8))
         compression_bonus = np.maximum(0, -norm_slope_span) * 0.2
         final_score = (final_elasticity * anchorage_penalty * ceiling_penalty + compression_bonus).clip(-1, 2.0)
+
         if is_debug and probe_ts:
             p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
             print(f"[Probe-D4] 成本迁移弹性详情 @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"  > 状态输入: Turnover={p_val(turnover):.2f}, ProfitPress={p_val(profit_pressure):.2f}")
+            print(f"  > 趋势判定: PriceSlope={p_val(norm_slope_price):.2f}, CostSlope={p_val(norm_slope_c50):.2f}")
+            print(f"  > 修正剪刀差: RawScissor={p_val(raw_scissor):.3f}, Bonus={p_val(resonance_bonus):.3f} -> DimHAB={p_val(dim_hab):.3f}")
             print(f"  > 基础得分: Synergized={p_val(synergized_score):.3f} -> FinalElasticity={p_val(final_elasticity):.3f}")
-            print(f"  > 锚定修正: RawViolation={p_val(pd.Series(raw_violation, index=idx)):.3f}, RallyProtect={p_val(pd.Series(rally_protection, index=idx)):.2f}")
-            print(f"  > 最终惩罚: Violation={p_val(pd.Series(violation, index=idx)):.3f} -> AnchorPenalty={p_val(anchorage_penalty):.4f}")
+            print(f"  > 惩罚豁免: RallyProtect={p_val(pd.Series(rally_protection, index=idx)):.2f} -> Violation={p_val(pd.Series(violation, index=idx)):.3f}")
             print(f"  > 最终结果: Final={p_val(final_score):.4f}")
             self._probe_val("Final_Elasticity", final_score.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
+            
         return final_score
 
     def _calculate_structure_negentropy(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V30.1.2 · 超序参量 (修复:自适应熵阈值)】"""
+        """【V30.1.3 · 超序参量 (修复:高能爆发熵宽容度)】"""
         chip_entropy = self.helper._get_safe_series(df, 'chip_entropy_D', 0.5, "chip_entropy")
         conc_entropy = self.helper._get_safe_series(df, 'concentration_entropy_D', 0.5, "conc_entropy")
         intra_entropy = self.helper._get_safe_series(df, 'intraday_chip_entropy_D', 0.5, "intra_entropy")
@@ -351,9 +370,19 @@ class CalculateCostAdvantageTrendRelationship:
         curvature = self.helper._get_safe_series(df, 'GEOM_ARC_CURVATURE_D', 0.0, "curvature")
         fractal_dim = self.helper._get_safe_series(df, 'PRICE_FRACTAL_DIM_D', 1.5, "fractal_dim")
         flow_stab = self.helper._get_safe_series(df, 'TURNOVER_STABILITY_INDEX_D', 0.5, "flow_stab")
+        turnover = self.helper._get_safe_series(df, 'turnover_rate_f_D', 1.0, "turnover")
         total_micro_entropy = chip_entropy * 0.4 + conc_entropy * 0.3 + intra_entropy * 0.3
         hab_entropy_34 = total_micro_entropy.rolling(window=34, min_periods=1).mean()
-        score_internal = 1.0 / (1.0 + np.exp(6.0 * (total_micro_entropy - hab_entropy_34)))
+        # 【核心修复】计算高能宽容度 (High Energy Tolerance)
+        # 高换手(>5%) 或 强趋势(Slope>0.3) 时，扩大熵容忍区间
+        high_energy_factor = (np.log1p(turnover) * 0.5 + np.maximum(0, reg_slope) * 2.0)
+        entropy_tolerance = 1.0 + high_energy_factor
+        # 使用宽容度修正 Delta：熵增被 Tolerance 稀释
+        entropy_delta = (total_micro_entropy - hab_entropy_34)
+        # 如果是熵增(delta>0)且处于高能状态，减少扣分；如果是熵减，保持奖励
+        adjusted_delta = np.where(entropy_delta > 0, entropy_delta / (entropy_tolerance + 1e-8), entropy_delta)
+        score_internal = 1.0 / (1.0 + np.exp(6.0 * adjusted_delta))
+
         negent_price = 1.0 / (1.0 + np.exp(12.0 * (price_entropy - 0.55)))
         score_r2 = ((reg_r2 - 0.6) * 2.5).clip(0, 1)
         score_external = np.sqrt(negent_price * score_r2)
@@ -376,17 +405,17 @@ class CalculateCostAdvantageTrendRelationship:
         threshold = 0.6
         raw_final = np.where(final_negentropy > threshold, final_negentropy * (1.0 + 0.5 * np.exp(2.0 * (final_negentropy - threshold))), final_negentropy)
         final_score = pd.Series(raw_final, index=idx).clip(-1, 2.0)
-        turnover = self.helper._get_safe_series(df, 'turnover_rate_f_D', 1.0, "turnover")
+        # 熔断修复：如果换手极低才熔断，高换手不熔断
         final_score = pd.Series(np.where(turnover < 0.5, 0.0, final_score), index=idx)
         if is_debug and probe_ts:
             p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
             print(f"[Probe-D5] 结构熵逆详情 @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"  > 熵值监测: Current={p_val(total_micro_entropy):.3f}, HistoryAvg={p_val(hab_entropy_34):.3f}")
-            print(f"  > 自适应评分: Delta=(Curr-Avg)={p_val(total_micro_entropy) - p_val(hab_entropy_34):.3f} -> InternalScore={p_val(score_internal):.3f}")
-            print(f"  > 外部有序: PriceEnt={p_val(price_entropy):.3f}, R2={p_val(reg_r2):.3f} -> External={p_val(score_external):.3f}")
-            print(f"  > 晶体化: Crystal={p_val(crystal_score):.3f} (OrderParam={p_val(order_parameter):.3f})")
+            print(f"  > 高能宽容度: Turnover={p_val(turnover):.1f} -> Tolerance={p_val(pd.Series(entropy_tolerance, index=idx)):.2f}")
+            print(f"  > 熵差修正: RawDelta={p_val(entropy_delta):.3f} -> AdjDelta={p_val(pd.Series(adjusted_delta, index=idx)):.3f}")
+            print(f"  > 内部评分: Internal={p_val(score_internal):.3f} (Old was ~0.3)")
             print(f"  > 最终结果: Final={p_val(final_score):.4f}")
             self._probe_val("Final_Negentropy", final_score.loc[probe_ts], temp_vals, "Negentropy_V30.1")
+            
         return final_score
 
     def _calculate_pentagonal_resonance(self, D1: pd.Series, D2: pd.Series, D3: pd.Series, D4: pd.Series, D5: pd.Series, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
@@ -489,7 +518,6 @@ class CalculateCostAdvantageTrendRelationship:
             'cost_50pct_D', 'close_D', 'chip_entropy_D'
         ]
         # intraday_chip_entropy_D 是可选的，如果不存在，在计算方法内部会用 chip_entropy_D 替代
-        
         for col in required_cols:
             if col not in df.columns:
                 print(f"!!! CRITICAL WARNING: Missing Column {col} in {method_name} !!!")
