@@ -221,7 +221,6 @@ class FundFlowFactorCalculator:
         current_vol = float(self.context.current_flow_data.get('net_mf_vol', 0) or 0) # 这里最好用 total vol，暂用 mf_vol 近似或从 daily_basic 取
         if self.context.daily_basic_data:
              current_vol = float(self.context.daily_basic_data.get('vol', 0) or 0)
-             
         if avg_vol > 0:
             vol_ratio = current_vol / avg_vol
         else:

@@ -116,20 +116,15 @@ class CalculateProcessCovertAccumulation:
             "concentration_accel": 0.10, "chip_locking": 0.10, "chip_stability": 0.05,
             "chip_concentration": 0.0 # 兼容旧键
         }
-
         # 安全合并逻辑: 使用默认值作为底板，更新用户配置
         fusion_weights = default_fusion.copy()
         fusion_weights.update(covert_accum_params.get('fusion_weights', {}))
-
         market_context_weights = default_context.copy()
         market_context_weights.update(covert_accum_params.get('market_context_weights', {}))
-
         covert_action_weights = default_action.copy()
         covert_action_weights.update(covert_accum_params.get('covert_action_weights', {}))
-
         chip_optimization_weights = default_chip.copy()
         chip_optimization_weights.update(covert_accum_params.get('chip_optimization_weights', {}))
-
         # 其他常规参数获取
         new_raw_signals_weights = get_param_value(covert_accum_params.get('new_raw_signals_weights'), {
             "ask_side_liquidity_inverted": 0.03, "mf_level5_buy_ofi": 0.05, "mf_buy_execution_alpha": 0.05,
@@ -514,13 +509,11 @@ class CalculateProcessCovertAccumulation:
         # 1. 报警信息
         if "__MISSING_COLUMNS__" in _temp_debug_values:
             debug_output[f"  !! [严重警告] 缺失军械库指标: {_temp_debug_values['__MISSING_COLUMNS__']}"] = "这会导致相关评分降级或为NaN"
-
         # 2. 原始信号 (Raw)
         debug_output[f"  -- [1. 原始信号层] Value @ {probe_ts.strftime('%Y-%m-%d')}"] = ""
         for key, series in _temp_debug_values.get("原始信号值", {}).items():
             val = series.loc[probe_ts] if isinstance(series, pd.Series) and probe_ts in series.index else "N/A"
             debug_output[f"     |-- {key:<25}: {val}"] = ""
-
         # 3. 归一化得分 (Normalized)
         for section in ["市场背景", "隐蔽行动", "筹码优化"]:
             debug_output[f"  -- [2. {section}得分] Normalized @ {probe_ts.strftime('%Y-%m-%d')}"] = ""
@@ -528,7 +521,6 @@ class CalculateProcessCovertAccumulation:
                 val = series.loc[probe_ts] if isinstance(series, pd.Series) and probe_ts in series.index else 0.0
                 weight = _temp_debug_values.get(f"{section}_权重", {}).get(key, "Def")
                 debug_output[f"     |-- {key:<25}: Score={val:.4f} (Weight={weight})"] = ""
-
         # 4. 最终结果
         final_val = _temp_debug_values['final_score'].loc[probe_ts] if probe_ts in _temp_debug_values['final_score'].index else 0.0
         debug_output[f"  ==> [最终结果] Covert Accumulation Score: {final_val:.4f}"] = ""

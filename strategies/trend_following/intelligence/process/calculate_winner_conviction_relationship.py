@@ -39,9 +39,7 @@ class CalculateWinnerConvictionRelationship:
         signals_data = self._get_and_validate_signals(df, df_index, method_name, all_params, _temp_debug_values)
         if signals_data is None:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-
         normalized_signals = self._normalize_raw_data(df_index, signals_data, _temp_debug_values)
-
         # 1. 信念坚固度 (原有)
         belief_solidity_score = self._calculate_belief_solidity(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
         # 2. 压力消化力 (原有)
@@ -52,10 +50,8 @@ class CalculateWinnerConvictionRelationship:
         adversary_capitulation_score = self._calculate_adversary_capitulation(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
         # 5. 【新增】微观隐蔽度 (Micro-Stealth)
         micro_stealth_score = self._calculate_micro_stealth(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
-
         # 情境调制
         context_modulator = self._calculate_contextual_modulator(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
-
         # 最终五维融合
         final_score = self._perform_final_fusion(
             df_index, 
@@ -455,7 +451,6 @@ class CalculateWinnerConvictionRelationship:
         # 应用非线性变换: Sign * |Base|^Exponent
         phase_transition_digestion = np.sign(linear_digestion) * (linear_digestion.abs().pow(dynamic_exponent))
         final_digestion = phase_transition_digestion.clip(-1, 1)
-
         print(f"  [Probe] 压力消化V6.2详情 (前3行):")
         print(f"    LinearDigestion: {linear_digestion.head(3).values}")
         print(f"    DynamicExponent: {dynamic_exponent.head(3).values} (Trend: {uptrend.head(3).values}, VPA: {vpa_factor.head(3).values})")

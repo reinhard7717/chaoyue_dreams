@@ -731,13 +731,11 @@ class CalculateMainForceRallyIntent:
         liq_res = self._calculate_enhanced_liquidity_proxy(df_index, mtf_signals, normalized_signals, config)
         vol_res = self._calculate_enhanced_volatility_proxy(df_index, mtf_signals, normalized_signals, config)
         risk_res = self._calculate_enhanced_risk_preference_proxy(df_index, mtf_signals, normalized_signals, config)
-
         proxy_cores = {
             "rs": rs_res.get("enhanced_rs_proxy", pd.Series(0.5, index=df_index)),
             "capital": cap_res.get("enhanced_capital_proxy", pd.Series(0.5, index=df_index)),
             "sentiment": sent_res.get("enhanced_sentiment_proxy", pd.Series(0.5, index=df_index))
         }
-
         # 2. 【核心修复】显式成对相关性审计 (取代报错的 apply)
         c_rs = proxy_cores["rs"]; c_cap = proxy_cores["capital"]; c_sent = proxy_cores["sentiment"]
         # 计算 13 日滚动两两相关性
@@ -749,7 +747,6 @@ class CalculateMainForceRallyIntent:
         # 3. Fisher 变换锐化与一致性爆发
         fisher_norm = np.tanh(0.5 * np.log((1 + avg_sync_raw.clip(-0.99, 0.99)) / (1 - avg_sync_raw.clip(-0.99, 0.99)))).clip(0, 1)
         sync_burst_score = np.tanh(fisher_norm.diff(1).diff(1).clip(lower=0).rolling(5).mean().fillna(0) * 50).clip(0, 1)
-
         # 4. 综合信号质量评估 (Fisher-SNR)
         quality_list = []
         for name, series in proxy_cores.items():
@@ -759,7 +756,6 @@ class CalculateMainForceRallyIntent:
             quality_list.append(np.tanh(0.5 * np.log((1 + snr_raw.clip(0, 0.99)) / (1 - snr_raw.clip(0, 0.99)))))
         individual_quality = pd.concat(quality_list, axis=1).mean(axis=1).fillna(0.7)
         combined_signal_quality = (individual_quality * 0.4 + fisher_norm * 0.4 + sync_burst_score * 0.2).clip(0, 1)
-
         # 5. 动态权重合成与审计指标回填
         final_proxy_signals = self._dynamic_weighted_synthesis(rs_res, cap_res, sent_res, liq_res, vol_res, risk_res, combined_signal_quality, config)
         final_proxy_signals['combined_signal_quality'] = combined_signal_quality
@@ -767,7 +763,6 @@ class CalculateMainForceRallyIntent:
         # 6. 各维度 HAB 存量注入
         for name, series in proxy_cores.items():
             final_proxy_signals[f"{name}_hab_score"] = series.mask(series < 0.6, 0).diff(1).clip(lower=0).rolling(21).sum().fillna(0).rolling(55).rank(pct=True).fillna(0.5)
-
         # if self._is_probe_enabled(pd.DataFrame(index=df_index)):
         #     self._probe_print(f"--- Fisher Proxy-SNR Consistency Fix Probe ---")
         #     self._probe_print(f"  > Fisher_Sync: {fisher_norm.iloc[-1]:.4f} | Burst: {sync_burst_score.iloc[-1]:.4f}")

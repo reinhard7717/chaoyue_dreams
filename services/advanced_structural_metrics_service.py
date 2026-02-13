@@ -2698,7 +2698,6 @@ class MicrostructureDynamicsCalculators:
         bucket_size = total_volume / target_bucket_count
         if bucket_size < 100:
              bucket_size = total_volume / max(20, int(total_volume / 100))
-             
         imbalance_values, bucket_indices = _numba_calculate_vpin_buckets(
             cum_vol_arr, volumes, buy_vols, sell_vols, bucket_size
         )

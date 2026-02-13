@@ -166,7 +166,6 @@ class CalculateMainForceControlRelationship:
         daily_net_mf = funds_raw["net_mf_calibrated"]
         funds_raw["total_buy_amt"] = funds_raw["buy_elg_amt"] + funds_raw["buy_lg_amt"]
         funds_raw["total_sell_amt"] = funds_raw["sell_elg_amt"] + funds_raw["sell_lg_amt"]
-
         # --- HAB 系统构建 (Historical Accumulation Buffer) ---
         # 计算 13, 21, 34 日的滚动累积
         hab_periods = [13, 21, 34]
@@ -177,10 +176,8 @@ class CalculateMainForceControlRelationship:
             # 成本 HAB: 累积买入金额与量 (用于计算 Rolling VWAP)
             hab_data[f"hab_buy_amt_{p}"] = daily_buy_amt_weighted.rolling(window=p, min_periods=1).sum()
             hab_data[f"hab_buy_vol_{p}"] = daily_buy_vol_weighted.rolling(window=p, min_periods=1).sum()
-
         # 将 HAB 数据注入 funds
         funds_raw.update(hab_data)
-
         # 4. 筹码结构映射
         structure_raw = {
             "cost_50pct": self._get_safe_series(df, 'cost_50pct_D', method_name=method_name).replace(0, np.nan),

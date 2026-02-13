@@ -48,7 +48,6 @@ class CalculateCostAdvantageTrendRelationship:
                 last_date_str = pd.to_datetime(last_date).strftime('%Y-%m-%d')
                 print(f"!!! [探针修正] 指定日期 {self.probe_dates} 未匹配，强制使用数据最后一天: {last_date_str} !!!")
                 probe_ts = last_date
-
         debug_output = {}
         temp_vals = {}
         # 3. 激活探针上下文
@@ -294,7 +293,6 @@ class CalculateCostAdvantageTrendRelationship:
         norm_slope_price = np.tanh(slope_price / (scale_price + 1e-8))
         norm_accel_c5 = np.tanh(accel_c5 / (scale_accel + 1e-8))
         norm_jerk_c5 = np.tanh(jerk_c5 / (scale_jerk + 1e-8))
-
         # 2. 趋势共振判定 (Trend Resonance)
         raw_scissor = norm_slope_price - norm_slope_c50 * 0.5 
         resonance_bonus = pd.Series(
@@ -309,7 +307,6 @@ class CalculateCostAdvantageTrendRelationship:
         viscous_inst = (raw_scissor + resonance_bonus) * turnover_score
         viscous_hab = viscous_inst.rolling(window=34, min_periods=1).mean()
         dim_hab = np.tanh(viscous_hab * 2.5) 
-
         # 3. 模量与分形
         norm_stress = np.tanh(profit_pressure / 10.0)
         norm_strain = np.abs(norm_slope_c50)
@@ -324,19 +321,16 @@ class CalculateCostAdvantageTrendRelationship:
         norm_intra_mig = np.tanh(intra_migration * 5.0)
         norm_intra_vol = np.tanh(intra_volatility * 5.0)
         dim_fractal = (norm_intra_mig * 0.6 + (1.0 - norm_intra_vol) * 0.4).clip(-1, 1)
-
         # 4. 维度协同
         dims = np.column_stack([dim_hab, dim_modulus, dim_fractal])
         synergy_std = pd.Series(np.std(dims, axis=1), index=idx)
         synergy_factor = (1.0 - synergy_std * 1.2).clip(0.3, 1.0)
         base_score = (dim_hab * 0.4 + dim_modulus * 0.4 + dim_fractal * 0.2)
         synergized_score = base_score * synergy_factor
-
         # 5. 激活与惩罚
         threshold = 0.6
         raw_elast = np.where(synergized_score > threshold, synergized_score * (1.0 + 0.8 * np.exp(2.5 * (synergized_score - threshold))), synergized_score)
         final_elasticity = pd.Series(raw_elast, index=idx)
-
         # 主升浪完全豁免
         rally_protection = np.maximum(0, norm_slope_price)
         raw_violation = (np.maximum(0, norm_slope_c5) * 0.2 + np.maximum(0, norm_accel_c5) * 0.3 + np.maximum(0, norm_jerk_c5) * 0.5)
@@ -350,7 +344,6 @@ class CalculateCostAdvantageTrendRelationship:
         norm_slope_span = np.tanh(slope_span / (scale_span + 1e-8))
         compression_bonus = np.maximum(0, -norm_slope_span) * 0.2
         final_score = (final_elasticity * anchorage_penalty * ceiling_penalty + compression_bonus).clip(-1, 2.0)
-
         if is_debug and probe_ts:
             p_val = lambda s: s.loc[probe_ts] if isinstance(s, (pd.Series, pd.DataFrame)) and probe_ts in s.index else 0
             print(f"[Probe-D4] 成本迁移弹性详情 @ {probe_ts.strftime('%Y-%m-%d')}")
@@ -383,7 +376,6 @@ class CalculateCostAdvantageTrendRelationship:
             index=idx
         )
         score_internal = 1.0 / (1.0 + np.exp(6.0 * adjusted_delta))
-
         negent_price = 1.0 / (1.0 + np.exp(12.0 * (price_entropy - 0.55)))
         score_r2 = ((reg_r2 - 0.6) * 2.5).clip(0, 1)
         score_external = np.sqrt(negent_price * score_r2)
@@ -467,7 +459,6 @@ class CalculateCostAdvantageTrendRelationship:
         norm_accel = np.tanh(res_accel / (scale_accel + 1e-8))
         norm_jerk = np.tanh(res_jerk / (scale_jerk + 1e-8))
         internal_kinematic_score = (norm_slope * 0.6 + norm_accel * 0.4)
-
         # 价格动能接管
         price_slope = close.diff(13).fillna(0)
         scale_price = price_slope.rolling(21).std().replace(0, 1.0)
@@ -514,7 +505,6 @@ class CalculateCostAdvantageTrendRelationship:
              final_score = intermediate_score * veto_multiplier
         else:
              final_score = intermediate_score
-             
         # 5. 反身性 (Reflexivity)
         res_diff = final_score.diff(8).fillna(0)
         price_diff = close.diff(8).fillna(0)
@@ -522,17 +512,11 @@ class CalculateCostAdvantageTrendRelationship:
         res_std = res_diff.rolling(13).std().fillna(0)
         active_mask = (res_std > 0.05)
         # 原始计算
-        raw_reflexivity = np.where(active_mask & (raw_corr > 0.5), 1.0 + (raw_corr - 0.5), 
-                                   np.where(active_mask & (raw_corr < -0.3), 1.0 + (raw_corr + 0.3), 1.0))
+        raw_reflexivity = np.where(active_mask & (raw_corr > 0.5), 1.0 + (raw_corr - 0.5), np.where(active_mask & (raw_corr < -0.3), 1.0 + (raw_corr + 0.3), 1.0))
         # 【核心修复】反身性免疫 (Reflexivity Immunity)
         # 如果价格动能强 (norm_price_slope > 0.2)，强制 factor >= 1.0
         # 即：允许正相关奖励，豁免负相关惩罚
-        reflexivity_factor = pd.Series(
-            np.where(norm_price_slope > 0.2, 
-                     np.maximum(1.0, raw_reflexivity), 
-                     raw_reflexivity),
-            index=idx
-        )
+        reflexivity_factor = pd.Series(np.where(norm_price_slope > 0.2, np.maximum(1.0, raw_reflexivity), raw_reflexivity),index=idx)
         final_score = final_score * reflexivity_factor
         # 6. APT 相变
         temp_sentiment = sentiment if sentiment is not None else pd.Series(0.5, index=idx)
