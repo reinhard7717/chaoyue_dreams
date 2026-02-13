@@ -1,5 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_cost_advantage_trend_relationship.py
-# 【V11.0.0 · 全息成本资金五维共振计算器】
+# 【V11.0.0 · 全息成本资金五维共振计算器】 已升级pro
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
@@ -54,7 +54,6 @@ class CalculateCostAdvantageTrendRelationship:
         if is_debug and probe_ts is not None:
             # 打印时也用字符串，确保显示整洁
             ts_display = pd.to_datetime(probe_ts).strftime('%Y-%m-%d')
-            print(f"【V11.0探针激活】目标日期: {ts_display} | 方法: {method_name}")
             debug_output[f"--- {method_name} Probe @ {ts_display} ---"] = ""
         return is_debug and (probe_ts is not None), probe_ts, debug_output, temp_vals
 
