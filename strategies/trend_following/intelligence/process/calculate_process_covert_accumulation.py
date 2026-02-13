@@ -68,25 +68,25 @@ class CalculateProcessCovertAccumulation:
 
     def _apply_signal_latching(self, final_score: pd.Series, context: pd.Series, action: pd.Series, chip: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.4·超固态锁存版】熵权锁存器。
-        -核心修正:针对'超固态吸筹'将激活门槛进一步下探至0.35，确保不丢失长期静默吸筹的目标。
+        【V7.7·激发态同步锁存版】熵权锁存器。
+        -核心修正:直接利用"最终合成_激发态"的判定结果作为锁存器的先验启动条件。
         """
         components = pd.concat([context, action, chip], axis=1)
         ewd_factor = components.std(axis=1).fillna(1.0)
-        # 获取隐匿密度
-        raw_signals = _temp_debug_values.get("原始信号值", {})
-        stealth_density = raw_signals.get('stealth_density', pd.Series(0, index=df_index))
-        # 动态激活阈值: 极致密度+极致筹码 = 极低门槛
-        is_ultra_solid = (chip > 0.75) & (stealth_density > 18)
-        adaptive_score_threshold = final_score.copy()
-        adaptive_score_threshold[:] = 0.60
-        adaptive_score_threshold[chip > 0.7] = 0.45
-        adaptive_score_threshold[is_ultra_solid] = 0.35 # 极低门槛开启
-        high_score_mask = final_score > adaptive_score_threshold
-        low_entropy_mask = ewd_factor < 0.25 
-        trigger_signal = (high_score_mask & low_entropy_mask).astype(int)
+        # 获取最终合成阶段的激发判定
+        fusion_debug = _temp_debug_values.get("最终合成_激发态", {})
+        is_solid = fusion_debug.get("Solid", False)
+        # 动态门槛: 激发态下只要分值 > 0.35 且 共振熵受控(ewd < 0.3) 即可锁定
+        adaptive_threshold = 0.60
+        if is_solid:
+            adaptive_threshold = 0.35 
+        high_score_mask = final_score > adaptive_threshold
+        # 激发态下放宽共振要求，允许"一枝独秀"
+        entropy_limit = 0.25 if is_solid else 0.15
+        trigger_signal = (high_score_mask & (ewd_factor < entropy_limit)).astype(int)
         rolling_trigger = trigger_signal.rolling(window=5, min_periods=1).sum().fillna(0)
-        activation_mask = rolling_trigger >= 2 
+        # 5日内2次触发即进入锁定
+        activation_mask = rolling_trigger >= 2
         raw_values = final_score.fillna(0).values
         active_flags = activation_mask.values
         latched_values = np.zeros_like(raw_values)
@@ -96,7 +96,8 @@ class CalculateProcessCovertAccumulation:
             is_active = active_flags[i] > 0
             if is_active:
                 is_locked = True
-                curr_val = np.tanh(curr_raw * 1.5) + 0.15 # 进一步增强激活强度
+                # 锁定态下赋予 tanh 动量增益
+                curr_val = np.tanh(curr_raw * 1.8) + 0.2
                 last_val = max(curr_val, last_val * decay_rate)
             elif is_locked:
                 if curr_raw < break_threshold:
@@ -107,7 +108,7 @@ class CalculateProcessCovertAccumulation:
                 last_val = curr_raw
             latched_values[i] = last_val
         latched_series = pd.Series(latched_values, index=df_index).clip(0, 1)
-        print(f"DEBUG_PROBE:UltraSolidLatch|Triggered={is_ultra_solid.iloc[-1]}|Final={latched_series.iloc[-1]:.4f}")
+        print(f"DEBUG_PROBE:LatchFinal_V7.7|Locked={is_locked}|LastVal={latched_series.iloc[-1]:.4f}")
         return latched_series
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
@@ -518,32 +519,40 @@ class CalculateProcessCovertAccumulation:
 
     def _fuse_final_score(self, df_index: pd.Index, market_context_score: pd.Series, covert_action_score: pd.Series, chip_optimization_score: pd.Series, fusion_weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.6·潜伏激发融合版】最终分数合成。
-        -核心修正:修复market_context引用错误。
-        -核心升级:强化'潜伏期激发'。当筹码分>0.7且密度>15时，通过根号函数拉升评分，使其更容易触达锁存门槛。
+        【V7.7·核心特征激发版】最终分数合成。
+        -核心升级:激发判定由"整体筹码分"转向"核心熵减分"。
+        -逻辑修正:针对中国卫星(600118)这种超固态目标，只要熵减>0.75且密度>15，即启动根号激发。
         """
+        # 1. 基础合成
         final_fusion_scores_dict = {
             "market_context": market_context_score,
             "covert_action": covert_action_score,
             "chip_optimization": chip_optimization_score
         }
         raw_fusion = _robust_geometric_mean(final_fusion_scores_dict, fusion_weights, df_index)
+        # 2. 提取特征探针
         raw_signals = _temp_debug_values.get("原始信号值", {})
         stealth_density = raw_signals.get('stealth_density', pd.Series(0.0, index=df_index))
-        # 激发判定: 筹码高度有序 且 密度极高 (中国卫星 20.29 符合条件)
-        is_solid_accumulation = (chip_optimization_score > 0.7) & (stealth_density > 15)
-        # 计算非线性补偿因子 (Boost)
-        boost_factor = stealth_density.apply(lambda x: np.log1p(x) / 2.5).clip(1.0, 1.8)
+        # 从调试堆栈获取已计算的归一化熵减得分
+        chip_details = _temp_debug_values.get("筹码优化", {})
+        entropy_score = chip_details.get("entropy_reduction", pd.Series(0.0, index=df_index))
+        # 3. 激发判定: 只要核心熵减强(>0.75) 且 密度极高(>15)
+        is_solid_accumulation = (entropy_score > 0.75) & (stealth_density > 15)
+        # 4. 计算激发增益 (Boost)
+        # 密度越高，根号拉升的底数越大
+        boost_base = stealth_density.apply(lambda x: np.log1p(x) / 2.0).clip(1.0, 2.0)
         final_fusion = raw_fusion.copy()
         if is_solid_accumulation.any():
-            # 使用 sqrt 逻辑强行拉升低分段，使 0.38 -> 0.6+
-            final_fusion[is_solid_accumulation] = np.sqrt(raw_fusion[is_solid_accumulation] * boost_factor[is_solid_accumulation]).clip(0, 1)
+            # 使用更激进的激发公式: Final = (Raw * Boost)^0.5
+            # 旨在将 0.36 级别的潜伏分拉升至 0.55-0.60 区域
+            final_fusion[is_solid_accumulation] = np.sqrt(raw_fusion[is_solid_accumulation] * boost_base[is_solid_accumulation]).clip(0, 1)
+        # 5. 探针记录
         _temp_debug_values["最终合成_激发态"] = {
             "Raw_Fusion": float(raw_fusion.iloc[-1]),
-            "Boost": float(boost_factor.iloc[-1]),
+            "Entropy_Check": float(entropy_score.iloc[-1]),
             "Solid": bool(is_solid_accumulation.iloc[-1])
         }
-        print(f"DEBUG_PROBE:FusionIgnited|Raw={raw_fusion.iloc[-1]:.4f}|Final={final_fusion.iloc[-1]:.4f}|Solid={is_solid_accumulation.iloc[-1]}")
+        print(f"DEBUG_PROBE:FusionIgnited_V7.7|Raw={raw_fusion.iloc[-1]:.4f}|Entropy={entropy_score.iloc[-1]:.4f}|Final={final_fusion.iloc[-1]:.4f}|Solid={is_solid_accumulation.iloc[-1]}")
         return final_fusion.astype(np.float32)
 
     def _print_debug_info(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
