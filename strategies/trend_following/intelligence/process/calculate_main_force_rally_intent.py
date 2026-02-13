@@ -1451,7 +1451,7 @@ class CalculateMainForceRallyIntent:
         matches = df_index[df_index.tz_localize(None).normalize().isin(p_dates)]
         if not matches.empty:
             p_ts = matches[-1]
-            print(f"\n=== 主力拉升意图探针报告 @ {p_ts.strftime('%Y-%m-%d')} ===")
+            print(f"\n=== CalculateMainForceRallyIntent 主力拉升意图探针报告 @ {p_ts.strftime('%Y-%m-%d')} ===")
             for line in self._probe_output: print(line)
             print(f"最终拉升意图分值: {final_rally_intent.loc[p_ts]:.4f}")
             print("=== 探针报告结束 ===\n")

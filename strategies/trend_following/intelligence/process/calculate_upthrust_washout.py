@@ -79,7 +79,7 @@ class CalculateUpthrustWashoutRelationship:
             i = -1
             dt = idx[i].strftime('%Y-%m-%d')
             raw = ctx["Raw"]
-            print(f"--- [PROBE_V38_FULL_LINK] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
+            print(f"--- [ CalculateUpthrustWashoutRelationship PROBE_V38_FULL_LINK] {dt} FINAL: {ctx['Final'].iloc[i]:.4f} ---")
             print(f"  [1.Physics]  Trap: {ctx['Phys'].iloc[i]:.4f} (PriceJerk: {raw['JerkP'].iloc[i]:.2f})")
             print(f"  [2.Funds]    Score: {ctx['Fund'].iloc[i]:.4f} <- (Reson: {raw['Reson'].iloc[i]:.2f}, Split: {raw['Split'].iloc[i]:.2f}, Base: {raw['Base'].iloc[i]:.2f}, Energy: {raw['Energy'].iloc[i]:.2f})")
             print(f"  [3.Chips]    Score: {ctx['Chip'].iloc[i]:.4f} <- (Mig: {raw['Mig'].iloc[i]:.2f}, Coll: {raw['Coll'].iloc[i]:.2f}, Order: {raw['Order'].iloc[i]:.2f}, Lock: {raw['Lock'].iloc[i]:.2f})")

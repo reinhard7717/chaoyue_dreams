@@ -922,7 +922,7 @@ class CalculatePriceVolumeDynamics:
         final_ctx = pd.Series(perm * bonus * saturation_decay, index=df_index, dtype=np.float32).clip(0.5, 1.8)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[渗透率自适应探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
+            print(f"\n[ CalculatePriceVolumeDynamics 渗透率自适应探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    情绪分位数: {sent_rank[p_i]:.2f}, 相对状态: {'冰点复苏' if sent_rank[p_i] < 0.2 else ('过热' if sent_rank[p_i] > 0.8 else '常态')}")
         return final_ctx
 
