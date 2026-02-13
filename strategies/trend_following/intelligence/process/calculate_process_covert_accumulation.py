@@ -68,30 +68,35 @@ class CalculateProcessCovertAccumulation:
 
     def _apply_signal_latching(self, final_score: pd.Series, context: pd.Series, action: pd.Series, chip: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.3·动态门槛版】熵权锁存器。
-        -核心修正:引入'筹码引导触发'机制，当筹码分>0.75时，锁存触发分值下调至0.45。
+        【V7.4·超固态锁存版】熵权锁存器。
+        -核心修正:针对'超固态吸筹'将激活门槛进一步下探至0.35，确保不丢失长期静默吸筹的目标。
         """
         components = pd.concat([context, action, chip], axis=1)
         ewd_factor = components.std(axis=1).fillna(1.0)
-        # 动态激活阈值逻辑: 极致筹码优化可降低分值要求
-        # 筹码分强则门槛低
-        adaptive_score_threshold = chip.apply(lambda x: 0.45 if x > 0.75 else 0.60)
+        # 获取隐匿密度
+        raw_signals = _temp_debug_values.get("原始信号值", {})
+        stealth_density = raw_signals.get('stealth_density', pd.Series(0, index=df_index))
+        # 动态激活阈值: 极致密度+极致筹码 = 极低门槛
+        is_ultra_solid = (chip > 0.75) & (stealth_density > 18)
+        adaptive_score_threshold = final_score.copy()
+        adaptive_score_threshold[:] = 0.60
+        adaptive_score_threshold[chip > 0.7] = 0.45
+        adaptive_score_threshold[is_ultra_solid] = 0.35 # 极低门槛开启
         high_score_mask = final_score > adaptive_score_threshold
-        low_entropy_mask = ewd_factor < 0.20 # 放宽熵共振要求
+        low_entropy_mask = ewd_factor < 0.25 
         trigger_signal = (high_score_mask & low_entropy_mask).astype(int)
         rolling_trigger = trigger_signal.rolling(window=5, min_periods=1).sum().fillna(0)
-        activation_mask = rolling_trigger >= 2 # 5日内2日即可激活(更灵敏)
+        activation_mask = rolling_trigger >= 2 
         raw_values = final_score.fillna(0).values
         active_flags = activation_mask.values
         latched_values = np.zeros_like(raw_values)
-        decay_rate, break_threshold, is_locked, last_val = 0.99, 0.35, False, 0.0 # 衰减更慢，熔断更低
+        decay_rate, break_threshold, is_locked, last_val = 0.99, 0.30, False, 0.0
         for i in range(len(raw_values)):
             curr_raw = raw_values[i]
             is_active = active_flags[i] > 0
             if is_active:
                 is_locked = True
-                # 非线性增强: 使用tanh将信号推入确定区
-                curr_val = np.tanh(curr_raw * 1.5) + 0.1 
+                curr_val = np.tanh(curr_raw * 1.5) + 0.15 # 进一步增强激活强度
                 last_val = max(curr_val, last_val * decay_rate)
             elif is_locked:
                 if curr_raw < break_threshold:
@@ -102,8 +107,7 @@ class CalculateProcessCovertAccumulation:
                 last_val = curr_raw
             latched_values[i] = last_val
         latched_series = pd.Series(latched_values, index=df_index).clip(0, 1)
-        print(f"DEBUG_PROBE:AdaptiveLatch|RawAvg={final_score.mean():.4f}|LatchedLast={latched_series.iloc[-1]:.4f}")
-        _temp_debug_values["锁存器状态"] = {"Is_Locked": bool(is_locked), "Threshold": float(adaptive_score_threshold.iloc[-1])}
+        print(f"DEBUG_PROBE:UltraSolidLatch|Triggered={is_ultra_solid.iloc[-1]}|Final={latched_series.iloc[-1]:.4f}")
         return latched_series
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
@@ -565,18 +569,29 @@ class CalculateProcessCovertAccumulation:
 
     def _fuse_final_score(self, df_index: pd.Index, market_context_score: pd.Series, covert_action_score: pd.Series, chip_optimization_score: pd.Series, fusion_weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        将三个维度分数进行最终融合。
+        【V7.4·激发态融合版】将三个维度分数进行最终融合。
+        -核心升级:引入'超固态吸筹'补偿。当筹码高度有序且隐匿密度极大时，突破几何平均的抑制。
         """
         final_fusion_scores_dict = {
-            "market_context": market_context_score,
-            "covert_action": covert_action_score,
-            "chip_optimization": chip_optimization_score
+            "market_context": market_context,
+            "covert_action": covert_action,
+            "chip_optimization": chip_optimization
         }
-        covert_accumulation_score = _robust_geometric_mean(final_fusion_scores_dict, fusion_weights, df_index)
-        _temp_debug_values["最终合成"] = {
-            "covert_accumulation_score": covert_accumulation_score
-        }
-        return covert_accumulation_score.clip(0, 1).astype(np.float32)
+        # 基础合成:鲁棒几何平均
+        raw_fusion = _robust_geometric_mean(final_fusion_scores_dict, fusion_weights, df_index)
+        # [V7.4新增]激发态补偿逻辑
+        # 提取隐匿密度原始值(从temp变量中获取或直接计算)
+        raw_signals = _temp_debug_values.get("原始信号值", {})
+        stealth_density = raw_signals.get('stealth_density', pd.Series(0, index=df_index))
+        # 补偿判定:筹码有序(>0.7) 且 密度极高(>15)
+        is_solid_accumulation = (chip_optimization > 0.7) & (stealth_density > 15)
+        # 补偿强度: 使用幂次函数增强
+        boost_factor = stealth_density.apply(lambda x: np.log1p(x) / 3.0).clip(1.0, 1.5)
+        final_fusion = raw_fusion.copy()
+        final_fusion[is_solid_accumulation] = (raw_fusion[is_solid_accumulation] * boost_factor[is_solid_accumulation]).pow(0.8)
+        _temp_debug_values["最终合成"] = {"raw_fusion": raw_fusion, "boosted": is_solid_accumulation.sum()}
+        print(f"DEBUG_PROBE:FusionBoosted|Count={is_solid_accumulation.sum()}|LastBoost={boost_factor.iloc[-1]:.4f}")
+        return final_fusion.clip(0, 1).astype(np.float32)
 
     def _print_debug_info(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
         """
