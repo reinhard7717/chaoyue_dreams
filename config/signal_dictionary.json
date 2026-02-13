@@ -1002,14 +1002,6 @@
             "scoring_mode": "bipolar",
             "description": "【V3.0 · 多维共振与情境自适应版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透、背离品质量化和情境调节五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。"
         },
-        "PROCESS_META_WINNER_CONVICTION_DECAY": {
-            "cn_name": "【过程】赢家信念衰减",
-            "category": "过程层-战略",
-            "type": "process",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V4.0 · 全息动态审判版】诊断赢家信念的衰减。正分代表赢家信念指数正在下降。"
-        },
         "PROCESS_META_PRICE_VOLUME_DYNAMICS": {
             "cn_name": "【过程】价量关系看涨拐点",
             "category": "过程层-基础",

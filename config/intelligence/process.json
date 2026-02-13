@@ -834,59 +834,6 @@
                 "accumulation_window": 21,
                 "description": "【V2.5 · 军械库适配版】识别多日累积吸筹后，即将由量变到质变的拉升拐点。核心依赖: PROCESS_META_COVERT_ACCUMULATION[基石], chip_flow_intensity_D[Source 2], flow_consistency_D[Source 2], VPA_EFFICIENCY_D[Source 1]。"
             },
- {
-                "name": "PROCESS_META_WINNER_CONVICTION",
-                "winner_conviction_params": {
-                    "mtf_slope_accel_weights": {
-                        "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1},
-                        "accel_periods": {"5": 0.6, "13": 0.4}
-                    },
-                    "belief_weights": {
-                        "winner_rate": 0.3,
-                        "profit_margin": 0.3,
-                        "chip_stability": 0.4
-                    },
-                    "pressure_weights": {
-                        "profit_pressure": 0.35,
-                        "trapped_pressure": 0.35,
-                        "vpa_efficiency": 0.3
-                    },
-                    "flow_weights": {
-                        "mf_conviction": 0.4,
-                        "net_mf_amount": 0.3,
-                        "flow_consistency": 0.3
-                    },
-                    "capitulation_weights": {
-                        "loser_pain": 0.6,
-                        "panic_cascade": 0.4
-                    },
-                    "stealth_weights": {
-                        "stealth_flow": 0.15,
-                        "intraday_accum": 0.15,
-                        "hab_stealth_21d": 0.15,
-                        "kinetic_stealth_13d": 0.1,
-                        "chip_undercurrent": 0.15,
-                        "order_anomaly": 0.1,
-                        "wash_trade_mask": 0.05,
-                        "afternoon_mask": 0.05,
-                        "closing_mask": 0.1,
-                        "synergy_gain_factor": 3.0,
-                        "volatility_suppression_gamma": 1.6
-                    },
-                    "context_weights": {
-                        "market_sentiment": 0.5,
-                        "trend_confirmation": 0.5
-                    },
-                    "final_fusion_weights": {
-                        "belief": 0.25,
-                        "pressure": 0.2,
-                        "flow": 0.25,
-                        "capitulation": 0.15,
-                        "stealth": 0.15
-                    },
-                    "final_exponent": 1.8
-                }
-            },
             {
                 "name": "PROCESS_META_LOSER_CAPITULATION",
                 "type": "meta_analysis",
