@@ -68,30 +68,30 @@ class CalculateProcessCovertAccumulation:
 
     def _apply_signal_latching(self, final_score: pd.Series, context: pd.Series, action: pd.Series, chip: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.2·异常防御版】熵权锁存器。
-        -核心修正:增加rolling窗口的min_periods保护，防止计算因数据量不足产生全NaN导致返回None。
+        【V7.3·动态门槛版】熵权锁存器。
+        -核心修正:引入'筹码引导触发'机制，当筹码分>0.75时，锁存触发分值下调至0.45。
         """
-        # 1. 计算共振熵
         components = pd.concat([context, action, chip], axis=1)
-        ewd_factor = components.std(axis=1).fillna(1.0) # 缺失共振按高熵(不锁定)处理
-        # 2. 定义触发条件
-        high_score_mask = final_score > 0.6
-        low_entropy_mask = ewd_factor < 0.15
+        ewd_factor = components.std(axis=1).fillna(1.0)
+        # 动态激活阈值逻辑: 极致筹码优化可降低分值要求
+        # 筹码分强则门槛低
+        adaptive_score_threshold = chip.apply(lambda x: 0.45 if x > 0.75 else 0.60)
+        high_score_mask = final_score > adaptive_score_threshold
+        low_entropy_mask = ewd_factor < 0.20 # 放宽熵共振要求
         trigger_signal = (high_score_mask & low_entropy_mask).astype(int)
-        # 3. 时域积分: 增加 min_periods=1 确保小样本下也能有输出
         rolling_trigger = trigger_signal.rolling(window=5, min_periods=1).sum().fillna(0)
-        activation_mask = rolling_trigger >= 3
-        # 4. 状态机迭代
+        activation_mask = rolling_trigger >= 2 # 5日内2日即可激活(更灵敏)
         raw_values = final_score.fillna(0).values
         active_flags = activation_mask.values
         latched_values = np.zeros_like(raw_values)
-        decay_rate, break_threshold, is_locked, last_val = 0.98, 0.40, False, 0.0
+        decay_rate, break_threshold, is_locked, last_val = 0.99, 0.35, False, 0.0 # 衰减更慢，熔断更低
         for i in range(len(raw_values)):
             curr_raw = raw_values[i]
             is_active = active_flags[i] > 0
             if is_active:
                 is_locked = True
-                curr_val = np.tanh(curr_raw * 2.0)
+                # 非线性增强: 使用tanh将信号推入确定区
+                curr_val = np.tanh(curr_raw * 1.5) + 0.1 
                 last_val = max(curr_val, last_val * decay_rate)
             elif is_locked:
                 if curr_raw < break_threshold:
@@ -101,13 +101,9 @@ class CalculateProcessCovertAccumulation:
             else:
                 last_val = curr_raw
             latched_values[i] = last_val
-        # 5. 结果封装: 确保返回非None
         latched_series = pd.Series(latched_values, index=df_index).clip(0, 1)
-        _temp_debug_values["锁存器状态"] = {
-            "EWD_Entropy": float(ewd_factor.iloc[-1]),
-            "Rolling_Trigger": int(rolling_trigger.iloc[-1]),
-            "Is_Locked": bool(is_locked)
-        }
+        print(f"DEBUG_PROBE:AdaptiveLatch|RawAvg={final_score.mean():.4f}|LatchedLast={latched_series.iloc[-1]:.4f}")
+        _temp_debug_values["锁存器状态"] = {"Is_Locked": bool(is_locked), "Threshold": float(adaptive_score_threshold.iloc[-1])}
         return latched_series
 
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
@@ -260,70 +256,35 @@ class CalculateProcessCovertAccumulation:
 
     def _calculate_derived_signals(self, df: pd.DataFrame, mtf_slope_accel_weights: Dict, cumulative_flow_windows: List[int], cumulative_acc_windows: List[int], _temp_debug_values: Optional[Dict] = None):
         """
-        【V6.4 · 记忆与动力学注入版】计算高阶物理导数(Kinematics)与历史累积记忆(HAB)。
-        - 核心升级:
-            1. HAB系统: 对 '特大单' 和 '隐蔽流' 建立有损记忆池，防止信号闪烁。
-            2. 动力学: 计算 Jerk (加加速度) 以识别主力的"抢筹"意图。
+        【V6.14·健壮导数版】计算高阶物理导数。
+        -核心修正:增加Jerk补位逻辑，当短周期Jerk为nan时由长周期平滑填充，确保动力学判定不失效。
         """
-        # 1. 定义物理量目标
-        # 流量型 (Flow) -> 需要积分 (HAB)
-        flow_targets = [
-            'buy_elg_amount_rate_D',       # 特大单买入占比
-            'stealth_flow_ratio_D',        # 隐蔽资金意图
-            'SMART_MONEY_INST_NET_BUY_D'   # 机构净买入
-        ]
-        # 状态型 (State) -> 需要微分 (Slope/Jerk)
-        kinematic_targets = [
-            'intraday_accumulation_confidence_D', # 吸筹置信度
-            'flow_consistency_D',                 # 资金一致性
-            'stealth_flow_ratio_D'                # 既是流也是态
-        ]
-        # 2. HAB (存量记忆) 计算核心逻辑 (The Leaky Bucket)
-        # 设定34天为主要的机构筹码沉淀周期，模拟"吸筹后锁仓"
+        kinematic_targets = ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D', 'INTRADAY_SUPPORT_INTENT_D', 'chip_concentration_ratio_D', 'winner_rate_D', 'chip_entropy_D']
         hab_decay_span = 34
-        for base in flow_targets:
+        for base in ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']:
             if base in df.columns:
-                clean_series = df[base].fillna(0) # 流量缺失视为0
-                hab_col = f'HAB_{base}'
-                # EWM 模拟有损累积：今日流入 + 昨日存量的衰减
-                # adjust=False 意味着 y_t = alpha * x_t + (1 - alpha) * y_{t-1}
-                # 我们放大结果以匹配量级 ( * hab_decay_span)
-                df[hab_col] = clean_series.ewm(span=hab_decay_span, adjust=False).mean() * hab_decay_span
-                # 计算"势能密度" (Potential Energy Density): 存量 / 当前波动率
-                # 逻辑：在低波动率下积累了大量筹码 = 极高的爆发势能
-                atr = df.get('ATR_14_D', pd.Series(1.0, index=df.index))
-                norm_atr = atr / (df['close'] + 0.001)
-                pe_col = f'POTENTIAL_{base}'
-                df[pe_col] = df[hab_col] / (norm_atr + 0.001)
-                if _temp_debug_values is not None:
-                    _temp_debug_values[f"HAB_STATS_{base}"] = {
-                        "last_hab": float(df[hab_col].iloc[-1] if len(df) > 0 else 0),
-                        "last_potential": float(df[pe_col].iloc[-1] if len(df) > 0 else 0)
-                    }
-        # 3. 动力学导数计算 (Slope/Accel/Jerk)
-        # 缩短窗口以捕捉微观变化：3日(超短) / 8日(波段)
-        fib_windows = [3, 8]
+                clean_series = df[base].fillna(0)
+                df[f'HAB_{base}'] = clean_series.ewm(span=hab_decay_span, adjust=False).mean() * hab_decay_span
+        fib_windows = [3, 8, 13]
         for base in kinematic_targets:
             if base not in df.columns: continue
-            # 保持NaN以避免错误导数，但计算slope时pandas_ta会自动处理
-            series_clean = df[base]
-            # 预平滑，防止Tick级噪点造成导数爆炸
-            series_smooth = ta.ema(series_clean.fillna(method='ffill'), length=3)
+            series_smooth = ta.ema(df[base].ffill().fillna(0), length=3)
             for period in fib_windows:
-                # 3.1 速度 (Velocity/Slope)
                 s_col = f'SLOPE_{period}_{base}'
                 slope_series = ta.slope(series_smooth, length=period)
                 df[s_col] = slope_series
-                # 3.2 加速度 (Acceleration)
-                # 加速度 = 速度的斜率
                 a_col = f'ACCEL_{period}_{base}'
-                accel_series = ta.slope(slope_series, length=3)
-                df[a_col] = accel_series
-                # 3.3 加加速度 (Jerk) - 仅对短周期计算，捕捉突变
-                if period == 3:
-                    j_col = f'JERK_{period}_{base}'
-                    # Jerk = 加速度的斜率
-                    df[j_col] = ta.slope(accel_series, length=3)
+                df[a_col] = ta.slope(slope_series.fillna(0), length=3)
+                j_col = f'JERK_{period}_{base}'
+                df[j_col] = ta.slope(df[a_col].fillna(0), length=3)
+        # 修正Jerk空值:由13日向3日/8日回填
+        for base in ['stealth_flow_ratio_D', 'SMART_MONEY_INST_NET_BUY_D']:
+            j3, j8, j13 = f'JERK_3_{base}', f'JERK_8_{base}', f'JERK_13_{base}'
+            if j13 in df.columns:
+                df[j3] = df[j3].fillna(df[j8]).fillna(df[j13])
+                df[j8] = df[j8].fillna(df[j13])
+        if _temp_debug_values is not None:
+            print(f"DEBUG_PROBE:DerivativesHealed|Base={kinematic_targets[0]}|J3_HasData={not df['JERK_3_stealth_flow_ratio_D'].tail(1).isna().any()}")
 
     def _calculate_covert_action_score(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], covert_action_weights: Dict, _temp_debug_values: Dict, cumulative_flow_windows: List[int]) -> pd.Series:
         """
