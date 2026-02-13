@@ -23,22 +23,45 @@ class CalculateCostAdvantageTrendRelationship:
         self.probe_dates = self.helper.probe_dates
 
     def _initialize_debug_context(self, method_name: str, df: pd.DataFrame) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
-        print(f"self.debug_params: {self.debug_params}")
-        print(f"self.debug_params.get('enabled'): {self.debug_params.get('enabled')}")
-        print(f"get_param_value(self.debug_params.get('enabled'), False): {get_param_value(self.debug_params.get('enabled'), False)}")
+        # 1. 获取调试开关状态
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
         probe_ts = None
-        if is_debug and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+        
+        # 2. 只有开启调试且数据不为空时才进行匹配
+        if is_debug and not df.empty:
+            # 【核心修复】将目标日期转为字符串集合 (例如 {'2025-12-30'})，彻底解决时区/时间精度不一致问题
+            target_dates_str = set()
+            if self.probe_dates:
+                # 兼容处理：确保输入转为字符串
+                target_dates_str = set(pd.to_datetime(d).strftime('%Y-%m-%d') for d in self.probe_dates)
+            
+            # 遍历数据索引（倒序查找，优先匹配最近的日期）
             for date in reversed(df.index):
-                if pd.to_datetime(date).normalize() in probe_dates_dt:
+                # 将当前数据的索引日期也转为字符串
+                current_date_str = pd.to_datetime(date).strftime('%Y-%m-%d')
+                
+                # 字符串比对：只要日期文字一样，就算匹配成功
+                if current_date_str in target_dates_str:
                     probe_ts = date
                     break
+            
+            # 【兜底机制】如果比对失败（例如数据日期是 2025-12-29 而探针是 30 号），强制使用最后一行数据
+            if probe_ts is None and target_dates_str:
+                last_date = df.index[-1]
+                last_date_str = pd.to_datetime(last_date).strftime('%Y-%m-%d')
+                print(f"!!! [探针修正] 指定日期 {self.probe_dates} 未匹配，强制使用数据最后一天: {last_date_str} !!!")
+                probe_ts = last_date
+
         debug_output = {}
         temp_vals = {}
-        if is_debug and probe_ts:
-            print(f"【V11.0探针激活】目标日期: {probe_ts.strftime('%Y-%m-%d')} | 方法: {method_name}")
-            debug_output[f"--- {method_name} Probe @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        
+        # 3. 激活探针上下文
+        if is_debug and probe_ts is not None:
+            # 打印时也用字符串，确保显示整洁
+            ts_display = pd.to_datetime(probe_ts).strftime('%Y-%m-%d')
+            print(f"【V11.0探针激活】目标日期: {ts_display} | 方法: {method_name}")
+            debug_output[f"--- {method_name} Probe @ {ts_display} ---"] = ""
+            
         return is_debug and (probe_ts is not None), probe_ts, debug_output, temp_vals
 
     def _probe_val(self, key: str, val: Any, temp_vals: Dict, section: str = "General"):
