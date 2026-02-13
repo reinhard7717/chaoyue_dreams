@@ -874,25 +874,27 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_chaotic_collapse_resonance(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V15.0 · 几何奇点混沌核心】
-        逻辑公式：Resonance = (热力熵 + 几何曲率) * 吸引子耗散 * 先验校准
-        - 热力熵：信号熵Jerk + 结构熵Accel + 临界HAB。
-        - 几何曲率 (Curvature Tear): 曲率 Jerk > 0 (时空结构断裂)。
-        - 吸引子耗散 (Dissipation): 聚类强度 Slope < 0 (引力中心瓦解)。
-        - 先验校准 (Prior): Reversal Score。
-        - 版本号：V15.0.0
+        【V15.1 · 几何奇点混沌核心】修复探针打印格式错误
+        - 修改思路：
+            1. 修复在 print f-string 中直接格式化 Series (thermo_chaos 等) 导致的 TypeError。
+            2. 确保所有中间变量在输出时均使用 .iloc[-1] 转为标量。
+        - 版本号：V15.1.0
         """
         # --- A. 热力熵 (Thermodynamic Entropy - V14.5 保留) ---
         p_ent_jerk = raw_signals['JERK_5_PRICE_ENTROPY_D']
         p_ent_mad = raw_signals['HAB_MAD_JERK_5_PRICE_ENTROPY_D']
         signal_shock = np.tanh(p_ent_jerk / (p_ent_mad * 1.618 + 1e-6)).clip(0, 1)
+        
         c_ent_accel = raw_signals['ACCEL_5_concentration_entropy_D']
         c_ent_mad = raw_signals['HAB_MAD_ACCEL_5_concentration_entropy_D']
         structure_decay = np.tanh(c_ent_accel / (c_ent_mad * 1.5 + 1e-6)).clip(0, 1)
+        
         p_ent_accum = raw_signals['HAB_ACCUM_21_PRICE_ENTROPY_D']
         criticality = (1 / (1 + np.exp(-(p_ent_accum - 15.0) / 3.0))).clip(0.5, 1.5)
+        
         en_conc = raw_signals['energy_concentration_D']
         energy_amp = 1.0 + np.tanh(en_conc / 50.0).clip(0)
+        
         div_jerk = raw_signals['JERK_5_high_freq_flow_divergence_D']
         div_mad = raw_signals['HAB_MAD_JERK_5_high_freq_flow_divergence_D']
         micro_trigger = np.tanh(div_jerk / (div_mad * 2.0 + 1e-6)).clip(0, 1)
@@ -924,12 +926,12 @@ class CalculateWinnerConvictionDecay:
         
         final_score = np.tanh(raw_resonance * 0.8).clip(0, 1)
         
-        # F. 全息探针
-        print(f"\n[V15.0_GEOMETRIC_SINGULARITY_PROBE]")
-        print(f"  > [THERMO] Chaos: {thermo_chaos:.4f} (Sig:{signal_shock:.2f}, Struc:{structure_decay:.2f}, Crit:{criticality:.2f})")
-        print(f"  > [GEOM] CurvJerk: {curv_jerk.iloc[-1]:.2e} -> Tear: {curvature_tear:.4f}")
-        print(f"  > [TOPO] ClustSlope: {clust_slope.iloc[-1]:.2e} -> Dissipation: {dissipation_factor:.2f}")
-        print(f"  > [PRIOR] RevScore: {rev_score.iloc[-1]:.1f} -> Prob: {prior_prob:.2f}")
+        # F. 全息探针 (修复：增加 .iloc[-1])
+        print(f"\n[V15.1_GEOMETRIC_SINGULARITY_PROBE]")
+        print(f"  > [THERMO] Chaos: {thermo_chaos.iloc[-1]:.4f} (Sig:{signal_shock.iloc[-1]:.2f}, Struc:{structure_decay.iloc[-1]:.2f}, Crit:{criticality.iloc[-1]:.2f})")
+        print(f"  > [GEOM] CurvJerk: {curv_jerk.iloc[-1]:.2e} -> Tear: {curvature_tear.iloc[-1]:.4f}")
+        print(f"  > [TOPO] ClustSlope: {clust_slope.iloc[-1]:.2e} -> Dissipation: {dissipation_factor.iloc[-1]:.2f}")
+        print(f"  > [PRIOR] RevScore: {rev_score.iloc[-1]:.1f} -> Prob: {prior_prob.iloc[-1]:.2f}")
         print(f"  > FINAL_CHAOS_RESONANCE: {final_score.iloc[-1]:.4f}")
         
         _temp_debug_values["cross_module_signals"]["chaos_resonance"] = final_score
