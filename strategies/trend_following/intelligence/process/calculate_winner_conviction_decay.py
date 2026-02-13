@@ -23,13 +23,13 @@ class CalculateWinnerConvictionDecay:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V19.0 · 主执行流】量子相位共振升级版
+        【V19.2 · 主执行流】引入全量数据探针与全息超导协同网络
         - 修改思路：
             1. 将 raw_signals 透传至 _calculate_synergy_factor 以支持高维计算。
-            2. 引入 V19.0 相位共振逻辑，替代原有的线性融合。
-        - 版本号：V19.0.0
+            2. 引入 V19.2 相位共振逻辑，替代原有的线性融合。
+        - 版本号：V19.2.0
         """
-        print(f"\n{'#'*35} [WINNER_CONVICTION_DECAY V19.0] PHASE INITIATED {'#'*35}")
+        print(f"\n{'#'*35} [WINNER_CONVICTION_DECAY V19.2] PHASE INITIATED {'#'*35}")
         method_name = "calculate_winner_conviction_decay"
         is_debug_enabled = get_param_value(self.helper.debug_params.get('enabled'), True)
         probe_ts = None
@@ -54,11 +54,10 @@ class CalculateWinnerConvictionDecay:
         dec_f = self._calculate_deception_filter(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         ctx_m = self._calculate_contextual_modulator(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values, is_debug_enabled, probe_ts)
         st_b = self._calculate_stealth_accumulation_bonus(df_index, raw_signals, _temp_debug_values)
-        # 4. 融合层：量子相位共振逻辑 (V19.0 Update: 传入 raw_signals)
+        # 4. 融合层：全息超导协同网络 (V19.2 Update: 传入 raw_signals)
         syn_f = self._calculate_synergy_factor(conv_s, res_s, raw_signals, _temp_debug_values)
-        # 5. 终极缝合与决策
         final_s = self._perform_final_fusion(df_index, conv_s, res_s, dec_f, st_b, params_dict, _temp_debug_values)
-        # 6. 决策层：EWD 因子与极速锁存
+        # 5. 决策层：EWD 因子与极速锁存
         ewd_f = self._calculate_ewd_factor(conv_s, res_s, ctx_m, raw_signals, _temp_debug_values)
         latched_s = self._apply_latch_logic(df_index, final_s, ewd_f, params_dict, _temp_debug_values)
         if is_debug_enabled and probe_ts: self._execute_intelligence_probe(method_name, probe_ts, _temp_debug_values, latched_s)
@@ -66,11 +65,11 @@ class CalculateWinnerConvictionDecay:
 
     def _get_decay_params_and_signals(self, config: Dict, method_name: str) -> Tuple[Dict, List[str]]:
         """
-        【V18.4 · 全维数据视界加载】
+        【V19.2 · 全维数据视界加载】
         - 修改思路：
-            1. 新增 'intraday_trough_filling_degree_D' (主动修复) 和 'intraday_low_lock_ratio_D' (低位锁仓)。
-            2. 将 'intraday_trough_filling_degree_D' 加入 accum_21 统计，以监测长周期的"修复基因"。
-        - 版本号：V18.4.0
+            1. 修复 KeyError: 'entropy_threshold'，在 latch_params 中补充该键值。
+            2. 新增 'MA_COHERENCE_RESONANCE_D' 至依赖列表，支持 V19.2 结构锚定计算。
+        - 版本号：V19.2.0
         """
         decay_params = get_param_value(config.get('winner_conviction_decay_params'), {})
         fibo_periods = ["5", "13", "21", "34"]
@@ -82,19 +81,15 @@ class CalculateWinnerConvictionDecay:
             "chain_collapse_resonance": 0.25,
             "stealth_accumulation_bonus": 0.05, "deception_penalty": 0.02
         }
-        # 核心原子指标清单 (Source: 最终军械库清单.txt)
         required_df_columns = [
-            # 基础量价与结构
             'OCH_D', 'OCH_ACCELERATION_D', 'days_since_last_peak_D', 'turnover_rate_D', 'down_limit_pct_D',
             'net_amount_ratio_D', 'profit_pressure_D', 'winner_rate_D', 'uptrend_strength_D', 'close_D',
-            # 聪明钱与资金流
             'SMART_MONEY_INST_NET_BUY_D', 'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
             'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'SMART_MONEY_SYNERGY_BUY_D',
             'flow_consistency_D', 'flow_zscore_D', 'flow_resistance_level_D', 'flow_impact_ratio_D',
             'flow_cluster_intensity_D', 'closing_flow_intensity_D', 'inflow_persistence_D',
             'stealth_flow_ratio_D', 'buy_lg_amount_rate_D', 'buy_sm_amount_rate_D',
             'high_freq_flow_kurtosis_D', 'high_freq_flow_divergence_D',
-            # 筹码与博弈
             'pressure_trapped_D', 'chip_entropy_D', 'chip_stability_D', 'chip_kurtosis_D',
             'chip_stability_change_5d_D', 'concentration_entropy_D', 'energy_concentration_D',
             'intraday_high_lock_ratio_D', 'high_position_lock_ratio_90_D',
@@ -102,60 +97,59 @@ class CalculateWinnerConvictionDecay:
             'intraday_cost_center_migration_D', 'intraday_cost_center_volatility_D',
             'INTRADAY_SUPPORT_INTENT_D', 'intraday_accumulation_confidence_D',
             'intraday_distribution_confidence_D', 'main_force_activity_index_D',
-            'intraday_support_test_count_D', 'cost_5pct_D', # V8.6
-            'intraday_trough_filling_degree_D', 'intraday_low_lock_ratio_D', # V8.8 新增
-            # 宏观与行业
+            'intraday_support_test_count_D', 'cost_5pct_D',
+            'intraday_trough_filling_degree_D', 'intraday_low_lock_ratio_D',
             'market_sentiment_score_D', 'THEME_HOTNESS_SCORE_D',
             'industry_leader_score_D', 'industry_rank_accel_D', 'industry_rank_slope_D',
             'industry_breadth_score_D', 'industry_downtrend_score_D', 'industry_markup_score_D',
             'industry_stagnation_score_D', 'industry_preheat_score_D',
             'mid_long_sync_D', 'daily_monthly_sync_D', 'trend_confirmation_score_D',
-            # 技术形态与信号
             'VPA_EFFICIENCY_D', 'PRICE_ENTROPY_D', 'PRICE_FRACTAL_DIM_D',
-            'GEOM_ARC_CURVATURE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
+            'GEOM_ARC_CURVATURE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'MA_COHERENCE_RESONANCE_D', # V19.2 新增
             'TURNOVER_STABILITY_INDEX_D', 'tick_large_order_net_D',
             'tick_abnormal_volume_ratio_D', 'tick_clustering_index_D', 'tick_chip_transfer_efficiency_D',
             'price_flow_divergence_D', 'reversal_warning_score_D',
-            # V18.0 奇点新增
             'behavior_distribution_D', 'reversal_prob_D'
         ]
-        # 配置包
         params_dict = {
-            'decay_params': decay_params, 
-            'fibo_periods': fibo_periods, 
+            'decay_params': decay_params,
+            'fibo_periods': fibo_periods,
             'belief_decay_weights': belief_decay_weights,
             'hab_settings': {"short": 13, "medium": 21, "long": 34},
-            'latch_params': {"window": 5, "hit_count": 3, "high_score_threshold": 0.55, "core_threshold": 0.35},
+            # V19.2 修复: 补充 entropy_threshold 和 momentum_protection_factor
+            'latch_params': {
+                "window": 5, "hit_count": 3,
+                "high_score_threshold": 0.55, "core_threshold": 0.35,
+                "entropy_threshold": 0.6, "momentum_protection_factor": 0.8
+            },
             'final_exponent': get_param_value(config.get('final_exponent'), 3.5),
-            # 动力学计算清单 (Kinetic Targets for Slope/Accel/Jerk)
             'kinetic_targets': [
-                'intraday_high_lock_ratio_D', 'pressure_trapped_D', 'high_freq_flow_kurtosis_D', 
-                'industry_leader_score_D', 'down_limit_pct_D', 'turnover_rate_D', 'behavior_distribution_D', 
-                'reversal_prob_D', 'SMART_MONEY_INST_NET_BUY_D', 'flow_consistency_D', 'buy_lg_amount_rate_D', 
-                'VPA_EFFICIENCY_D', 'mid_long_sync_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 
-                'stealth_flow_ratio_D', 'chip_entropy_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 
-                'tick_abnormal_volume_ratio_D', 'price_flow_divergence_D', 'buy_sm_amount_rate_D', 
-                'high_position_lock_ratio_90_D', 'THEME_HOTNESS_SCORE_D', 'market_sentiment_score_D', 
-                'main_force_activity_index_D', 'flow_resistance_level_D', 'flow_impact_ratio_D', 
-                'INTRADAY_SUPPORT_INTENT_D', 'intraday_cost_center_migration_D', 'intraday_cost_center_volatility_D', 
-                'chip_kurtosis_D', 'PRICE_ENTROPY_D', 'concentration_entropy_D', 'high_freq_flow_divergence_D', 
-                'GEOM_ARC_CURVATURE_D', 'flow_cluster_intensity_D', 'industry_stagnation_score_D', 
+                'intraday_high_lock_ratio_D', 'pressure_trapped_D', 'high_freq_flow_kurtosis_D',
+                'industry_leader_score_D', 'down_limit_pct_D', 'turnover_rate_D', 'behavior_distribution_D',
+                'reversal_prob_D', 'SMART_MONEY_INST_NET_BUY_D', 'flow_consistency_D', 'buy_lg_amount_rate_D',
+                'VPA_EFFICIENCY_D', 'mid_long_sync_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
+                'stealth_flow_ratio_D', 'chip_entropy_D', 'MA_POTENTIAL_COMPRESSION_RATE_D',
+                'tick_abnormal_volume_ratio_D', 'price_flow_divergence_D', 'buy_sm_amount_rate_D',
+                'high_position_lock_ratio_90_D', 'THEME_HOTNESS_SCORE_D', 'market_sentiment_score_D',
+                'main_force_activity_index_D', 'flow_resistance_level_D', 'flow_impact_ratio_D',
+                'INTRADAY_SUPPORT_INTENT_D', 'intraday_cost_center_migration_D', 'intraday_cost_center_volatility_D',
+                'chip_kurtosis_D', 'PRICE_ENTROPY_D', 'concentration_entropy_D', 'high_freq_flow_divergence_D',
+                'GEOM_ARC_CURVATURE_D', 'flow_cluster_intensity_D', 'industry_stagnation_score_D',
                 'industry_markup_score_D', 'OCH_D'
             ],
-            # 统计学计算清单 (Statistical Bases for Long/Std/Accum)
             'stat_targets': {
                 'long_std': [
-                    'mid_long_sync_D', 'chip_entropy_D', 'tick_clustering_index_D', 
-                    'intraday_chip_game_index_D', 'SMART_MONEY_INST_NET_BUY_D', 
+                    'mid_long_sync_D', 'chip_entropy_D', 'tick_clustering_index_D',
+                    'intraday_chip_game_index_D', 'SMART_MONEY_INST_NET_BUY_D',
                     'high_freq_flow_kurtosis_D', 'tick_abnormal_volume_ratio_D'
                 ],
                 'long_only': ['pressure_trapped_D'],
                 'accum_21': [
-                    'behavior_distribution_D', 'SMART_MONEY_INST_NET_BUY_D', 'stealth_flow_ratio_D', 
-                    'market_sentiment_score_D', 'intraday_chip_consolidation_degree_D', 'PRICE_ENTROPY_D', 
+                    'behavior_distribution_D', 'SMART_MONEY_INST_NET_BUY_D', 'stealth_flow_ratio_D',
+                    'market_sentiment_score_D', 'intraday_chip_consolidation_degree_D', 'PRICE_ENTROPY_D',
                     'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_trapped_D',
-                    'intraday_support_test_count_D', # 加工硬化
-                    'intraday_trough_filling_degree_D' # V8.8: 修复基因
+                    'intraday_support_test_count_D',
+                    'intraday_trough_filling_degree_D'
                 ]
             }
         }
@@ -385,36 +379,27 @@ class CalculateWinnerConvictionDecay:
         synergy_accum = raw_synergy.rolling(window=13).sum().fillna(0)
         density_coef = 0.8 + np.tanh(synergy_accum / 6.0).clip(0) * 0.4
         theoretical_synergy = (raw_synergy + locking_bonus - decoherence_penalty) * density_coef
-
         # --- 2. V19.2 全息维度校准 (Holographic Calibration) ---
         # A. 效率门控 (Thermodynamic Efficiency Gate)
         # VPA_EFFICIENCY_D: 量价效率。如果 < 0.4，说明全是摩擦，共振无效。
         vpa_eff = raw_signals.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=conviction.index))
-        # 门控逻辑：效率越低，折扣越狠。效率 > 0.8 无损通过。
         efficiency_gate = np.tanh(vpa_eff * 2.0).clip(0.3, 1.0)
         # B. 行为助推 (Behavioral Booster)
-        # SMART_MONEY_HM_COORDINATED_ATTACK_D: 机构游资协同攻击 (通常为 0 或 1，或者是分数)
-        # SMART_MONEY_SYNERGY_BUY_D: 协同买入强度
         coord_attack = raw_signals.get('SMART_MONEY_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=conviction.index))
         syn_buy = raw_signals.get('SMART_MONEY_SYNERGY_BUY_D', pd.Series(0.0, index=conviction.index))
-        # 助推逻辑：如果有显性攻击信号，给予非线性加成
         attack_boost = 0.0
         if theoretical_synergy.iloc[-1] > 0: # 仅在正向共振时助推
             # 协同攻击存在 或者 协同买入强度大
             is_attacking = (coord_attack > 0) | (syn_buy > 0.5)
             attack_boost = np.where(is_attacking, 0.25, 0.0)
-            
         # C. 结构锚定 (Structural Anchor)
         # MA_COHERENCE_RESONANCE_D: 均线相干共振度
         ma_coherence = raw_signals.get('MA_COHERENCE_RESONANCE_D', pd.Series(50.0, index=conviction.index))
         # 锚定逻辑：如果均线共振度低 (<30)，说明结构松散，Synergy 容易夭折，需打折。
-        # 如果均线共振度极高 (>80)，说明趋势极其强劲，保持原值或微增。
         structure_anchor = np.tanh(ma_coherence / 40.0).clip(0.6, 1.1)
-
         # --- 3. 终极合成 (Hyper-Fusion) ---
         # Final = (Theoretical + Boost) * Gate * Anchor
         final_synergy_raw = (theoretical_synergy + attack_boost) * efficiency_gate * structure_anchor
-        # 归一化
         final_synergy = np.tanh(final_synergy_raw).clip(-1, 1).fillna(0)
         # 4. 全息探针
         print(f"\n[V19.2_HOLOGRAPHIC_SUPERCONDUCTING_PROBE]")
