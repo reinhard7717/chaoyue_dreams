@@ -23,7 +23,7 @@ class CalculateCostAdvantageTrendRelationship:
         self.probe_dates = self.helper.probe_dates
 
     def _initialize_debug_context(self, method_name: str, df: pd.DataFrame) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
-        is_debug = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
+        is_debug = get_param_value(self.debug_params.get('enabled'), False)
         probe_ts = None
         if is_debug and self.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
@@ -53,7 +53,7 @@ class CalculateCostAdvantageTrendRelationship:
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """【V11.0.0 · 五维共振计算主入口】"""
         method_name = "CalculateCostAdvantage_V11"
-        print(f" ====== Start【V11.0.0】启动五维成本资金共振计算，数据形状: {df.shape} ======")
+        print(f" ====== Start CalculateCostAdvantageTrendRelationship【V11.0.0】启动五维成本资金共振计算，数据形状: {df.shape} ======")
         is_debug, probe_ts, debug_out, temp_vals = self._initialize_debug_context(method_name, df)
         df_processed = self._check_and_repair_signals(df.copy(), method_name)
         df_index = df_processed.index
