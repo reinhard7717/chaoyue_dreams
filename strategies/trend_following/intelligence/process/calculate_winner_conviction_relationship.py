@@ -1,11 +1,11 @@
 # strategies\trend_following\intelligence\process\calculate_winner_conviction_relationship.py
+# 【V5.0 · 全息筹码信念与资金共识版】“赢家信念”专属关系计算引擎
 import json
 import os
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from typing import Dict, List, Optional, Any, Tuple
-
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score,
     is_limit_up, get_adaptive_mtf_normalized_bipolar_score,
@@ -15,79 +15,67 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateWinnerConvictionRelationship:
     """
-    【V4.0 · 韧性博弈与多维时空版】“赢家信念”专属关系计算引擎
-    - 核心重构: 彻底废弃旧的“状态对抗”逻辑。引入“信念强度 × 压力韧性 × 诡道过滤 × 情境调制”的全新四维诊断框架。
+    【V5.0 · 全息筹码信念与资金共识版】“赢家信念”专属关系计算引擎
+    PROCESS_META_WINNER_CONVICTION
+    - 核心重构: 废弃旧的微观订单流依赖，基于《最终军械库》重构为“信念坚固度 × 压力消化力 × 资金共识度”三元模型。
     - 核心升级:
-        1.  **多时间维度斜率与加速度融合：** 对“赢家稳定性”和“利润兑现压力”进行多时间维度（5, 13, 21, 34, 55日）斜率和加速度的融合，评估其趋势和动能。
-        2.  **共振与背离判断：** 评估“赢家稳定性”和“利润兑现压力”在多时间维度上的共振（同向增强/减弱）或背离（一强一弱）。
-        3.  **历史相对位置：** 引入信号相对于其历史区间的百分位，判断其是处于高位还是低位。
-        4.  **诡道博弈特性：** 引入欺骗指数、对倒强度等信号，对虚假的信念增强或减弱进行惩罚。
-        5.  **情境调制：** 引入市场情绪、波动率等情境因子进行动态调整。
-        6.  **非线性融合：** 使用 _robust_geometric_mean 对所有强度/幅度组件进行融合，并结合整体方向。
-    - 目标: 提供一个双极性分数，正值代表赢家信念坚定，负值代表信念动摇或面临风险。
+        1. 信念坚固度: 融合获利盘比例(广度)、平均获利幅度(深度)与筹码稳定性(持久度)。
+        2. 压力消化力: 动态评估获利兑现压力与套牢抛压，并结合VPA效率判断承接能力。
+        3. 资金共识度: 引入主力信念指数与净额流向，验证信念的真实性。
+        4. 全息调试: 暴露全链路计算节点，支持深度诊断。
     """
     def __init__(self, strategy_instance, helper: ProcessIntelligenceHelper):
-        """
-        初始化拆单吸筹强度计算器。
-        参数:
-            strategy_instance: 策略实例，用于访问全局配置和原子状态。
-            helper: ProcessIntelligenceHelper 实例，用于访问辅助方法。
-        """
         self.strategy = strategy_instance
         self.helper = helper
-        # 从 helper 获取参数
         self.params = self.helper.params
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V4.1 · 参数修正版】“赢家信念”专属关系计算引擎
-        - 核心修正: 修复 `_calculate_conviction_strength`, `_calculate_pressure_resilience`,
-                    `_calculate_deception_filter`, `_calculate_contextual_modulator` 方法调用时缺少 `normalized_signals` 参数的错误。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            config (Dict): 包含配置信息的字典。
-        返回:
-            pd.Series: 融合后的MTF共振分数 (范围 [-1, 1])。
-        """
         method_name = "calculate_winner_conviction_relationship"
         df_index = df.index
         is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values = self._setup_debug_context(df, method_name)
         all_params = self._get_all_params(config)
         signals_data = self._get_and_validate_signals(df, df_index, method_name, all_params, _temp_debug_values)
+        
         if signals_data is None:
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"    -> [过程情报警告] {method_name} 缺少核心信号，返回默认值。"] = ""
-                self.helper._print_debug_output(debug_output)
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 归一化处理
+
         normalized_signals = self._normalize_raw_data(df_index, signals_data, _temp_debug_values)
-        # 1. 信念强度
-        conviction_strength_score = self._calculate_conviction_strength(df, df_index, method_name, signals_data, normalized_signals, all_params, _temp_debug_values)
-        # 2. 压力韧性
-        pressure_resilience_score = self._calculate_pressure_resilience(df, df_index, method_name, signals_data, normalized_signals, all_params, _temp_debug_values)
-        # 3. 共振与背离因子
-        synergy_factor = self._calculate_synergy_factor(df_index, conviction_strength_score, pressure_resilience_score, _temp_debug_values)
-        # 4. 诡道过滤
-        deception_filter = self._calculate_deception_filter(df, df_index, method_name, signals_data, normalized_signals, all_params, _temp_debug_values)
-        # 5. 情境调制
+
+        # 1. 信念坚固度 (原有)
+        belief_solidity_score = self._calculate_belief_solidity(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
+        # 2. 压力消化力 (原有)
+        pressure_digestion_score = self._calculate_pressure_digestion(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
+        # 3. 资金共识度 (原有)
+        flow_consensus_score = self._calculate_flow_consensus(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
+        
+        # 4. 【新增】对手盘投降度 (Adversary Capitulation)
+        adversary_capitulation_score = self._calculate_adversary_capitulation(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
+        
+        # 5. 【新增】微观隐蔽度 (Micro-Stealth)
+        micro_stealth_score = self._calculate_micro_stealth(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
+
+        # 情境调制
         context_modulator = self._calculate_contextual_modulator(df_index, signals_data, normalized_signals, all_params, _temp_debug_values)
-        # 6. 最终融合
-        final_score = self._perform_final_fusion(df_index, conviction_strength_score, pressure_resilience_score, synergy_factor, deception_filter, context_modulator, all_params, _temp_debug_values)
-        # self._print_debug_info(method_name, final_score, is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values)
+
+        # 最终五维融合
+        final_score = self._perform_final_fusion(
+            df_index, 
+            belief_solidity_score, 
+            pressure_digestion_score, 
+            flow_consensus_score,
+            adversary_capitulation_score,
+            micro_stealth_score,
+            context_modulator, 
+            all_params, 
+            _temp_debug_values
+        )
+        
+        self._print_debug_info(method_name, final_score, is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values)
         return final_score.astype(np.float32)
 
     def _setup_debug_context(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
-        """
-        【V1.0 · 调试上下文设置版】统一设置调试相关的变量。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            method_name (str): 调用此方法的名称，用于日志输出。
-        返回:
-            Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
-            (is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values)
-        """
         is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
         probe_ts = None
         if is_debug_enabled_for_method and self.probe_dates:
@@ -99,1162 +87,770 @@ class CalculateWinnerConvictionRelationship:
         if probe_ts is None:
             is_debug_enabled_for_method = False
         debug_output = {}
-        _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
+        _temp_debug_values = {}
         if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在计算赢家信念关系..."] = ""
+            debug_output[f"--- {method_name} 全息诊断 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
         return is_debug_enabled_for_method, probe_ts, debug_output, _temp_debug_values
 
     def _print_debug_info(self, method_name: str, final_score: pd.Series, is_debug_enabled_for_method: bool, probe_ts: Optional[pd.Timestamp], debug_output: Dict, _temp_debug_values: Dict):
-        """
-        【V1.5 · 调试信息全面打印版 - 增强字典类型处理】统一打印调试信息，新增累积上下文、趋势一致性、拐点信号的输出。
-        核心修正：增强对 `_temp_debug_values` 中字典类型数据的处理，避免 `AttributeError: 'dict' object has no attribute 'index'`。
-        新增：打印 `raw_conviction_enhancement_weights_from_params`、`base_fusion_weights_at_probe` 和 `dynamic_fusion_weights_pre_norm_at_probe`。
-        参数:
-            method_name (str): 调用此方法的名称，用于日志输出。
-            final_score (pd.Series): 最终计算出的分数。
-            is_debug_enabled_for_method (bool): 是否启用调试。
-            probe_ts (Optional[pd.Timestamp]): 探针日期。
-            debug_output (Dict): 调试输出字典。 (这是 calculate 方法的顶层 debug_output)
-            _temp_debug_values (Dict): 临时调试值字典。
-        """
         if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name, item in _temp_debug_values.get("原始信号值", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF信号值 ---"] = ""
-            for key, item in _temp_debug_values.get("MTF信号值", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 累积上下文信号值 ---"] = ""
-            for key, item in _temp_debug_values.get("累积上下文信号值", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            # 新增：打印 _get_and_validate_signals 内部收集的详细调试信息
-            internal_get_signals_debug = _temp_debug_values.get("_get_and_validate_signals_debug_output", {})
-            if internal_get_signals_debug:
-                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 累积上下文计算详情 ---"] = ""
-                for key, value in internal_get_signals_debug.items():
-                    # 假设 value 已经是格式化好的字符串或空字符串
-                    debug_output[key] = value # 直接添加到主 debug_output
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- MTF趋势一致性信号值 ---"] = ""
-            for key, item in _temp_debug_values.get("MTF趋势一致性信号值", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 拐点信号值 ---"] = ""
-            for key, item in _temp_debug_values.get("拐点信号值", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 归一化处理 ---"] = ""
-            for key, item in _temp_debug_values.get("归一化处理", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 信念强度 ---"] = ""
-            for key, item in _temp_debug_values.get("信念强度", {}).items():
-                if isinstance(item, pd.Series):
-                    val = item.loc[probe_ts] if probe_ts in item.index else np.nan
-                    debug_output[f"        {key}: {val:.4f}"] = ""
-                elif isinstance(item, dict): # 处理像 final_fusion_weights_at_probe 这样的字典
-                    debug_output[f"        {key}:"] = ""
-                    for sub_key, sub_val in item.items():
-                        # sub_val could be a Series or scalar
-                        if isinstance(sub_val, pd.Series):
-                            sub_val_at_probe = sub_val.loc[probe_ts] if probe_ts in sub_val.index else np.nan
-                            debug_output[f"          {sub_key}: {sub_val_at_probe:.4f}"] = ""
+            sections = ["原始信号值", "MTF信号值", "归一化处理", "信念坚固度", "压力消化力", "资金共识度", "情境调制", "最终融合"]
+            for section in sections:
+                if section in _temp_debug_values:
+                    debug_output[f"  -- [{section}] 详情:"] = ""
+                    for key, item in _temp_debug_values[section].items():
+                        if isinstance(item, pd.Series):
+                            val = item.loc[probe_ts] if probe_ts in item.index else np.nan
+                            debug_output[f"      {key}: {val:.4f}"] = ""
+                        elif isinstance(item, dict):
+                             debug_output[f"      {key}: (Dict content omitted)"] = ""
                         else:
-                            debug_output[f"          {sub_key}: {sub_val:.4f}"] = ""
-                else: # 处理标量值或其他非Series/非字典类型
-                    debug_output[f"        {key}: {item:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 压力韧性 ---"] = ""
-            for key, item in _temp_debug_values.get("压力韧性", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 共振与背离因子 ---"] = ""
-            for key, item in _temp_debug_values.get("共振与背离因子", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 诡道过滤 ---"] = ""
-            for key, item in _temp_debug_values.get("诡道过滤", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 情境调制 ---"] = ""
-            for key, item in _temp_debug_values.get("情境调制", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 最终融合 ---"] = ""
-            for key, item in _temp_debug_values.get("最终融合", {}).items():
-                val = item.loc[probe_ts] if isinstance(item, pd.Series) and probe_ts in item.index else (item if not isinstance(item, pd.Series) else np.nan)
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 赢家信念关系诊断完成，最终分值: {final_score.loc[probe_ts]:.4f}"] = ""
+                            debug_output[f"      {key}: {item:.4f}"] = ""
+            debug_output[f"  -- [最终结果] {method_name}: {final_score.loc[probe_ts]:.4f}"] = ""
             self.helper._print_debug_output(debug_output)
 
     def _get_all_params(self, config: Dict) -> Dict[str, Any]:
         """
-        【V1.22 · 参数全面扩展与累积上下文、趋势一致性、拐点参数版 - 累积上下文集成方式调整与信念信号修正】从 config 中获取所有必要的参数。
-        核心修改：累积上下文分数将作为独立的加分项参与融合，不再用于调制MTF信号。
-        核心修正：`loser_loss_margin_avg_inverse` 和 `chip_fatigue_inverse` 的逻辑修正，并更新其权重名称。
-        核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient_inverse` 的逻辑修正，并更新其权重名称。
-        核心调整：进一步降低 `main_force_conviction` 和 `core_resilience` 的权重，提高对应累积上下文信号的权重，以减少短期负面信号的过度影响，并增强长期累积信念的权重。
-        核心修正：`pressure_resilience_enhancement_weights` 中 `core_resilience` 的权重调整，并移除 `cumulative_dispersal_by_distribution` 的权重，因为它现在是 `core_resilience` 的主要驱动。
-        新增：`cumulative_conviction_threshold_params` 用于动态调整信念强度融合权重，并引入健康模式下的累积信念权重放大因子。
-        核心修改：移除 `main_force_conviction` 的权重，新增 `cumulative_main_force_buy_amount`、`cumulative_main_force_sell_amount` 和 `main_force_daily_sell_ratio` 的权重。
-        参数:
-            config (Dict): 包含配置信息的字典。
-        返回:
-            Dict[str, Any]: 包含所有参数的字典。
+        【V17.0 · 非线性协同增益版】更新stealth_weights，新增 synergy_gain_factor (协同增益因子)。
         """
         params = get_param_value(config.get('winner_conviction_params'), {})
-        # 更新MTF权重，加入5日周期
-        mtf_slope_accel_weights = get_param_value(params.get('mtf_slope_accel_weights'), { # 从 params 中获取，而不是 config
-            "slope_periods": {"5": 0.3, "13": 0.3, "21": 0.2, "34": 0.1, "55": 0.1}, # 增加5日周期
-            "accel_periods": {"5": 0.5, "13": 0.3, "21": 0.2} # 增加5日周期
-        })
-        # 修正：将 profit_taking_flow_low 替换为 selling_pressure_low
-        relative_position_weights = get_param_value(params.get('relative_position_weights'), {"winner_stability_high": 0.6, "selling_pressure_low": 0.4})
-        context_modulator_weights = get_param_value(params.get('context_modulator_weights'), {"market_sentiment": 0.4, "volatility_stability": 0.3, "trend_vitality": 0.3})
-        final_exponent = get_param_value(params.get('final_exponent'), 1.5)
-        final_fusion_gm_weights = get_param_value(params.get('final_fusion_gm_weights'), {
-            "conviction_magnitude": 0.3,
-            "pressure_magnitude": 0.2,
-            "synergy_factor": 0.2,
-            "deception_filter": 0.15,
-            "context_modulator": 0.15
-        })
-        direction_weights = get_param_value(params.get('direction_weights'), {'conviction': 0.6, 'pressure': 0.4})
-        # 新增参数：信念增强因子权重
-        conviction_enhancement_weights = get_param_value(params.get('conviction_enhancement_weights'), {
-            "core_conviction": 0.05, # 进一步大幅降低核心信念的默认权重，让动态调整的信号有更大影响空间
-            # "main_force_conviction": 0.1, # 移除 main_force_conviction 的权重
-            "chip_health": 0.1, # 适当降低其他信号权重，为动态调整的信号腾出空间
-            "winner_profit_margin_avg": 0.05,
-            "loser_loss_margin_avg": 0.05,
-            "winner_concentration_90pct": 0.05,
-            "chip_fatigue": 0.05,
-            "cost_gini_coefficient": 0.02,
-            "winner_stability_trend_consistency": 0.05,
-            "cumulative_winner_stability_index": 0.02,
-            "cumulative_main_force_conviction_index": 0.15, # 保持不变，用于阈值逻辑
-            "cumulative_chip_health_score": 0.02,
-            "cumulative_winner_profit_margin_avg": 0.02,
-            "cumulative_loser_loss_margin_avg": 0.02,
-            "cumulative_winner_concentration_90pct": 0.02,
-            "cumulative_chip_fatigue_index": 0.02,
-            "cumulative_cost_gini_coefficient": 0.02,
-            # 新增主力资金流相关权重
-            "cumulative_main_force_buy_amount": 0.15, # 累积主力买入量，正面信号
-            "cumulative_main_force_sell_amount": 0.1, # 累积主力卖出量，负面信号
-            "main_force_daily_sell_ratio": 0.05 # 当日主力卖出占比，负面信号
-        })
-        # 新增参数：压力韧性增强因子权重
-        pressure_resilience_enhancement_weights = get_param_value(params.get('pressure_resilience_enhancement_weights'), {
-            "core_resilience": 0.45, # 调整：从0.4提高到0.45，以反映其作为主要累积派发指标的重要性
-            "main_force_buy_execution_alpha": 0.2,
-            "bid_side_liquidity": 0.2,
-            "absorption_strength_ma5": 0.2,
-            "active_buying_support": 0.15,
-            "large_order_support": 0.15,
-            "dip_absorption_power": 0.1,
-            "selling_pressure_trend_consistency": 0.1, # 修正：替换为更通用的 selling_pressure_trend_consistency
-            "distribution_at_peak_intensity": 0.1, # 新增
-            "upper_shadow_selling_pressure": 0.1, # 新增
-            "cumulative_main_force_buy_execution_alpha": 0.1, # 调整：从0.05提高到0.1
-            "cumulative_bid_side_liquidity": 0.05,
-            "cumulative_absorption_strength_ma5": 0.05,
-            "cumulative_active_buying_support": 0.05,
-            "cumulative_large_order_support": 0.05,
-            "cumulative_dip_absorption_power": 0.05,
-            # "cumulative_dispersal_by_distribution": 0.05, # 移除此行，避免重复计算
-            "cumulative_distribution_at_peak_intensity": 0.05,
-            "cumulative_upper_shadow_selling_pressure": 0.05
-        })
-        # 新增参数：诡道过滤增强因子权重
-        deception_enhancement_weights = get_param_value(params.get('deception_enhancement_weights'), {
-            "smart_money_divergence": 0.3,
-            "covert_accumulation_inverse": 0.2,
-            "closing_auction_ambush_inverse": 0.1,
-            "cumulative_deception_index": 0.05, # 新增累积上下文权重
-            "cumulative_wash_trade_intensity": 0.05,
-            "cumulative_smart_money_divergence_hm_buy_inst_sell": 0.05,
-            "cumulative_covert_accumulation_signal": 0.05,
-            "cumulative_closing_auction_ambush": 0.05
-        })
-        # 新增参数：情境调制增强因子权重
-        context_modulator_enhancement_weights = get_param_value(params.get('context_modulator_enhancement_weights'), {
-            "theme_hotness": 0.2,
-            "industry_leader_score": 0.1,
-            "market_impact_cost_inverse": 0.05,
-            "cumulative_market_sentiment_score": 0.05, # 新增累积上下文权重
-            "cumulative_volatility_instability_index_21d": 0.05,
-            "cumulative_trend_vitality_index": 0.05,
-            "cumulative_theme_hotness_score": 0.05,
-            "cumulative_industry_leader_score": 0.05,
-            "cumulative_market_impact_cost": 0.05
-        })
-        # 累积上下文参数 (重命名并扩展)
-        cumulative_context_params = get_param_value(params.get('cumulative_context_params'), {
-            "signals_for_cumulative_context": [ # 需要进行累积上下文调制的信号 (原始D后缀)
-                'main_force_conviction_index_D', # 保持不变，用于阈值逻辑
-                'main_force_buy_execution_alpha_D',
-                'bid_side_liquidity_D',
-                'absorption_strength_ma5_D',
-                'active_buying_support_D',
-                'large_order_support_D',
-                'covert_accumulation_signal_D',
-                'closing_auction_ambush_D',
-                'dip_absorption_power_D',
-                'dispersal_by_distribution_D',
-                'market_impact_cost_D',
-                'winner_stability_index_D',
-                'chip_health_score_D',
-                'winner_profit_margin_avg_D',
-                'loser_loss_margin_avg_D',
-                'winner_concentration_90pct_D',
-                'chip_fatigue_index_D',
-                'cost_gini_coefficient_D',
-                'deception_index_D',
-                'wash_trade_intensity_D',
-                'market_sentiment_score_D',
-                'VOLATILITY_INSTABILITY_INDEX_21d_D',
-                'trend_vitality_index_D',
-                'THEME_HOTNESS_SCORE_D',
-                'industry_leader_score_D',
-                'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
-                'distribution_at_peak_intensity_D',
-                'upper_shadow_selling_pressure_D',
-                # 新增累积主力资金流信号
-                'main_force_buy_amount_calibrated_D',
-                'main_force_sell_amount_calibrated_D'
-            ],
-            "cumulative_periods": [13, 21], # 累积周期
-            "cumulative_weights": {13: 0.6, 21: 0.4} # 累积周期权重
-            # "cumulative_modulation_strength": 0.7 # 移除：不再用于调制
-        })
-        # 新增：拐点检测参数
-        inflection_point_params = get_param_value(params.get('inflection_point_params'), {
-            "signals_for_inflection_detection": [ # 需要检测拐点的MTF信号
-                'mtf_winner_stability_index',
-                'mtf_dispersal_by_distribution', # 修正：替换为新的压力信号
-                # 'mtf_main_force_conviction_index', # 移除此行，因为其MTF分数不再计算
-                'mtf_chip_health_score'
-            ],
-            "inflection_detection_window": 5, # 拐点检测的平滑窗口
-            "inflection_penalty_strength": 0.2 # 拐点惩罚强度 (0到1)
-        })
-        # 新增：累积信念阈值参数
-        cumulative_conviction_threshold_params = get_param_value(params.get('cumulative_conviction_threshold_params'), {
-            "enabled": True,
-            "decay_threshold_pct": 0.2, # 调整：提高衰减阈值，使得11.61%的衰减不再触发警惕模式
-            "absolute_threshold": 0.2, # 累积信念的绝对值阈值 (低于此值也触发警惕)
-            "short_term_weight_boost_factor": 10.0, # 警惕模式下，短期信号权重放大因子
-            "long_term_weight_decay_factor": 0.01, # 警惕模式下，长期信号权重衰减因子
-            "healthy_long_term_boost_factor": 2.5, # 健康模式下，长期信号权重进一步放大
-            "healthy_short_term_decay_factor": 0.1 # 健康模式下，短期信号权重进一步衰减
-        })
         return {
-            "mtf_slope_accel_weights": mtf_slope_accel_weights,
-            "relative_position_weights": relative_position_weights,
-            "context_modulator_weights": context_modulator_weights,
-            "final_exponent": final_exponent,
-            "final_fusion_gm_weights": final_fusion_gm_weights,
-            "direction_weights": direction_weights,
-            "conviction_enhancement_weights": conviction_enhancement_weights,
-            "pressure_resilience_enhancement_weights": pressure_resilience_enhancement_weights,
-            "deception_enhancement_weights": deception_enhancement_weights,
-            "context_modulator_enhancement_weights": context_modulator_enhancement_weights,
-            "cumulative_context_params": cumulative_context_params, # 更新为新的参数名称
-            "inflection_point_params": inflection_point_params, # 添加拐点参数
-            "cumulative_conviction_threshold_params": cumulative_conviction_threshold_params # 添加累积信念阈值参数
+            "mtf_slope_accel_weights": get_param_value(params.get('mtf_slope_accel_weights'), {"slope_periods": {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1}, "accel_periods": {"5": 0.6, "13": 0.4}}),
+            "belief_weights": get_param_value(params.get('belief_weights'), {"winner_rate": 0.3, "profit_margin": 0.3, "chip_stability": 0.4}),
+            "pressure_weights": get_param_value(params.get('pressure_weights'), {"profit_pressure": 0.35, "trapped_pressure": 0.35, "vpa_efficiency": 0.3}),
+            "flow_weights": get_param_value(params.get('flow_weights'), {"mf_conviction": 0.4, "net_mf_amount": 0.3, "flow_consistency": 0.3}),
+            "capitulation_weights": get_param_value(params.get('capitulation_weights'), {"static_pain": 0.25, "kinetic_pain": 0.25, "pain_saturation": 0.25, "liquidity_release": 0.25, "panic_cascade": 0.3, "gamma_base": 2.0, "gamma_min": 0.6}),
+            "stealth_weights": get_param_value(params.get('stealth_weights'), {
+                "stealth_flow": 0.15,
+                "intraday_accum": 0.15,
+                "hab_stealth_21d": 0.15,
+                "kinetic_stealth_13d": 0.1,
+                "chip_undercurrent": 0.15,
+                "order_anomaly": 0.1,
+                "wash_trade_mask": 0.05,
+                "afternoon_mask": 0.05,
+                "closing_mask": 0.1,
+                "synergy_gain_factor": 3.0,
+                "volatility_suppression_gamma": 1.6
+            }),
+            "context_weights": get_param_value(params.get('context_weights'), {"market_sentiment": 0.25, "trend_confirmation": 0.25, "volatility_stability": 0.15, "structural_order": 0.15, "reversion_penalty": 0.2}),
+            "environment_weights": get_param_value(params.get('environment_weights'), {"theme_thermal": 0.6, "game_friction": 0.4}),
+            "hab_weights": get_param_value(params.get('hab_weights'), {"flow_inertia": 0.4, "sentiment_memory": 0.3, "volatility_memory": 0.3}),
+            "kinematics_weights": get_param_value(params.get('kinematics_weights'), {"slope": 0.5, "accel": 0.3, "jerk": 0.2}),
+            "resonance_params": get_param_value(params.get('resonance_params'), {"coherence_sensitivity": 1.0, "base_exponent": 2.0, "min_exponent": 0.8}),
+            "final_fusion_weights": get_param_value(params.get('final_fusion_weights'), {"belief": 0.25, "pressure": 0.2, "flow": 0.25, "capitulation": 0.15, "stealth": 0.15}),
+            "final_exponent": get_param_value(params.get('final_exponent'), 1.8)
         }
 
     def _get_and_validate_signals(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, params: Dict, _temp_debug_values: Dict) -> Optional[Dict[str, pd.Series]]:
         """
-        【V2.7 · 原始信号、累积上下文、趋势一致性与拐点补充版 - 信念信号MTF方向修正与诡道信号MTF修正】获取所有原始信号数据及其多时间框架斜率/加速度，并进行有效性校验。
-        - 核心修正: 修正 `mtf_winner_concentration_90pct` 和 `mtf_cost_gini_coefficient` 的 `ascending` 参数，使其MTF分数方向与信念强度业务逻辑一致。
-        - 核心修正: 修正 `mtf_deception_index` 和 `mtf_wash_trade_intensity` 的 `bipolar` 和 `ascending` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
-        - 核心修正: 修正 `mtf_covert_accumulation_signal` 的 `ascending` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
-        - 核心修正: 修正 `mtf_closing_auction_ambush` 的 `bipolar` 参数，使其MTF分数方向与诡道过滤业务逻辑一致。
-        核心修改：移除 `main_force_conviction_index_D` 的MTF计算，新增 `main_force_buy_amount_calibrated_D`、`main_force_sell_amount_calibrated_D` 的累积上下文计算，并计算 `main_force_daily_sell_ratio_D`。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            df_index (pd.Index): DataFrame的索引。
-            method_name (str): 调用此方法的名称，用于日志输出。
-            params (Dict): 包含所有参数的字典。
-            _temp_debug_values (Dict): 临时调试值字典。
-        返回:
-            Optional[Dict[str, pd.Series]]: 包含所有原始信号Series和MTF信号Series的字典，如果校验失败则返回None。
+        【V16.0 · 信号加载重构】针对筹码与午后掩护，从数据层直接加载相关特征的原始数据。
         """
-        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df_index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
-        debug_output = {} # 局部调试输出，最终会合并到_temp_debug_values
-        belief_signal_name = 'winner_stability_index_D'
-        pressure_signal_name = 'dispersal_by_distribution_D' # 修正：替换为新的压力信号
-        # 所有需要进行MTF斜率和加速度分析的原始信号 (原始列名)
-        mtf_base_signals_raw_names = [
-            belief_signal_name, pressure_signal_name, # 修正：使用新的压力信号
-            'deception_index_D', 'wash_trade_intensity_D',
-            'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
-            # 'main_force_conviction_index_D', # 移除 main_force_conviction_index_D 的MTF计算
-            'chip_health_score_D',
-            'main_force_buy_execution_alpha_D', 'bid_side_liquidity_D',
-            'absorption_strength_ma5_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
-            'winner_concentration_90pct_D', 'chip_fatigue_index_D',
-            'active_buying_support_D', 'large_order_support_D',
-            'covert_accumulation_signal_D', 'cost_gini_coefficient_D',
-            'market_impact_cost_D', 'closing_auction_ambush_D',
-            'distribution_at_peak_intensity_D', # 新增
-            'upper_shadow_selling_pressure_D' # 新增
-        ]
-        # 所有非MTF的原始信号 (原始列名)
-        non_mtf_raw_signals_raw_names = [
-            'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'trend_vitality_index_D', 'flow_credibility_index_D',
-            'THEME_HOTNESS_SCORE_D', 'industry_leader_score_D',
-            'dip_absorption_power_D',
-            # 新增主力资金流原始信号
-            'main_force_buy_amount_calibrated_D',
-            'main_force_sell_amount_calibrated_D',
-            'main_force_conviction_index_D' # 保持不变，用于累积上下文和阈值逻辑
-        ]
-        # 所有需要获取原始数据的信号名称（带_D后缀）
-        all_raw_signal_names_with_D_suffix = list(set(mtf_base_signals_raw_names + non_mtf_raw_signals_raw_names))
-        # 生成用于校验的required_signals列表
-        required_signals_for_validation = list(all_raw_signal_names_with_D_suffix)
-        mtf_slope_accel_weights = params["mtf_slope_accel_weights"]
-        # 动态添加所有MTF信号的列名到 required_signals_for_validation
-        for base_sig in mtf_base_signals_raw_names:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals_for_validation.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals_for_validation.append(f'ACCEL_{period_str}_{base_sig}')
-        # 执行信号存在性校验
-        if not self.helper._validate_required_signals(df, required_signals_for_validation, method_name):
-            return None
-        # 获取所有原始信号数据，并显式定义键名
-        signals_data = {
-            "winner_stability_index_raw": self.helper._get_safe_series(df, 'winner_stability_index_D', np.nan, method_name=method_name),
-            "dispersal_by_distribution_raw": self.helper._get_safe_series(df, 'dispersal_by_distribution_D', np.nan, method_name=method_name), # 修正：替换为新的压力信号
-            "deception_index_raw": self.helper._get_safe_series(df, 'deception_index_D', np.nan, method_name=method_name),
-            "wash_trade_intensity_raw": self.helper._get_safe_series(df, 'wash_trade_intensity_D', np.nan, method_name=method_name),
-            "market_sentiment_score_raw": self.helper._get_safe_series(df, 'market_sentiment_score_D', np.nan, method_name=method_name),
-            "volatility_instability_index_21d_raw": self.helper._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', np.nan, method_name=method_name),
-            "trend_vitality_index_raw": self.helper._get_safe_series(df, 'trend_vitality_index_D', np.nan, method_name=method_name),
-            "flow_credibility_index_raw": self.helper._get_safe_series(df, 'flow_credibility_index_D', np.nan, method_name=method_name),
-            "winner_profit_margin_avg_raw": self.helper._get_safe_series(df, 'winner_profit_margin_avg_D', np.nan, method_name=method_name),
-            "loser_loss_margin_avg_raw": self.helper._get_safe_series(df, 'loser_loss_margin_avg_D', np.nan, method_name=method_name),
-            "main_force_conviction_index_raw": self.helper._get_safe_series(df, 'main_force_conviction_index_D', np.nan, method_name=method_name), # 保持不变，用于累积上下文和阈值逻辑
-            "chip_health_score_raw": self.helper._get_safe_series(df, 'chip_health_score_D', np.nan, method_name=method_name),
-            "main_force_buy_execution_alpha_raw": self.helper._get_safe_series(df, 'main_force_buy_execution_alpha_D', np.nan, method_name=method_name),
-            "bid_side_liquidity_raw": self.helper._get_safe_series(df, 'bid_side_liquidity_D', np.nan, method_name=method_name),
-            "absorption_strength_ma5_raw": self.helper._get_safe_series(df, 'absorption_strength_ma5_D', np.nan, method_name=method_name),
-            "smart_money_divergence_hm_buy_inst_sell_raw": self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', np.nan, method_name=method_name),
-            "theme_hotness_score_raw": self.helper._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', np.nan, method_name=method_name),
-            "winner_concentration_90pct_raw": self.helper._get_safe_series(df, 'winner_concentration_90pct_D', np.nan, method_name=method_name),
-            "chip_fatigue_index_raw": self.helper._get_safe_series(df, 'chip_fatigue_index_D', np.nan, method_name=method_name),
-            "active_buying_support_raw": self.helper._get_safe_series(df, 'active_buying_support_D', np.nan, method_name=method_name),
-            "large_order_support_raw": self.helper._get_safe_series(df, 'large_order_support_D', np.nan, method_name=method_name),
-            "covert_accumulation_signal_raw": self.helper._get_safe_series(df, 'covert_accumulation_signal_D', np.nan, method_name=method_name),
-            "industry_leader_score_raw": self.helper._get_safe_series(df, 'industry_leader_score_D', np.nan, method_name=method_name),
-            "cost_gini_coefficient_raw": self.helper._get_safe_series(df, 'cost_gini_coefficient_D', np.nan, method_name=method_name),
-            "market_impact_cost_raw": self.helper._get_safe_series(df, 'market_impact_cost_D', np.nan, method_name=method_name),
-            "closing_auction_ambush_raw": self.helper._get_safe_series(df, 'closing_auction_ambush_D', np.nan, method_name=method_name),
-            "dip_absorption_power_raw": self.helper._get_safe_series(df, 'dip_absorption_power_D', np.nan, method_name=method_name),
-            "distribution_at_peak_intensity_raw": self.helper._get_safe_series(df, 'distribution_at_peak_intensity_D', np.nan, method_name=method_name), # 新增
-            "upper_shadow_selling_pressure_raw": self.helper._get_safe_series(df, 'upper_shadow_selling_pressure_D', np.nan, method_name=method_name), # 新增
-            # 新增主力资金流原始信号
-            "main_force_buy_amount_calibrated_raw": self.helper._get_safe_series(df, 'main_force_buy_amount_calibrated_D', np.nan, method_name=method_name),
-            "main_force_sell_amount_calibrated_raw": self.helper._get_safe_series(df, 'main_force_sell_amount_calibrated_D', np.nan, method_name=method_name),
+        raw_signals_map = {
+            "winner_rate_raw": "winner_rate_D",
+            "winner_profit_margin_avg_raw": "winner_profit_margin_avg_D",
+            "winner_stability_index_raw": "winner_stability_index_D",
+            "chip_stability_raw": "chip_stability_D",
+            "profit_pressure_raw": "profit_pressure_D",
+            "pressure_trapped_raw": "pressure_trapped_D",
+            "vpa_efficiency_raw": "VPA_EFFICIENCY_D",
+            "main_force_conviction_index_raw": "main_force_conviction_index_D",
+            "net_mf_amount_raw": "net_mf_amount_D",
+            "flow_consistency_raw": "flow_consistency_D",
+            "market_sentiment_score_raw": "market_sentiment_score_D",
+            "trend_confirmation_score_raw": "trend_confirmation_score_D",
+            "loser_loss_margin_avg_raw": "loser_loss_margin_avg_D",
+            "panic_selling_cascade_raw": "panic_selling_cascade_D",
+            "stealth_flow_ratio_raw": "stealth_flow_ratio_D",
+            "intraday_accumulation_confidence_raw": "intraday_accumulation_confidence_D",
+            "peak_concentration_raw": "peak_concentration_D",
+            "chip_concentration_ratio_raw": "chip_concentration_ratio_D",
+            "cost_50pct_raw": "cost_50pct_D",
+            "close_raw": "close_D",
+            "long_term_chip_ratio_raw": "long_term_chip_ratio_D",
+            "intraday_high_lock_ratio_raw": "intraday_high_lock_ratio_D",
+            "uptrend_strength_raw": "uptrend_strength_D",
+            "panic_buy_absorption_raw": "panic_buy_absorption_contribution_D",
+            "support_strength_raw": "support_strength_D",
+            "chip_transfer_eff_raw": "tick_chip_transfer_efficiency_D",
+            "pressure_release_raw": "pressure_release_index_D",
+            "distribution_conf_raw": "intraday_distribution_confidence_D",
+            "gap_defense_raw": "opening_gap_defense_strength_D",
+            "tick_balance_raw": "tick_chip_balance_ratio_D",
+            "smart_money_net_raw": "SMART_MONEY_HM_NET_BUY_D",
+            "smart_money_attack_raw": "SMART_MONEY_HM_COORDINATED_ATTACK_D",
+            "smart_money_div_raw": "SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D",
+            "tick_large_net_raw": "tick_large_order_net_D",
+            "wash_trade_raw": "wash_trade_intensity_D",
+            "closing_flow_raw": "closing_flow_ratio_D",
+            "afternoon_flow_raw": "afternoon_flow_ratio_D",
+            "order_anomaly_raw": "large_order_anomaly_D",
+            "volatility_instability_raw": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "structural_entropy_raw": "structural_entropy_change_D",
+            "mean_reversion_freq_raw": "mean_reversion_frequency_D",
+            "turnover_rate_raw": "turnover_rate_f_D",
+            "theme_hotness_raw": "theme_hotness_score_D",
+            "game_intensity_raw": "game_intensity_D",
+            "abnormal_vol_raw": "tick_abnormal_volume_ratio_D",
+            "chip_flow_intensity_raw": "chip_flow_intensity_D"
         }
-        # 获取所有MTF信号数据
-        for base_sig in mtf_base_signals_raw_names:
-            # MTF信号的键名保持mtf_前缀和原始信号名的小写形式
-            mtf_key = f"mtf_{base_sig.replace('_D', '').lower()}"
-            # 默认情况下，MTF信号是双极性且值越大越好
-            signals_data[mtf_key] = self.helper._get_mtf_slope_accel_score(
-                df, base_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=True
-            )
-        # 特殊处理一些MTF信号的bipolar/ascending，以确保其方向性符合业务逻辑
-        # 修正：deception_index_D 越高越差，所以 ascending=False
-        signals_data["mtf_deception_index"] = self.helper._get_mtf_slope_accel_score(df, 'deception_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # 修正：wash_trade_intensity_D 越高越差，所以 ascending=False
-        signals_data["mtf_wash_trade_intensity"] = self.helper._get_mtf_slope_accel_score(df, 'wash_trade_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D 聪明钱分歧越大越不好，所以ascending=False
-        signals_data["mtf_smart_money_divergence_hm_buy_inst_sell"] = self.helper._get_mtf_slope_accel_score(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # chip_fatigue_index_D 筹码疲劳度越低越好，所以ascending=False
-        signals_data["mtf_chip_fatigue_index"] = self.helper._get_mtf_slope_accel_score(df, 'chip_fatigue_index_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # 修正：covert_accumulation_signal_D 隐蔽吸筹信号越高越好，所以ascending=True
-        signals_data["mtf_covert_accumulation_signal"] = self.helper._get_mtf_slope_accel_score(df, 'covert_accumulation_signal_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=True)
-        # 修正：closing_auction_ambush_D 尾盘伏击，正值诱多（差），负值诱空（好），所以ascending=False
-        signals_data["mtf_closing_auction_ambush"] = self.helper._get_mtf_slope_accel_score(df, 'closing_auction_ambush_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # market_impact_cost_D 冲击成本越高越不好，所以ascending=False
-        signals_data["mtf_market_impact_cost"] = self.helper._get_mtf_slope_accel_score(df, 'market_impact_cost_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # 新增：为新的压力信号生成MTF分数，高派发/卖压是负面，所以 ascending=False
-        signals_data["mtf_dispersal_by_distribution"] = self.helper._get_mtf_slope_accel_score(df, 'dispersal_by_distribution_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        signals_data["mtf_distribution_at_peak_intensity"] = self.helper._get_mtf_slope_accel_score(df, 'distribution_at_peak_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        signals_data["mtf_upper_shadow_selling_pressure"] = self.helper._get_mtf_slope_accel_score(df, 'upper_shadow_selling_pressure_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # 核心修正：winner_concentration_90pct，集中度越低越好，所以ascending=False
-        signals_data["mtf_winner_concentration_90pct"] = self.helper._get_mtf_slope_accel_score(df, 'winner_concentration_90pct_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # 核心修正：cost_gini_coefficient，基尼系数越低越好，所以ascending=False
-        signals_data["mtf_cost_gini_coefficient"] = self.helper._get_mtf_slope_accel_score(df, 'cost_gini_coefficient_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=False)
-        # 计算并存储指定信号的累积上下文分数 (使用新的参数名称和列表)
-        cumulative_context_params = params["cumulative_context_params"]
-        signals_for_cumulative_context = cumulative_context_params["signals_for_cumulative_context"]
-        cumulative_periods = cumulative_context_params["cumulative_periods"]
-        cumulative_weights = cumulative_context_params["cumulative_weights"]
-        for sig_D in signals_for_cumulative_context:
-            raw_series = self.helper._get_safe_series(df, sig_D, np.nan, method_name=method_name)
-            if not raw_series.isnull().all():
-                cumulative_score = self.helper._get_cumulative_context_score(
-                    raw_series, df_index, cumulative_periods, cumulative_weights, bipolar=True,
-                    signal_name=sig_D, is_debug_enabled_for_method=is_debug_enabled_for_method, probe_ts=probe_ts, debug_output=debug_output # 传入调试参数
-                )
-                signals_data[f"cumulative_{sig_D.replace('_D', '').lower()}_score"] = cumulative_score
-        # 计算 main_force_daily_sell_ratio_D
-        mf_buy_amount = signals_data["main_force_buy_amount_calibrated_raw"]
-        mf_sell_amount = signals_data["main_force_sell_amount_calibrated_raw"]
-        total_mf_amount = mf_buy_amount + mf_sell_amount
-        # 避免除以零，如果总金额为零，则比例为0
-        signals_data["main_force_daily_sell_ratio_D"] = (mf_sell_amount / total_mf_amount).fillna(0.0).replace([np.inf, -np.inf], 0.0)
-        # 计算并存储指定信号的MTF趋势一致性分数
-        signals_for_trend_consistency = [
-            belief_signal_name,
-            pressure_signal_name, # 修正：使用新的压力信号
-            'main_force_conviction_index_D', # 保持不变，其MTF趋势一致性可能仍有参考价值
-            'chip_health_score_D'
+        if not self.helper._validate_required_signals(df, list(raw_signals_map.values()), method_name):
+            return None
+        signals_data = {}
+        _temp_debug_values["原始信号值"] = {}
+        _temp_debug_values["动力学信号值"] = {}
+        kinetic_targets = [
+            "smart_money_net_raw", "tick_large_net_raw", "net_mf_amount_raw", 
+            "wash_trade_raw", "volatility_instability_raw", "market_sentiment_score_raw",
+            "structural_entropy_raw", "theme_hotness_raw", "game_intensity_raw",
+            "loser_loss_margin_avg_raw", "pressure_trapped_raw",
+            "turnover_rate_raw", "abnormal_vol_raw",
+            "stealth_flow_ratio_raw", "intraday_accumulation_confidence_raw",
+            "chip_flow_intensity_raw"
         ]
-        for base_sig_D in signals_for_trend_consistency:
-            trend_consistency_score = self.helper._get_mtf_slope_accel_score(
-                df, base_sig_D, mtf_slope_accel_weights, df_index, method_name, bipolar=True, ascending=True # 默认MTF计算，值越大越好
-            )
-            signals_data[f"mtf_trend_consistency_{base_sig_D.replace('_D', '').lower()}"] = trend_consistency_score
-        # 计算并存储指定MTF信号的拐点检测分数
-        inflection_point_params = params["inflection_point_params"]
-        signals_for_inflection_detection = inflection_point_params["signals_for_inflection_detection"]
-        inflection_detection_window = inflection_point_params["inflection_detection_window"]
-        for mtf_sig_key in signals_for_inflection_detection:
-            # 检查 mtf_sig_key 是否在 signals_data 中，因为 mtf_main_force_conviction_index 可能已被移除
-            if mtf_sig_key in signals_data: # Only detect inflection if the MTF signal exists
-                inflection_score = self.helper._detect_inflection_point(
-                    signals_data[mtf_sig_key], inflection_detection_window
-                )
-                signals_data[f"inflection_{mtf_sig_key}"] = inflection_score
-            # Removed the else block that defaulted to 0.0, as it's better to have NaN if signal is truly missing.
-        # 将 belief_signal_name 和 pressure_signal_name 也添加到返回字典
-        signals_data["belief_signal_name"] = belief_signal_name
-        signals_data["pressure_signal_name"] = pressure_signal_name
-        # 更新调试输出
-        _temp_debug_values["原始信号值"] = {k: v for k, v in signals_data.items() if not k.startswith('mtf_') and not k.startswith('cumulative_') and not k.startswith('inflection_') and not k.endswith('_name')}
-        _temp_debug_values["MTF信号值"] = {k: v for k, v in signals_data.items() if k.startswith('mtf_') and not k.startswith('mtf_trend_consistency_')}
-        _temp_debug_values["累积上下文信号值"] = {k: v for k, v in signals_data.items() if k.startswith('cumulative_')}
-        _temp_debug_values["MTF趋势一致性信号值"] = {k: v for k, v in signals_data.items() if k.startswith('mtf_trend_consistency_')}
-        _temp_debug_values["拐点信号值"] = {k: v for k, v in signals_data.items() if k.startswith('inflection_')}
-        # 合并局部调试输出到_temp_debug_values
-        if is_debug_enabled_for_method and probe_ts:
-            _temp_debug_values["_get_and_validate_signals_debug_output"] = debug_output
+        kinetic_window = 13
+        for key, col_name in raw_signals_map.items():
+            series = self.helper._get_safe_series(df, col_name, np.nan, method_name=method_name)
+            signals_data[key] = series
+            _temp_debug_values["原始信号值"][key] = series
+            if key in kinetic_targets:
+                slope_col = f"SLOPE_{kinetic_window}_{col_name}"
+                if slope_col in df.columns:
+                    signals_data[f"slope_{key}"] = df[slope_col]
+                else:
+                    signals_data[f"slope_{key}"] = ta.slope(series, length=kinetic_window)
+                accel_col = f"ACCEL_{kinetic_window}_{col_name}"
+                if accel_col in df.columns:
+                     signals_data[f"accel_{key}"] = df[accel_col]
+                else:
+                     signals_data[f"accel_{key}"] = signals_data[f"slope_{key}"].diff(1)
+                jerk_col = f"JERK_{kinetic_window}_{col_name}"
+                if jerk_col in df.columns:
+                    signals_data[f"jerk_{key}"] = df[jerk_col]
+                else:
+                    signals_data[f"jerk_{key}"] = signals_data[f"accel_{key}"].diff(1)
+        mtf_slope_accel_weights = params.get("mtf_slope_accel_weights", {})
+        for key, col_name in raw_signals_map.items():
+            mtf_key = f"mtf_{key.replace('_raw', '')}"
+            ascending = True
+            if key in ["profit_pressure_raw", "pressure_trapped_raw", "distribution_conf_raw", "smart_money_div_raw", "wash_trade_raw", "order_anomaly_raw", "volatility_instability_raw", "structural_entropy_raw", "mean_reversion_freq_raw", "game_intensity_raw"]:
+                ascending = False
+            elif key in ["loser_loss_margin_avg_raw", "theme_hotness_raw", "turnover_rate_raw", "abnormal_vol_raw", "chip_flow_intensity_raw"]:
+                ascending = True
+            bipolar = True if key in ["vpa_efficiency_raw", "market_sentiment_score_raw", "net_mf_amount_raw", "smart_money_net_raw", "tick_large_net_raw"] else False
+            signals_data[mtf_key] = self.helper._get_mtf_slope_accel_score(df, col_name, mtf_slope_accel_weights, df_index, method_name, bipolar=bipolar, ascending=ascending)
         return signals_data
 
     def _normalize_raw_data(self, df_index: pd.Index, signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.12 · 原始数据归一化键名全面修正版 - 压力信号更新与波动率不稳定性归一化补充与信念信号修正】归一化原始数据，修正了访问signals字典时所有键名的大小写错误，并补充了新信号的归一化。
-        核心修正：移除 `profit_taking_flow_ratio_norm`，新增 `dispersal_by_distribution_norm`、
-                  `distribution_at_peak_intensity_norm` 和 `upper_shadow_selling_pressure_norm`。
-        核心新增：补充 `volatility_instability_index_21d_norm` 的归一化。
-        核心修正：`winner_concentration_90pct_norm`、`covert_accumulation_norm`、`closing_auction_ambush_norm` 的 `ascending` 或 `bipolar` 参数。
-        核心修改：新增 `main_force_daily_sell_ratio_norm` 的归一化。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            signals (Dict[str, pd.Series]): 包含原始信号Series的字典。
-            _temp_debug_values (Dict): 临时调试值字典。
-        返回:
-            Dict[str, pd.Series]: 包含归一化信号Series的字典。
+        【V16.0 · 全息筹码清洗与午后压制归一化】构建筹码暗流的动力学数据处理逻辑与午后资金流占比归一化。
         """
-        normalized_signals = {}
-        # 归一化非MTF信号，使用显式定义的键名
-        normalized_signals["flow_credibility_norm"] = self.helper._normalize_series(signals["flow_credibility_index_raw"], df_index, bipolar=False)
-        normalized_signals["winner_profit_margin_avg_norm"] = self.helper._normalize_series(signals["winner_profit_margin_avg_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["loser_loss_margin_avg_norm"] = self.helper._normalize_series(signals["loser_loss_margin_avg_raw"], df_index, bipolar=False, ascending=False) # 输家亏损率越低越好
-        # normalized_signals["main_force_conviction_norm"] = self.helper._normalize_series(signals["main_force_conviction_index_raw"], df_index, bipolar=True, ascending=True) # 移除，因为其MTF版本已移除
-        normalized_signals["chip_health_norm"] = self.helper._normalize_series(signals["chip_health_score_raw"], df_index, bipolar=True, ascending=True)
-        normalized_signals["main_force_buy_execution_alpha_norm"] = self.helper._normalize_series(signals["main_force_buy_execution_alpha_raw"], df_index, bipolar=True, ascending=True)
-        normalized_signals["bid_side_liquidity_norm"] = self.helper._normalize_series(signals["bid_side_liquidity_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["absorption_strength_ma5_norm"] = self.helper._normalize_series(signals["absorption_strength_ma5_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["smart_money_divergence_norm"] = self.helper._normalize_series(signals["smart_money_divergence_hm_buy_inst_sell_raw"], df_index, bipolar=True, ascending=False) # 聪明钱分歧越大越不好
-        normalized_signals["theme_hotness_norm"] = self.helper._normalize_series(signals["theme_hotness_score_raw"], df_index, bipolar=False, ascending=True)
-        # 核心修正：winner_concentration_90pct_norm 集中度越低越好，所以 ascending=False
-        normalized_signals["winner_concentration_90pct_norm"] = self.helper._normalize_series(signals["winner_concentration_90pct_raw"], df_index, bipolar=False, ascending=False)
-        normalized_signals["chip_fatigue_norm"] = self.helper._normalize_series(signals["chip_fatigue_index_raw"], df_index, bipolar=False, ascending=False) # 筹码疲劳度越低越好
-        normalized_signals["active_buying_support_norm"] = self.helper._normalize_series(signals["active_buying_support_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["large_order_support_norm"] = self.helper._normalize_series(signals["large_order_support_raw"], df_index, bipolar=False, ascending=True)
-        # 核心修正：covert_accumulation_norm 隐蔽吸筹信号越高越好，所以 ascending=True
-        normalized_signals["covert_accumulation_norm"] = self.helper._normalize_series(signals["covert_accumulation_signal_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["industry_leader_score_norm"] = self.helper._normalize_series(signals["industry_leader_score_raw"], df_index, bipolar=False, ascending=True)
-        normalized_signals["cost_gini_coefficient_norm"] = self.helper._normalize_series(signals["cost_gini_coefficient_raw"], df_index, bipolar=False, ascending=False) # 基尼系数越低越好（筹码越均匀）
-        normalized_signals["market_impact_cost_norm"] = self.helper._normalize_series(signals["market_impact_cost_raw"], df_index, bipolar=False, ascending=False) # 冲击成本越低越好
-        # 核心修正：closing_auction_ambush_norm 尾盘伏击，正值诱多（差），负值诱空（好），所以 bipolar=True, ascending=False
-        normalized_signals["closing_auction_ambush_norm"] = self.helper._normalize_series(signals["closing_auction_ambush_raw"], df_index, bipolar=True, ascending=False)
-        normalized_signals["dip_absorption_power_norm"] = self.helper._normalize_series(signals["dip_absorption_power_raw"], df_index, bipolar=False, ascending=True) # 新增：下跌吸筹能力归一化
-        # 新增：压力信号的归一化，高值代表高压力，所以 ascending=False
-        normalized_signals["dispersal_by_distribution_norm"] = self.helper._normalize_series(signals["dispersal_by_distribution_raw"], df_index, bipolar=False, ascending=False)
-        normalized_signals["distribution_at_peak_intensity_norm"] = self.helper._normalize_series(signals["distribution_at_peak_intensity_raw"], df_index, bipolar=False, ascending=False)
-        normalized_signals["upper_shadow_selling_pressure_norm"] = self.helper._normalize_series(signals["upper_shadow_selling_pressure_raw"], df_index, bipolar=False, ascending=False)
-        # 核心新增：波动率不稳定性归一化，高值代表高不稳定性（差），所以 ascending=True
-        normalized_signals["volatility_instability_index_21d_norm"] = self.helper._normalize_series(signals["volatility_instability_index_21d_raw"], df_index, bipolar=False, ascending=True)
-        # 新增：主力每日卖出占比归一化，高值代表卖出压力大（差），所以 ascending=False
-        normalized_signals["main_force_daily_sell_ratio_norm"] = self.helper._normalize_series(signals["main_force_daily_sell_ratio_D"], df_index, bipolar=False, ascending=False)
-        _temp_debug_values["归一化处理"] = normalized_signals
-        return normalized_signals
+        normalized = {}
+        normalized["winner_rate_norm"] = signals["winner_rate_raw"].clip(0, 1)
+        normalized["profit_margin_norm"] = (signals["winner_profit_margin_avg_raw"] / 0.2).clip(0, 1)
+        normalized["chip_stability_norm"] = (signals["chip_stability_raw"] / 100.0).clip(0, 1)
+        normalized["winner_stability_norm"] = (signals["winner_stability_index_raw"] / 100.0).clip(0, 1)
+        normalized["profit_pressure_norm"] = (signals["profit_pressure_raw"] / 100.0).clip(0, 1)
+        normalized["trapped_pressure_norm"] = (signals["pressure_trapped_raw"] / 100.0).clip(0, 1)
+        normalized["vpa_efficiency_norm"] = ((signals["vpa_efficiency_raw"] - 50) / 50).clip(-1, 1)
+        normalized["mf_conviction_norm"] = ((signals["main_force_conviction_index_raw"] - 50) / 50).clip(-1, 1)
+        normalized["flow_consistency_norm"] = (signals["flow_consistency_raw"] / 100.0).clip(0, 1)
+        net_mf_window_max = signals["net_mf_amount_raw"].abs().rolling(window=55, min_periods=1).max().replace(0, 1)
+        normalized["net_mf_norm"] = (signals["net_mf_amount_raw"] / net_mf_window_max).clip(-1, 1)
+        normalized["market_sentiment_norm"] = self.helper._normalize_series(signals["market_sentiment_score_raw"], df_index, bipolar=True)
+        normalized["trend_confirmation_norm"] = (signals["trend_confirmation_score_raw"] / 100.0).clip(0, 1)
+        normalized["loser_pain_norm"] = (signals["loser_loss_margin_avg_raw"].abs() / 0.3).clip(0, 1)
+        normalized["panic_cascade_norm"] = (signals["panic_selling_cascade_raw"] / 100.0).clip(0, 1)
+        normalized["stealth_flow_norm"] = (signals["stealth_flow_ratio_raw"] / 0.3).clip(0, 1)
+        normalized["intraday_accum_norm"] = (signals["intraday_accumulation_confidence_raw"] / 100.0).clip(0, 1)
+        normalized["peak_concentration_norm"] = (signals["peak_concentration_raw"] / 100.0).clip(0, 1)
+        normalized["chip_concentration_ratio_norm"] = (signals["chip_concentration_ratio_raw"] / 100.0).clip(0, 1)
+        profit_cushion_raw = (signals["close_raw"] - signals["cost_50pct_raw"]) / signals["cost_50pct_raw"].replace(0, 1)
+        normalized["profit_cushion_norm"] = (profit_cushion_raw / 0.3).clip(-1, 1)
+        normalized["long_term_chip_norm"] = (signals["long_term_chip_ratio_raw"] / 100.0).clip(0, 1)
+        normalized["high_lock_norm"] = (signals["intraday_high_lock_ratio_raw"] / 100.0).clip(0, 1)
+        normalized["uptrend_strength_norm"] = (signals["uptrend_strength_raw"] / 100.0).clip(0, 1)
+        normalized["panic_absorption_norm"] = (signals["panic_buy_absorption_raw"] / 100.0).clip(0, 1)
+        normalized["support_strength_norm"] = (signals["support_strength_raw"] / 100.0).clip(0, 1)
+        normalized["chip_transfer_norm"] = signals["chip_transfer_eff_raw"].clip(0, 1)
+        normalized["pressure_release_norm"] = (signals["pressure_release_raw"] / 100.0).clip(0, 1)
+        normalized["distribution_conf_norm"] = (signals["distribution_conf_raw"] / 100.0).clip(0, 1)
+        normalized["gap_defense_norm"] = (signals["gap_defense_raw"] / 100.0).clip(0, 1)
+        normalized["tick_balance_norm"] = signals["tick_balance_raw"].clip(0, 1)
+        sm_window_max = signals["smart_money_net_raw"].abs().rolling(window=55, min_periods=1).max().replace(0, 1)
+        normalized["smart_money_net_norm"] = (signals["smart_money_net_raw"] / sm_window_max).clip(-1, 1)
+        tick_window_max = signals["tick_large_net_raw"].abs().rolling(window=55, min_periods=1).max().replace(0, 1)
+        normalized["tick_large_net_norm"] = (signals["tick_large_net_raw"] / tick_window_max).clip(-1, 1)
+        normalized["smart_money_attack_norm"] = (signals["smart_money_attack_raw"] / 100.0).clip(0, 1)
+        normalized["smart_money_div_norm"] = (signals["smart_money_div_raw"] / 100.0).clip(0, 1)
+        normalized["wash_trade_norm"] = (signals["wash_trade_raw"] / 100.0).clip(0, 1)
+        normalized["closing_flow_norm"] = (signals["closing_flow_raw"] / 0.3).clip(0, 1)
+        normalized["afternoon_flow_norm"] = (signals["afternoon_flow_raw"] / 0.5).clip(0, 1)
+        normalized["chip_flow_intensity_norm"] = (signals["chip_flow_intensity_raw"] / 100.0).clip(0, 1)
+        normalized["order_anomaly_filter"] = (1.0 - (signals["order_anomaly_raw"] / 100.0)).clip(0, 1)
+        normalized["order_anomaly_raw_norm"] = (signals["order_anomaly_raw"] / 100.0).clip(0, 1)
+        normalized["volatility_instability_norm"] = (signals["volatility_instability_raw"] / 100.0).clip(0, 1)
+        normalized["stability_factor"] = (1.0 - normalized["volatility_instability_norm"]).clip(0, 1)
+        entropy_window_max = signals["structural_entropy_raw"].abs().rolling(window=21, min_periods=1).max().replace(0, 1)
+        normalized["entropy_change_norm"] = (signals["structural_entropy_raw"] / entropy_window_max).clip(-1, 1)
+        normalized["structural_order_factor"] = (1.0 - normalized["entropy_change_norm"]).clip(0, 1)
+        normalized["reversion_freq_norm"] = (signals["mean_reversion_freq_raw"] / 100.0).clip(0, 1)
+        normalized["theme_thermal_norm"] = (signals["theme_hotness_raw"] / 100.0).clip(0, 1)
+        normalized["game_friction_norm"] = (signals["game_intensity_raw"] / 100.0).clip(0, 1)
+        turnover_roll_max = signals["turnover_rate_raw"].rolling(window=55, min_periods=1).max().replace(0, 0.01)
+        normalized["turnover_relative_norm"] = (signals["turnover_rate_raw"] / turnover_roll_max).clip(0, 1)
+        normalized["abnormal_vol_norm"] = (signals["abnormal_vol_raw"] / 100.0).clip(0, 1)
+        sm_roll_sum = signals["smart_money_net_raw"].rolling(window=21, min_periods=5).sum()
+        sm_roll_max = sm_roll_sum.abs().rolling(window=55, min_periods=1).max().replace(0, 1)
+        normalized["hab_smart_money"] = (sm_roll_sum / sm_roll_max).clip(-1, 1)
+        tick_roll_sum = signals["tick_large_net_raw"].rolling(window=21, min_periods=5).sum()
+        tick_roll_max = tick_roll_sum.abs().rolling(window=55, min_periods=1).max().replace(0, 1)
+        normalized["hab_tick_large"] = (tick_roll_sum / tick_roll_max).clip(-1, 1)
+        normalized["hab_flow_inertia"] = (normalized["hab_smart_money"] * 0.6 + normalized["hab_tick_large"] * 0.4).clip(-1, 1)
+        normalized["hab_sentiment_memory"] = normalized["market_sentiment_norm"].rolling(window=21, min_periods=5).mean().clip(-1, 1)
+        normalized["hab_volatility_memory"] = normalized["stability_factor"].rolling(window=21, min_periods=5).mean().clip(0, 1)
+        pain_roll_mean = signals["loser_loss_margin_avg_raw"].abs().rolling(window=21, min_periods=5).mean()
+        pain_roll_max = signals["loser_loss_margin_avg_raw"].abs().rolling(window=55, min_periods=1).max().replace(0, 1)
+        normalized["hab_pain_saturation"] = (pain_roll_mean / pain_roll_max).clip(0, 1)
+        trapped_roll_mean = signals["pressure_trapped_raw"].rolling(window=21, min_periods=5).mean()
+        trapped_roll_max = signals["pressure_trapped_raw"].rolling(window=55, min_periods=1).max().replace(0, 1)
+        normalized["hab_trapped_saturation"] = (trapped_roll_mean / trapped_roll_max).clip(0, 1)
+        stealth_roll_sum = signals["stealth_flow_ratio_raw"].rolling(window=21, min_periods=5).sum()
+        stealth_roll_max = stealth_roll_sum.abs().rolling(window=55, min_periods=1).max().replace(0, 1)
+        normalized["hab_stealth_accum"] = (stealth_roll_sum / stealth_roll_max).clip(0, 1)
+        def normalize_kinetic_with_gating(base_series, slope, accel, jerk, max_series):
+            threshold = max_series * 0.05
+            mask = base_series.abs() > threshold
+            n_slope = np.tanh(slope).where(mask, 0.0)
+            n_accel = np.tanh(accel).where(mask, 0.0)
+            n_jerk = np.tanh(jerk).where(mask, 0.0)
+            return n_slope, n_accel, n_jerk
+        s_sm, a_sm, j_sm = normalize_kinetic_with_gating(signals["smart_money_net_raw"], signals["slope_smart_money_net_raw"], signals["accel_smart_money_net_raw"], signals["jerk_smart_money_net_raw"], sm_window_max)
+        normalized["kinetic_smart_money"] = (s_sm * 0.5 + a_sm * 0.3 + j_sm * 0.2).clip(-1, 1)
+        s_sent, a_sent, j_sent = normalize_kinetic_with_gating(signals["market_sentiment_score_raw"], signals["slope_market_sentiment_score_raw"], signals["accel_market_sentiment_score_raw"], signals["jerk_market_sentiment_score_raw"], pd.Series(100, index=df_index))
+        normalized["kinetic_sentiment"] = (s_sent * 0.5 + a_sent * 0.3 + j_sent * 0.2).clip(-1, 1)
+        s_vol, a_vol, j_vol = normalize_kinetic_with_gating(signals["volatility_instability_raw"], signals["slope_volatility_instability_raw"], signals["accel_volatility_instability_raw"], signals["jerk_volatility_instability_raw"], pd.Series(100, index=df_index))
+        normalized["kinetic_stability"] = -1.0 * (s_vol * 0.5 + a_vol * 0.3 + j_vol * 0.2).clip(-1, 1)
+        pain_max_series = signals["loser_loss_margin_avg_raw"].abs().rolling(window=55, min_periods=1).max().replace(0, 1)
+        s_pain, a_pain, j_pain = normalize_kinetic_with_gating(signals["loser_loss_margin_avg_raw"], signals["slope_loser_loss_margin_avg_raw"], signals["accel_loser_loss_margin_avg_raw"], signals["jerk_loser_loss_margin_avg_raw"], pain_max_series)
+        normalized["kinetic_pain"] = -1.0 * (s_pain * 0.4 + a_pain * 0.4 + j_pain * 0.2).clip(-1, 1)
+        s_to, a_to, j_to = normalize_kinetic_with_gating(signals["turnover_rate_raw"], signals["slope_turnover_rate_raw"], signals["accel_turnover_rate_raw"], signals["jerk_turnover_rate_raw"], turnover_roll_max)
+        normalized["kinetic_release"] = (s_to * 0.5 + a_to * 0.3 + j_to * 0.2).clip(0, 1)
+        stealth_max_series = signals["stealth_flow_ratio_raw"].rolling(window=55, min_periods=1).max().replace(0, 1)
+        s_stl, a_stl, j_stl = normalize_kinetic_with_gating(signals["stealth_flow_ratio_raw"], signals["slope_stealth_flow_ratio_raw"], signals["accel_stealth_flow_ratio_raw"], signals["jerk_stealth_flow_ratio_raw"], stealth_max_series)
+        normalized["kinetic_stealth"] = (s_stl * 0.5 + a_stl * 0.3 + j_stl * 0.2).clip(-1, 1)
+        chip_max_series = signals["chip_flow_intensity_raw"].rolling(window=55, min_periods=1).max().replace(0, 1)
+        s_chip, a_chip, j_chip = normalize_kinetic_with_gating(signals["chip_flow_intensity_raw"], signals["slope_chip_flow_intensity_raw"], signals["accel_chip_flow_intensity_raw"], signals["jerk_chip_flow_intensity_raw"], chip_max_series)
+        normalized["kinetic_chip_flow"] = (s_chip * 0.5 + a_chip * 0.3 + j_chip * 0.2).clip(-1, 1)
+        _temp_debug_values["归一化处理"] = normalized
+        return normalized
 
-    def _calculate_conviction_strength(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_belief_solidity(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.16 · 信念强度累积上下文、趋势一致性与拐点调制版 - 累积上下文作为加分项，修正信念信号逻辑】计算赢家信念强度。
-        核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
-        核心修正：`loser_loss_margin_avg` 和 `chip_fatigue` 的逻辑修正，直接使用其MTF分数。
-        核心修正：`winner_concentration_90pct` 和 `cost_gini_coefficient` 的逻辑修正，直接使用其MTF分数。
-        新增：累积信念阈值逻辑，当累积信念下降到一定程度时，动态调整短期和长期信念信号的融合权重；
-              当累积信念健康时，放大其权重。
-        核心修改：移除 `mtf_main_force_conviction_index`，新增 `cumulative_main_force_buy_amount_score`、
-                  `cumulative_main_force_sell_amount_score` 和 `main_force_daily_sell_ratio_norm`。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            df_index (pd.Index): DataFrame的索引。
-            method_name (str): 调用此方法的名称，用于日志输出。
-            signals (Dict[str, pd.Series]): 包含原始信号Series和MTF信号Series的字典。
-            normalized_signals (Dict[str, pd.Series]): 包含归一化信号Series的字典。
-            params (Dict): 包含所有参数的字典。
-            _temp_debug_values (Dict): 临时调试值字典。
-        返回:
-            pd.Series: 赢家信念强度分数。
+        【V5.8 · 非线性相变增益版】计算赢家信念坚固度。
+        核心升级：
+        1. 静态+惯性+微观：构建扎实的线性基础分。
+        2. 非线性相变 (Phase Transition): 引入"动态指数增益函数"。
+           逻辑：信念必须由趋势验证。
+           公式：Final = Base ^ (2.0 - TrendStrength)。
+           效果：弱势趋势下的高获利盘被视为"散户死扛"(Square Penalty)，强势趋势下的获利盘被视为"真信念"(Linear Retention)。
         """
-        # 核心修正：在方法开始时初始化调试字典
-        _temp_debug_values["信念强度"] = {}
-        relative_position_weights = params["relative_position_weights"]
-        conviction_enhancement_weights = params["conviction_enhancement_weights"]
-        inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
-        cumulative_conviction_threshold_params = params["cumulative_conviction_threshold_params"]
-        # 核心赢家稳定性MTF分数
-        mtf_winner_stability = signals["mtf_winner_stability_index"]
-        winner_stability_percentile = signals["winner_stability_index_raw"].rank(pct=True).fillna(0.5)
-        # 获取MTF信号
-        # mtf_main_force_conviction_index = signals["mtf_main_force_conviction_index"] # 移除
-        mtf_chip_health_score = signals["mtf_chip_health_score"]
-        mtf_winner_profit_margin_avg = signals["mtf_winner_profit_margin_avg"]
-        mtf_loser_loss_margin_avg = signals["mtf_loser_loss_margin_avg"]
-        mtf_winner_concentration_90pct = signals["mtf_winner_concentration_90pct"]
-        mtf_chip_fatigue_index = signals["mtf_chip_fatigue_index"]
-        mtf_cost_gini_coefficient = signals["mtf_cost_gini_coefficient"]
-        # 获取累积主力信念指数 (用于阈值逻辑)
-        cumulative_main_force_conviction_index = signals.get("cumulative_main_force_conviction_index_score", pd.Series(0.0, index=df_index))
-        # 获取新的主力资金流累积信号
-        cumulative_main_force_buy_amount_score = signals.get("cumulative_main_force_buy_amount_calibrated_score", pd.Series(0.0, index=df_index))
-        cumulative_main_force_sell_amount_score = signals.get("cumulative_main_force_sell_amount_calibrated_score", pd.Series(0.0, index=df_index))
-        # 获取新的主力每日卖出占比信号
-        main_force_daily_sell_ratio_norm = normalized_signals.get("main_force_daily_sell_ratio_norm", pd.Series(0.0, index=df_index))
-        # --- 累积信念阈值逻辑 ---
-        dynamic_short_term_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        dynamic_long_term_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        if cumulative_conviction_threshold_params["enabled"]:
-            decay_threshold_pct = cumulative_conviction_threshold_params["decay_threshold_pct"]
-            absolute_threshold = cumulative_conviction_threshold_params["absolute_threshold"]
-            alert_short_term_boost_factor = cumulative_conviction_threshold_params["short_term_weight_boost_factor"]
-            alert_long_term_decay_factor = cumulative_conviction_threshold_params["long_term_weight_decay_factor"]
-            healthy_long_term_boost_factor = cumulative_conviction_threshold_params["healthy_long_term_boost_factor"]
-            healthy_short_term_decay_factor = cumulative_conviction_threshold_params["healthy_short_term_decay_factor"]
-            # 计算累积信念的历史最高点 (只考虑正值，因为我们关心的是信念的衰减)
-            historical_max_cumulative_conviction = cumulative_main_force_conviction_index.clip(lower=0).expanding(min_periods=1).max()
-            # 计算回撤百分比 (只在历史最高点 > 0 时计算)
-            decay_pct = pd.Series(0.0, index=df_index, dtype=np.float32)
-            valid_max_mask = historical_max_cumulative_conviction > 1e-9
-            decay_pct.loc[valid_max_mask] = (historical_max_cumulative_conviction.loc[valid_max_mask] - cumulative_main_force_conviction_index.loc[valid_max_mask]) / historical_max_cumulative_conviction.loc[valid_max_mask]
-            decay_pct = decay_pct.clip(lower=0) # 确保回撤百分比不为负
-            # 判断是否触发警惕模式
-            condition_decay = (decay_pct >= decay_threshold_pct)
-            condition_absolute = (cumulative_main_force_conviction_index.abs() < absolute_threshold)
-            alert_condition = condition_decay | condition_absolute
-            # 动态调整权重因子
-            # 警惕模式下
-            dynamic_short_term_factor.loc[alert_condition] = alert_short_term_boost_factor
-            dynamic_long_term_factor.loc[alert_condition] = alert_long_term_decay_factor
-            # 健康模式下
-            dynamic_short_term_factor.loc[~alert_condition] = healthy_short_term_decay_factor
-            dynamic_long_term_factor.loc[~alert_condition] = healthy_long_term_boost_factor
-            _temp_debug_values["信念强度"]["historical_max_cumulative_conviction"] = historical_max_cumulative_conviction
-            _temp_debug_values["信念强度"]["decay_pct"] = decay_pct
-            _temp_debug_values["信念强度"]["condition_decay_triggered"] = condition_decay # 新增调试输出
-            _temp_debug_values["信念强度"]["condition_absolute_triggered"] = condition_absolute # 新增调试输出
-            _temp_debug_values["信念强度"]["alert_condition"] = alert_condition
-            _temp_debug_values["信念强度"]["dynamic_short_term_factor"] = dynamic_short_term_factor
-            _temp_debug_values["信念强度"]["dynamic_long_term_factor"] = dynamic_long_term_factor
-        # 调试输出调制前的MTF信号 (现在这些值就是最终使用的MTF值)
-        _temp_debug_values["信念强度"]["mtf_winner_stability_pre_modulated"] = mtf_winner_stability
-        # _temp_debug_values["信念强度"]["mtf_main_force_conviction_index_pre_modulated"] = mtf_main_force_conviction_index # 移除
-        _temp_debug_values["信念强度"]["mtf_chip_health_score_pre_modulated"] = mtf_chip_health_score
-        _temp_debug_values["信念强度"]["mtf_winner_profit_margin_avg_pre_modulated"] = mtf_winner_profit_margin_avg
-        _temp_debug_values["信念强度"]["mtf_loser_loss_margin_avg_pre_modulated"] = mtf_loser_loss_margin_avg
-        _temp_debug_values["信念强度"]["mtf_winner_concentration_90pct_pre_modulated"] = mtf_winner_concentration_90pct
-        _temp_debug_values["信念强度"]["mtf_chip_fatigue_index_pre_modulated"] = mtf_chip_fatigue_index
-        _temp_debug_values["信念强度"]["mtf_cost_gini_coefficient_pre_modulated"] = mtf_cost_gini_coefficient
-        core_conviction_component = (mtf_winner_stability * relative_position_weights.get("winner_stability_high", 0.6) +
-                                     (winner_stability_percentile * 2 - 1) * (1 - relative_position_weights.get("winner_stability_high", 0.6)))
-        # 引入MTF趋势一致性分数
-        mtf_trend_consistency_winner_stability = signals.get("mtf_trend_consistency_winner_stability_index", pd.Series(0.0, index=df_index))
-        # 引入拐点惩罚
-        inflection_mtf_winner_stability = signals.get("inflection_mtf_winner_stability_index", pd.Series(0.0, index=df_index))
-        inflection_penalty = pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 核心修正：对于正面信号（信念强度），惩罚值应与拐点信号的符号相反。
-        inflection_penalty = -inflection_mtf_winner_stability * inflection_penalty_strength
-        # 将拐点惩罚应用于核心信念组件
-        core_conviction_component = core_conviction_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
-        all_conviction_components = {
-            "core_conviction": core_conviction_component,
-            # "main_force_conviction": mtf_main_force_conviction_index, # 移除
-            "chip_health": mtf_chip_health_score,
-            "winner_profit_margin_avg": mtf_winner_profit_margin_avg,
-            "loser_loss_margin_avg": mtf_loser_loss_margin_avg,
-            "winner_concentration_90pct": mtf_winner_concentration_90pct,
-            "chip_fatigue": mtf_chip_fatigue_index,
-            "cost_gini_coefficient": mtf_cost_gini_coefficient,
-            "winner_stability_trend_consistency": mtf_trend_consistency_winner_stability,
-            # 新增累积上下文作为独立组件
-            "cumulative_winner_stability_index": signals.get("cumulative_winner_stability_index_score", pd.Series(0.0, index=df_index)),
-            "cumulative_main_force_conviction_index": cumulative_main_force_conviction_index, # 保持不变，用于阈值逻辑
-            "cumulative_chip_health_score": signals.get("cumulative_chip_health_score_score", pd.Series(0.0, index=df_index)),
-            "cumulative_winner_profit_margin_avg": signals.get("cumulative_winner_profit_margin_avg_score", pd.Series(0.0, index=df_index)),
-            "cumulative_loser_loss_margin_avg": signals.get("cumulative_loser_loss_margin_avg_score", pd.Series(0.0, index=df_index)),
-            "cumulative_winner_concentration_90pct": signals.get("cumulative_winner_concentration_90pct_score", pd.Series(0.0, index=df_index)),
-            "cumulative_chip_fatigue_index": signals.get("cumulative_chip_fatigue_index_score", pd.Series(0.0, index=df_index)),
-            "cumulative_cost_gini_coefficient": signals.get("cumulative_cost_gini_coefficient_score", pd.Series(0.0, index=df_index)),
-            # 新增主力资金流相关信号
-            "cumulative_main_force_buy_amount": cumulative_main_force_buy_amount_score, # 正面信号
-            "cumulative_main_force_sell_amount": cumulative_main_force_sell_amount_score * -1, # 负面信号，所以乘以-1
-            "main_force_daily_sell_ratio": main_force_daily_sell_ratio_norm * -1 # 负面信号，所以乘以-1
+        weights = params["belief_weights"]
+        # 1. 静态状态 (State) - 35%
+        winner_rate = normalized["winner_rate_norm"]
+        profit_cushion = normalized["profit_cushion_norm"]
+        peak_concentration = normalized["peak_concentration_norm"]
+        chip_concentration_ratio = normalized["chip_concentration_ratio_norm"]
+        structure_score = (peak_concentration * 0.6 + chip_concentration_ratio * 0.4).clip(0, 1)
+        static_belief = (winner_rate * 0.3 + profit_cushion * 0.3 + structure_score * 0.4).clip(0, 1)
+        # 2. 惯性状态 (Inertia/HAB) - 45%
+        hab_belief = normalized["hab_belief_inertia"]
+        chip_stability = normalized["chip_stability_norm"]
+        inertia_belief = (hab_belief * 0.7 + chip_stability * 0.3).clip(0, 1)
+        # 3. 基础线性坚固度
+        base_solidity = (static_belief * 0.35 + inertia_belief * 0.45).clip(0, 1)
+        # 4. 动量修正
+        slope = normalized["slope_winner_rate"]
+        accel = normalized["accel_winner_rate"]
+        high_lock = normalized["high_lock_norm"]
+        raw_kinetic = (slope * 0.15 + accel * 0.05).clip(-0.2, 0.2)
+        micro_bonus = (high_lock * 0.1).where(raw_kinetic > 0, 0.0)
+        kinetic_factor = raw_kinetic + micro_bonus
+        # 线性汇总
+        linear_solidity = (base_solidity + kinetic_factor + 0.1).clip(0, 1)
+        # 5. 非线性相变增益 (Non-linear Phase Transition)
+        uptrend = normalized["uptrend_strength_norm"]
+        # 动态指数: 趋势越强，指数越小(接近1.0，保留原值)；趋势越弱，指数越大(接近2.0，平方惩罚)
+        dynamic_exponent = 2.0 - uptrend
+        phase_transition_solidity = linear_solidity.pow(dynamic_exponent)
+        # 6. 反身性极值惩罚
+        euphoria_risk = (static_belief > 0.95) & (structure_score < 0.4)
+        euphoria_penalty = pd.Series(1.0, index=df_index)
+        euphoria_penalty.loc[euphoria_risk] = 0.5
+        # 最终得分
+        belief_solidity = phase_transition_solidity * euphoria_penalty
+        print(f"  [Probe] 信念坚固度V5.8详情 (前3行):")
+        print(f"    LinearBase: {linear_solidity.head(3).values}")
+        print(f"    TrendCatalyst: {uptrend.head(3).values} -> Exponent: {dynamic_exponent.head(3).values}")
+        print(f"    PhaseTransition: {phase_transition_solidity.head(3).values}")
+        print(f"    Final Solidity: {belief_solidity.head(3).values}")
+        _temp_debug_values["信念坚固度"] = {
+            "static_belief": static_belief,
+            "inertia_belief": inertia_belief,
+            "linear_solidity": linear_solidity,
+            "dynamic_exponent": dynamic_exponent,
+            "phase_transition_solidity": phase_transition_solidity,
+            "euphoria_penalty": euphoria_penalty,
+            "score": belief_solidity
         }
-        # 融合权重 (初始权重)
-        # Note: conviction_enhancement_weights comes from params, which is loaded from process.json
-        base_conviction_fusion_weights = {
-            "core_conviction": conviction_enhancement_weights.get("core_conviction", 0.05), # Default 0.05 if not in JSON
-            # "main_force_conviction": conviction_enhancement_weights.get("main_force_conviction", 0.1), # 移除
-            "chip_health": conviction_enhancement_weights.get("chip_health", 0.1),
-            "winner_profit_margin_avg": conviction_enhancement_weights.get("winner_profit_margin_avg", 0.05),
-            "loser_loss_margin_avg": conviction_enhancement_weights.get("loser_loss_margin_avg", 0.05),
-            "winner_concentration_90pct": conviction_enhancement_weights.get("winner_concentration_90pct", 0.05),
-            "chip_fatigue": conviction_enhancement_weights.get("chip_fatigue", 0.05),
-            "cost_gini_coefficient": conviction_enhancement_weights.get("cost_gini_coefficient", 0.02),
-            "winner_stability_trend_consistency": conviction_enhancement_weights.get("winner_stability_trend_consistency", 0.05),
-            "cumulative_winner_stability_index": conviction_enhancement_weights.get("cumulative_winner_stability_index", 0.02),
-            "cumulative_main_force_conviction_index": conviction_enhancement_weights.get("cumulative_main_force_conviction_index", 0.15), # Default 0.15 if not in JSON
-            "cumulative_chip_health_score": conviction_enhancement_weights.get("cumulative_chip_health_score", 0.02),
-            "cumulative_winner_profit_margin_avg": conviction_enhancement_weights.get("cumulative_winner_profit_margin_avg", 0.02),
-            "cumulative_loser_loss_margin_avg": conviction_enhancement_weights.get("cumulative_loser_loss_margin_avg", 0.02),
-            "cumulative_winner_concentration_90pct": conviction_enhancement_weights.get("cumulative_winner_concentration_90pct", 0.02),
-            "cumulative_chip_fatigue_index": conviction_enhancement_weights.get("cumulative_chip_fatigue_index", 0.02),
-            "cumulative_cost_gini_coefficient": conviction_enhancement_weights.get("cumulative_cost_gini_coefficient", 0.02),
-            # 新增主力资金流相关权重
-            "cumulative_main_force_buy_amount": conviction_enhancement_weights.get("cumulative_main_force_buy_amount", 0.15),
-            "cumulative_main_force_sell_amount": conviction_enhancement_weights.get("cumulative_main_force_sell_amount", 0.1),
-            "main_force_daily_sell_ratio": conviction_enhancement_weights.get("main_force_daily_sell_ratio", 0.05)
+        return belief_solidity
+
+    def _calculate_pressure_digestion(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V6.2 · 非线性相变增益版】计算压力消化力。
+        核心升级：
+        1. 基础架构: 保持耗散结构(V6.0)与敌我识别/战略防御(V6.1)逻辑。
+        2. 非线性相变 (Phase Transition): 引入"双因子动态指数"。
+           逻辑：压力消化的含金量取决于"趋势环境"和"量能效率"。
+           公式：Exponent = 2.0 - (0.5 * Trend + 0.5 * VPA)。
+           效果：强势趋势+高效量能 -> 线性保留(真实消化)；弱势趋势+低效量能 -> 平方级衰减(抵抗式下跌)。
+        """
+        weights = params["pressure_weights"]
+        # 1. 流量维度 (Snapshot)
+        load = (normalized["profit_pressure_norm"] * 0.5 + normalized["trapped_pressure_norm"] * 0.5).clip(0.1, 1.0)
+        active_absorb = normalized["panic_absorption_norm"]
+        passive_support = normalized["support_strength_norm"]
+        metabolism = (active_absorb * 0.6 + passive_support * 0.4).clip(0, 1)
+        snapshot_coverage = np.tanh((metabolism / load) - 1.0).clip(-1, 1)
+        # 2. 存量维度 (HAB)
+        hab_capacity = normalized["hab_absorption_capacity"]
+        # 3. 动力学维度 (Kinetics)
+        net_kinetics = (normalized["kinetic_absorb"] - normalized["kinetic_pressure"]).clip(-1, 1)
+        # 4. 基础消化分
+        base_digestion = (snapshot_coverage * 0.3 + hab_capacity * 0.5 + net_kinetics * 0.2).clip(-1, 1)
+        # 5. 质量修正 (Quality)
+        transfer_eff = normalized["chip_transfer_norm"]
+        release_index = normalized["pressure_release_norm"]
+        tick_balance = normalized["tick_balance_norm"]
+        balance_score = ((tick_balance - 0.5) * 2).clip(0, 1)
+        quality_coef = (transfer_eff * 0.4 + release_index * 0.3 + balance_score * 0.3).clip(0, 1)
+        # 6. 敌我识别与战略防御 (V6.1)
+        dist_conf = normalized["distribution_conf_norm"]
+        adversary_penalty = dist_conf * 0.8
+        gap_defense = normalized["gap_defense_norm"]
+        defense_bonus = 1.0 + (gap_defense * 0.3)
+        
+        adjusted_base = base_digestion * (0.8 + 0.4 * quality_coef)
+        if_positive = adjusted_base * defense_bonus * (1.0 - adversary_penalty)
+        if_negative = adjusted_base * (1.0 + adversary_penalty)
+        linear_digestion = if_positive.where(adjusted_base > 0, if_negative).clip(-1, 1)
+        
+        # --- V6.2 非线性相变增益模块 ---
+        # 因子1: 趋势强度 (Trend Strength) - 顺势消化事半功倍
+        uptrend = normalized["uptrend_strength_norm"]
+        # 因子2: VPA效率 (Volume Efficiency) - 高效量能验证消化质量
+        # vpa_norm 是 [-1, 1]，我们需要将其映射到 [0, 1] 用于指数计算 (越接近1越好)
+        vpa_factor = (normalized["vpa_efficiency_norm"] + 1) / 2
+        
+        # 动态指数构建
+        # 基准指数 2.0 (平方级惩罚，对应弱势震荡)
+        # 趋势和VPA越好，指数越小，直至接近 1.0 (线性保留)
+        # Exponent = 2.0 - (0.5 * Trend + 0.5 * VPA)
+        dynamic_exponent = 2.0 - (uptrend * 0.5 + vpa_factor * 0.5)
+        # 限制指数范围 [1.0, 3.0] (防止过度奖励或计算溢出)
+        dynamic_exponent = dynamic_exponent.clip(1.0, 3.0)
+        
+        # 应用非线性变换: Sign * |Base|^Exponent
+        phase_transition_digestion = np.sign(linear_digestion) * (linear_digestion.abs().pow(dynamic_exponent))
+        
+        final_digestion = phase_transition_digestion.clip(-1, 1)
+
+        print(f"  [Probe] 压力消化V6.2详情 (前3行):")
+        print(f"    LinearDigestion: {linear_digestion.head(3).values}")
+        print(f"    DynamicExponent: {dynamic_exponent.head(3).values} (Trend: {uptrend.head(3).values}, VPA: {vpa_factor.head(3).values})")
+        print(f"    Final Digestion: {final_digestion.head(3).values}")
+        
+        _temp_debug_values["压力消化力"] = {
+            "snapshot_coverage": snapshot_coverage,
+            "hab_capacity": hab_capacity,
+            "net_kinetics": net_kinetics,
+            "quality_coef": quality_coef,
+            "adversary_penalty": adversary_penalty,
+            "defense_bonus": defense_bonus,
+            "linear_digestion": linear_digestion,
+            "dynamic_exponent": dynamic_exponent,
+            "score": final_digestion
         }
-        # Debugging: Print base_conviction_fusion_weights and raw_conviction_enhancement_weights_from_params
-        if self.helper.debug_params.get('enabled') and self.helper.probe_dates:
-            probe_ts = None
-            for date in reversed(df_index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]:
-                    probe_ts = date
-                    break
-            if probe_ts:
-                _temp_debug_values["信念强度"]["raw_conviction_enhancement_weights_from_params"] = conviction_enhancement_weights
-                # 修正：base_conviction_fusion_weights 中的值是标量，直接存储即可
-                _temp_debug_values["信念强度"]["base_fusion_weights_at_probe"] = {
-                    k: v
-                    for k, v in base_conviction_fusion_weights.items()
-                }
-                # DEBUG: Confirm content
-                # print(f"DEBUG: base_fusion_weights_at_probe set to: {_temp_debug_values['信念强度']['base_fusion_weights_at_probe']}")
-        # 动态调整权重
-        conviction_fusion_weights = {}
-        for k, v in base_conviction_fusion_weights.items():
-            if k == "main_force_daily_sell_ratio": # 短期信号
-                conviction_fusion_weights[k] = v * dynamic_short_term_factor
-            elif k in ["cumulative_main_force_buy_amount", "cumulative_main_force_sell_amount", "cumulative_main_force_conviction_index"]: # 长期累积信号
-                conviction_fusion_weights[k] = v * dynamic_long_term_factor
-            else:
-                conviction_fusion_weights[k] = pd.Series(v, index=df_index, dtype=np.float32)
-        # Debugging: Print conviction_fusion_weights before normalization
-        if self.helper.debug_params.get('enabled') and self.helper.probe_dates and probe_ts:
-            _temp_debug_values["信念强度"]["dynamic_fusion_weights_pre_norm_at_probe"] = {
-                k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
-                for k, v in conviction_fusion_weights.items()
-            }
-        # 归一化动态调整后的权重
-        total_weight_series = pd.Series(0.0, index=df_index, dtype=np.float32)
-        for w_series in conviction_fusion_weights.values():
-            total_weight_series += w_series
-        # 确保 total_weight_series 不为0，避免除以0错误
-        total_weight_safe = total_weight_series.replace(0, 1e-9)
-        conviction_fusion_weights = {k: v / total_weight_safe for k, v in conviction_fusion_weights.items()}
-        # Debugging: Print final weights for the probe date
-        if self.helper.debug_params.get('enabled') and self.helper.probe_dates and probe_ts:
-            _temp_debug_values["信念强度"]["final_fusion_weights_at_probe"] = {
-                k: v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v
-                for k, v in conviction_fusion_weights.items()
-            }
-        fused_conviction_strength_0_1 = _robust_geometric_mean(
-            all_conviction_components,
-            conviction_fusion_weights,
-            df_index
+        return final_digestion
+
+    def _calculate_flow_consensus(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V7.3 · 非线性共振与诚信穿透版】计算资金共识度。
+        修改逻辑：
+        1. 引入非线性相变模块：基于协同进攻强度动态调整指数，强化“共振”捕捉能力。
+        2. 诚信度指数级衰减：对高对倒（Wash Trade）行为从线性扣分升级为非线性抑制。
+        3. 增强噪音过滤：利用大单异常强度对非线性后的结果进行最终平滑。
+        """
+        # 1. 基础分层构建 (Flow + Stock + Kinetics)
+        snapshot_flow = (normalized["smart_money_net_norm"] * 0.5 + normalized["tick_large_net_norm"] * 0.3 + normalized["net_mf_norm"] * 0.2).clip(-1, 1)
+        hab_stock = normalized["hab_flow_inertia"]
+        kinetic_impulse = normalized["kinetic_smart_money"]
+        base_consensus = (snapshot_flow * 0.25 + hab_stock * 0.45 + kinetic_impulse * 0.3).clip(-1, 1)
+        # 2. 诚信穿透与伏击修正
+        wash_trade = normalized["wash_trade_norm"]
+        integrity_factor = 1.0 - (wash_trade * 0.6) # 线性基础诚信因子
+        closing_flow = normalized["closing_flow_norm"]
+        ambush_booster = (1.0 + closing_flow * 0.25).where(base_consensus > 0, 1.0)
+        # 3. 核心升级：非线性共振调制 (Phase Transition)
+        attack = normalized["smart_money_attack_norm"]
+        # 动态指数：进攻协同度越高(1.0)，指数越小(1.0)，原始动能保留越完整；协同度越低，指数越大，动能衰减越快
+        # Exponent 范围 [1.0, 2.5]
+        res_exponent = (1.0 + (1.0 - attack) * 1.5).clip(1.0, 2.5)
+        # 4. 冲突博弈与噪音过滤
+        divergence = normalized["smart_money_div_norm"]
+        game_penalty = divergence * 0.8
+        anomaly_filter = normalized["order_anomaly_filter"]
+        # 5. 最终融合计算
+        # 计算逻辑：(基础分 * 诚信 * 伏击) -> 应用非线性共振指数 -> 应用博弈惩罚 -> 噪音过滤
+        consensus_pre = (base_consensus * integrity_factor * ambush_booster).clip(-1, 1)
+        # 执行非线性变换：Sign(x) * |x|^Exponent
+        phase_transition_consensus = np.sign(consensus_pre) * (consensus_pre.abs().pow(res_exponent))
+        # 应用机构博弈（分歧）惩罚
+        if_positive = phase_transition_consensus * (1.0 - game_penalty)
+        if_negative = phase_transition_consensus # 负向流向保持风险提示，不进行分歧对冲
+        final_consensus = if_positive.where(phase_transition_consensus > 0, if_negative) * anomaly_filter
+        final_consensus = final_consensus.clip(-1, 1)
+        print(f"  [Probe] 资金共识V7.3详情 (前3行):")
+        print(f"    BasePre: {consensus_pre.head(3).values}")
+        print(f"    ResExponent: {res_exponent.head(3).values} (Attack: {attack.head(3).values})")
+        print(f"    Final Consensus: {final_consensus.head(3).values}")
+        _temp_debug_values["资金共识度"] = {
+            "base_consensus": base_consensus,
+            "res_exponent": res_exponent,
+            "integrity_factor": integrity_factor,
+            "ambush_booster": ambush_booster,
+            "phase_transition": phase_transition_consensus,
+            "score": final_consensus
+        }
+        return final_consensus
+
+    def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V10.0 · 非线性共振激活】在V9.0全息场的基础上，引入时空相干性(Coherence)作为非线性增益的开关。
+        
+        逻辑演进：
+        1. 线性基座 (Linear Base): 计算热力-摩擦-HAB修正后的线性调节系数。
+        2. 相干性检测 (Coherence Check): 检测"状态(Snapshot)"、"速度(Kinematics)"、"记忆(HAB)"三者是否共振。
+        3. 非线性激活 (Non-linear Activation): 
+           - 高相干 (Resonance): 线性保留甚至凸性奖励 (Exponent -> 0.8)。
+           - 低相干 (Conflict): 平方级抑制 (Exponent -> 2.0)，过滤虚假信号。
+        
+        公式：Final = 1.0 + Sign(Linear-1) * |Linear-1| ^ (2.0 - Coherence * 1.2)
+        """
+        weights = params["context_weights"]
+        hab_weights = params.get("hab_weights", {})
+        env_weights = params.get("environment_weights", {})
+        res_params = params.get("resonance_params", {})
+        
+        # --- Layer 1: 物理场快照 (Snapshot) ---
+        sentiment = normalized["market_sentiment_norm"]
+        trend = normalized["trend_confirmation_norm"] * 2 - 1 
+        stability_factor = normalized["stability_factor"]
+        order_factor = normalized["structural_order_factor"]
+        
+        base_snapshot = (
+            sentiment * weights["market_sentiment"] + 
+            trend * weights["trend_confirmation"] +
+            (stability_factor * 2 - 1) * weights["volatility_stability"] + 
+            (order_factor * 2 - 1) * weights["structural_order"]
+        ).clip(-1, 1)
+        
+        # --- Layer 2: 动力学修正 (Kinematics) ---
+        k_sent = normalized["kinetic_sentiment"]
+        k_stab = normalized["kinetic_stability"]
+        kinematic_score = (k_sent * 0.6 + k_stab * 0.4).clip(-1, 1)
+        
+        modified_field = base_snapshot + kinematic_score * 0.3
+        
+        # --- Layer 3: 存量记忆缓冲 (HAB) ---
+        hab_flow = normalized["hab_flow_inertia"]
+        hab_sent = normalized["hab_sentiment_memory"]
+        hab_vol = normalized["hab_volatility_memory"]
+        
+        hab_score = (
+            hab_flow * hab_weights["flow_inertia"] + 
+            hab_sent * hab_weights["sentiment_memory"] + 
+            (hab_vol * 2 - 1) * hab_weights["volatility_memory"]
+        ).clip(-0.5, 1.0)
+        
+        # --- Layer 4: 环境热力与摩擦 (Environment) ---
+        thermal_boost = normalized["theme_thermal_norm"] * env_weights["theme_thermal"]
+        friction_drag = normalized["game_friction_norm"] * env_weights["game_friction"]
+        reversion_drag = normalized["reversion_freq_norm"] * weights["reversion_penalty"]
+        
+        # --- V9.0 线性基座计算 ---
+        numerator = (1.0 + modified_field * 0.6 + hab_score * 0.4) * (1.0 + thermal_boost)
+        denominator = 1.0 + reversion_drag + friction_drag
+        linear_modulator = numerator / denominator
+        
+        # --- V10.0 非线性共振模块 (Resonance Module) ---
+        
+        # 1. 计算相干性 (Coherence) [0, 1]
+        # 逻辑：判断 Snapshot, Kinematics, HAB 三个向量的方向一致性
+        # 使用简单的符号乘积和幅值加权来估算
+        # 如果三者同向（且幅值显著），Coherence 趋近 1.0
+        # 如果方向冲突，Coherence 趋近 0.0
+        
+        # 为了计算方便，先将 hab_score 映射回 [-1, 1] 的逻辑空间用于方向判断
+        hab_direction = hab_score.clip(-1, 1)
+        
+        # 向量组
+        v1 = base_snapshot
+        v2 = kinematic_score
+        v3 = hab_direction
+        
+        # 计算两两的点积 (Dot Product Proxy)，这里简化为符号一致性 * 幅值
+        # 只有当大家都强且同向时，才是真共振
+        # 这里的 coherence 算法：(v1*v2 + v2*v3 + v3*v1) / 3，再归一化到 [0, 1]
+        # 结果范围 [-1, 1] -> 映射到 [0, 1] (负相关也是一种"不相干"的表现，对于做多来说)
+        raw_coherence = (v1 * v2 + v2 * v3 + v3 * v1) / 3.0
+        # 我们只关心"正向共振"（一起看多），如果是"负向共振"（一起看空），对于Modulator来说也是一种确定性
+        # 但 Context Modulator 主要用于增强"信念"，所以我们关注 "一致性"。
+        # 修正：我们关注 magnitude of alignment.
+        alignment_magnitude = raw_coherence.clip(-1, 1)
+        # 映射：1.0 -> 1.0 (完美共振), 0.0 -> 0.0 (无关), -1.0 -> 0.0 (冲突/反向共振视同无多头共振)
+        # 这里为了稳健，如果三个指标都为负，alignment是正的，这会增强"负分"（即抑制信念），逻辑通顺。
+        coherence = ((alignment_magnitude + 1.0) / 2.0).clip(0, 1)
+        
+        # 2. 动态指数构建
+        # Base Exp = 2.0 (平方级衰减，默认不信任)
+        # Target Exp = 0.8 (凸性奖励，信任并放大)
+        # Exp = Base - Coherence * (Base - Min)
+        base_exp = res_params["base_exponent"]
+        min_exp = res_params["min_exponent"]
+        dynamic_exponent = base_exp - coherence * (base_exp - min_exp)
+        
+        # 3. 非线性变换
+        # Modulator 中心是 1.0
+        # Final = 1.0 + Sign(Linear-1) * |Linear-1|^Exp
+        deviation = linear_modulator - 1.0
+        sign_dev = np.sign(deviation)
+        abs_dev = deviation.abs()
+        
+        # 应用指数
+        # 注意：当 deviation 很小 (<1) 时，Exp越小，结果越大(放大)；Exp越大，结果越小(抑制)。
+        # 这符合逻辑：Coherence高 -> Exp小 -> 放大微小的正向偏差。
+        # Coherence低 -> Exp大 -> 抑制微小的偏差（视为噪音）。
+        final_modulator = 1.0 + sign_dev * (abs_dev.pow(dynamic_exponent))
+        
+        # 4. 最终数值安全钳位 [0.5, 2.0]
+        final_modulator = final_modulator.clip(0.5, 2.0)
+        
+        print(f"  [Probe] 情境调制V10.0: Linear={linear_modulator.tail(1).values[0]:.3f}, "
+              f"Coherence={coherence.tail(1).values[0]:.3f}, "
+              f"Exp={dynamic_exponent.tail(1).values[0]:.3f} -> Final={final_modulator.tail(1).values[0]:.4f}")
+        
+        _temp_debug_values["情境调制"] = {
+            "linear_modulator": linear_modulator,
+            "coherence": coherence,
+            "dynamic_exponent": dynamic_exponent,
+            "final_modulator": final_modulator
+        }
+        return final_modulator
+
+    def _calculate_adversary_capitulation(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V14.0 · 非线性伽马膨胀】三体共振驱动的相变模型。
+        
+        核心逻辑：
+        1. 痛苦势能 (Pain): 存量与深度的积累。
+        2. 清洗效率 (Cleaning): 放量与换手的确认。
+        3. 恐慌烈度 (Panic): 情绪的引爆。
+        
+        非线性变换 (Gamma Expansion):
+        - Coherence = GeometricMean(Pain, Cleaning, Panic)
+        - Gamma = Base - Coherence * (Base - Min)
+        - Final = Raw ^ Gamma
+        
+        效果：
+        - 阴跌无量 (Low Coherence) -> Gamma > 1 -> 分数被压缩 (Trap Identified).
+        - 放量暴跌 (High Coherence) -> Gamma < 1 -> 分数被膨胀 (Opportunity Amplified).
+        """
+        weights = params["capitulation_weights"]
+        
+        # 1. 痛苦势能 (Pain Potential)
+        static_pain = (normalized["loser_pain_norm"] * 0.6 + normalized["trapped_pressure_norm"] * 0.4).clip(0, 1)
+        kinetic_pain = normalized["kinetic_pain"].clip(0, 1)
+        saturation_score = (normalized["hab_pain_saturation"] * 0.6 + normalized["hab_trapped_saturation"] * 0.4).clip(0, 1)
+        
+        pain_force = (
+            static_pain * weights["static_pain"] + 
+            kinetic_pain * weights["kinetic_pain"] + 
+            saturation_score * weights["pain_saturation"]
+        ).clip(0, 1)
+        
+        # 2. 清洗效率 (Cleansing Efficiency)
+        turnover_score = normalized["turnover_relative_norm"]
+        abnormal_score = normalized["abnormal_vol_norm"]
+        kinetic_release = normalized["kinetic_release"]
+        
+        raw_release = (turnover_score * 0.4 + abnormal_score * 0.3 + kinetic_release * 0.3).clip(0, 1)
+        cleaning_efficiency = 0.4 + 0.6 * raw_release
+        
+        # 3. 恐慌烈度 (Panic Intensity)
+        panic_intensity = normalized["panic_cascade_norm"]
+        
+        # --- V14.0 三体共振与伽马计算 ---
+        
+        # 原始线性分 (Raw Linear Score)
+        # 基础逻辑：痛苦 * 清洗。恐慌作为共振因子参与 Gamma 计算，不再直接乘入 Base。
+        # (恐慌是催化剂，不是燃料本身)
+        raw_score = pain_force * cleaning_efficiency
+        
+        # 计算相干性 (Coherence)
+        # 使用几何平均数来衡量三者的"协同高度"。只有当三者都强时，几何平均才高。
+        # 为了防止0值过度惩罚，添加微小常数 epsilon
+        # Coherence 越高，代表痛苦深、释放大、恐慌足 -> 完美投降
+        epsilon = 0.05
+        coherence = np.exp(
+            (np.log(pain_force + epsilon) + np.log(cleaning_efficiency + epsilon) + np.log(panic_intensity + epsilon)) / 3.0
         )
-        conviction_strength_score = (fused_conviction_strength_0_1 * 2 - 1).clip(-1, 1)
-        _temp_debug_values["信念强度"].update({ # 使用 update 方法合并字典
-            "mtf_winner_stability": mtf_winner_stability,
-            "winner_stability_percentile": winner_stability_percentile,
-            "core_conviction_component": core_conviction_component,
-            # "mtf_main_force_conviction_index": mtf_main_force_conviction_index, # 移除
-            "mtf_chip_health_score": mtf_chip_health_score,
-            "mtf_winner_profit_margin_avg": mtf_winner_profit_margin_avg,
-            "mtf_loser_loss_margin_avg": mtf_loser_loss_margin_avg, # 调试输出修正后的值
-            "mtf_winner_concentration_90pct": mtf_winner_concentration_90pct, # 调试输出修正后的值
-            "mtf_chip_fatigue_index": mtf_chip_fatigue_index, # 调试输出修正后的值
-            "mtf_cost_gini_coefficient": mtf_cost_gini_coefficient, # 调试输出修正后的值
-            "mtf_trend_consistency_winner_stability": signals.get("mtf_trend_consistency_winner_stability_index", pd.Series(np.nan, index=df_index)), # 调试输出
-            "inflection_mtf_winner_stability_index": inflection_mtf_winner_stability, # 调试输出
-            "inflection_penalty_conviction": inflection_penalty, # 调试输出
-            "fused_conviction_strength_0_1": fused_conviction_strength_0_1,
-            "conviction_strength_score": conviction_strength_score,
-            # 调试输出累积上下文信号
-            "cumulative_winner_stability_index": signals.get("cumulative_winner_stability_index_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_main_force_conviction_index": cumulative_main_force_conviction_index,
-            "cumulative_chip_health_score": signals.get("cumulative_chip_health_score_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_winner_profit_margin_avg": signals.get("cumulative_winner_profit_margin_avg_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_loser_loss_margin_avg": signals.get("cumulative_loser_loss_margin_avg_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_winner_concentration_90pct": signals.get("cumulative_winner_concentration_90pct_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_chip_fatigue_index": signals.get("cumulative_chip_fatigue_index_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_cost_gini_coefficient": signals.get("cumulative_cost_gini_coefficient_score", pd.Series(np.nan, index=df_index)),
-            # 调试输出新增的主力资金流相关信号
-            "cumulative_main_force_buy_amount": cumulative_main_force_buy_amount_score,
-            "cumulative_main_force_sell_amount": cumulative_main_force_sell_amount_score, # 原始值，未乘以-1
-            "main_force_daily_sell_ratio": main_force_daily_sell_ratio_norm # 原始值，未乘以-1
-        })
-        return conviction_strength_score
+        # 归一化调整，因为加了epsilon，最大值约 1+epsilon，稍微clip一下
+        coherence = coherence.clip(0, 1)
+        
+        # 动态伽马 (Dynamic Gamma)
+        # Base=2.0 (压缩), Min=0.6 (膨胀)
+        gamma_base = weights.get("gamma_base", 2.0)
+        gamma_min = weights.get("gamma_min", 0.6)
+        
+        # Coherence 越高，Gamma 越小 (趋向于 Min)
+        dynamic_gamma = gamma_base - coherence * (gamma_base - gamma_min)
+        
+        # 非线性激活
+        # Score = Raw ^ Gamma
+        # 例1 (Trap): Raw=0.3 (Pain高, Clean低), Coh=0.3 -> Gamma=1.6 -> Final = 0.3^1.6 = 0.14 (抑制)
+        # 例2 (Gold): Raw=0.8 (Pain高, Clean高), Coh=0.9 -> Gamma=0.7 -> Final = 0.8^0.7 = 0.85 (提升)
+        capitulation_score = raw_score.pow(dynamic_gamma)
+        
+        # 最后应用恐慌作为极值倍增器 (仅在Gamma处理后，作为额外的Bonus，防止 Gamma把高分压得太平)
+        # 或者，直接由 Gamma 承担所有非线性工作。
+        # V14策略：Gamma 已经包含了 Panic 的信息（在 Coherence 中），
+        # 但为了保留 Panic 的"爆发性"，我们可以对最终结果做一个微调。
+        # 这里选择不再额外乘 Panic，信任 Gamma 模型的相变能力。
+        
+        capitulation_score = capitulation_score.clip(0, 1)
+        
+        print(f"  [Probe] 投降共振V14.0: Raw={raw_score.tail(1).values[0]:.2f} (Pain:{pain_force.tail(1).values[0]:.2f}, Clean:{cleaning_efficiency.tail(1).values[0]:.2f}), "
+              f"Panic={panic_intensity.tail(1).values[0]:.2f} -> "
+              f"Coh={coherence.tail(1).values[0]:.2f}, Gamma={dynamic_gamma.tail(1).values[0]:.2f} -> "
+              f"Final={capitulation_score.tail(1).values[0]:.4f}")
+        
+        _temp_debug_values["对手盘投降度"] = {
+            "pain_force": pain_force,
+            "cleaning_efficiency": cleaning_efficiency,
+            "panic_intensity": panic_intensity,
+            "raw_score": raw_score,
+            "coherence": coherence,
+            "dynamic_gamma": dynamic_gamma,
+            "score": capitulation_score
+        }
+        return capitulation_score
 
-    def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_micro_stealth(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.19 · 压力韧性累积上下文、趋势一致性与拐点调制版 - 修正主力买入执行Alpha贡献逻辑与压力信号反转逻辑】计算压力韧性。
-        核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
-        核心修正：`main_force_buy_execution_alpha` 的逻辑修正，无论是正值还是负值，其绝对值越大，对压力韧性贡献越大。
-        核心修正：`distribution_at_peak_intensity` 和 `upper_shadow_selling_pressure` 的反转逻辑，
-                  由于其MTF分数已通过 `ascending=False` 正确映射负面影响，无需再乘以 `-1`。
-                  （注意：`selling_pressure_trend_consistency` 的 `* -1` 是正确的，因为它衡量的是负面信号的趋势一致性，一致性越高越差。）
-        核心修正：`core_resilience_component` 的计算逻辑，移除 `dispersal_by_distribution_percentile` 和 `mtf_dispersal_by_distribution`，
-                  直接使用 `cumulative_dispersal_by_distribution_score` 作为核心派发压力信号，以避免历史排名和短期MTF的误导性。
-                  同时，移除 `cumulative_dispersal_by_distribution` 作为 `all_resilience_components` 中的独立项，避免重复计算和逻辑冲突。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            df_index (pd.Index): DataFrame的索引。
-            method_name (str): 调用此方法的名称，用于日志输出。
-            signals (Dict[str, pd.Series]): 包含原始信号Series和MTF信号Series的字典。
-            normalized_signals (Dict[str, pd.Series]): 包含归一化信号Series的字典。
-            params (Dict): 包含所有参数的字典。
-            _temp_debug_values (Dict): 临时调试值字典。
-        返回:
-            pd.Series: 压力韧性分数。
+        【V17.0 · 双曲正切非线性相变版】在核心隐蔽与掩护维度之间引入基于np.tanh的非线性化学反应。
+        核心逻辑：
+        1. 阻断线性欺骗：避免单一维度异常高分掩盖另一维度的缺失（例如纯“骗线”操作）。
+        2. Tanh协同激活：计算 `core_stealth * manipulation_mask` 的协同度。利用 Tanh 曲线形成相变，双高则指数级奖励，单高则保持压制。
+        3. 双重非线性夹击：内部乘法激活（相变） + 外部 Gamma 惩罚（波动压制），构建对高频噪音的终极过滤体系。
         """
-        # 核心修正：在方法开始时初始化调试字典
-        _temp_debug_values["压力韧性"] = {}
-        relative_position_weights = params["relative_position_weights"]
-        pressure_resilience_enhancement_weights = params["pressure_resilience_enhancement_weights"]
-        inflection_penalty_strength = params["inflection_point_params"]["inflection_penalty_strength"]
-        # 核心压力信号MTF分数 (使用新的压力信号：dispersal_by_distribution)
-        # mtf_dispersal_by_distribution = signals["mtf_dispersal_by_distribution"] # 移除
-        # 修正：使用新的压力信号的原始值计算百分位
-        # dispersal_by_distribution_percentile = (1 - signals["dispersal_by_distribution_raw"].rank(pct=True)).fillna(0.5) # 移除
-        # 获取MTF信号
-        mtf_main_force_buy_execution_alpha = signals["mtf_main_force_buy_execution_alpha"]
-        mtf_bid_side_liquidity = signals["mtf_bid_side_liquidity"]
-        mtf_absorption_strength_ma5 = signals["mtf_absorption_strength_ma5"]
-        mtf_active_buying_support = signals["mtf_active_buying_support"]
-        mtf_large_order_support = signals["mtf_large_order_support"]
-        mtf_distribution_at_peak_intensity = signals["mtf_distribution_at_peak_intensity"]
-        mtf_upper_shadow_selling_pressure = signals["mtf_upper_shadow_selling_pressure"]
-        # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
-        # 调试输出调制前的MTF信号
-        _temp_debug_values["压力韧性"]["mtf_main_force_buy_execution_alpha_pre_modulated"] = mtf_main_force_buy_execution_alpha
-        _temp_debug_values["压力韧性"]["mtf_bid_side_liquidity_pre_modulated"] = mtf_bid_side_liquidity
-        _temp_debug_values["压力韧性"]["mtf_absorption_strength_ma5_pre_modulated"] = mtf_absorption_strength_ma5
-        _temp_debug_values["压力韧性"]["mtf_active_buying_support_pre_modulated"] = mtf_active_buying_support
-        _temp_debug_values["压力韧性"]["mtf_large_order_support_pre_modulated"] = mtf_large_order_support
-        _temp_debug_values["压力韧性"]["dip_absorption_power_norm_pre_modulated"] = normalized_signals["dip_absorption_power_norm"]
-        # _temp_debug_values["压力韧性"]["mtf_dispersal_by_distribution_pre_modulated"] = mtf_dispersal_by_distribution # 移除
-        _temp_debug_values["压力韧性"]["mtf_distribution_at_peak_intensity_pre_modulated"] = mtf_distribution_at_peak_intensity
-        _temp_debug_values["压力韧性"]["mtf_upper_shadow_selling_pressure_pre_modulated"] = mtf_upper_shadow_selling_pressure
-        # 核心修正：core_resilience_component 的计算逻辑，直接使用 cumulative_dispersal_by_distribution_score
-        # cumulative_dispersal_by_distribution_score 越高代表累积派发越多（越差），所以它应该对压力韧性产生负面影响。
-        cumulative_dispersal_by_distribution = signals.get("cumulative_dispersal_by_distribution_score", pd.Series(0.0, index=df_index))
-        core_resilience_component = cumulative_dispersal_by_distribution * -1 # 累积派发越高，核心韧性越低
-        # 引入MTF趋势一致性分数 (使用新的压力信号)
-        mtf_trend_consistency_selling_pressure = signals.get("mtf_trend_consistency_dispersal_by_distribution", pd.Series(0.0, index=df_index))
-        # 引入拐点惩罚 (使用新的压力信号)
-        inflection_mtf_selling_pressure = signals.get("inflection_mtf_dispersal_by_distribution", pd.Series(0.0, index=df_index))
-        inflection_penalty = pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 核心修正：对于负面信号（压力韧性），惩罚值应与拐点信号的符号相同。
-        inflection_penalty = inflection_mtf_selling_pressure * inflection_penalty_strength
-        # 将拐点惩罚应用于核心压力韧性组件
-        core_resilience_component = core_resilience_component + inflection_penalty # 惩罚是负值，奖励是正值，所以用加法
-        all_resilience_components = {
-            "core_resilience": core_resilience_component,
-            # 核心修正：main_force_buy_execution_alpha 无论是正值还是负值，其绝对值越大，对压力韧性贡献越大。
-            "main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha.abs(), # 取绝对值
-            "bid_side_liquidity": mtf_bid_side_liquidity,
-            "absorption_strength_ma5": mtf_absorption_strength_ma5,
-            "active_buying_support": mtf_active_buying_support,
-            "large_order_support": mtf_large_order_support,
-            "dip_absorption_power": normalized_signals["dip_absorption_power_norm"],
-            "selling_pressure_trend_consistency": mtf_trend_consistency_selling_pressure * -1, # 趋势一致性越高，压力越大，对韧性是负面，此处的 * -1 是正确的
-            "distribution_at_peak_intensity": mtf_distribution_at_peak_intensity, # 修正：移除 * -1。高MTF分数代表低派发（好），直接贡献正面。
-            "upper_shadow_selling_pressure": mtf_upper_shadow_selling_pressure, # 修正：移除 * -1。低MTF分数代表高抛压（差），直接贡献负面。
-            # 新增累积上下文作为独立组件 (除了 cumulative_dispersal_by_distribution，因为它已融入 core_resilience)
-            "cumulative_main_force_buy_execution_alpha": signals.get("cumulative_main_force_buy_execution_alpha_score", pd.Series(0.0, index=df_index)).abs(), # 取绝对值
-            "cumulative_bid_side_liquidity": signals.get("cumulative_bid_side_liquidity_score", pd.Series(0.0, index=df_index)),
-            "cumulative_absorption_strength_ma5": signals.get("cumulative_absorption_strength_ma5_score", pd.Series(0.0, index=df_index)),
-            "cumulative_active_buying_support": signals.get("cumulative_active_buying_support_score", pd.Series(0.0, index=df_index)),
-            "cumulative_large_order_support": signals.get("cumulative_large_order_support_score", pd.Series(0.0, index=df_index)),
-            "cumulative_dip_absorption_power": signals.get("cumulative_dip_absorption_power_score", pd.Series(0.0, index=df_index)),
-            # "cumulative_dispersal_by_distribution": signals.get("cumulative_dispersal_by_distribution_score", pd.Series(0.0, index=df_index)), # 移除此行，避免重复计算
-            "cumulative_distribution_at_peak_intensity": signals.get("cumulative_distribution_at_peak_intensity_score", pd.Series(0.0, index=df_index)),
-            "cumulative_upper_shadow_selling_pressure": signals.get("cumulative_upper_shadow_selling_pressure_score", pd.Series(0.0, index=df_index))
-        }
-        # 融合权重
-        resilience_fusion_weights = {
-            "core_resilience": 0.45, # 调整：从0.4提高到0.45，以反映其作为主要累积派发指标的重要性
-            "main_force_buy_execution_alpha": pressure_resilience_enhancement_weights.get("main_force_buy_execution_alpha", 0.2),
-            "bid_side_liquidity": pressure_resilience_enhancement_weights.get("bid_side_liquidity", 0.2),
-            "absorption_strength_ma5": pressure_resilience_enhancement_weights.get("absorption_strength_ma5", 0.2),
-            "active_buying_support": pressure_resilience_enhancement_weights.get("active_buying_support", 0.15),
-            "large_order_support": pressure_resilience_enhancement_weights.get("large_order_support", 0.15),
-            "dip_absorption_power": pressure_resilience_enhancement_weights.get("dip_absorption_power", 0.1),
-            "selling_pressure_trend_consistency": pressure_resilience_enhancement_weights.get("selling_pressure_trend_consistency", 0.1), # 修正
-            "distribution_at_peak_intensity": pressure_resilience_enhancement_weights.get("distribution_at_peak_intensity", 0.1), # 新增
-            "upper_shadow_selling_pressure": pressure_resilience_enhancement_weights.get("upper_shadow_selling_pressure", 0.1), # 新增
-            # 新增累积上下文权重 (除了 cumulative_dispersal_by_distribution，因为它已融入 core_resilience)
-            "cumulative_main_force_buy_execution_alpha": pressure_resilience_enhancement_weights.get("cumulative_main_force_buy_execution_alpha", 0.05),
-            "cumulative_bid_side_liquidity": pressure_resilience_enhancement_weights.get("cumulative_bid_side_liquidity", 0.05),
-            "cumulative_absorption_strength_ma5": pressure_resilience_enhancement_weights.get("cumulative_absorption_strength_ma5", 0.05),
-            "cumulative_active_buying_support": pressure_resilience_enhancement_weights.get("cumulative_active_buying_support", 0.05),
-            "cumulative_large_order_support": pressure_resilience_enhancement_weights.get("cumulative_large_order_support", 0.05),
-            "cumulative_dip_absorption_power": pressure_resilience_enhancement_weights.get("cumulative_dip_absorption_power", 0.05),
-            # "cumulative_dispersal_by_distribution": pressure_resilience_enhancement_weights.get("cumulative_dispersal_by_distribution", 0.05), # 移除此行，避免重复计算
-            "cumulative_distribution_at_peak_intensity": pressure_resilience_enhancement_weights.get("cumulative_distribution_at_peak_intensity", 0.05),
-            "cumulative_upper_shadow_selling_pressure": pressure_resilience_enhancement_weights.get("cumulative_upper_shadow_selling_pressure", 0.05)
-        }
-        total_weight = sum(resilience_fusion_weights.values())
-        if total_weight > 0:
-            resilience_fusion_weights = {k: v / total_weight for k, v in resilience_fusion_weights.items()}
-        else:
-            resilience_fusion_weights = {k: 1/len(resilience_fusion_weights) for k in resilience_fusion_weights.keys()}
-        fused_pressure_resilience_0_1 = _robust_geometric_mean(
-            all_resilience_components,
-            resilience_fusion_weights,
-            df_index
+        weights = params["stealth_weights"]
+        stealth_snapshot = normalized["stealth_flow_norm"]
+        intraday_snapshot = normalized["intraday_accum_norm"] * 0.7 + signals["mtf_intraday_accumulation_confidence"] * 0.3
+        hab_memory = normalized["hab_stealth_accum"]
+        stealth_kinetic = normalized["kinetic_stealth"].clip(0, 1) 
+        chip_snapshot = normalized["chip_flow_intensity_norm"] * 0.4 + normalized["chip_transfer_norm"] * 0.4 + normalized["kinetic_chip_flow"].clip(0, 1) * 0.2
+        core_stealth = (
+            stealth_snapshot * weights["stealth_flow"] + 
+            intraday_snapshot * weights["intraday_accum"] + 
+            hab_memory * weights["hab_stealth_21d"] +
+            stealth_kinetic * weights["kinetic_stealth_13d"] +
+            chip_snapshot * weights["chip_undercurrent"]
         )
-        pressure_resilience_score = (fused_pressure_resilience_0_1 * 2 - 1).clip(-1, 1)
-        _temp_debug_values["压力韧性"].update({ # 使用 update 方法合并字典
-            # "mtf_dispersal_by_distribution": mtf_dispersal_by_distribution, # 移除
-            # "dispersal_by_distribution_percentile": dispersal_by_distribution_percentile, # 移除
-            "core_resilience_component": core_resilience_component,
-            "mtf_main_force_buy_execution_alpha": mtf_main_force_buy_execution_alpha,
-            "mtf_main_force_buy_execution_alpha_abs_for_fusion": mtf_main_force_buy_execution_alpha.abs(), # 调试输出修正后的值
-            "mtf_bid_side_liquidity": mtf_bid_side_liquidity,
-            "mtf_absorption_strength_ma5": mtf_absorption_strength_ma5,
-            "mtf_active_buying_support": mtf_active_buying_support,
-            "mtf_large_order_support": mtf_large_order_support,
-            "dip_absorption_power_norm_modulated": normalized_signals["dip_absorption_power_norm"], # 调试输出调制后的值
-            "mtf_trend_consistency_selling_pressure": mtf_trend_consistency_selling_pressure, # 修正
-            "inflection_mtf_selling_pressure": inflection_mtf_selling_pressure, # 调试输出
-            "inflection_penalty_pressure": inflection_penalty, # 调试输出
-            "mtf_distribution_at_peak_intensity": mtf_distribution_at_peak_intensity,
-            "mtf_upper_shadow_selling_pressure": mtf_upper_shadow_selling_pressure,
-            "fused_pressure_resilience_0_1": fused_pressure_resilience_0_1,
-            "pressure_resilience_score": pressure_resilience_score,
-            # 调试输出累积上下文信号
-            "cumulative_main_force_buy_execution_alpha": signals.get("cumulative_main_force_buy_execution_alpha_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_main_force_buy_execution_alpha_abs_for_fusion": signals.get("cumulative_main_force_buy_execution_alpha_score", pd.Series(np.nan, index=df_index)).abs(), # 调试输出修正后的值
-            "cumulative_bid_side_liquidity": signals.get("cumulative_bid_side_liquidity_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_absorption_strength_ma5": signals.get("cumulative_absorption_strength_ma5_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_active_buying_support": signals.get("cumulative_active_buying_support_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_large_order_support": signals.get("cumulative_large_order_support_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_dip_absorption_power": signals.get("cumulative_dip_absorption_power_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_dispersal_by_distribution": signals.get("cumulative_dispersal_by_distribution_score", pd.Series(np.nan, index=df_index)), # 仍然保留在调试输出中，但不再参与融合
-            "cumulative_distribution_at_peak_intensity": signals.get("cumulative_distribution_at_peak_intensity_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_upper_shadow_selling_pressure": signals.get("cumulative_upper_shadow_selling_pressure_score", pd.Series(np.nan, index=df_index))
-        })
-        return pressure_resilience_score
-
-    def _calculate_synergy_factor(self, df_index: pd.Index, conviction_strength_score: pd.Series, pressure_resilience_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.0 · 共振与背离因子计算版】计算共振与背离因子。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            conviction_strength_score (pd.Series): 赢家信念强度分数。
-            pressure_resilience_score (pd.Series): 压力韧性分数。
-            _temp_debug_values (Dict): 临时调试值字典。
-        返回:
-            pd.Series: 共振与背离因子分数。
-        """
-        norm_conviction = (conviction_strength_score + 1) / 2
-        norm_resilience = (pressure_resilience_score + 1) / 2
-        synergy_factor = (norm_conviction * norm_resilience + (1 - norm_conviction) * (1 - norm_resilience)).clip(0, 1)
-        _temp_debug_values["共振与背离因子"] = {
-            "norm_conviction": norm_conviction,
-            "norm_resilience": norm_resilience,
-            "synergy_factor": synergy_factor
-        }
-        return synergy_factor
-
-    def _calculate_deception_filter(self, df: pd.DataFrame, df_index: pd.Index, method_name: str, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.7 · 诡道过滤累积上下文作为加分项，修正诡道信号逻辑】计算诡道过滤因子，融入了更多MTF和归一化信号，新增累积上下文作为独立加分项。
-        核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
-        核心修正：`deception_index`、`wash_trade_intensity`、`covert_accumulation_signal`、`closing_auction_ambush` 的逻辑修正。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            df_index (pd.Index): DataFrame的索引。
-            method_name (str): 调用此方法的名称，用于日志输出。
-            signals (Dict[str, pd.Series]): 包含原始信号Series和MTF信号Series的字典。
-            normalized_signals (Dict[str, pd.Series]): 包含归一化信号Series的字典。
-            params (Dict): 包含所有参数的字典。
-            _temp_debug_values (Dict): 临时调试值字典。
-        返回:
-            pd.Series: 诡道过滤因子分数。
-        """
-        # 核心修正：在方法开始时初始化调试字典
-        _temp_debug_values["诡道过滤"] = {}
-        deception_enhancement_weights = params["deception_enhancement_weights"]
-        # 核心欺骗指数和对倒强度MTF分数
-        mtf_deception_index = signals["mtf_deception_index"]
-        mtf_wash_trade_intensity = signals["mtf_wash_trade_intensity"]
-        # 聪明钱分歧越大，欺骗惩罚越大 (mtf_smart_money_divergence_hm_buy_inst_sell 是 [0, 1]，高分歧 -> 高值)
-        mtf_smart_money_divergence_hm_buy_inst_sell = signals["mtf_smart_money_divergence_hm_buy_inst_sell"]
-        # 隐蔽吸筹，MTF分数越高代表隐蔽吸筹越强，惩罚越高
-        mtf_covert_accumulation_signal = signals["mtf_covert_accumulation_signal"]
-        # 集合竞价伏击，MTF分数越高代表伏击越强，惩罚越高
-        mtf_closing_auction_ambush = signals["mtf_closing_auction_ambush"]
-        # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
-        # 调试输出调制前的MTF信号
-        _temp_debug_values["诡道过滤"]["mtf_deception_index_pre_modulated"] = mtf_deception_index
-        _temp_debug_values["诡道过滤"]["mtf_wash_trade_intensity_pre_modulated"] = mtf_wash_trade_intensity
-        _temp_debug_values["诡道过滤"]["mtf_smart_money_divergence_hm_buy_inst_sell_pre_modulated"] = mtf_smart_money_divergence_hm_buy_inst_sell
-        _temp_debug_values["诡道过滤"]["mtf_covert_accumulation_signal_pre_modulated"] = mtf_covert_accumulation_signal
-        _temp_debug_values["诡道过滤"]["mtf_closing_auction_ambush_pre_modulated"] = mtf_closing_auction_ambush
-        # 基础欺骗惩罚 (范围 [0, 1])
-        # 修正：deception_index 和 wash_trade_intensity 越高越差，MTF分数越低，所以需要 * -1 转换为正惩罚
-        base_deception_penalty = (mtf_deception_index * -1 * 0.6 + mtf_wash_trade_intensity * -1 * 0.4).clip(0, 1)
-        # 融合所有欺骗相关因子
-        all_deception_components = {
-            "base_deception_penalty": base_deception_penalty,
-            "smart_money_divergence_penalty": mtf_smart_money_divergence_hm_buy_inst_sell * -1, # 聪明钱分歧越大越不好，MTF分数越低，所以需要 * -1 转换为正惩罚
-            "covert_accumulation_penalty": mtf_covert_accumulation_signal * -1, # 隐蔽吸筹信号越高越好，MTF分数越高，所以需要 * -1 转换为负惩罚（即奖励）
-            "closing_auction_ambush_penalty": mtf_closing_auction_ambush * -1, # 尾盘伏击，正值诱多（差），负值诱空（好），MTF分数越低，所以需要 * -1 转换为正惩罚
-            # 新增累积上下文作为独立组件
-            "cumulative_deception_index": signals.get("cumulative_deception_index_score", pd.Series(0.0, index=df_index)),
-            "cumulative_wash_trade_intensity": signals.get("cumulative_wash_trade_intensity_score", pd.Series(0.0, index=df_index)),
-            "cumulative_smart_money_divergence_hm_buy_inst_sell": signals.get("cumulative_smart_money_divergence_hm_buy_inst_sell_score", pd.Series(0.0, index=df_index)),
-            "cumulative_covert_accumulation_signal": signals.get("cumulative_covert_accumulation_signal_score", pd.Series(0.0, index=df_index)),
-            "cumulative_closing_auction_ambush": signals.get("cumulative_closing_auction_ambush_score", pd.Series(0.0, index=df_index))
-        }
-        deception_fusion_weights = {
-            "base_deception_penalty": 0.7,
-            "smart_money_divergence_penalty": deception_enhancement_weights.get("smart_money_divergence", 0.3),
-            "covert_accumulation_penalty": deception_enhancement_weights.get("covert_accumulation_inverse", 0.2),
-            "closing_auction_ambush_penalty": deception_enhancement_weights.get("closing_auction_ambush_inverse", 0.1),
-            # 新增累积上下文权重
-            "cumulative_deception_index": deception_enhancement_weights.get("cumulative_deception_index", 0.05),
-            "cumulative_wash_trade_intensity": deception_enhancement_weights.get("cumulative_wash_trade_intensity", 0.05),
-            "cumulative_smart_money_divergence_hm_buy_inst_sell": deception_enhancement_weights.get("cumulative_smart_money_divergence_hm_buy_inst_sell", 0.05),
-            "cumulative_covert_accumulation_signal": deception_enhancement_weights.get("cumulative_covert_accumulation_signal", 0.05),
-            "cumulative_closing_auction_ambush": deception_enhancement_weights.get("cumulative_closing_auction_ambush", 0.05)
-        }
-        total_weight = sum(deception_fusion_weights.values())
-        if total_weight > 0:
-            deception_fusion_weights = {k: v / total_weight for k, v in deception_fusion_weights.items()}
-        else:
-            deception_fusion_weights = {k: 1/len(deception_fusion_weights) for k in deception_fusion_weights.keys()}
-        fused_deception_penalty_0_1 = _robust_geometric_mean(
-            all_deception_components,
-            deception_fusion_weights,
-            df_index
+        wash_trade = normalized["wash_trade_norm"]
+        closing_mask = normalized["closing_flow_norm"]
+        afternoon_mask = normalized["afternoon_flow_norm"]
+        order_anomaly = normalized["order_anomaly_raw_norm"]
+        manipulation_mask = (
+            wash_trade * weights["wash_trade_mask"] + 
+            closing_mask * weights["closing_mask"] + 
+            afternoon_mask * weights["afternoon_mask"] + 
+            order_anomaly * weights["order_anomaly"]
         )
-        deception_filter = (1 - fused_deception_penalty_0_1).clip(0, 1)
-        _temp_debug_values["诡道过滤"].update({ # 使用 update 方法合并字典
-            "mtf_deception_index": mtf_deception_index,
-            "mtf_wash_trade_intensity": mtf_wash_trade_intensity,
-            "base_deception_penalty": base_deception_penalty,
-            "mtf_smart_money_divergence_hm_buy_inst_sell": mtf_smart_money_divergence_hm_buy_inst_sell,
-            "mtf_covert_accumulation_signal": mtf_covert_accumulation_signal,
-            "mtf_closing_auction_ambush": mtf_closing_auction_ambush,
-            "fused_deception_penalty_0_1": fused_deception_penalty_0_1,
-            "deception_filter": deception_filter,
-            # 调试输出累积上下文信号
-            "cumulative_deception_index": signals.get("cumulative_deception_index_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_wash_trade_intensity": signals.get("cumulative_wash_trade_intensity_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_smart_money_divergence_hm_buy_inst_sell": signals.get("cumulative_smart_money_divergence_hm_buy_inst_sell_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_covert_accumulation_signal": signals.get("cumulative_covert_accumulation_signal_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_closing_auction_ambush": signals.get("cumulative_closing_auction_ambush_score", pd.Series(np.nan, index=df_index))
-        })
-        return deception_filter
+        synergy_gain_factor = weights.get("synergy_gain_factor", 3.0)
+        raw_synergy = core_stealth * manipulation_mask
+        synergy_activation = np.tanh(raw_synergy * synergy_gain_factor)
+        base_stealth = core_stealth + manipulation_mask
+        raw_stealth = base_stealth * (1.0 + synergy_activation)
+        smart_money_resonance = normalized["smart_money_net_norm"].clip(0, 1)
+        if_resonance_mask = raw_stealth * (1.0 + smart_money_resonance * 0.2)
+        stability = normalized["stability_factor"]
+        gamma_base = weights.get("volatility_suppression_gamma", 1.6)
+        dynamic_gamma = 1.0 + (1.0 - stability) * (gamma_base - 1.0)
+        stealth_score = if_resonance_mask.pow(dynamic_gamma)
+        print(f"  [Probe] 非线性隐蔽V17.0：暗流={core_stealth.tail(1).values[0]:.4f}, 掩护={manipulation_mask.tail(1).values[0]:.4f}, "
+              f"乘积={raw_synergy.tail(1).values[0]:.4f}, Tanh激活倍数={synergy_activation.tail(1).values[0]:.4f}, "
+              f"环境Gamma={dynamic_gamma.tail(1).values[0]:.4f}, 最终隐蔽分={stealth_score.tail(1).values[0]:.4f}")
+        _temp_debug_values["微观隐蔽度"] = {
+            "norm_stealth_snapshot": stealth_snapshot,
+            "norm_chip_undercurrent": chip_snapshot,
+            "norm_hab_memory_21d": hab_memory,
+            "norm_stealth_kinetic_13d": stealth_kinetic,
+            "core_stealth_base": core_stealth,
+            "manipulation_mask_base": manipulation_mask,
+            "raw_synergy_product": raw_synergy,
+            "tanh_synergy_activation": synergy_activation,
+            "fused_raw_stealth_with_activation": raw_stealth,
+            "stability_factor": stability,
+            "dynamic_gamma_exponent": dynamic_gamma,
+            "score": stealth_score
+        }
+        return stealth_score
 
-    def _calculate_contextual_modulator(self, df_index: pd.Index, signals: Dict[str, pd.Series], normalized_signals: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
+    def _perform_final_fusion(self, df_index: pd.Index, belief: pd.Series, pressure: pd.Series, flow: pd.Series, capitulation: pd.Series, stealth: pd.Series, context: pd.Series, params: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V1.9 · 情境调制累积上下文作为加分项】计算情境调制因子，融入了更多MTF和归一化信号，并修正了键名，新增累积上下文作为独立加分项。
-        核心修改：累积上下文分数作为独立的加分项参与融合，不再用于调制MTF信号。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            signals (Dict[str, pd.Series]): 包含原始信号Series和MTF信号Series的字典。
-            normalized_signals (Dict[str, pd.Series]): 包含归一化信号Series的字典。
-            params (Dict): 包含所有参数的字典。
-            _temp_debug_values (Dict): 临时调试值字典。
-        返回:
-            pd.Series: 情境调制因子分数。
+        【V18.0 · 高阶张力收敛版】最终五维融合引擎。
+        核心逻辑：
+        1. 基础映射：将单极性的 belief 映射为双极性 [-1, 1]，与 pressure、flow 共同构成基础三元向量。
+        2. 非对称势能叠加：将经过上游非线性相变的 capitulation 和 stealth 作为纯多头增强势能，直接叠加于基础分之上。
+        3. 全局降维与钳位：通过 context 调制后，应用全局 final_exponent 平滑极端波动，并最终绝对钳位至 [-1, 1] 的规范空间。
         """
-        # 核心修正：在方法开始时初始化调试字典
-        _temp_debug_values["情境调制"] = {}
-        context_modulator_weights = params["context_modulator_weights"]
-        context_modulator_enhancement_weights = params["context_modulator_enhancement_weights"]
-        # cumulative_modulation_strength = params["cumulative_context_params"]["cumulative_modulation_strength"] # 移除：不再用于调制
-        # 获取原始信号和MTF信号
-        norm_market_sentiment = self.helper._normalize_series(signals["market_sentiment_score_raw"], df_index, bipolar=True)
-        # 核心修正：直接使用 normalized_signals 中已有的波动率不稳定性归一化值
-        # volatility_instability_index_21d_norm 越高代表越不稳定，所以 1 - 它 得到稳定性分数
-        volatility_stability_raw = 1 - normalized_signals["volatility_instability_index_21d_norm"]
-        # volatility_stability_raw 已经是 0-1 范围的稳定性分数，无需再次归一化
-        norm_volatility_stability = volatility_stability_raw 
-        norm_trend_vitality = self.helper._normalize_series(signals["trend_vitality_index_raw"], df_index, bipolar=False)
-        norm_theme_hotness = normalized_signals["theme_hotness_norm"]
-        norm_industry_leader_score = normalized_signals["industry_leader_score_norm"]
-        mtf_market_impact_cost = signals["mtf_market_impact_cost"] # 市场冲击成本MTF分数
-        # 核心修改：移除所有累积上下文调制逻辑，累积上下文作为独立加分项
-        # 调试输出调制前的信号
-        _temp_debug_values["情境调制"]["norm_market_sentiment_pre_modulated"] = norm_market_sentiment
-        _temp_debug_values["情境调制"]["norm_volatility_stability_pre_modulated"] = norm_volatility_stability
-        _temp_debug_values["情境调制"]["norm_trend_vitality_pre_modulated"] = norm_trend_vitality
-        _temp_debug_values["情境调制"]["norm_theme_hotness_pre_modulated"] = norm_theme_hotness
-        _temp_debug_values["情境调制"]["norm_industry_leader_score_pre_modulated"] = norm_industry_leader_score
-        _temp_debug_values["情境调制"]["mtf_market_impact_cost_pre_modulated"] = mtf_market_impact_cost
-        # 所有情境调制组件
-        context_modulator_components = {
-            "market_sentiment": norm_market_sentiment,
-            "volatility_stability": norm_volatility_stability,
-            "trend_vitality": norm_trend_vitality,
-            "theme_hotness": norm_theme_hotness,
-            "industry_leader_score": norm_industry_leader_score,
-            "market_impact_cost_inverse": mtf_market_impact_cost * -1,
-            # 新增累积上下文作为独立组件
-            "cumulative_market_sentiment_score": signals.get("cumulative_market_sentiment_score_score", pd.Series(0.0, index=df_index)),
-            "cumulative_volatility_instability_index_21d": signals.get("cumulative_volatility_instability_index_21d_score", pd.Series(0.0, index=df_index)),
-            "cumulative_trend_vitality_index": signals.get("cumulative_trend_vitality_index_score", pd.Series(0.0, index=df_index)),
-            "cumulative_theme_hotness_score": signals.get("cumulative_theme_hotness_score_score", pd.Series(0.0, index=df_index)),
-            "cumulative_industry_leader_score": signals.get("cumulative_industry_leader_score_score", pd.Series(0.0, index=df_index)),
-            "cumulative_market_impact_cost": signals.get("cumulative_market_impact_cost_score", pd.Series(0.0, index=df_index))
-        }
-        # 融合权重
-        context_fusion_weights = {
-            "market_sentiment": context_modulator_weights.get("market_sentiment", 0.4),
-            "volatility_stability": context_modulator_weights.get("volatility_stability", 0.3),
-            "trend_vitality": context_modulator_weights.get("trend_vitality", 0.3),
-            "theme_hotness": context_modulator_enhancement_weights.get("theme_hotness", 0.2),
-            "industry_leader_score": context_modulator_enhancement_weights.get("industry_leader_score", 0.1),
-            "market_impact_cost_inverse": context_modulator_enhancement_weights.get("market_impact_cost_inverse", 0.05),
-            # 新增累积上下文权重
-            "cumulative_market_sentiment_score": context_modulator_enhancement_weights.get("cumulative_market_sentiment_score", 0.05),
-            "cumulative_volatility_instability_index_21d": context_modulator_enhancement_weights.get("cumulative_volatility_instability_index_21d", 0.05),
-            "cumulative_trend_vitality_index": context_modulator_enhancement_weights.get("cumulative_trend_vitality_index", 0.05),
-            "cumulative_theme_hotness_score": context_modulator_enhancement_weights.get("cumulative_theme_hotness_score", 0.05),
-            "cumulative_industry_leader_score": context_modulator_enhancement_weights.get("cumulative_industry_leader_score", 0.05),
-            "cumulative_market_impact_cost": context_modulator_enhancement_weights.get("cumulative_market_impact_cost", 0.05)
-        }
-        total_weight = sum(context_fusion_weights.values())
-        if total_weight > 0:
-            context_fusion_weights = {k: v / total_weight for k, v in context_fusion_weights.items()}
-        else:
-            context_fusion_weights = {k: 1/len(context_fusion_weights) for k in context_fusion_weights.keys()}
-        context_modulator_score_0_1 = _robust_geometric_mean(
-            context_modulator_components,
-            context_fusion_weights,
-            df_index
-        )
-        context_modulator = 0.5 + context_modulator_score_0_1
-        _temp_debug_values["情境调制"].update({ # 使用 update 方法合并字典
-            "norm_market_sentiment": norm_market_sentiment,
-            "volatility_stability_raw": volatility_stability_raw,
-            "norm_volatility_stability": norm_volatility_stability,
-            "norm_trend_vitality": norm_trend_vitality,
-            "norm_theme_hotness": norm_theme_hotness,
-            "norm_industry_leader_score": norm_industry_leader_score,
-            "mtf_market_impact_cost_modulated": mtf_market_impact_cost, # 调试输出调制后的值
-            "context_modulator_score_0_1": context_modulator_score_0_1,
-            "context_modulator": context_modulator,
-            # 调试输出累积上下文信号
-            "cumulative_market_sentiment_score": signals.get("cumulative_market_sentiment_score_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_volatility_instability_index_21d": signals.get("cumulative_volatility_instability_index_21d_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_trend_vitality_index": signals.get("cumulative_trend_vitality_index_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_theme_hotness_score": signals.get("cumulative_theme_hotness_score_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_industry_leader_score": signals.get("cumulative_industry_leader_score_score", pd.Series(np.nan, index=df_index)),
-            "cumulative_market_impact_cost": signals.get("cumulative_market_impact_cost_score", pd.Series(np.nan, index=df_index))
-        })
-        return context_modulator
-
-    def _perform_final_fusion(self, df_index: pd.Index, conviction_strength_score: pd.Series, pressure_resilience_score: pd.Series, synergy_factor: pd.Series, deception_filter: pd.Series, context_modulator: pd.Series, params: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V1.0 · 最终融合版】执行最终的非线性融合。
-        参数:
-            df_index (pd.Index): DataFrame的索引。
-            conviction_strength_score (pd.Series): 赢家信念强度分数。
-            pressure_resilience_score (pd.Series): 压力韧性分数。
-            synergy_factor (pd.Series): 共振与背离因子分数。
-            deception_filter (pd.Series): 诡道过滤因子分数。
-            context_modulator (pd.Series): 情境调制因子分数。
-            params (Dict): 包含所有参数的字典。
-            _temp_debug_values (Dict): 临时调试值字典。
-        返回:
-            pd.Series: 最终融合分数。
-        """
-        final_exponent = params["final_exponent"]
-        final_fusion_gm_weights = params["final_fusion_gm_weights"]
-        direction_weights = params["direction_weights"]
-        overall_direction_raw = (conviction_strength_score * direction_weights.get('conviction', 0.6) + pressure_resilience_score * direction_weights.get('pressure', 0.4))
-        overall_direction = np.sign(overall_direction_raw)
-        overall_direction = overall_direction.replace(0, 1)
-        conviction_magnitude = (conviction_strength_score.abs() + 1) / 2
-        pressure_magnitude = (pressure_resilience_score.abs() + 1) / 2
-        fusion_components_for_gm = {
-            "conviction_magnitude": conviction_magnitude,
-            "pressure_magnitude": pressure_magnitude,
-            "synergy_factor": synergy_factor,
-            "deception_filter": deception_filter,
-            "context_modulator": context_modulator
-        }
-        fused_magnitude = _robust_geometric_mean(
-            {k: (v + 1) / 2 if v.min() < 0 else v for k, v in fusion_components_for_gm.items()},
-            final_fusion_gm_weights,
-            df_index
-        )
-        final_score = fused_magnitude * overall_direction
-        final_score = np.sign(final_score) * (final_score.abs().pow(final_exponent))
-        final_score = final_score.clip(-1, 1).fillna(0.0)
+        weights = params["final_fusion_weights"]
+        belief_bipolar = (belief * 2.0) - 1.0
+        base_score = (belief_bipolar * weights["belief"] + pressure * weights["pressure"] + flow * weights["flow"])
+        enhancement = (capitulation * weights["capitulation"] + stealth * weights["stealth"])
+        raw_sum = base_score + enhancement
+        modulated_score = raw_sum * context
+        final_exponent = params.get("final_exponent", 1.8)
+        final_score = np.sign(modulated_score) * (modulated_score.abs().pow(final_exponent))
+        final_score = final_score.clip(-1.0, 1.0)
+        print(f"  [Probe] 最终融合V18.0探针：基础三元={base_score.tail(1).values[0]:.4f} (信:{belief_bipolar.tail(1).values[0]:.2f}, 压:{pressure.tail(1).values[0]:.2f}, 资:{flow.tail(1).values[0]:.2f}), "
+              f"暗流增强={enhancement.tail(1).values[0]:.4f} (降:{capitulation.tail(1).values[0]:.2f}, 隐:{stealth.tail(1).values[0]:.2f}), "
+              f"情境调制={context.tail(1).values[0]:.4f}, 全局指数={final_exponent}, 最终信念得分={final_score.tail(1).values[0]:.4f}")
         _temp_debug_values["最终融合"] = {
-            "overall_direction_raw": overall_direction_raw,
-            "overall_direction": overall_direction,
-            "conviction_magnitude": conviction_magnitude,
-            "pressure_magnitude": pressure_magnitude,
-            "fused_magnitude": fused_magnitude,
+            "belief_bipolar": belief_bipolar,
+            "base_score": base_score,
+            "enhancement": enhancement,
+            "raw_sum": raw_sum,
+            "modulated_score": modulated_score,
             "final_score": final_score
         }
         return final_score
+
+
+
+
+
 
 
 
