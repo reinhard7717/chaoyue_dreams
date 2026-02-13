@@ -105,14 +105,7 @@ class CalculateCostAdvantageTrendRelationship:
         return final_score.astype(np.float32).fillna(0).clip(-1, 1)
 
     def _calculate_chip_barrier_solidity(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V14.1.0 · 非线性临界相变筹码势垒 (修复Series包装与探针调用)】
-        PROCESS_META_COST_ADVANTAGE_TREND::Dimension_1
-        版本特性：
-        1. Nonlinear Activation (非线性激活): 对结构、稳定、行为三大子维度应用 Sigmoid-like 激活，压制平庸，奖赏卓越。
-        2. Synergy Factor (协同因子): 计算子维度的标准差，惩罚"偏科"形态（如结构好但行为差）。
-        3. Phase Transition (临界相变): 当综合分突破阈值时，触发指数级增益，模拟主升浪的能量爆发。(已修复返回类型)
-        4. Inheritance (继承): 保留V13的物理跨度、微观致密、HAB存量与运动学逻辑。
-        """
+        """【V14.1.1 · 非线性临界相变筹码势垒 (全链路探针版)】"""
         winner_rate = self.helper._get_safe_series(df, 'winner_rate_D', 50.0, "winner_rate")
         stability = self.helper._get_safe_series(df, 'chip_stability_D', 1.0, "stability")
         concentration = self.helper._get_safe_series(df, 'chip_concentration_ratio_D', 0.2, "concentration")
@@ -149,29 +142,22 @@ class CalculateCostAdvantageTrendRelationship:
         synergy_score = base_score * synergy_factor
         threshold = 0.5
         raw_phase_gain = np.where(synergy_score > threshold, synergy_score * (1 + 0.5 * np.exp(3.0 * (synergy_score - threshold))), synergy_score)
-        phase_transition_gain = pd.Series(raw_phase_gain, index=idx) # 【修复点】强转Series
+        phase_transition_gain = pd.Series(raw_phase_gain, index=idx)
         collapse_risk = (norm_jerk_penalty < 0.2) & (score_span < 0)
-        final_solidity = pd.Series(np.where(collapse_risk, -0.8, phase_transition_gain), index=idx).clip(-1, 1.2) # 【修复点】强转Series
+        final_solidity = pd.Series(np.where(collapse_risk, -0.8, phase_transition_gain), index=idx).clip(-1, 1.2)
         if is_debug and probe_ts:
-            print(f"[探针输出] 筹码势垒 目标日期: {probe_ts.strftime('%Y-%m-%d')} | 最终势垒得分: {final_solidity.loc[probe_ts]:.4f}")
-            self._probe_val("Dim_Structure_Tanh", dim_structure.loc[probe_ts], temp_vals, "ChipSolidity_V14.1")
-            self._probe_val("Dim_Stability_Tanh", dim_stability.loc[probe_ts], temp_vals, "ChipSolidity_V14.1")
-            self._probe_val("Dim_Behavior_Tanh", dim_behavior.loc[probe_ts], temp_vals, "ChipSolidity_V14.1")
-            self._probe_val("Synergy_Std", synergy_std.loc[probe_ts], temp_vals, "ChipSolidity_V14.1")
-            self._probe_val("Synergy_Factor", synergy_factor.loc[probe_ts], temp_vals, "ChipSolidity_V14.1")
-            self._probe_val("Base_Synergy_Score", synergy_score.loc[probe_ts], temp_vals, "ChipSolidity_V14.1")
-            self._probe_val("Final_Phase_Trans_Score", final_solidity.loc[probe_ts], temp_vals, "ChipSolidity_V14.1")
+            p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
+            print(f"[Probe-D1] 筹码势垒详情 @ {probe_ts.strftime('%Y-%m-%d')}")
+            print(f"  > 原始输入: SpanRatio={p_val(span_ratio):.3f}, Kurtosis={p_val(kurtosis):.3f}, Stability={p_val(stability):.3f}")
+            print(f"  > 子维度分: Structure={p_val(dim_structure):.3f}, Stability={p_val(dim_stability):.3f}, Behavior={p_val(dim_behavior):.3f}")
+            print(f"  > 运动学分: Kinematics={p_val(dim_kinematics):.3f} (JerkPenalty={p_val(norm_jerk_penalty):.3f})")
+            print(f"  > 协同计算: BaseScore={p_val(base_score):.3f}, SynergyFactor={p_val(synergy_factor):.3f} -> SynergyScore={p_val(synergy_score):.3f}")
+            print(f"  > 最终结果: PhaseTransition={p_val(phase_transition_gain):.3f} -> Final={p_val(final_solidity):.3f}")
+            self._probe_val("Final_Solidity", final_solidity.loc[probe_ts], temp_vals, "ChipSolidity_V14.1")
         return final_solidity
 
     def _calculate_predator_attack_vector(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V18.1.0 · 超临界相变捕食者矢量 (修复向量合成结构隐患)】
-        PROCESS_META_COST_ADVANTAGE_TREND::Dimension_2
-        版本特性：
-        1. Triadic Synergy (三元协同): 将攻击分解为 Power, Guile, Quality 三大维度，计算协同离散度。
-        2. Nonlinear Activation (非线性激活): 引入指数增益函数放大信号。
-        3. Noise Suppression (噪音抑制): 过滤无效试盘行为，包装所有ndarray计算结果。
-        4. Inheritance (全继承): 完整保留 V16/V17 逻辑。
-        """
+        """【V18.1.1 · 超临界相变捕食者矢量 (全链路探针版)】"""
         sm_net_buy = self.helper._get_safe_series(df, 'SMART_MONEY_HM_NET_BUY_D', 0.0, "sm_net_buy")
         inst_buy = self.helper._get_safe_series(df, 'SMART_MONEY_INST_NET_BUY_D', 0.0, "inst_buy")
         coord_attack = self.helper._get_safe_series(df, 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 0.0, "coord_attack")
@@ -209,36 +195,28 @@ class CalculateCostAdvantageTrendRelationship:
         consist_score = (gate_consistency * 0.7 + norm_slope_consist * 0.3)
         vec_quality = (eff_score * 0.3 + struct_score * 0.3 + consist_score * 0.4).clip(-1, 1)
         vectors = np.column_stack([vec_power, vec_guile, vec_quality])
-        synergy_std = pd.Series(np.std(vectors, axis=1), index=idx) # 【修复点】强转Series
+        synergy_std = pd.Series(np.std(vectors, axis=1), index=idx)
         synergy_factor = (1.0 - synergy_std * 1.5).clip(0.1, 1.0)
         base_score = (vec_power * 0.4 + vec_guile * 0.3 + vec_quality * 0.3)
         synergized_score = base_score * synergy_factor
         threshold = 0.5
         raw_attack = np.where(synergized_score > threshold, synergized_score * (1.0 + 0.6 * np.exp(2.5 * (synergized_score - threshold))), synergized_score)
-        final_attack = pd.Series(raw_attack, index=idx) # 【修复点】强转Series
-        crit_multiplier = pd.Series(np.where(coord_attack > 0.5, 1.3, 1.0), index=idx) # 【修复点】强转Series
+        final_attack = pd.Series(raw_attack, index=idx)
+        crit_multiplier = pd.Series(np.where(coord_attack > 0.5, 1.3, 1.0), index=idx)
         final_attack = (final_attack * crit_multiplier).clip(-1, 2.0)
         if is_debug and probe_ts:
-            print(f"[探针输出] 捕食者矢量 目标日期: {probe_ts.strftime('%Y-%m-%d')} | 攻击矢量得分: {final_attack.loc[probe_ts]:.4f}")
-            self._probe_val("Vec_Power", vec_power.loc[probe_ts], temp_vals, "PredatorVector_V18.1")
-            self._probe_val("Vec_Guile", vec_guile.loc[probe_ts], temp_vals, "PredatorVector_V18.1")
-            self._probe_val("Vec_Quality", vec_quality.loc[probe_ts], temp_vals, "PredatorVector_V18.1")
-            self._probe_val("Synergy_Std", synergy_std.loc[probe_ts], temp_vals, "PredatorVector_V18.1")
-            self._probe_val("Synergy_Factor", synergy_factor.loc[probe_ts], temp_vals, "PredatorVector_V18.1")
-            self._probe_val("Base_Score", base_score.loc[probe_ts], temp_vals, "PredatorVector_V18.1")
-            self._probe_val("Synergized_Score", synergized_score.loc[probe_ts], temp_vals, "PredatorVector_V18.1")
+            p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
+            print(f"[Probe-D2] 捕食者矢量详情 @ {probe_ts.strftime('%Y-%m-%d')}")
+            print(f"  > 原始输入: SM_NetBuy={p_val(sm_net_buy):.2f}, Stealth={p_val(stealth_flow):.2f}, Impact={p_val(flow_impact):.2f}")
+            print(f"  > 向量分量: Power={p_val(vec_power):.3f}, Guile={p_val(vec_guile):.3f}, Quality={p_val(vec_quality):.3f}")
+            print(f"  > 协同计算: SynergyStd={p_val(synergy_std):.3f} -> Factor={p_val(synergy_factor):.3f}")
+            print(f"  > 综合得分: Base={p_val(base_score):.3f} -> Synergized={p_val(synergized_score):.3f}")
+            print(f"  > 暴击修正: CoordCrit={p_val(crit_multiplier):.1f} -> Final={p_val(final_attack):.3f}")
             self._probe_val("Final_Attack", final_attack.loc[probe_ts], temp_vals, "PredatorVector_V18.1")
         return final_attack
 
     def _calculate_kinematic_efficiency(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V22.1.0 · 超导相变与非线性熵减 (修复ndarray rolling bug)】
-        PROCESS_META_COST_ADVANTAGE_TREND::Dimension_3
-        版本特性：
-        1. Macro-Micro Synergy (宏微协同): 强制要求宏观资金冲击与微观Tick传输方向一致。差异过大视为"虚假做功"，实施惩罚。
-        2. Superconducting Activation (超导激活): 引入非线性指数增益函数。当系统效率突破临界阈值时，模拟"零阻力"状态，放大信号权值。(修复了ndarray调用rolling的崩溃问题)
-        3. Entropy Suppression (熵减抑制): 在高熵(混乱)状态下，强制关闭非线性增益，防止在震荡市中信号漂移。
-        4. Inheritance (全继承): 保留 V21 的主力修正VPA、HAB飞轮、高阶导数及摩擦修正逻辑。
-        """
+        """【V22.1.1 · 超导相变与非线性熵减 (全链路探针版)】"""
         velocity = self.helper._get_safe_series(df, 'MA_VELOCITY_EMA_55_D', 0.0, "velocity")
         accel = self.helper._get_safe_series(df, 'MA_ACCELERATION_EMA_55_D', 0.0, "accel")
         vel_norm = np.tanh(velocity / velocity.rolling(89).std().replace(0, 1.0))
@@ -264,7 +242,7 @@ class CalculateCostAdvantageTrendRelationship:
         instant_efficiency = (instant_efficiency * friction_factor).clip(-1, 1)
         threshold = 0.5
         raw_super_conductive_gain = np.where((instant_efficiency > threshold), instant_efficiency * (1.0 + 0.8 * np.exp(2.0 * (instant_efficiency - threshold))), instant_efficiency)
-        super_conductive_gain = pd.Series(raw_super_conductive_gain, index=idx).clip(-1, 2.0) # 【修复点】将numpy数组转换为pd.Series对象，修复rolling报错问题
+        super_conductive_gain = pd.Series(raw_super_conductive_gain, index=idx).clip(-1, 2.0)
         hab_efficiency_34 = super_conductive_gain.rolling(window=34, min_periods=1).mean()
         score_hab = np.tanh(hab_efficiency_34)
         eff_slope = super_conductive_gain.diff(13).fillna(0)
@@ -281,30 +259,21 @@ class CalculateCostAdvantageTrendRelationship:
         total_thermodynamics = (score_hab * 0.4 + super_conductive_gain * 0.3 + derivative_score * 0.3)
         alignment = np.sign(vel_norm) * np.sign(total_thermodynamics)
         final_efficiency = np.where(alignment > 0, vel_norm * (0.6 + 0.4 * np.abs(total_thermodynamics)), vel_norm * (1.0 - np.abs(total_thermodynamics))).clip(-1, 1.5)
+        final_efficiency_series = pd.Series(final_efficiency, index=idx)
         if is_debug and probe_ts:
-            print(f"[探针输出] 目标日期: {probe_ts.strftime('%Y-%m-%d')} | 超导增益值(Super Gain): {super_conductive_gain.loc[probe_ts]:.4f}") # 显式加入print输出探针
-            self._probe_val("Macro_Work", macro_work.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("Micro_Work", micro_work.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("Synergy_Gap", synergy_gap.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("Negentropy", negentropy.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("Base_Inst_Eff", instant_efficiency.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("Super_Gain_Eff", super_conductive_gain.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("HAB_Flywheel", score_hab.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("Deriv_Score", derivative_score.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("Total_Thermo", total_thermodynamics.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
-            self._probe_val("Final_Efficiency", final_efficiency[idx.get_loc(probe_ts)] if probe_ts in idx else 0, temp_vals, "KinematicEff_V22.1")
-        return pd.Series(final_efficiency, index=idx)
+            p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
+            print(f"[Probe-D3] 趋势做功效率详情 @ {probe_ts.strftime('%Y-%m-%d')}")
+            print(f"  > 做功分量: MacroWork={p_val(macro_work):.3f}, MicroWork={p_val(micro_work):.3f} (TickEff={p_val(tick_eff):.3f})")
+            print(f"  > 协同与熵: SynergyGap={p_val(synergy_gap):.3f}, EntropyGate={p_val(entropy_gate):.3f}")
+            print(f"  > 阻力摩擦: Resistance={p_val(resistance):.2f}, FrictionFactor={float(friction_factor[idx.get_loc(probe_ts)]) if probe_ts in idx else 0:.2f}")
+            print(f"  > 瞬时效率: Base={p_val(base_efficiency):.3f} -> Instant={p_val(instant_efficiency):.3f}")
+            print(f"  > 超导增益: SuperGain={p_val(super_conductive_gain):.3f}, HAB={p_val(score_hab):.3f}")
+            print(f"  > 最终热力: TotalThermo={p_val(total_thermodynamics):.3f}, Alignment={p_val(pd.Series(alignment, index=idx)):.1f} -> Final={p_val(final_efficiency_series):.3f}")
+            self._probe_val("Final_Efficiency", final_efficiency_series.loc[probe_ts], temp_vals, "KinematicEff_V22.1")
+        return final_efficiency_series
 
     def _calculate_cost_migration_elasticity(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V26.1.0 · 超弹性共振与反脆弱增益 (修复直接导致崩溃的属性异常)】
-        PROCESS_META_COST_ADVANTAGE_TREND::Dimension_4
-        版本特性：
-        1. Dimensional Synergy (维度协同): 计算离散度触发共振。
-        2. Antifragile Activation (反脆弱激活): 非线性指数增益。(已包装Series类型修正)
-        3. Stress-Strain Modulus (应力模量): 量化高压锁仓。
-        4. Intraday Fractal (日内分形): 微观验证。
-        5. Zero-Base Defense (零基防御): 全程 Tanh 归一化。
-        """
+        """【V26.1.1 · 超弹性共振与反脆弱增益 (全链路探针版)】"""
         close = self.helper._get_safe_series(df, 'close_D', 1.0, "close")
         cost_50 = self.helper._get_safe_series(df, 'cost_50pct_D', 1.0, "cost_50")
         cost_5 = self.helper._get_safe_series(df, 'cost_5pct_D', 1.0, "cost_5")
@@ -337,21 +306,21 @@ class CalculateCostAdvantageTrendRelationship:
         norm_stress = np.tanh(profit_pressure / 10.0)
         norm_strain = np.abs(norm_slope_c50)
         raw_modulus = norm_stress * (1.0 - norm_strain) * 2.5
-        dim_modulus = pd.Series(np.where(norm_stress > 0.2, np.tanh(raw_modulus), 0.3), index=idx) # 【修复点】强转Series防止崩溃
+        dim_modulus = pd.Series(np.where(norm_stress > 0.2, np.tanh(raw_modulus), 0.3), index=idx)
         norm_intra_mig = np.tanh(intra_migration * 5.0)
         norm_intra_vol = np.tanh(intra_volatility * 5.0)
         dim_fractal = (norm_intra_mig * 0.6 + (1.0 - norm_intra_vol) * 0.4).clip(-1, 1)
         dims = np.column_stack([dim_hab, dim_modulus, dim_fractal])
-        synergy_std = pd.Series(np.std(dims, axis=1), index=idx) # 【修复点】强转Series
+        synergy_std = pd.Series(np.std(dims, axis=1), index=idx)
         synergy_factor = (1.0 - synergy_std * 1.2).clip(0.3, 1.0)
         base_score = (dim_hab * 0.4 + dim_modulus * 0.4 + dim_fractal * 0.2)
         synergized_score = base_score * synergy_factor
         threshold = 0.6
         raw_elast = np.where(synergized_score > threshold, synergized_score * (1.0 + 0.8 * np.exp(2.5 * (synergized_score - threshold))), synergized_score)
-        final_elasticity = pd.Series(raw_elast, index=idx) # 【修复点】强转Series
+        final_elasticity = pd.Series(raw_elast, index=idx)
         violation = (np.maximum(0, norm_slope_c5) * 0.2 + np.maximum(0, norm_accel_c5) * 0.3 + np.maximum(0, norm_jerk_c5) * 0.5)
-        anchorage_penalty = np.exp(-violation * 4.0)
-        ceiling_penalty = np.exp(-trapped_pressure * 2.5)
+        anchorage_penalty = pd.Series(np.exp(-violation * 4.0), index=idx)
+        ceiling_penalty = pd.Series(np.exp(-trapped_pressure * 2.5), index=idx)
         span = (cost_95 - cost_5) / (cost_50 + 1e-8)
         slope_span = span.diff(13).fillna(0)
         scale_span = slope_span.rolling(21).std().replace(0, 0.01)
@@ -359,26 +328,20 @@ class CalculateCostAdvantageTrendRelationship:
         compression_bonus = np.maximum(0, -norm_slope_span) * 0.2
         final_score = (final_elasticity * anchorage_penalty * ceiling_penalty + compression_bonus).clip(-1, 2.0)
         if is_debug and probe_ts:
-            print(f"[探针输出] 成本迁移 目标日期: {probe_ts.strftime('%Y-%m-%d')} | 超弹性得分: {final_score.loc[probe_ts]:.4f}")
-            self._probe_val("Dim_HAB", dim_hab.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
-            self._probe_val("Dim_Modulus", dim_modulus.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
-            self._probe_val("Dim_Fractal", dim_fractal.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
-            self._probe_val("Synergy_Std", synergy_std.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
-            self._probe_val("Base_Score", base_score.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
-            self._probe_val("Synergized", synergized_score.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
-            self._probe_val("Anchor_Penalty", anchorage_penalty.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
+            p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
+            print(f"[Probe-D4] 成本迁移弹性详情 @ {probe_ts.strftime('%Y-%m-%d')}")
+            print(f"  > 状态输入: Turnover={p_val(turnover):.2f}, ProfitPress={p_val(profit_pressure):.2f}, TrappedPress={p_val(trapped_pressure):.2f}")
+            print(f"  > 剪刀差与粘性: ScissorInst={p_val(scissor_inst):.3f}, ViscousHAB={p_val(viscous_hab):.3f} -> DimHAB={p_val(dim_hab):.3f}")
+            print(f"  > 模量与分形: Modulus={p_val(dim_modulus):.3f}, Fractal={p_val(dim_fractal):.3f}")
+            print(f"  > 基础得分: Synergized={p_val(synergized_score):.3f} -> FinalElasticity={p_val(final_elasticity):.3f}")
+            print(f"  > 关键惩罚: Violation(底松动)={p_val(pd.Series(violation, index=idx)):.3f} -> AnchorPenalty={p_val(anchorage_penalty):.4f}")
+            print(f"  > 关键惩罚: Trapped(顶套牢)={p_val(trapped_pressure):.3f} -> CeilingPenalty={p_val(ceiling_penalty):.4f}")
+            print(f"  > 最终结果: Final={p_val(final_score):.4f}")
             self._probe_val("Final_Elasticity", final_score.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
         return final_score
 
     def _calculate_structure_negentropy(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V30.1.0 · 超序参量与乘法锁定熵 (阻断非线性调试崩溃)】
-        PROCESS_META_COST_ADVANTAGE_TREND::Dimension_5
-        版本特性：
-        1. Multiplicative Coupling (乘法耦合): 摒弃线性加权，使用几何平均构建超序参量。
-        2. Structural Lock-in (结构锁定): 非线性锁定增益。
-        3. Kinetics Modulation (动力学调制): 熵减动力学修正。(修复底层NDArray类型)
-        4. Inheritance (全继承): 保留 V29 逻辑。
-        """
+        """【V30.1.1 · 超序参量与乘法锁定熵 (全链路探针版)】"""
         chip_entropy = self.helper._get_safe_series(df, 'chip_entropy_D', 0.5, "chip_entropy")
         conc_entropy = self.helper._get_safe_series(df, 'concentration_entropy_D', 0.5, "conc_entropy")
         intra_entropy = self.helper._get_safe_series(df, 'intraday_chip_entropy_D', 0.5, "intra_entropy")
@@ -403,37 +366,32 @@ class CalculateCostAdvantageTrendRelationship:
         scale_slope = slope_ent.rolling(21).std().replace(0, 0.01)
         norm_slope_ent = np.tanh(-slope_ent / (scale_slope + 1e-8))
         raw_modulator = np.where(norm_slope_ent > 0, 1.0 + norm_slope_ent * 0.2, 1.0 + norm_slope_ent * 0.5)
-        kinetics_modulator = pd.Series(raw_modulator, index=idx) # 【修复点】强转Series防止崩溃
-        fractal_gate = pd.Series(np.where(fractal_dim < 1.4, 1.0, 0.5), index=idx) # 【修复点】强转Series
-        laminar_gate = pd.Series(np.where(flow_stab > 0.6, 1.0, 0.7), index=idx) # 【修复点】强转Series
+        kinetics_modulator = pd.Series(raw_modulator, index=idx)
+        fractal_gate = pd.Series(np.where(fractal_dim < 1.4, 1.0, 0.5), index=idx)
+        laminar_gate = pd.Series(np.where(flow_stab > 0.6, 1.0, 0.7), index=idx)
         smooth_gate = (score_smoothness + 1.0) / 2.0
         synergized_negentropy = crystal_score * kinetics_modulator * fractal_gate * laminar_gate * (0.8 + 0.2 * smooth_gate)
         trend_gate = np.tanh(reg_slope * 10.0)
         final_negentropy = synergized_negentropy * trend_gate
         threshold = 0.6
         raw_final = np.where(final_negentropy > threshold, final_negentropy * (1.0 + 0.5 * np.exp(2.0 * (final_negentropy - threshold))), final_negentropy)
-        final_score = pd.Series(raw_final, index=idx).clip(-1, 2.0) # 【修复点】强转Series
+        final_score = pd.Series(raw_final, index=idx).clip(-1, 2.0)
         turnover = self.helper._get_safe_series(df, 'turnover_rate_f_D', 1.0, "turnover")
-        final_score = pd.Series(np.where(turnover < 0.5, 0.0, final_score), index=idx) # 【修复点】强转Series
+        final_score = pd.Series(np.where(turnover < 0.5, 0.0, final_score), index=idx)
         if is_debug and probe_ts:
-            print(f"[探针输出] 结构熵逆 目标日期: {probe_ts.strftime('%Y-%m-%d')} | 晶体熵值得分: {final_score.loc[probe_ts]:.4f}")
-            self._probe_val("Score_Internal", score_internal.loc[probe_ts], temp_vals, "Negentropy_V30.1")
-            self._probe_val("Score_External", score_external.loc[probe_ts], temp_vals, "Negentropy_V30.1")
-            self._probe_val("Order_Param", order_parameter.loc[probe_ts], temp_vals, "Negentropy_V30.1")
-            self._probe_val("Lock_Gain", lock_gain.loc[probe_ts], temp_vals, "Negentropy_V30.1")
-            self._probe_val("Crystal_Score", crystal_score.loc[probe_ts], temp_vals, "Negentropy_V30.1")
-            self._probe_val("Kinetics_Mod", kinetics_modulator.loc[probe_ts], temp_vals, "Negentropy_V30.1")
+            p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
+            print(f"[Probe-D5] 结构熵逆详情 @ {probe_ts.strftime('%Y-%m-%d')}")
+            print(f"  > 熵值输入: MicroEntropy={p_val(total_micro_entropy):.3f}, PriceEntropy={p_val(price_entropy):.3f}, HAB={p_val(hab_entropy_34):.3f}")
+            print(f"  > 核心评分: Internal={p_val(score_internal):.3f}, External={p_val(score_external):.3f} -> OrderParam={p_val(order_parameter):.3f}")
+            print(f"  > 晶体化: CrystalScore={p_val(crystal_score):.3f} (LockGain={p_val(lock_gain):.2f})")
+            print(f"  > 动力学门控: Kinetics={p_val(kinetics_modulator):.2f}, FractalDim={p_val(fractal_dim):.2f}(Gate={p_val(fractal_gate):.1f})")
+            print(f"  > 最终门控: TrendGate={p_val(pd.Series(trend_gate, index=idx)):.2f}, Turnover={p_val(turnover):.2f}")
+            print(f"  > 最终结果: Synergized={p_val(synergized_negentropy):.4f} -> Final={p_val(final_score):.4f} {'(熔断)' if p_val(turnover) < 0.5 else ''}")
             self._probe_val("Final_Negentropy", final_score.loc[probe_ts], temp_vals, "Negentropy_V30.1")
         return final_score
 
     def _calculate_pentagonal_resonance(self, D1: pd.Series, D2: pd.Series, D3: pd.Series, D4: pd.Series, D5: pd.Series, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V36.1.0 · 动态自适应相变增益 APT-Gain (严格强化类型安全)】
-        PROCESS_META_COST_ADVANTAGE_TREND::Dimension_Fusion
-        版本特性：
-        1. APT-Gain (自适应相变): 替代静态指数激活，动态调节激活阈值和爆发系数。
-        2. Strict Typing (严格类型): 将所有过滤层和乘子组件重构为强时间序列索引，避免相关性计算错位。
-        3. Full Inheritance: 保留 V35 HAB惯性、张量交互与反身性。
-        """
+        """【V36.1.1 · 动态自适应相变增益 APT-Gain (全链路探针版)】"""
         close = df['close_D']
         adx = df.get('ADX_14_D')
         sentiment = df.get('market_sentiment_score_D')
@@ -458,11 +416,11 @@ class CalculateCostAdvantageTrendRelationship:
         i4, i5 = soft_prod(D4, D5), soft_prod(D5, D1)
         tensor_score = (i1 + i2 + i3 + i4 + i5) / 5.0
         min_interaction = pd.concat([i1, i2, i3, i4, i5], axis=1).min(axis=1)
-        chain_break_penalty = pd.Series(np.where(min_interaction < -0.1, 1.0 + min_interaction, 1.0), index=idx) # 【修复点】
+        chain_break_penalty = pd.Series(np.where(min_interaction < -0.1, 1.0 + min_interaction, 1.0), index=idx)
         base_resonance = linear_score * (1.0 + tensor_score) * chain_break_penalty
         hab_resonance_21 = base_resonance.rolling(window=21, min_periods=1).mean()
         inertia_diff = base_resonance - hab_resonance_21
-        inertia_factor = pd.Series(np.where(inertia_diff > 0, 1.0 + inertia_diff * 0.5, 1.0 + inertia_diff * 1.5), index=idx).clip(0.5, 1.5) # 【修复点】
+        inertia_factor = pd.Series(np.where(inertia_diff > 0, 1.0 + inertia_diff * 0.5, 1.0 + inertia_diff * 1.5), index=idx).clip(0.5, 1.5)
         res_slope = base_resonance.diff(8).fillna(0)
         res_accel = res_slope.diff(5).fillna(0)
         res_jerk = res_accel.diff(3).fillna(0)
@@ -476,30 +434,30 @@ class CalculateCostAdvantageTrendRelationship:
         jerk_penalty = np.exp(-(norm_jerk * 1.2)**2)
         kinematic_factor = (1.0 + kinematic_score * 0.4) * jerk_penalty
         slopes_matrix = np.column_stack([D1.diff(5).fillna(0), D2.diff(5).fillna(0), D3.diff(5).fillna(0), D4.diff(5).fillna(0), D5.diff(5).fillna(0)])
-        deriv_synergy_factor = pd.Series(1.0 - np.std(slopes_matrix, axis=1) * 2.0, index=idx).clip(0.6, 1.0) # 【修复点】
+        deriv_synergy_factor = pd.Series(1.0 - np.std(slopes_matrix, axis=1) * 2.0, index=idx).clip(0.6, 1.0)
         core_score = base_resonance * inertia_factor * deriv_synergy_factor * kinematic_factor
         status_multiplier = pd.Series(1.0, index=idx)
-        if is_leader is not None: status_multiplier = pd.Series(np.where(is_leader > 0, 1.2, status_multiplier), index=idx) # 【修复点】
-        if leader_score is not None: status_multiplier = pd.Series(np.where(leader_score > 80, np.maximum(status_multiplier, 1.1), status_multiplier), index=idx) # 【修复点】
+        if is_leader is not None: status_multiplier = pd.Series(np.where(is_leader > 0, 1.2, status_multiplier), index=idx)
+        if leader_score is not None: status_multiplier = pd.Series(np.where(leader_score > 80, np.maximum(status_multiplier, 1.1), status_multiplier), index=idx)
         liquidity_factor = pd.Series(1.0, index=idx)
         if turnover is not None and vol_ratio is not None:
             zombie_mask = (vol_ratio < 0.6) & (turnover < 1.5)
             churning_mask = (turnover > 25.0) & (status_multiplier < 1.2)
-            liquidity_factor = pd.Series(np.where(zombie_mask | churning_mask, 0.8, 1.0), index=idx) # 【修复点】
+            liquidity_factor = pd.Series(np.where(zombie_mask | churning_mask, 0.8, 1.0), index=idx)
         breakout_factor = pd.Series(1.0, index=idx)
         if breakout_quality is not None:
             norm_bq = breakout_quality / 100.0
-            breakout_factor = pd.Series(np.where((core_score > 0.5) & (norm_bq < 0.3), 0.7, np.where(norm_bq > 0.8, 1.1, 1.0)), index=idx) # 【修复点】
+            breakout_factor = pd.Series(np.where((core_score > 0.5) & (norm_bq < 0.3), 0.7, np.where(norm_bq > 0.8, 1.1, 1.0)), index=idx)
         final_score = core_score * status_multiplier * liquidity_factor * breakout_factor
         if sm_divergence is not None:
-             veto_multiplier = pd.Series(np.where(sm_divergence > 1.5, 0.0, np.where(sm_divergence > 0.8, 0.5, 1.0)), index=idx) # 【修复点】
+             veto_multiplier = pd.Series(np.where(sm_divergence > 1.5, 0.0, np.where(sm_divergence > 0.8, 0.5, 1.0)), index=idx)
              final_score = final_score * veto_multiplier
         res_diff = final_score.diff(8).fillna(0)
         price_diff = close.diff(8).fillna(0)
         raw_corr = res_diff.rolling(13).corr(price_diff).fillna(0)
         res_std = res_diff.rolling(13).std().fillna(0)
         active_mask = (res_std > 0.05)
-        reflexivity_factor = pd.Series(np.where(active_mask & (raw_corr > 0.5), 1.0 + (raw_corr - 0.5), np.where(active_mask & (raw_corr < -0.3), 1.0 + (raw_corr + 0.3), 1.0)), index=idx) # 【修复点】
+        reflexivity_factor = pd.Series(np.where(active_mask & (raw_corr > 0.5), 1.0 + (raw_corr - 0.5), np.where(active_mask & (raw_corr < -0.3), 1.0 + (raw_corr + 0.3), 1.0)), index=idx)
         final_score = final_score * reflexivity_factor
         temp_sentiment = sentiment if sentiment is not None else pd.Series(0.5, index=idx)
         temp_trend = (adx / 60.0).clip(0, 1.0) if adx is not None else pd.Series(0.5, index=idx)
@@ -509,13 +467,16 @@ class CalculateCostAdvantageTrendRelationship:
         dyn_gamma = 2.0 + (market_temp - 0.5) * 2.0
         dyn_gamma = dyn_gamma.clip(1.0, 4.0)
         raw_apt = np.where(final_score > dyn_threshold, final_score * (1.0 + 0.6 * np.exp(dyn_gamma * (final_score - dyn_threshold))), final_score)
-        apt_score = pd.Series(raw_apt, index=idx).clip(-1, 4.0) # 【修复点】
+        apt_score = pd.Series(raw_apt, index=idx).clip(-1, 4.0)
         if is_debug and probe_ts:
-            print(f"[探针输出] 张量共振 目标日期: {probe_ts.strftime('%Y-%m-%d')} | 五维共振融合分: {apt_score.loc[probe_ts]:.4f}")
-            self._probe_val("Market_Temp", market_temp.loc[probe_ts], temp_vals, "Pentagonal_V36.1")
-            self._probe_val("Dyn_Threshold", dyn_threshold.loc[probe_ts], temp_vals, "Pentagonal_V36.1")
-            self._probe_val("Dyn_Gamma", dyn_gamma.loc[probe_ts], temp_vals, "Pentagonal_V36.1")
-            self._probe_val("Pre_Gain_Score", final_score.loc[probe_ts], temp_vals, "Pentagonal_V36.1")
+            p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
+            print(f"[Probe-Fusion] 张量共振融合 @ {probe_ts.strftime('%Y-%m-%d')}")
+            print(f"  > 线性部分: D1={p_val(D1):.2f}, D2={p_val(D2):.2f}, D3={p_val(D3):.2f}, D4={p_val(D4):.2f}, D5={p_val(D5):.2f} -> Linear={p_val(linear_score):.3f}")
+            print(f"  > 张量交互: TensorScore={p_val(tensor_score):.3f} (MinInteract={p_val(min_interaction):.3f})")
+            print(f"  > 动力学修正: Inertia={p_val(inertia_factor):.2f}, Kinematic={p_val(kinematic_factor):.2f}, DerivSynergy={p_val(deriv_synergy_factor):.2f}")
+            print(f"  > 外部修正: Status={p_val(status_multiplier):.2f}, Liquidity={p_val(liquidity_factor):.2f}, Breakout={p_val(breakout_factor):.2f}")
+            print(f"  > 核心分值: Base={p_val(base_resonance):.3f} -> Core={p_val(core_score):.3f} -> FinalPreAPT={p_val(final_score):.3f}")
+            print(f"  > APT相变: MarketTemp={p_val(market_temp):.2f} -> Threshold={p_val(dyn_threshold):.2f} -> APT_Score={p_val(apt_score):.4f}")
             self._probe_val("Final_V36_APT_Score", apt_score.loc[probe_ts], temp_vals, "Pentagonal_V36.1")
         return apt_score
 
