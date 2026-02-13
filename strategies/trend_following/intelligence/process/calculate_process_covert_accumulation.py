@@ -59,6 +59,7 @@ class CalculateProcessCovertAccumulation:
             final_score = final_score.astype('float32')
         _temp_debug_values["final_score"] = final_score
         if is_debug_enabled_for_method and probe_ts:
+            print(f"CalculateProcessCovertAccumulation | ProbeTS={probe_ts.strftime('%Y-%m-%d')}")
             print(f"DEBUG_PROBE:CalculateProcessCovertAccumulation|ProbeTS={probe_ts.strftime('%Y-%m-%d')}")
             print(f"DEBUG_PROBE:CalculationFinished|RawScore={raw_final_score.loc[probe_ts]:.4f}|Final={final_score.loc[probe_ts]:.4f}")
             self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
