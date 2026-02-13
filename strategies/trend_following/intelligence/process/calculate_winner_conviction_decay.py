@@ -31,7 +31,7 @@ class CalculateWinnerConvictionDecay:
             2. 保持原有全息逻辑，仅在数据底层进行精度换效率的优化（对量化信号无实质影响）。
         - 版本号：V21.0.0
         """
-        print(f"\n{'#'*35} [WINNER_CONVICTION_DECAY V21.0] HIGH-PERF PHASE {'#'*35}")
+        # print(f"\n{'#'*35} [WINNER_CONVICTION_DECAY V21.0] HIGH-PERF PHASE {'#'*35}")
         method_name = "calculate_winner_conviction_decay"
         # 1. 数据类型降级优化 (Data Type Downgrade)
         # 将 float64 降级为 float32，精度足够用于趋势打分，但能显著提升矢量计算速度
@@ -167,7 +167,7 @@ class CalculateWinnerConvictionDecay:
         hab_cfg = params_dict['hab_settings']
         kinetic_targets = params_dict['kinetic_targets']
         stat_targets = params_dict['stat_targets']
-        print(f"\n[V21.0_KINETIC_FIELD_GENERATION]")
+        # print(f"\n[V21.0_KINETIC_FIELD_GENERATION]")
         all_cols = set(kinetic_targets + stat_targets['long_std'] + stat_targets['long_only'] + stat_targets['accum_21'])
         manual_additions = [
             'days_since_last_peak_D', 'winner_rate_D', 'net_amount_ratio_D', 'TURNOVER_STABILITY_INDEX_D',
@@ -242,18 +242,18 @@ class CalculateWinnerConvictionDecay:
             "chain_collapse_resonance": self._calculate_chain_collapse_resonance(df_index, raw_signals, _temp_debug_values).astype(np.float32)
         }
         active_sum, active_weight = pd.Series(0.0, index=df_index, dtype=np.float32), np.float32(0.0)
-        print(f"\n[V8.5_CONVICTION_AUDIT]")
-        for k, v in sub_risks.items():
-            val = v.iloc[-1]
-            if val > 1e-3:
-                weight = np.float32(w.get(k, 0.05))
-                active_weight += weight
-                active_sum += v * weight
-                print(f"  - [PHYSICS] {k}: {val:.4f} (W:{weight:.2f})")
+        # print(f"\n[V8.5_CONVICTION_AUDIT]")
+        # for k, v in sub_risks.items():
+        #     val = v.iloc[-1]
+        #     if val > 1e-3:
+        #         weight = np.float32(w.get(k, 0.05))
+        #         active_weight += weight
+        #         active_sum += v * weight
+        #         print(f"  - [PHYSICS] {k}: {val:.4f} (W:{weight:.2f})")
         comp = np.float32(1.0) / max(active_weight, np.float32(0.4))
         fused = (active_sum * comp).clip(0, 1.0)
         _temp_debug_values["conviction_dynamics"].update({"fused": fused, "handover": handover_risk})
-        print(f"  >> FUSED_CONVICTION: {fused.iloc[-1]:.4f} | Comp: {comp:.2f}")
+        # print(f"  >> FUSED_CONVICTION: {fused.iloc[-1]:.4f} | Comp: {comp:.2f}")
         return fused.astype(np.float32)
 
     def _calculate_pressure_resilience(self, df: pd.DataFrame, df_index: pd.Index, raw_signals: Dict[str, pd.Series], params_dict: Dict, method_name: str, _temp_debug_values: Dict, vacuum_risk: pd.Series) -> pd.Series:
@@ -305,11 +305,11 @@ class CalculateWinnerConvictionDecay:
         raw_resilience = base_modulus * kinetic_factor * hab_factor
         brittle_fracture = np.where(vacuum_risk > 0.6, vacuum_risk * np.float32(1.5), np.float32(0.0))
         final_resilience = (raw_resilience - brittle_fracture).clip(-1, 1)
-        print(f"\n[V8.8.1_HYPER_MATERIAL_MECHANICS_PROBE]")
-        print(f"  > [BASE] Modulus: {base_modulus.iloc[-1]:.4f} (Repair:{active_repair.iloc[-1]:.2f}, Lock:{lock_bonus.iloc[-1]:.2f})")
-        print(f"  > [KINETIC] ShockEnergy: {shock_energy:.4f} | Fatigue: {fatigue_penalty:.4f}")
-        print(f"  > [MEMORY] Hardening: +{hardening_bonus.iloc[-1]:.4f} (AccumFill:{accum_fill.iloc[-1]:.0f}) | Corrosion: -{corrosion_penalty.iloc[-1]:.4f}")
-        print(f"  > FINAL_RESILIENCE: {final_resilience.iloc[-1]:.4f}")
+        # print(f"\n[V8.8.1_HYPER_MATERIAL_MECHANICS_PROBE]")
+        # print(f"  > [BASE] Modulus: {base_modulus.iloc[-1]:.4f} (Repair:{active_repair.iloc[-1]:.2f}, Lock:{lock_bonus.iloc[-1]:.2f})")
+        # print(f"  > [KINETIC] ShockEnergy: {shock_energy:.4f} | Fatigue: {fatigue_penalty:.4f}")
+        # print(f"  > [MEMORY] Hardening: +{hardening_bonus.iloc[-1]:.4f} (AccumFill:{accum_fill.iloc[-1]:.0f}) | Corrosion: -{corrosion_penalty.iloc[-1]:.4f}")
+        # print(f"  > FINAL_RESILIENCE: {final_resilience.iloc[-1]:.4f}")
         _temp_debug_values["resilience_analysis"] = {"base": base_modulus, "repair": active_repair, "hardening": hardening_bonus, "fracture": brittle_fracture}
         return final_resilience.astype(np.float32)
 
@@ -356,12 +356,12 @@ class CalculateWinnerConvictionDecay:
         # 3. Final Fusion
         final_synergy_raw = (theoretical_synergy + attack_boost) * efficiency_gate * structure_anchor
         final_synergy = np.tanh(final_synergy_raw).clip(-1, 1).fillna(0)
-        print(f"\n[V19.2_HOLOGRAPHIC_SUPERCONDUCTING_PROBE]")
-        print(f"  > [THEORY] Kinetic: {theoretical_synergy.iloc[-1]:.4f} (Accum13: {synergy_accum.iloc[-1]:.2f})")
-        print(f"  > [GATE] VPA_Eff: {vpa_eff.iloc[-1]:.2f} -> Gate: {efficiency_gate.iloc[-1]:.2f} (Thermodynamic Loss Check)")
-        print(f"  > [BOOST] CoordAttack: {coord_attack.iloc[-1]:.1f} | SynBuy: {syn_buy.iloc[-1]:.2f} -> Boost: +{pd.Series(attack_boost).iloc[-1]:.2f}")
-        print(f"  > [ANCHOR] MA_Coherence: {ma_coherence.iloc[-1]:.1f} -> Anchor: {structure_anchor.iloc[-1]:.2f}")
-        print(f"  > FINAL_SYNERGY_FACTOR: {final_synergy.iloc[-1]:.4f}")
+        # print(f"\n[V19.2_HOLOGRAPHIC_SUPERCONDUCTING_PROBE]")
+        # print(f"  > [THEORY] Kinetic: {theoretical_synergy.iloc[-1]:.4f} (Accum13: {synergy_accum.iloc[-1]:.2f})")
+        # print(f"  > [GATE] VPA_Eff: {vpa_eff.iloc[-1]:.2f} -> Gate: {efficiency_gate.iloc[-1]:.2f} (Thermodynamic Loss Check)")
+        # print(f"  > [BOOST] CoordAttack: {coord_attack.iloc[-1]:.1f} | SynBuy: {syn_buy.iloc[-1]:.2f} -> Boost: +{pd.Series(attack_boost).iloc[-1]:.2f}")
+        # print(f"  > [ANCHOR] MA_Coherence: {ma_coherence.iloc[-1]:.1f} -> Anchor: {structure_anchor.iloc[-1]:.2f}")
+        # print(f"  > FINAL_SYNERGY_FACTOR: {final_synergy.iloc[-1]:.4f}")
         _temp_debug_values["cross_module_signals"]["synergy_factor"] = final_synergy
         return final_synergy.astype(np.float32)
 
@@ -381,10 +381,10 @@ class CalculateWinnerConvictionDecay:
         net_decay = raw_net.clip(-1, 1).fillna(0)
         final = np.sign(net_decay) * (net_decay.abs() ** exp)
         _temp_debug_values["final_fusion_debug"] = {"intensity": intensity.iloc[-1], "raw_net": raw_net.iloc[-1], "exponent": exp}
-        print(f"\n[V8.0_FINAL_FUSION_COMPONENTS]")
-        print(f"  - Conviction: {conviction_score.iloc[-1]:.4f} | ResCollapseBoost: {(res_collapse**2*1.8).iloc[-1]:.4f}")
-        print(f"  - Intensity: {intensity.iloc[-1]:.4f} | StealthHedging: {(st_b_constrained*0.4).iloc[-1]:.4f}")
-        print(f"  - FinalScore: {final.iloc[-1]:.4e}")
+        # print(f"\n[V8.0_FINAL_FUSION_COMPONENTS]")
+        # print(f"  - Conviction: {conviction_score.iloc[-1]:.4f} | ResCollapseBoost: {(res_collapse**2*1.8).iloc[-1]:.4f}")
+        # print(f"  - Intensity: {intensity.iloc[-1]:.4f} | StealthHedging: {(st_b_constrained*0.4).iloc[-1]:.4f}")
+        # print(f"  - FinalScore: {final.iloc[-1]:.4e}")
         return final.clip(-1, 1).fillna(0).astype(np.float32)
 
     @staticmethod
@@ -445,11 +445,11 @@ class CalculateWinnerConvictionDecay:
             # 降级：直接调用静态方法 (纯 Python/Numpy)
             protected_values = self._numba_latch_core(fused_values, trigger_values, emergency_values, core_thresh, mom_factor)
         final_output = pd.Series(protected_values, index=df_index).clip(-1, 1)
-        print(f"\n[V21.0_SPATIOTEMPORAL_LATCH_PROBE]")
-        print(f"  > [INPUT] FusedScore: {fused_score.iloc[-1]:.4f} | EWD: {ewd_factor.iloc[-1]:.4f}")
-        print(f"  > [GATE] RollingHits: {rolling_count.iloc[-1]:.0f}/{lp['window']} | EntropyGate: {entropy_gate.iloc[-1]}")
-        print(f"  > [STATE] Trigger: {latch_trigger.iloc[-1]} | Emergency: {is_emergency.iloc[-1]}")
-        print(f"  > FINAL_LATCHED_SCORE: {final_output.iloc[-1]:.4f}")
+        # print(f"\n[V21.0_SPATIOTEMPORAL_LATCH_PROBE]")
+        # print(f"  > [INPUT] FusedScore: {fused_score.iloc[-1]:.4f} | EWD: {ewd_factor.iloc[-1]:.4f}")
+        # print(f"  > [GATE] RollingHits: {rolling_count.iloc[-1]:.0f}/{lp['window']} | EntropyGate: {entropy_gate.iloc[-1]}")
+        # print(f"  > [STATE] Trigger: {latch_trigger.iloc[-1]} | Emergency: {is_emergency.iloc[-1]}")
+        # print(f"  > FINAL_LATCHED_SCORE: {final_output.iloc[-1]:.4f}")
         _temp_debug_values["latch_state"] = {"count": rolling_count, "trigger": latch_trigger, "emergency": is_emergency}
         return final_output
 
@@ -501,12 +501,12 @@ class CalculateWinnerConvictionDecay:
         if support_intent.iloc[-1] < 20 and is_outflow.iloc[-1]:
             critical_override = np.float32(0.4)
         final_risk = (final_risk + critical_override).clip(0, 1)
-        print(f"\n[V11.1_SHIELD_FAILURE_PROBE]")
-        print(f"  > [ATTACK] Shock: {shock_norm.iloc[-1]:.4f} | ConsRisk: {consistency_risk.iloc[-1]:.4f} -> Force: {attack_force.iloc[-1]:.4f}")
-        print(f"  > [DEFENSE] Intent: {support_intent.iloc[-1]:.1f} | BuySlope: {buy_rate_slope.iloc[-1]:.4f} | Closing: {closing_flow.iloc[-1]:.2e}")
-        print(f"  > [DEFENSE_COEF] Power: {defense_power.iloc[-1]:.4f} (IntentF:{intent_factor.iloc[-1]:.2f} * WithD:{withdrawal_factor.iloc[-1]:.2f})")
-        print(f"  > [BUFFER] Strength: {buffer_strength.iloc[-1]:.4f} | Depletion: {depletion_impact:.4f}")
-        print(f"  > FINAL_VACUUM_RISK: {final_risk.iloc[-1]:.4f} (Raw: {raw_risk.iloc[-1]:.4f})")
+        # print(f"\n[V11.1_SHIELD_FAILURE_PROBE]")
+        # print(f"  > [ATTACK] Shock: {shock_norm.iloc[-1]:.4f} | ConsRisk: {consistency_risk.iloc[-1]:.4f} -> Force: {attack_force.iloc[-1]:.4f}")
+        # print(f"  > [DEFENSE] Intent: {support_intent.iloc[-1]:.1f} | BuySlope: {buy_rate_slope.iloc[-1]:.4f} | Closing: {closing_flow.iloc[-1]:.2e}")
+        # print(f"  > [DEFENSE_COEF] Power: {defense_power.iloc[-1]:.4f} (IntentF:{intent_factor.iloc[-1]:.2f} * WithD:{withdrawal_factor.iloc[-1]:.2f})")
+        # print(f"  > [BUFFER] Strength: {buffer_strength.iloc[-1]:.4f} | Depletion: {depletion_impact:.4f}")
+        # print(f"  > FINAL_VACUUM_RISK: {final_risk.iloc[-1]:.4f} (Raw: {raw_risk.iloc[-1]:.4f})")
         _temp_debug_values["cross_module_signals"]["vacuum_risk"] = final_risk
         return final_risk.astype(np.float32)
 
@@ -542,12 +542,12 @@ class CalculateWinnerConvictionDecay:
         raw_ewd = coherence_score * (np.float32(1.0) - game_entropy * np.float32(0.8)) * (np.float32(1.0) - criticality_penalty * np.float32(0.6)) * (np.float32(1.0) - structural_penalty * np.float32(0.7)) * (np.float32(1.0) - thermal_penalty * np.float32(0.5))
         v_risk = _temp_debug_values.get("cross_module_signals", {}).get("vacuum_risk", pd.Series(0.0, index=conviction.index, dtype=np.float32))
         final_ewd = np.maximum(raw_ewd, np.tanh(v_risk * np.float32(2.8))).clip(0, 1)
-        print(f"\n[V9.5_EWD_GAME_THERMODYNAMICS_PROBE]")
-        print(f"  > [MACRO] Coherence: {coherence_score.iloc[-1]:.4f}")
-        print(f"  > [GAME] Div: {game_div.iloc[-1]:.4f} | Accel: {game_accel.iloc[-1]:.4f} | Entropy: {game_entropy.iloc[-1]:.4f}")
-        print(f"  > [CRITICAL] WinnerRate: {winner_rate.iloc[-1]:.2f}% | Penalty: {criticality_penalty.iloc[-1]:.4f}")
-        print(f"  > [STRUCT] ChipZ: {chip_z.iloc[-1]:.4f} | Consistency: {consistency.iloc[-1]:.4f} | Risk: {structural_penalty.iloc[-1]:.4f}")
-        print(f"  > FINAL_EWD: {final_ewd.iloc[-1]:.4f}")
+        # print(f"\n[V9.5_EWD_GAME_THERMODYNAMICS_PROBE]")
+        # print(f"  > [MACRO] Coherence: {coherence_score.iloc[-1]:.4f}")
+        # print(f"  > [GAME] Div: {game_div.iloc[-1]:.4f} | Accel: {game_accel.iloc[-1]:.4f} | Entropy: {game_entropy.iloc[-1]:.4f}")
+        # print(f"  > [CRITICAL] WinnerRate: {winner_rate.iloc[-1]:.2f}% | Penalty: {criticality_penalty.iloc[-1]:.4f}")
+        # print(f"  > [STRUCT] ChipZ: {chip_z.iloc[-1]:.4f} | Consistency: {consistency.iloc[-1]:.4f} | Risk: {structural_penalty.iloc[-1]:.4f}")
+        # print(f"  > FINAL_EWD: {final_ewd.iloc[-1]:.4f}")
         _temp_debug_values["ewd_analysis"] = {"factor": final_ewd, "game_entropy": game_entropy}
         return final_ewd.astype(np.float32)
 
@@ -588,12 +588,12 @@ class CalculateWinnerConvictionDecay:
         conf_val = raw_signals['intraday_accumulation_confidence_D']
         conf_coef = np.tanh(conf_val / np.float32(50.0)).clip(0.5, 1.2)
         final_bonus = np.tanh(raw_bonus * conf_coef).clip(0, 1)
-        print(f"\n[V9.7_DARK_MATTER_COMPRESSION_PROBE]")
-        print(f"  > [BASE_V9.6] Score: {base_v96.iloc[-1]:.4f} (Inv:{inventory_score.iloc[-1]:.2f}, Ord:{ordering_score.iloc[-1]:.2f})")
-        print(f"  > [ALGO] ClusteringZ: {clustering_z.iloc[-1]:.4f} -> Bonus: {clustering_bonus.iloc[-1]:.4f}")
-        print(f"  > [ENERGY] CompRate: {comp_rate.iloc[-1]:.2f} | Slope: {comp_slope.iloc[-1]:.4f} -> Bonus: {compression_bonus.iloc[-1]:.4f}")
-        print(f"  > [GATE] Confidence: {conf_val.iloc[-1]:.1f} -> Coef: {conf_coef.iloc[-1]:.4f}")
-        print(f"  > FINAL_STEALTH_BONUS: {final_bonus.iloc[-1]:.4f}")
+        # print(f"\n[V9.7_DARK_MATTER_COMPRESSION_PROBE]")
+        # print(f"  > [BASE_V9.6] Score: {base_v96.iloc[-1]:.4f} (Inv:{inventory_score.iloc[-1]:.2f}, Ord:{ordering_score.iloc[-1]:.2f})")
+        # print(f"  > [ALGO] ClusteringZ: {clustering_z.iloc[-1]:.4f} -> Bonus: {clustering_bonus.iloc[-1]:.4f}")
+        # print(f"  > [ENERGY] CompRate: {comp_rate.iloc[-1]:.2f} | Slope: {comp_slope.iloc[-1]:.4f} -> Bonus: {compression_bonus.iloc[-1]:.4f}")
+        # print(f"  > [GATE] Confidence: {conf_val.iloc[-1]:.1f} -> Coef: {conf_coef.iloc[-1]:.4f}")
+        # print(f"  > FINAL_STEALTH_BONUS: {final_bonus.iloc[-1]:.4f}")
         _temp_debug_values["stealth_bonus"] = final_bonus
         return final_bonus.astype(np.float32)
 
@@ -632,12 +632,12 @@ class CalculateWinnerConvictionDecay:
         stability_penalty = (np.float32(1.0) - chip_stab).clip(0, 1)
         boosted_deception = (total_deception * (np.float32(1.0) + stability_penalty * np.float32(0.5))).clip(0, 1)
         filter_score = np.float32(1.0) - boosted_deception
-        print(f"\n[V10.0_DECEPTION_EVENT_HORIZON_PROBE]")
-        print(f"  > [BASE] Churn: {churning_score.iloc[-1]:.2f} | Frac: {fracture_risk.iloc[-1]:.2f} | Pulse: {pulse_score.iloc[-1]:.2f}")
-        print(f"  > [RETAIL] SMAccel: {sm_rate_accel.iloc[-1]:.2e} -> Trap: {retail_trap_score.iloc[-1]:.4f}")
-        print(f"  > [DIST] Conf: {dist_conf.iloc[-1]:.1f} -> Penalty: {distribution_penalty.iloc[-1]:.4f}")
-        print(f"  > [LOCK] Slope: {lock_slope.iloc[-1]:.4f} -> Fracture: {locking_fracture.iloc[-1]:.4f}")
-        print(f"  > FINAL_DECEPTION_SCORE: {boosted_deception.iloc[-1]:.4f} -> FILTER: {filter_score.iloc[-1]:.4f}")
+        # print(f"\n[V10.0_DECEPTION_EVENT_HORIZON_PROBE]")
+        # print(f"  > [BASE] Churn: {churning_score.iloc[-1]:.2f} | Frac: {fracture_risk.iloc[-1]:.2f} | Pulse: {pulse_score.iloc[-1]:.2f}")
+        # print(f"  > [RETAIL] SMAccel: {sm_rate_accel.iloc[-1]:.2e} -> Trap: {retail_trap_score.iloc[-1]:.4f}")
+        # print(f"  > [DIST] Conf: {dist_conf.iloc[-1]:.1f} -> Penalty: {distribution_penalty.iloc[-1]:.4f}")
+        # print(f"  > [LOCK] Slope: {lock_slope.iloc[-1]:.4f} -> Fracture: {locking_fracture.iloc[-1]:.4f}")
+        # print(f"  > FINAL_DECEPTION_SCORE: {boosted_deception.iloc[-1]:.4f} -> FILTER: {filter_score.iloc[-1]:.4f}")
         _temp_debug_values["deception_analysis"] = {"score": boosted_deception, "filter": filter_score}
         return filter_score.astype(np.float32)
 
@@ -678,12 +678,12 @@ class CalculateWinnerConvictionDecay:
         leader_score = raw_signals['industry_leader_score_D']
         immunity = np.float32(0.8) + np.tanh(leader_score / np.float32(40.0)) * np.float32(0.7)
         final_modulator = (raw_modulator * stability_coef * immunity).clip(0, 1)
-        print(f"\n[V10.2_SYNERGY_VELOCITY_PROBE]")
-        print(f"  > [BASE] Theme:{raw_theme_score.iloc[-1]:.2f} | Sent:{sentiment_score.iloc[-1]:.2f} | Struct:{structure_score.iloc[-1]:.2f}")
-        print(f"  > [SYNERGY] Val:{synergy_val.iloc[-1]:.4f} -> Bonus:{synergy_bonus.iloc[-1]:.4f} (Force Multiplier)")
-        print(f"  > [VELOCITY] RankAccel:{rank_accel.iloc[-1]:.4f} -> Mod:{velocity_mod.iloc[-1]:.4f}")
-        print(f"  > [STABILITY] StabIdx:{stability.iloc[-1]:.4f} -> Coef:{stability_coef.iloc[-1]:.4f}")
-        print(f"  > FINAL_CONTEXT_MODULATOR: {final_modulator.iloc[-1]:.4f}")
+        # print(f"\n[V10.2_SYNERGY_VELOCITY_PROBE]")
+        # print(f"  > [BASE] Theme:{raw_theme_score.iloc[-1]:.2f} | Sent:{sentiment_score.iloc[-1]:.2f} | Struct:{structure_score.iloc[-1]:.2f}")
+        # print(f"  > [SYNERGY] Val:{synergy_val.iloc[-1]:.4f} -> Bonus:{synergy_bonus.iloc[-1]:.4f} (Force Multiplier)")
+        # print(f"  > [VELOCITY] RankAccel:{rank_accel.iloc[-1]:.4f} -> Mod:{velocity_mod.iloc[-1]:.4f}")
+        # print(f"  > [STABILITY] StabIdx:{stability.iloc[-1]:.4f} -> Coef:{stability_coef.iloc[-1]:.4f}")
+        # print(f"  > FINAL_CONTEXT_MODULATOR: {final_modulator.iloc[-1]:.4f}")
         _temp_debug_values["context_analysis"] = {"modulator": final_modulator, "synergy_bonus": synergy_bonus}
         return final_modulator.astype(np.float32)
 
@@ -691,15 +691,15 @@ class CalculateWinnerConvictionDecay:
         """
         【V8.0 · 全息审计版】彻底暴露物理证据链
         """
-        print(f"\n{'='*40} [V8.0 HOLOGRAPHIC VERDICT: {probe_ts.strftime('%Y-%m-%d')}] {'='*40}")
+        # print(f"\n{'='*40} [V8.0 HOLOGRAPHIC VERDICT: {probe_ts.strftime('%Y-%m-%d')}] {'='*40}")
         latch = _temp_debug_values.get("latch_state", {})
         fus = _temp_debug_values.get("final_fusion_debug", {})
-        print(f"--- [CORE DECISION PHYSICS] ---")
-        print(f"  > FinalIntensity: {fus.get('intensity', 0.0):.4f} (Boosted by Catastrophe)")
-        print(f"  > NetAfterStealth: {fus.get('raw_net', 0.0):.4f}")
-        print(f"  > LatchTrigger: {latch.get('trigger').loc[probe_ts]} (Emergency: {latch.get('emergency').loc[probe_ts]})")
-        print(f"  > CONVICTION_DECAY_SCORE: {final_score.loc[probe_ts]:.4f}")
-        print(f"{'='*110}\n")
+        # print(f"--- [CORE DECISION PHYSICS] ---")
+        # print(f"  > FinalIntensity: {fus.get('intensity', 0.0):.4f} (Boosted by Catastrophe)")
+        # print(f"  > NetAfterStealth: {fus.get('raw_net', 0.0):.4f}")
+        # print(f"  > LatchTrigger: {latch.get('trigger').loc[probe_ts]} (Emergency: {latch.get('emergency').loc[probe_ts]})")
+        # print(f"  > CONVICTION_DECAY_SCORE: {final_score.loc[probe_ts]:.4f}")
+        # print(f"{'='*110}\n")
 
     def _calculate_institutional_stalling_jerk_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
@@ -730,12 +730,12 @@ class CalculateWinnerConvictionDecay:
         och_accel = raw_signals['OCH_ACCELERATION_D']
         price_context = np.tanh((och_accel + np.float32(0.01)) * np.float32(20.0)).clip(0, 1)
         final_risk = np.tanh(raw_risk * price_context * np.float32(1.5)).clip(0, 1)
-        print(f"\n[V12.1_AERODYNAMIC_STALL_PROBE]")
-        print(f"  > [THRUST] ActJerk:{act_jerk.iloc[-1]:.2e} -> Failure:{thrust_failure.iloc[-1]:.4f}")
-        print(f"  > [DRAG] ResAccel:{res_accel.iloc[-1]:.2e} -> Surge:{drag_surge.iloc[-1]:.4f}")
-        print(f"  > [LIFT] EffSlope:{eff_slope.iloc[-1]:.4f} -> LossFactor:{lift_loss_factor.iloc[-1]:.2f}")
-        print(f"  > [INERTIA] Mass:{mass_inertia.iloc[-1]:.4f} | IntentRisk:{intent_risk_factor.iloc[-1]:.2f}")
-        print(f"  > FINAL_STALL_RISK: {final_risk.iloc[-1]:.4f}")
+        # print(f"\n[V12.1_AERODYNAMIC_STALL_PROBE]")
+        # print(f"  > [THRUST] ActJerk:{act_jerk.iloc[-1]:.2e} -> Failure:{thrust_failure.iloc[-1]:.4f}")
+        # print(f"  > [DRAG] ResAccel:{res_accel.iloc[-1]:.2e} -> Surge:{drag_surge.iloc[-1]:.4f}")
+        # print(f"  > [LIFT] EffSlope:{eff_slope.iloc[-1]:.4f} -> LossFactor:{lift_loss_factor.iloc[-1]:.2f}")
+        # print(f"  > [INERTIA] Mass:{mass_inertia.iloc[-1]:.4f} | IntentRisk:{intent_risk_factor.iloc[-1]:.2f}")
+        # print(f"  > FINAL_STALL_RISK: {final_risk.iloc[-1]:.4f}")
         _temp_debug_values["cross_module_signals"]["stalling_risk"] = final_risk
         return final_risk.astype(np.float32)
 
@@ -768,11 +768,11 @@ class CalculateWinnerConvictionDecay:
         structural_damage = (landslide_shock * np.float32(0.35) + fissure_spread * np.float32(0.35) + kurtosis_collapse * np.float32(0.3))
         raw_erosion = (structural_damage * friction_coef) / sediment_thickness
         final_erosion = np.tanh(raw_erosion).clip(0, 1)
-        print(f"\n[V13.1_STRUCTURAL_WEATHERING_PROBE]")
-        print(f"  > [DAMAGE] Slide:{landslide_shock.iloc[-1]:.2f} | Fissure:{fissure_spread.iloc[-1]:.2f} | Kurtosis:{kurtosis_collapse.iloc[-1]:.2f}")
-        print(f"  > [FRICTION] GameIdx:{game_val.iloc[-1]:.2f} -> Coef:{friction_coef.iloc[-1]:.2f}")
-        print(f"  > [BUFFER] Thickness:{sediment_thickness.iloc[-1]:.4f}")
-        print(f"  > FINAL_EROSION_INDEX: {final_erosion.iloc[-1]:.4f}")
+        # print(f"\n[V13.1_STRUCTURAL_WEATHERING_PROBE]")
+        # print(f"  > [DAMAGE] Slide:{landslide_shock.iloc[-1]:.2f} | Fissure:{fissure_spread.iloc[-1]:.2f} | Kurtosis:{kurtosis_collapse.iloc[-1]:.2f}")
+        # print(f"  > [FRICTION] GameIdx:{game_val.iloc[-1]:.2f} -> Coef:{friction_coef.iloc[-1]:.2f}")
+        # print(f"  > [BUFFER] Thickness:{sediment_thickness.iloc[-1]:.4f}")
+        # print(f"  > FINAL_EROSION_INDEX: {final_erosion.iloc[-1]:.4f}")
         _temp_debug_values["cross_module_signals"]["erosion_index"] = final_erosion
         return final_erosion.astype(np.float32)
 
@@ -811,12 +811,12 @@ class CalculateWinnerConvictionDecay:
         # E. Fusion
         raw_resonance = (thermo_chaos + curvature_tear * np.float32(0.5)) * dissipation_factor * prior_prob
         final_score = np.tanh(raw_resonance * np.float32(0.8)).clip(0, 1)
-        print(f"\n[V15.1_GEOMETRIC_SINGULARITY_PROBE]")
-        print(f"  > [THERMO] Chaos: {thermo_chaos.iloc[-1]:.4f} (Sig:{signal_shock.iloc[-1]:.2f}, Struc:{structure_decay.iloc[-1]:.2f}, Crit:{criticality.iloc[-1]:.2f})")
-        print(f"  > [GEOM] CurvJerk: {curv_jerk.iloc[-1]:.2e} -> Tear: {curvature_tear.iloc[-1]:.4f}")
-        print(f"  > [TOPO] ClustSlope: {clust_slope.iloc[-1]:.2e} -> Dissipation: {dissipation_factor.iloc[-1]:.2f}")
-        print(f"  > [PRIOR] RevScore: {rev_score.iloc[-1]:.1f} -> Prob: {prior_prob.iloc[-1]:.2f}")
-        print(f"  > FINAL_CHAOS_RESONANCE: {final_score.iloc[-1]:.4f}")
+        # print(f"\n[V15.1_GEOMETRIC_SINGULARITY_PROBE]")
+        # print(f"  > [THERMO] Chaos: {thermo_chaos.iloc[-1]:.4f} (Sig:{signal_shock.iloc[-1]:.2f}, Struc:{structure_decay.iloc[-1]:.2f}, Crit:{criticality.iloc[-1]:.2f})")
+        # print(f"  > [GEOM] CurvJerk: {curv_jerk.iloc[-1]:.2e} -> Tear: {curvature_tear.iloc[-1]:.4f}")
+        # print(f"  > [TOPO] ClustSlope: {clust_slope.iloc[-1]:.2e} -> Dissipation: {dissipation_factor.iloc[-1]:.2f}")
+        # print(f"  > [PRIOR] RevScore: {rev_score.iloc[-1]:.1f} -> Prob: {prior_prob.iloc[-1]:.2f}")
+        # print(f"  > FINAL_CHAOS_RESONANCE: {final_score.iloc[-1]:.4f}")
         _temp_debug_values["cross_module_signals"]["chaos_resonance"] = final_score
         return final_score.astype(np.float32)
 
@@ -851,12 +851,12 @@ class CalculateWinnerConvictionDecay:
         # E. Fusion
         raw_synergy = base_synergy * sync_factor * markup_boost * veto_factor
         final_synergy = np.tanh(raw_synergy * np.float32(1.2)).clip(0, 1)
-        print(f"\n[V16.8.1_DIMENSIONAL_RESONANCE_PROBE]")
-        print(f"  > [BASE] Breakout:{breakout_force.iloc[-1]:.2f} | Cohesion:{cohesion_force.iloc[-1]:.2f} | Pot:{potential_factor.iloc[-1]:.2f}")
-        print(f"  > [CHRONOS] SyncVal:{sync_val.iloc[-1]:.2f} -> Factor:{sync_factor.iloc[-1]:.2f}")
-        print(f"  > [KAIROS] MarkupAccel:{markup_accel.iloc[-1]:.2f} -> Boost:{markup_boost.iloc[-1]:.2f}")
-        print(f"  > [VETO] DownScore:{downtrend_score.iloc[-1]:.1f} -> Factor:{veto_factor.iloc[-1]:.2f}")
-        print(f"  > FINAL_SYNERGY_SCORE: {final_synergy.iloc[-1]:.4f}")
+        # print(f"\n[V16.8.1_DIMENSIONAL_RESONANCE_PROBE]")
+        # print(f"  > [BASE] Breakout:{breakout_force.iloc[-1]:.2f} | Cohesion:{cohesion_force.iloc[-1]:.2f} | Pot:{potential_factor.iloc[-1]:.2f}")
+        # print(f"  > [CHRONOS] SyncVal:{sync_val.iloc[-1]:.2f} -> Factor:{sync_factor.iloc[-1]:.2f}")
+        # print(f"  > [KAIROS] MarkupAccel:{markup_accel.iloc[-1]:.2f} -> Boost:{markup_boost.iloc[-1]:.2f}")
+        # print(f"  > [VETO] DownScore:{downtrend_score.iloc[-1]:.1f} -> Factor:{veto_factor.iloc[-1]:.2f}")
+        # print(f"  > FINAL_SYNERGY_SCORE: {final_synergy.iloc[-1]:.4f}")
         _temp_debug_values["cross_module_signals"]["macro_synergy"] = final_synergy
         return final_synergy.astype(np.float32)
 
@@ -905,11 +905,11 @@ class CalculateWinnerConvictionDecay:
         # D. Fusion
         raw_resonance = physical_collapse * distribution_risk * criticality
         final_collapse = np.tanh(raw_resonance).clip(0, 1)
-        print(f"\n[V18.1_DOMINO_SINGULARITY_PROBE]")
-        print(f"  > [PHYSICAL] Base:{physical_collapse.iloc[-1]:.4f} (Panic:{panic_spread.iloc[-1]:.2f}, Freeze:{freeze_factor.iloc[-1]:.2f})")
-        print(f"  > [INTENT] DistAccel:{dist_accel.iloc[-1]:.2e} | Accum:{dist_accum.iloc[-1]:.0f} -> Risk:{distribution_risk.iloc[-1]:.2f}")
-        print(f"  > [CRITICAL] RevProb:{rev_prob.iloc[-1]:.2f} -> Coef:{criticality.iloc[-1]:.2f}")
-        print(f"  > FINAL_CHAIN_COLLAPSE: {final_collapse.iloc[-1]:.4f}")
+        # print(f"\n[V18.1_DOMINO_SINGULARITY_PROBE]")
+        # print(f"  > [PHYSICAL] Base:{physical_collapse.iloc[-1]:.4f} (Panic:{panic_spread.iloc[-1]:.2f}, Freeze:{freeze_factor.iloc[-1]:.2f})")
+        # print(f"  > [INTENT] DistAccel:{dist_accel.iloc[-1]:.2e} | Accum:{dist_accum.iloc[-1]:.0f} -> Risk:{distribution_risk.iloc[-1]:.2f}")
+        # print(f"  > [CRITICAL] RevProb:{rev_prob.iloc[-1]:.2f} -> Coef:{criticality.iloc[-1]:.2f}")
+        # print(f"  > FINAL_CHAIN_COLLAPSE: {final_collapse.iloc[-1]:.4f}")
         _temp_debug_values["cross_module_signals"]["chain_collapse"] = final_collapse
         return final_collapse.astype(np.float32)
 
