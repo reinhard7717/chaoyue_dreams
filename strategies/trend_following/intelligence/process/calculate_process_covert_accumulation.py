@@ -30,6 +30,7 @@ class CalculateProcessCovertAccumulation:
         -核心优化:向量化日期探测逻辑，移除Python循环；结果降级为float32。
         """
         method_name = "_calculate_process_covert_accumulation"
+        print(" ====== CalculateProcessCovertAccumulation ======")
         is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
         if is_debug_enabled_for_method and self.helper.probe_dates:
@@ -59,10 +60,10 @@ class CalculateProcessCovertAccumulation:
             final_score = final_score.astype('float32')
         _temp_debug_values["final_score"] = final_score
         if is_debug_enabled_for_method and probe_ts:
-            print(f"CalculateProcessCovertAccumulation | ProbeTS={probe_ts.strftime('%Y-%m-%d')}")
             print(f"DEBUG_PROBE:CalculateProcessCovertAccumulation|ProbeTS={probe_ts.strftime('%Y-%m-%d')}")
             print(f"DEBUG_PROBE:CalculationFinished|RawScore={raw_final_score.loc[probe_ts]:.4f}|Final={final_score.loc[probe_ts]:.4f}")
             self._print_debug_info(debug_output, _temp_debug_values, method_name, probe_ts)
+        print(f"\n ====== ======================== ======")
         return final_score
 
     def _apply_signal_latching(self, final_score: pd.Series, context: pd.Series, action: pd.Series, chip: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:

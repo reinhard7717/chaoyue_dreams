@@ -85,6 +85,7 @@ class CalculateUpthrustWashoutRelationship:
             print(f"  [3.Chips]    Score: {ctx['Chip'].iloc[i]:.4f} <- (Mig: {raw['Mig'].iloc[i]:.2f}, Coll: {raw['Coll'].iloc[i]:.2f}, Order: {raw['Order'].iloc[i]:.2f}, Lock: {raw['Lock'].iloc[i]:.2f})")
             print(f"  [4.Forens]   Intent: {ctx['Intent'].iloc[i]:.4f} (SSD: {raw['SSD'].iloc[i]:.2f}, HMAttack: {raw['HMAtt'].iloc[i]}, Trapped: {raw['Trap'].iloc[i]:.2f})")
             print(f"  [5.Strategy] LeaderBonus: {ctx['Ldr'].iloc[i]:.2f}x (ThemeHot: {raw['Theme'].iloc[i]:.1f})")
+            print(f"--- ========================================================== ---")
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Tuple[pd.Series, ...]:
         """

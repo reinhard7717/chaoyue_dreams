@@ -378,6 +378,7 @@ class CalculatePriceVolumeDynamics:
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """V77.1 · 全局动力学总线：向量化合成计算优化，移除 Series 算术开销，直接操作 float32 数组，清除空行"""
         method_name = "calculate_price_volume_dynamics"
+        print(f"\n ====== [ CalculatePriceVolumeDynamics 渗透率自适应探针 V82.1 ] ======")
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         if not self._validate_all_required_signals(df, {}, {}, method_name, is_debug, probe_ts): return pd.Series(0.0, index=df_index, dtype=np.float32)
@@ -423,6 +424,7 @@ class CalculatePriceVolumeDynamics:
         # 5. 触发全息探针
         # if is_debug and probe_ts in df_index:
             # self._print_full_chain_probe(probe_ts, raw, scores, final_score.loc[probe_ts])
+        print(f"\n ====== ======================== ======")
         return final_score
 
     def _persist_hab_state(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str):
@@ -922,7 +924,6 @@ class CalculatePriceVolumeDynamics:
         final_ctx = pd.Series(perm * bonus * saturation_decay, index=df_index, dtype=np.float32).clip(0.5, 1.8)
         if is_debug and probe_ts in df_index:
             p_i = df_index.get_loc(probe_ts)
-            print(f"\n[ CalculatePriceVolumeDynamics 渗透率自适应探针 V82.1 @ {probe_ts.strftime('%Y-%m-%d')}]")
             print(f"    情绪分位数: {sent_rank[p_i]:.2f}, 相对状态: {'冰点复苏' if sent_rank[p_i] < 0.2 else ('过热' if sent_rank[p_i] > 0.8 else '常态')}")
         return final_ctx
 
