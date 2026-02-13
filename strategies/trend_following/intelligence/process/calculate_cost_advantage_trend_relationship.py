@@ -271,7 +271,7 @@ class CalculateCostAdvantageTrendRelationship:
         return final_efficiency_series
 
     def _calculate_cost_migration_elasticity(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V26.1.4 · 超弹性共振 (修复:类型安全与共振逻辑)】"""
+        """【V26.1.5 · 超弹性共振 (修复:爆发期完全豁免)】"""
         close = self.helper._get_safe_series(df, 'close_D', 1.0, "close")
         cost_50 = self.helper._get_safe_series(df, 'cost_50pct_D', 1.0, "cost_50")
         cost_5 = self.helper._get_safe_series(df, 'cost_5pct_D', 1.0, "cost_5")
@@ -281,45 +281,47 @@ class CalculateCostAdvantageTrendRelationship:
         trapped_pressure = self.helper._get_safe_series(df, 'pressure_trapped_D', 0.0, "trapped_pressure")
         intra_migration = self.helper._get_safe_series(df, 'intraday_cost_center_migration_D', 0.0, "intra_migration")
         intra_volatility = self.helper._get_safe_series(df, 'intraday_cost_center_volatility_D', 0.0, "intra_volatility")
+        
         # 1. 计算斜率与导数
         slope_c50 = cost_50.diff(13).fillna(0)
         slope_c5 = cost_5.diff(13).fillna(0)
         slope_price = close.diff(13).fillna(0)
         accel_c5 = slope_c5.diff(5).fillna(0)
         jerk_c5 = accel_c5.diff(3).fillna(0)
+        
         scale_c50 = slope_c50.rolling(21).std().replace(0, 0.01)
         scale_c5 = slope_c5.rolling(21).std().replace(0, 0.01)
         scale_price = slope_price.rolling(21).std().replace(0, 1.0)
         scale_accel = accel_c5.rolling(21).std().replace(0, 0.005)
         scale_jerk = jerk_c5.rolling(21).std().replace(0, 0.001)
+        
         norm_slope_c50 = np.tanh(slope_c50 / (scale_c50 + 1e-8))
         norm_slope_c5 = np.tanh(slope_c5 / (scale_c5 + 1e-8))
         norm_slope_price = np.tanh(slope_price / (scale_price + 1e-8))
         norm_accel_c5 = np.tanh(accel_c5 / (scale_accel + 1e-8))
         norm_jerk_c5 = np.tanh(jerk_c5 / (scale_jerk + 1e-8))
 
-        # 2. 【核心修复】趋势共振判定 (Trend Resonance)
-        # 如果价格和成本都在上涨，这是良性的“垫高成本”，给予高分
-        alignment = np.sign(norm_slope_price) * np.sign(norm_slope_c50)
-        # 基础剪刀差：价格斜率优势
+        # 2. 趋势共振判定 (Trend Resonance)
+        # 基础剪刀差
         raw_scissor = norm_slope_price - norm_slope_c50 * 0.5 
-        # 共振修正：如果同向且为正，强制拉高分数
-        # 【修复点】强转 Series，防止 numpy 数组导致的 AttributeError
+        # 共振修正：系数提升至 0.8
         resonance_bonus = pd.Series(
-            np.where((norm_slope_price > 0) & (norm_slope_c50 > 0), 0.5 * norm_slope_c50, 0.0),
+            np.where((norm_slope_price > 0) & (norm_slope_c50 > 0), 0.8 * norm_slope_c50, 0.0),
             index=idx
         )
+        
         turnover_score = 0.5 + 0.7 * np.exp(-((turnover - 5.5)**2) / 50.0)
-        # 修正后的剪刀差逻辑
+        
         viscous_inst = (raw_scissor + resonance_bonus) * turnover_score
         viscous_hab = viscous_inst.rolling(window=34, min_periods=1).mean()
-        dim_hab = np.tanh(viscous_hab * 2.5) # 增强信号强度
+        dim_hab = np.tanh(viscous_hab * 2.5) 
 
         # 3. 模量与分形
         norm_stress = np.tanh(profit_pressure / 10.0)
         norm_strain = np.abs(norm_slope_c50)
         raw_modulus = norm_stress * (1.0 - norm_strain) * 2.5
         dim_modulus = pd.Series(np.where(norm_stress > 0.2, np.tanh(raw_modulus), 0.3), index=idx)
+        
         norm_intra_mig = np.tanh(intra_migration * 5.0)
         norm_intra_vol = np.tanh(intra_volatility * 5.0)
         dim_fractal = (norm_intra_mig * 0.6 + (1.0 - norm_intra_vol) * 0.4).clip(-1, 1)
@@ -336,34 +338,37 @@ class CalculateCostAdvantageTrendRelationship:
         raw_elast = np.where(synergized_score > threshold, synergized_score * (1.0 + 0.8 * np.exp(2.5 * (synergized_score - threshold))), synergized_score)
         final_elasticity = pd.Series(raw_elast, index=idx)
 
-        # 【保护机制】主升浪豁免
+        # 【核心修复】主升浪完全豁免
         rally_protection = np.maximum(0, norm_slope_price)
         raw_violation = (np.maximum(0, norm_slope_c5) * 0.2 + np.maximum(0, norm_accel_c5) * 0.3 + np.maximum(0, norm_jerk_c5) * 0.5)
-        # 如果价格强势上涨，大幅豁免底仓上移的惩罚
-        violation = raw_violation * (1.0 - rally_protection * 0.9) 
+        # 如果 Rally>0.9，则 (1-0.9) 会残留 10% 惩罚。改为 max(0, 1.0 - rally * 1.2) 确保彻底归零
+        violation_mask = pd.Series(np.maximum(0.0, 1.0 - rally_protection * 1.2), index=idx)
+        violation = raw_violation * violation_mask
+        
         anchorage_penalty = pd.Series(np.exp(-violation * 4.0), index=idx)
         ceiling_penalty = pd.Series(np.exp(-trapped_pressure * 2.5), index=idx)
+        
         span = (cost_95 - cost_5) / (cost_50 + 1e-8)
         slope_span = span.diff(13).fillna(0)
         scale_span = slope_span.rolling(21).std().replace(0, 0.01)
         norm_slope_span = np.tanh(slope_span / (scale_span + 1e-8))
         compression_bonus = np.maximum(0, -norm_slope_span) * 0.2
+        
         final_score = (final_elasticity * anchorage_penalty * ceiling_penalty + compression_bonus).clip(-1, 2.0)
 
         if is_debug and probe_ts:
             p_val = lambda s: s.loc[probe_ts] if isinstance(s, (pd.Series, pd.DataFrame)) and probe_ts in s.index else 0
             print(f"[Probe-D4] 成本迁移弹性详情 @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"  > 趋势判定: PriceSlope={p_val(norm_slope_price):.2f}, CostSlope={p_val(norm_slope_c50):.2f}")
-            print(f"  > 修正剪刀差: RawScissor={p_val(raw_scissor):.3f}, Bonus={p_val(resonance_bonus):.3f} -> DimHAB={p_val(dim_hab):.3f}")
-            print(f"  > 基础得分: Synergized={p_val(synergized_score):.3f} -> FinalElasticity={p_val(final_elasticity):.3f}")
-            print(f"  > 惩罚豁免: RallyProtect={p_val(pd.Series(rally_protection, index=idx)):.2f} -> Violation={p_val(pd.Series(violation, index=idx)):.3f}")
+            print(f"  > 修正剪刀差: Raw={p_val(raw_scissor):.2f}, Bonus={p_val(resonance_bonus):.2f} -> DimHAB={p_val(dim_hab):.2f}")
+            print(f"  > 惩罚详情: RawViolation={p_val(pd.Series(raw_violation, index=idx)):.3f}, Mask={p_val(violation_mask):.2f} -> Violation={p_val(pd.Series(violation, index=idx)):.3f}")
+            print(f"  > 锚定惩罚: AnchorPenalty={p_val(anchorage_penalty):.4f}")
             print(f"  > 最终结果: Final={p_val(final_score):.4f}")
             self._probe_val("Final_Elasticity", final_score.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
             
         return final_score
 
     def _calculate_structure_negentropy(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V30.1.4 · 超序参量 (修复:类型安全与高能宽容度)】"""
+        """【V30.1.5 · 超序参量 (修复:高能门控豁免)】"""
         chip_entropy = self.helper._get_safe_series(df, 'chip_entropy_D', 0.5, "chip_entropy")
         conc_entropy = self.helper._get_safe_series(df, 'concentration_entropy_D', 0.5, "conc_entropy")
         intra_entropy = self.helper._get_safe_series(df, 'intraday_chip_entropy_D', 0.5, "intra_entropy")
@@ -374,15 +379,14 @@ class CalculateCostAdvantageTrendRelationship:
         fractal_dim = self.helper._get_safe_series(df, 'PRICE_FRACTAL_DIM_D', 1.5, "fractal_dim")
         flow_stab = self.helper._get_safe_series(df, 'TURNOVER_STABILITY_INDEX_D', 0.5, "flow_stab")
         turnover = self.helper._get_safe_series(df, 'turnover_rate_f_D', 1.0, "turnover")
+        
         total_micro_entropy = chip_entropy * 0.4 + conc_entropy * 0.3 + intra_entropy * 0.3
         hab_entropy_34 = total_micro_entropy.rolling(window=34, min_periods=1).mean()
-        # 【核心修复】计算高能宽容度 (High Energy Tolerance)
-        # 高换手(>5%) 或 强趋势(Slope>0.3) 时，扩大熵容忍区间
+        
+        # 1. 高能宽容度与熵修正
         high_energy_factor = (np.log1p(turnover) * 0.5 + np.maximum(0, reg_slope) * 2.0)
         entropy_tolerance = 1.0 + high_energy_factor
-        # 使用宽容度修正 Delta：熵增被 Tolerance 稀释
         entropy_delta = (total_micro_entropy - hab_entropy_34)
-        # 【修复点】强转 Series，确保后续 score_internal 也是 Series
         adjusted_delta = pd.Series(
             np.where(entropy_delta > 0, entropy_delta / (entropy_tolerance + 1e-8), entropy_delta),
             index=idx
@@ -392,40 +396,56 @@ class CalculateCostAdvantageTrendRelationship:
         negent_price = 1.0 / (1.0 + np.exp(12.0 * (price_entropy - 0.55)))
         score_r2 = ((reg_r2 - 0.6) * 2.5).clip(0, 1)
         score_external = np.sqrt(negent_price * score_r2)
+        
         curv_volatility = curvature.rolling(13).std().replace(0, 0.01)
         score_smoothness = np.tanh((0.1 - curv_volatility) * 10.0)
+        
         order_parameter = np.sqrt(score_internal * score_external)
         lock_gain = 1.0 + 1.0 * np.power(order_parameter, 4)
         crystal_score = order_parameter * lock_gain
+        
         slope_ent = total_micro_entropy.diff(13).fillna(0)
         scale_slope = slope_ent.rolling(21).std().replace(0, 0.01)
         norm_slope_ent = np.tanh(-slope_ent / (scale_slope + 1e-8))
         raw_modulator = np.where(norm_slope_ent > 0, 1.0 + norm_slope_ent * 0.2, 1.0 + norm_slope_ent * 0.5)
         kinetics_modulator = pd.Series(raw_modulator, index=idx)
-        fractal_gate = pd.Series(np.where(fractal_dim < 1.4, 1.0, 0.5), index=idx)
-        laminar_gate = pd.Series(np.where(flow_stab > 0.6, 1.0, 0.7), index=idx)
+        
+        # 【核心修复】门控豁免 (Gate Exemption)
+        # 如果处于高能状态(energy_mask > 0)，强制撑开门控
+        energy_mask = np.tanh(turnover / 5.0) # 38% turnover -> mask ~ 1.0
+        
+        # 分形门控: 原始逻辑是 <1.4 优。现在如果高能，允许 > 1.4
+        raw_fractal_gate = np.where(fractal_dim < 1.4, 1.0, 0.5)
+        fractal_gate = pd.Series(np.maximum(raw_fractal_gate, energy_mask * 0.9), index=idx)
+        
+        # 层流门控: 原始逻辑 > 0.6 优。现在如果高能（湍流），允许不稳定
+        raw_laminar_gate = np.where(flow_stab > 0.6, 1.0, 0.7)
+        laminar_gate = pd.Series(np.maximum(raw_laminar_gate, energy_mask * 0.9), index=idx)
+        
         smooth_gate = (score_smoothness + 1.0) / 2.0
+        
         synergized_negentropy = crystal_score * kinetics_modulator * fractal_gate * laminar_gate * (0.8 + 0.2 * smooth_gate)
+        
         trend_gate = np.tanh(reg_slope * 10.0)
         final_negentropy = synergized_negentropy * trend_gate
+        
         threshold = 0.6
         raw_final = np.where(final_negentropy > threshold, final_negentropy * (1.0 + 0.5 * np.exp(2.0 * (final_negentropy - threshold))), final_negentropy)
         final_score = pd.Series(raw_final, index=idx).clip(-1, 2.0)
-        # 熔断修复：如果换手极低才熔断，高换手不熔断
         final_score = pd.Series(np.where(turnover < 0.5, 0.0, final_score), index=idx)
+        
         if is_debug and probe_ts:
             p_val = lambda s: s.loc[probe_ts] if isinstance(s, (pd.Series, pd.DataFrame)) and probe_ts in s.index else 0
             print(f"[Probe-D5] 结构熵逆详情 @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"  > 高能宽容度: Turnover={p_val(turnover):.1f} -> Tolerance={p_val(pd.Series(entropy_tolerance, index=idx)):.2f}")
-            print(f"  > 熵差修正: RawDelta={p_val(entropy_delta):.3f} -> AdjDelta={p_val(adjusted_delta):.3f}")
-            print(f"  > 内部评分: Internal={p_val(score_internal):.3f} (Old was ~0.3)")
-            print(f"  > 最终结果: Final={p_val(final_score):.4f}")
+            print(f"  > 门控豁免: EnergyMask={p_val(pd.Series(energy_mask, index=idx)):.2f}")
+            print(f"  > 门控状态: FractalGate={p_val(fractal_gate):.2f}, LaminarGate={p_val(laminar_gate):.2f}")
+            print(f"  > 最终结果: Synergized={p_val(synergized_negentropy):.3f} -> Final={p_val(final_score):.4f}")
             self._probe_val("Final_Negentropy", final_score.loc[probe_ts], temp_vals, "Negentropy_V30.1")
             
         return final_score
 
     def _calculate_pentagonal_resonance(self, D1: pd.Series, D2: pd.Series, D3: pd.Series, D4: pd.Series, D5: pd.Series, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V36.1.5 · 动态自适应相变增益 APT-Gain (修复:非对称爆发保护)】"""
+        """【V36.1.6 · 动态自适应相变增益 APT-Gain (修复:协同逻辑宽松化)】"""
         close = df['close_D']
         adx = df.get('ADX_14_D')
         sentiment = df.get('market_sentiment_score_D')
@@ -435,7 +455,7 @@ class CalculateCostAdvantageTrendRelationship:
         turnover = df.get('turnover_rate_f_D')
         vol_ratio = df.get('volume_ratio_D')
         breakout_quality = df.get('breakout_quality_score_D')
-        # 1. 线性加权与动态权重
+        
         norm_adx = (adx / 50.0).clip(0, 2.0) if adx is not None else pd.Series(0.5, index=idx)
         trend_factor = np.tanh(norm_adx - 0.5)
         base_w = {'w1': 0.20, 'w2': 0.30, 'w3': 0.20, 'w4': 0.15, 'w5': 0.15}
@@ -446,18 +466,20 @@ class CalculateCostAdvantageTrendRelationship:
         W3 = base_w['w3'] + trend_factor * adjust_strength
         W4 = base_w['w4']
         linear_score = (D1 * W1 + D2 * W2 + D3 * W3 + D4 * W4 + D5 * W5)
-        # 2. 张量交互 (Tensor Interaction)
+        
         def soft_prod(a, b): return (a * b) / (1.0 + (a * b).abs())
         i1, i2, i3 = soft_prod(D1, D2) * 1.5, soft_prod(D2, D3) * 1.2, soft_prod(D3, D4)
         i4, i5 = soft_prod(D4, D5), soft_prod(D5, D1)
         tensor_score = (i1 + i2 + i3 + i4 + i5) / 5.0
         min_interaction = pd.concat([i1, i2, i3, i4, i5], axis=1).min(axis=1)
         chain_break_penalty = pd.Series(np.where(min_interaction < -0.1, 1.0 + min_interaction, 1.0), index=idx)
+        
         base_resonance = linear_score * (1.0 + tensor_score) * chain_break_penalty
-        # 3. 动力学修正 (Kinematic Correction)
+        
         hab_resonance_21 = base_resonance.rolling(window=21, min_periods=1).mean()
         inertia_diff = base_resonance - hab_resonance_21
         inertia_factor = pd.Series(np.where(inertia_diff > 0, 1.0 + inertia_diff * 0.5, 1.0 + inertia_diff * 1.5), index=idx).clip(0.5, 1.5)
+        
         res_slope = base_resonance.diff(8).fillna(0)
         res_accel = res_slope.diff(5).fillna(0)
         res_jerk = res_accel.diff(3).fillna(0)
@@ -467,26 +489,29 @@ class CalculateCostAdvantageTrendRelationship:
         norm_slope = np.tanh(res_slope / (scale_slope + 1e-8))
         norm_accel = np.tanh(res_accel / (scale_accel + 1e-8))
         norm_jerk = np.tanh(res_jerk / (scale_jerk + 1e-8))
+        
         kinematic_score = (norm_slope * 0.6 + norm_accel * 0.4)
-        # 【核心修复 1】非对称 Jerk 惩罚 (Asymmetric Jerk Penalty)
-        # 如果是正向加速 (norm_accel > 0)，说明处于爆发期，大幅放宽 Jerk 惩罚
-        # 只有在负向加速或横盘震荡时，才严厉惩罚剧烈抖动
-        jerk_severity = np.where(norm_accel > 0.1, 0.2, 1.2) # 正向加速时系数降为 0.2，否则 1.2
+        jerk_severity = np.where(norm_accel > 0.1, 0.2, 1.2)
         jerk_penalty = np.exp(-(norm_jerk * jerk_severity)**2)
         kinematic_factor = (1.0 + kinematic_score * 0.4) * jerk_penalty
-        # 4. 导数协同 (Derivative Synergy)
+        
         slopes_matrix = np.column_stack([D1.diff(5).fillna(0), D2.diff(5).fillna(0), D3.diff(5).fillna(0), D4.diff(5).fillna(0), D5.diff(5).fillna(0)])
         mean_slope = np.mean(slopes_matrix, axis=1)
         std_slope = np.std(slopes_matrix, axis=1)
-        # 【核心修复 2】上升趋势协同宽容 (Uptrend Synergy Tolerance)
-        # 如果整体是在上涨 (mean_slope > 0)，允许各维度上涨速率不一致，降低 std 的惩罚权重
-        synergy_penalty_weight = np.where(mean_slope > 0, 0.5, 2.0)
+        
+        # 【核心修复】强力动力学覆盖均值协同
+        # 只要动力学分(Kinematic) > 0.4 (说明共振动能强)，或者均值 > -0.05，就从轻发落
+        is_strong_force = (mean_slope > -0.05) | (kinematic_score > 0.4)
+        synergy_penalty_weight = np.where(is_strong_force, 0.5, 2.0)
+        
         deriv_synergy_factor = pd.Series(1.0 - std_slope * synergy_penalty_weight, index=idx).clip(0.6, 1.0)
+        
         core_score = base_resonance * inertia_factor * deriv_synergy_factor * kinematic_factor
-        # 5. 外部状态修正
+        
         status_multiplier = pd.Series(1.0, index=idx)
         if is_leader is not None: status_multiplier = pd.Series(np.where(is_leader > 0, 1.2, status_multiplier), index=idx)
         if leader_score is not None: status_multiplier = pd.Series(np.where(leader_score > 80, np.maximum(status_multiplier, 1.1), status_multiplier), index=idx)
+        
         liquidity_factor = pd.Series(1.0, index=idx)
         if turnover is not None and vol_ratio is not None:
             zombie_mask = (vol_ratio < 0.6) & (turnover < 1.5)
@@ -499,36 +524,38 @@ class CalculateCostAdvantageTrendRelationship:
             breakout_factor = pd.Series(np.where((core_score > 0.5) & (norm_bq < 0.3), 0.7, np.where(norm_bq > 0.8, 1.1, 1.0)), index=idx)
             
         final_score = core_score * status_multiplier * liquidity_factor * breakout_factor
+        
         if sm_divergence is not None:
              veto_multiplier = pd.Series(np.where(sm_divergence > 1.5, 0.0, np.where(sm_divergence > 0.8, 0.5, 1.0)), index=idx)
              final_score = final_score * veto_multiplier
              
-        # 6. 反身性与 APT 相变
         res_diff = final_score.diff(8).fillna(0)
         price_diff = close.diff(8).fillna(0)
         raw_corr = res_diff.rolling(13).corr(price_diff).fillna(0)
         res_std = res_diff.rolling(13).std().fillna(0)
         active_mask = (res_std > 0.05)
         reflexivity_factor = pd.Series(np.where(active_mask & (raw_corr > 0.5), 1.0 + (raw_corr - 0.5), np.where(active_mask & (raw_corr < -0.3), 1.0 + (raw_corr + 0.3), 1.0)), index=idx)
+        
         final_score = final_score * reflexivity_factor
+        
         temp_sentiment = sentiment if sentiment is not None else pd.Series(0.5, index=idx)
         temp_trend = (adx / 60.0).clip(0, 1.0) if adx is not None else pd.Series(0.5, index=idx)
         market_temp = temp_sentiment * 0.6 + temp_trend * 0.4
+        
         dyn_threshold = 0.6 - (market_temp - 0.5) * 0.4
         dyn_threshold = dyn_threshold.clip(0.4, 0.8)
         dyn_gamma = 2.0 + (market_temp - 0.5) * 2.0
         dyn_gamma = dyn_gamma.clip(1.0, 4.0)
+        
         raw_apt = np.where(final_score > dyn_threshold, final_score * (1.0 + 0.6 * np.exp(dyn_gamma * (final_score - dyn_threshold))), final_score)
         apt_score = pd.Series(raw_apt, index=idx).clip(-1, 4.0)
+        
         if is_debug and probe_ts:
             p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
             print(f"[Probe-Fusion] 张量共振融合 @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"  > 线性部分: BaseResonance={p_val(base_resonance):.3f}")
-            print(f"  > 动力学状态: Accel={p_val(norm_accel):.2f}, Jerk={p_val(norm_jerk):.2f} -> JerkSeverity={float(jerk_severity[idx.get_loc(probe_ts)]) if probe_ts in idx else 0:.1f}")
-            print(f"  > 动力学修正: KinematicScore={p_val(kinematic_score):.2f} -> KinematicFactor={p_val(kinematic_factor):.2f}")
-            print(f"  > 协同修正: MeanSlope={p_val(pd.Series(mean_slope, index=idx)):.3f}, StdSlope={p_val(pd.Series(std_slope, index=idx)):.3f} -> DerivSynergy={p_val(deriv_synergy_factor):.2f}")
-            print(f"  > 核心分值: Base={p_val(base_resonance):.3f} -> Core={p_val(core_score):.3f} -> FinalPreAPT={p_val(final_score):.3f}")
-            print(f"  > APT相变: Threshold={p_val(dyn_threshold):.2f} -> APT_Score={p_val(apt_score):.4f}")
+            print(f"  > 动力学状态: KinematicScore={p_val(kinematic_score):.2f}, MeanSlope={p_val(pd.Series(mean_slope, index=idx)):.3f}")
+            print(f"  > 协同权重: PenaltyWeight={float(synergy_penalty_weight[idx.get_loc(probe_ts)]) if probe_ts in idx else 0:.1f} -> DerivSynergy={p_val(deriv_synergy_factor):.2f}")
+            print(f"  > 最终结果: APT_Score={p_val(apt_score):.4f}")
             self._probe_val("Final_V36_APT_Score", apt_score.loc[probe_ts], temp_vals, "Pentagonal_V36.1")
             
         return apt_score
