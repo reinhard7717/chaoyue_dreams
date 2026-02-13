@@ -569,28 +569,38 @@ class CalculateProcessCovertAccumulation:
 
     def _fuse_final_score(self, df_index: pd.Index, market_context_score: pd.Series, covert_action_score: pd.Series, chip_optimization_score: pd.Series, fusion_weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V7.4·激发态融合版】将三个维度分数进行最终融合。
-        -核心升级:引入'超固态吸筹'补偿。当筹码高度有序且隐匿密度极大时，突破几何平均的抑制。
+        【V7.5·变量对齐与激发态增强版】将三个维度分数进行最终融合。
+        -核心修正:修复_fuse_final_score内部变量名引用错误(market_context -> market_context_score)。
+        -核心升级:引入基于'隐匿密度'的非线性激发逻辑，补偿极致缩量下的静默吸筹得分。
         """
+        # 1. 变量映射对齐，修复 NameError
         final_fusion_scores_dict = {
-            "market_context": market_context,
-            "covert_action": covert_action,
-            "chip_optimization": chip_optimization
+            "market_context": market_context_score,
+            "covert_action": covert_action_score,
+            "chip_optimization": chip_optimization_score
         }
-        # 基础合成:鲁棒几何平均
+        # 2. 基础合成: 鲁棒几何平均
         raw_fusion = _robust_geometric_mean(final_fusion_scores_dict, fusion_weights, df_index)
-        # [V7.4新增]激发态补偿逻辑
-        # 提取隐匿密度原始值(从temp变量中获取或直接计算)
+        # 3. 激发态补偿逻辑 (针对 600118.SH 类型的静默吸筹)
         raw_signals = _temp_debug_values.get("原始信号值", {})
-        stealth_density = raw_signals.get('stealth_density', pd.Series(0, index=df_index))
-        # 补偿判定:筹码有序(>0.7) 且 密度极高(>15)
-        is_solid_accumulation = (chip_optimization > 0.7) & (stealth_density > 15)
-        # 补偿强度: 使用幂次函数增强
+        # 提取隐匿密度与筹码优化分 [cite: 2, 3]
+        stealth_density = raw_signals.get('stealth_density', pd.Series(0.0, index=df_index))
+        # 定义激发判定: 筹码高度有序 且 密度极高 
+        is_solid_accumulation = (chip_optimization_score > 0.7) & (stealth_density > 15)
+        # 4. 计算非线性补偿因子
+        # 使用 log1p 平滑极值，确保增益受控 
         boost_factor = stealth_density.apply(lambda x: np.log1p(x) / 3.0).clip(1.0, 1.5)
         final_fusion = raw_fusion.copy()
-        final_fusion[is_solid_accumulation] = (raw_fusion[is_solid_accumulation] * boost_factor[is_solid_accumulation]).pow(0.8)
-        _temp_debug_values["最终合成"] = {"raw_fusion": raw_fusion, "boosted": is_solid_accumulation.sum()}
-        print(f"DEBUG_PROBE:FusionBoosted|Count={is_solid_accumulation.sum()}|LastBoost={boost_factor.iloc[-1]:.4f}")
+        if is_solid_accumulation.any():
+            # 仅对符合激发态的样本进行幂次增强，拉升分值 
+            final_fusion[is_solid_accumulation] = (raw_fusion[is_solid_accumulation] * boost_factor[is_solid_accumulation]).pow(0.8)
+        # 5. 探针记录
+        _temp_debug_values["最终合成_激发态"] = {
+            "Raw_Fusion_Last": float(raw_fusion.iloc[-1]) if len(raw_fusion) > 0 else 0.0,
+            "Boost_Factor_Last": float(boost_factor.iloc[-1]) if len(boost_factor) > 0 else 1.0,
+            "Is_Solid": bool(is_solid_accumulation.iloc[-1]) if len(is_solid_accumulation) > 0 else False
+        }
+        print(f"DEBUG_PROBE:FusionFinalized|Raw={raw_fusion.iloc[-1]:.4f}|Boost={boost_factor.iloc[-1]:.4f}|Solid={is_solid_accumulation.iloc[-1]}")
         return final_fusion.clip(0, 1).astype(np.float32)
 
     def _print_debug_info(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
