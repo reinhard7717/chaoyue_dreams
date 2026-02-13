@@ -1,499 +1,415 @@
-# 文件: strategies/trend_following/intelligence/process/calculate_covert_accumulation.py
-# 隐蔽吸筹 (Covert Accumulation) 计算 V14.0 · 暗物质探测版
-# 修改说明：全盘废弃旧逻辑，基于《最终军械库清单》构建“隐匿流+结构熵+势能背离”三维探测模型。
-
+# 文件: strategies/trend_following/intelligence/process/calculate_main_force_rally_intent.py
+# 版本: V15.0 · 全息推力-阻力张量版
+# 说明: 引入“推力-阻力”物理模型，深度集成VPA效率与控盘坚实度，废弃线性加权，采用张量乘积合成。全链路暴露中间变量。
 import pandas as pd
 import numpy as np
-from typing import Dict
-from strategies.trend_following.utils import get_param_value
-from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
+import numba
+from typing import Dict, List, Any
+from strategies.trend_following.utils import get_params_block, get_param_value
 
-class CalculateCovertAccumulation:
+class CalculateMainForceRallyIntent:
     """
-    PROCESS_META_COVERT_ACCUMULATION
-    【V14.0 · 暗物质探测版】
-    核心思想：
-    真正的吸筹是“资金流入而价格不动”。本模型通过探测“隐匿资金流”、“筹码低熵化”和“量价背离度”
-    来锁定主力的左侧建仓行为。
+    PROCESS_META_MAIN_FORCE_RALLY_INTENT
+    【V15.0 · 全息推力-阻力张量版】
+    基于 A 股“资金-结构-效率”三维物理场。
+    核心方程：RallyIntent = (Kinetics * Control) / (1 + Resistance)
+    1. 引入 VPA_EFFICIENCY_D 衡量拉升效率（阻力系数）。
+    2. 引入 control_solidity_index_D 衡量控盘状态。
+    3. 引入 flow_consistency_D 剔除突击一日游资金。
     """
-    def __init__(self, strategy_instance, process_intelligence_helper_instance: ProcessIntelligenceHelper):
+    def __init__(self, strategy_instance, process_intelligence_helper_instance):
         self.strategy = strategy_instance
         self.helper = process_intelligence_helper_instance
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-        self._probe_output = []
-        self._debug_trace = {} # 全链路数据快照
+        self._probe_cache = []
 
     def _get_required_column_map(self) -> Dict[str, str]:
         """
-        【V18.3】数据映射升级：全息引力场与量子验证
+        【V32.0】数据映射升级：引入HAB历史累积缓冲与斐波那契动力学
         新增：
-        1. pressure_trapped_D (套牢压力): 顶部引力
-        2. support_resistance_ratio_D (支撑压力比): 底部支撑力
-        3. tick_large_order_net_D (大单净额): 定向矢量
-        4. tick_clustering_index_D (聚类指数): 算法指纹
-        5. morning_flow_ratio_D, closing_flow_ratio_D (时间加权): 攻击时点
-        6. intraday_support_test_count_D (支撑试盘): 验证底部的坚固度
-        7. intraday_price_distribution_skewness_D (微观偏度): 验证日内吸筹结构
-        8. reversal_prob_D (反转概率): 统计学最终判决
-        9. 运动学衍生: SLOPE/ACCEL/JERK_21...
+        1. flow_21d, flow_55d: 斐波那契周期历史资金累积 (HAB存量意识)
+        2. sm_slope_13, sm_accel_13, sm_jerk_13: 主力资金的13日动力学衍生
+        3. energy_conc: 用于动力学的能量阻尼(消除零基陷阱)
         """
         return {
             'close': 'close_D',
-            'pct_change': 'pct_change_D',
-            'stealth_flow_ratio': 'stealth_flow_ratio_D',
-            'absorption_energy': 'absorption_energy_D',
-            'sm_inst_net_buy': 'SMART_MONEY_INST_NET_BUY_D',
-            'flow_cluster_intensity': 'flow_cluster_intensity_D',
-            'pressure_release_index': 'pressure_release_index_D',
-            'intraday_accum_conf': 'intraday_accumulation_confidence_D',
-            'flow_persistence': 'flow_persistence_minutes_D',
-            'hf_divergence': 'high_freq_flow_divergence_D',
-            'transfer_efficiency': 'tick_chip_transfer_efficiency_D',
-            'slope_stealth': 'SLOPE_21_stealth_flow_ratio_D',
-            'accel_stealth': 'ACCEL_21_stealth_flow_ratio_D',
-            'jerk_stealth': 'JERK_21_stealth_flow_ratio_D',
-            'hab_net_amount_21': 'total_net_amount_20d_D',
+            'open': 'open_D',
+            'high': 'high_D',
+            'low': 'low_D',
+            'cost_avg': 'cost_50pct_D',
+            'sm_net_buy': 'SMART_MONEY_HM_NET_BUY_D',
+            'hab_inventory': 'total_net_amount_21d_D',
+            'sm_slope': 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D',
+            'sm_accel': 'ACCEL_5_SMART_MONEY_HM_NET_BUY_D',
+            'sm_jerk': 'JERK_5_SMART_MONEY_HM_NET_BUY_D',
+            'sm_synergy': 'SMART_MONEY_SYNERGY_BUY_D',
+            'opening_strength': 'opening_buy_strength_D',
+            'flow_directionality': 'main_force_flow_directionality_D',
+            'pushing_score': 'pushing_score_D',
+            'abnormal_vol': 'tick_abnormal_volume_ratio_D',
+            'breakout_conf': 'breakout_confidence_D',
+            'intraday_support': 'INTRADAY_SUPPORT_INTENT_D',
+            'market_sentiment': 'market_sentiment_score_D',
+            'mf_conviction': 'main_force_conviction_index_D',
+            'closing_strength': 'closing_strength_index_D',
+            'winner_rate': 'winner_rate_D',
+            'control_solidity': 'control_solidity_index_D',
             'chip_entropy': 'chip_entropy_D',
             'chip_stability': 'chip_stability_D',
-            'behavior_accumulation': 'behavior_accumulation_D',
-            'concentration_peak': 'concentration_peak_D',
-            'chip_skewness': 'chip_skewness_D',
-            'winner_rate': 'winner_rate_D',
-            'tick_balance': 'tick_chip_balance_ratio_D',
-            'slope_entropy': 'SLOPE_21_chip_entropy_D',
-            'accel_entropy': 'ACCEL_21_chip_entropy_D',
-            'jerk_entropy': 'JERK_21_chip_entropy_D',
-            'accel_conc': 'ACCEL_21_chip_concentration_ratio_D',
-            'cost_95': 'cost_95pct_D',
-            'cost_5': 'cost_5pct_D',
-            'intra_low_lock': 'intraday_low_lock_ratio_D',
-            'chip_convergence': 'chip_convergence_ratio_D',
-            'pf_divergence': 'price_flow_divergence_D',
-            'sm_divergence': 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
-            'hf_divergence_micro': 'high_freq_flow_divergence_D',
-            'market_sentiment': 'market_sentiment_score_D',
-            'tick_abnormal': 'tick_abnormal_volume_ratio_D',
-            'slope_pf_div': 'SLOPE_21_price_flow_divergence_D',
-            'accel_pf_div': 'ACCEL_21_price_flow_divergence_D',
-            'jerk_pf_div': 'JERK_21_price_flow_divergence_D',
-            'slope_sm_div': 'SLOPE_21_SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D',
-            'flow_zscore': 'flow_zscore_D',
-            'chip_rsi_div': 'chip_rsi_divergence_D',
-            'div_strength': 'divergence_strength_D',
-            'state_golden_pit': 'STATE_GOLDEN_PIT_D',
-            'cost_5pct': 'cost_5pct_D',
-            'tick_abnormal_vol': 'tick_abnormal_volume_ratio_D',
-            'pressure_trapped': 'pressure_trapped_D',
-            'support_res_ratio': 'support_resistance_ratio_D',
-            'large_order_net': 'tick_large_order_net_D',
-            'clustering_idx': 'tick_clustering_index_D',
-            'morning_flow': 'morning_flow_ratio_D',
-            'closing_flow': 'closing_flow_ratio_D',
-            'slope_large_net': 'SLOPE_21_tick_large_order_net_D',
-            'accel_large_net': 'ACCEL_21_tick_large_order_net_D',
-            'jerk_large_net': 'JERK_21_tick_large_order_net_D',
-            'slope_support': 'SLOPE_21_support_resistance_ratio_D',
-            'slope_cluster': 'SLOPE_21_tick_clustering_index_D',
-            'support_tests': 'intraday_support_test_count_D',
-            'micro_skew': 'intraday_price_distribution_skewness_D',
-            'rev_prob': 'reversal_prob_D',
+            'peak_conc': 'peak_concentration_D',
+            'accumulation_score': 'accumulation_signal_score_D',
+            'trend_alignment': 'trend_alignment_index_D',
+            'hab_structure': 'long_term_chip_ratio_D',
+            'conc_slope': 'SLOPE_5_peak_concentration_D',
+            'winner_accel': 'ACCEL_5_winner_rate_D',
+            'platform_quality': 'consolidation_quality_score_D',
+            'foundation_strength': 'support_strength_D',
+            'vpa_efficiency': 'VPA_EFFICIENCY_D',
+            'profit_pressure': 'profit_pressure_D',
+            'turnover': 'turnover_rate_D',
+            'trapped_pressure': 'pressure_trapped_D',
+            'dist_score': 'distribution_score_D',
+            'intraday_dist': 'intraday_distribution_confidence_D',
+            'instability': 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'pressure_release': 'pressure_release_index_D',
+            'shakeout_score': 'shakeout_score_D',
+            'chip_divergence': 'chip_divergence_ratio_D',
+            'dist_slope': 'SLOPE_5_distribution_score_D',
+            'dist_accel': 'ACCEL_5_distribution_score_D',
+            'dist_jerk': 'JERK_5_distribution_score_D',
+            'gap_momentum': 'GAP_MOMENTUM_STRENGTH_D',
+            'emotional_extreme': 'STATE_EMOTIONAL_EXTREME_D',
+            'energy_conc': 'energy_concentration_D',
+            'reversal_prob': 'reversal_prob_D',
+            'is_leader': 'STATE_MARKET_LEADER_D',
+            'theme_hotness': 'THEME_HOTNESS_SCORE_D',
+            'lock_ratio': 'high_position_lock_ratio_90_D',
+            'coordinated_attack': 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
+            'flow_21d': 'total_net_amount_21d_D',
+            'flow_55d': 'total_net_amount_55d_D',
+            'sm_slope_13': 'SLOPE_13_SMART_MONEY_HM_NET_BUY_D',
+            'sm_accel_13': 'ACCEL_13_SMART_MONEY_HM_NET_BUY_D',
+            'sm_jerk_13': 'JERK_13_SMART_MONEY_HM_NET_BUY_D'
         }
 
-    def _get_raw_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        raw_signals = {}
-        column_map = self._get_required_column_map()
-        for signal_name, col_name in column_map.items():
-            # 严禁 fillna，数据缺失必须报错或暴露，不使用防御性默认值
-            raw_signals[signal_name] = self.helper._get_safe_series(df, col_name, 0.0).astype(np.float32)
-        return raw_signals
+    def _load_data(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V15.0】加载数据，NaN填充为0.0以保持张量计算的连续性
+        """
+        data = {}
+        col_map = self._get_required_column_map()
+        for key, col_name in col_map.items():
+            series = self.helper._get_safe_series(df, col_name, 0.0)
+            data[key] = series.astype(np.float32)
+        return data
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V18.3 主计算流】
-        逻辑：Covert_Accumulation = (Stealth * Structure * Divergence * Location) ^ (1/4)
-        四维全息探测：隐匿流确认资金进场，结构熵确认筹码锁定，背离场确认势能积蓄，定位场确认时空奇点。
+        【V32.0】全息张量计算执行器：全链路引入动力学与HAB历史缓冲层
         """
-        self._probe_output = []
-        self._debug_trace = {}
-        df_index = df.index
-        raw = self._get_raw_signals(df)
-        if self._is_probe_enabled(df):
-            self._debug_trace['raw_sample_end'] = {k: v.values[-1] for k, v in raw.items()}
-        stealth_score = self._calc_stealth_flow_vector(df_index, raw)
-        structure_score = self._calc_structural_entropy_vector(df_index, raw)
-        divergence_score = self._calc_divergence_vector(df_index, raw)
-        location_score = self._calc_anomaly_location_vector(df_index, raw)
-        self._debug_trace['vectors'] = {
-            'stealth': stealth_score.values[-1],
-            'structure': structure_score.values[-1],
-            'divergence': divergence_score.values[-1],
-            'location': location_score.values[-1]
-        }
-        pct_change = raw['pct_change'].values
-        price_suppression = np.where(pct_change > 0.04, 0.4, 1.0)
-        base_accumulation = (stealth_score * structure_score * divergence_score * location_score) ** 0.25
-        final_score = (base_accumulation * price_suppression).clip(0, 1).astype(np.float32)
-        if self._is_probe_enabled(df):
-            self._output_full_debug_info(df_index, final_score)
-        return final_score
+        self._probe_cache = []
+        raw = self._load_data(df)
+        idx = df.index
+        count = len(idx)
+        if count < 5:
+            print(f"[PROBE-FATAL] 数据行数不足5行，当前行数: {count}，直接阻断。")
+            return pd.Series(0.0, index=idx)
+        print(f"[PROBE-INFO] 开始执行全息推力计算(含HAB与Kinematics)，处理条目数: {count}")
+        thrust = self._calc_thrust_component(
+            raw['sm_net_buy'].values, raw['hab_inventory'].values,
+            raw['sm_slope'].values, raw['sm_accel'].values, raw['sm_jerk'].values,
+            raw['sm_synergy'].values, raw['opening_strength'].values,
+            raw['flow_directionality'].values, raw['pushing_score'].values,
+            raw['abnormal_vol'].values, raw['breakout_conf'].values,
+            raw['intraday_support'].values, raw['market_sentiment'].values,
+            raw['mf_conviction'].values, raw['closing_strength'].values
+        )
+        structure = self._calc_structure_component(
+            raw['winner_rate'].values, raw['control_solidity'].values,
+            raw['chip_entropy'].values, raw['chip_stability'].values,
+            raw['peak_conc'].values, raw['accumulation_score'].values,
+            raw['cost_avg'].values, raw['close'].values,
+            raw['trend_alignment'].values, raw['hab_structure'].values,
+            raw['conc_slope'].values, raw['winner_accel'].values,
+            raw['platform_quality'].values, raw['foundation_strength'].values
+        )
+        drag = self._calc_drag_component(
+            raw['vpa_efficiency'].values, raw['profit_pressure'].values,
+            raw['turnover'].values, raw['trapped_pressure'].values,
+            raw['dist_score'].values, raw['intraday_dist'].values,
+            raw['instability'].values, raw['hab_inventory'].values,
+            raw['pressure_release'].values, raw['shakeout_score'].values,
+            raw['chip_divergence'].values,
+            raw['dist_slope'].values, raw['dist_accel'].values, raw['dist_jerk'].values
+        )
+        raw_intent = self._calc_tensor_synthesis(
+            thrust, structure, drag,
+            raw['gap_momentum'].values, raw['emotional_extreme'].values,
+            raw['energy_conc'].values, raw['reversal_prob'].values,
+            raw['is_leader'].values, raw['theme_hotness'].values,
+            raw['lock_ratio'].values, raw['coordinated_attack'].values,
+            raw['flow_21d'].values, raw['flow_55d'].values,
+            raw['sm_slope_13'].values, raw['sm_accel_13'].values, raw['sm_jerk_13'].values,
+            raw['sm_net_buy'].values, idx
+        )
+        med = np.median(raw_intent)
+        mad = np.median(np.abs(raw_intent - med)) + 1e-9
+        print(f"[PROBE-STAT] Raw Intent | Median: {med:.4f} | MAD: {mad:.4f}")
+        z_scores = (raw_intent - med) / (mad * 3.0)
+        final_scores = 1.0 / (1.0 + np.exp(-z_scores))
+        if self._is_probe_enabled():
+            self._generate_probe_report(idx, raw, thrust, structure, drag, raw_intent, final_scores)
+        return pd.Series(final_scores, index=idx, dtype=np.float32)
 
-    def _calc_stealth_flow_vector(self, df_index: pd.Index, raw: Dict[str, pd.Series]) -> pd.Series:
+    def _calc_thrust_component(self, sm_net_buy: np.ndarray, hab_inventory: np.ndarray, sm_slope: np.ndarray, sm_accel: np.ndarray, sm_jerk: np.ndarray, sm_synergy: np.ndarray, opening_strength: np.ndarray, flow_directionality: np.ndarray, pushing_score: np.ndarray, abnormal_vol: np.ndarray, breakout_conf: np.ndarray, intraday_support: np.ndarray, market_sentiment: np.ndarray, mf_conviction: np.ndarray, closing_strength: np.ndarray) -> np.ndarray:
         """
-        【V15.3 · 费米-狄拉克相变版】
-        逻辑：Stealth = Activation( Raw_Linear_Score )
-        引入非线性增益，模拟主力吸筹从“量变”到“质变”的物理过程。
+        【V21.0】维度A：非线性临界激发推力模型 (Non-Linear Critical Excitation Thrust)
+        核心逻辑：引入相变机制。当宏观动力学与微观爆发力发生“临界共振”时，推力呈指数级放大。
+        方程：FinalThrust = LinearThrust * (1 + Sigmoid(Resonance - Threshold))
         """
-        # ---------------------------
-        # 1. 基础瞬时流强度 (Base)
-        # ---------------------------
-        s_ratio = raw['stealth_flow_ratio'].values
-        intra_conf = raw['intraday_accum_conf'].values
-        base_intensity = (s_ratio * 0.6 + intra_conf * 0.4)
-        # ---------------------------
-        # 2. 全息微观修正 (Holographic)
-        # ---------------------------
-        # 时间持续性
-        persistence = raw['flow_persistence'].values
-        time_factor = np.clip(0.8 + (persistence / 240.0), 0.8, 1.3)
-        # 高频背离
-        hf_div = raw['hf_divergence'].values
-        micro_div_factor = np.tanh(hf_div) * 0.2 + 1.0 
-        # 转移效率
-        eff = raw['transfer_efficiency'].values
-        eff_factor = np.tanh(eff) * 0.3 + 0.85 
-        # 全息乘数
-        holographic_multiplier = time_factor * micro_div_factor * eff_factor
-        # ---------------------------
-        # 3. 运动学修正 (Kinematics)
-        # ---------------------------
-        slope = raw['slope_stealth'].values
-        accel = raw['accel_stealth'].values
-        jerk = raw['jerk_stealth'].values
-        v_factor = np.tanh(slope / 0.05) * 0.2
-        a_factor = np.tanh(accel / 0.01) * 0.1
-        j_factor = np.abs(np.tanh(jerk / 0.005)) * 0.05
-        k_multiplier = 1.0 + v_factor + a_factor + j_factor
-        # ---------------------------
-        # 4. 算法结构与 HAB
-        # ---------------------------
-        cluster = raw['flow_cluster_intensity'].values
-        inst_buy = raw['sm_inst_net_buy'].values
-        inst_gate = np.tanh(inst_buy / 1000000.0).clip(0, 1)
-        algo_structure = np.tanh(cluster) * inst_gate
-        hab_21 = raw['hab_net_amount_21'].values
-        hab_score = np.tanh(hab_21 / 50000000.0)
-        hab_robustness = np.where(hab_score > 0, 1.0 + hab_score * 0.3, 1.0 + hab_score * 0.8)
-        # ---------------------------
-        # 5. 线性合成 (Linear Synthesis)
-        # ---------------------------
-        absorb = raw['absorption_energy'].values
-        absorb_norm = np.tanh(absorb / 50000.0)
-        press_release = raw['pressure_release_index'].values
-        effectiveness = absorb_norm * (0.3 + 0.7 * press_release)
-        # 计算原始线性得分 (Raw Linear Score)
-        dynamic_flow = base_intensity * k_multiplier * algo_structure * holographic_multiplier
-        raw_linear_score = np.sqrt(np.clip(dynamic_flow, 0, None)) * (0.5 + 0.5 * effectiveness) * hab_robustness
-        # ---------------------------
-        # 6. 非线性激活 (Non-Linear Activation) [NEW]
-        # ---------------------------
-        # 费米-狄拉克激活函数参数
-        # alpha (陡峭度): 8.0 -> 极强的区分度，压制噪音，放大信号
-        # beta (阈值): 0.6 -> 只有当原始分达到 0.6 以上，才被视为有效吸筹
-        alpha = 8.0
-        beta = 0.6
-        # 为了防止数值溢出，对指数项进行截断
-        exponent = -alpha * (raw_linear_score - beta)
-        exponent = np.clip(exponent, -20, 20) # 防止 exp 溢出
+        # --- 1. 线性基础推力 (Linear Base) ---
+        # [HAB & Flow]
+        safe_flow = np.where(np.abs(sm_net_buy) < 1.0, 1.0, sm_net_buy)
+        hab_bonus = np.where((hab_inventory > 0) & (sm_net_buy > 0), 1.0 + np.tanh(hab_inventory / 100000.0) * 0.5, 1.0)
+        hab_damper = np.where((hab_inventory > 0) & (sm_net_buy < 0), 0.5, 1.0)
+        base_kinetic = (sm_net_buy * hab_damper * hab_bonus) + (sm_synergy * 1.5)
+        # [Kinematics]
+        k_slope = np.tanh(sm_slope * 0.5)
+        k_accel = np.tanh(sm_accel * 0.3)
+        k_jerk  = np.tanh(sm_jerk * 0.2)
+        kinematic_factor = 1.0 + ((k_slope * 0.5 + k_accel * 0.3 + k_jerk * 0.2) * 0.5)
+        # [Micro-Burst]
+        engine_load = 1.0 + np.maximum(0.0, (pushing_score - 50.0) / 50.0)
+        ignition_boost = 1.0 + np.tanh(np.maximum(0, abnormal_vol - 1.0))
+        # [Modifiers]
+        initial_impulse = 1.0 + np.clip(opening_strength / 100.0, 0.0, 1.0)
+        purity_factor = np.clip((1.0 + flow_directionality) / 2.0, 0.1, 1.0)
+        conviction_factor = 1.0 + np.maximum(0.0, (mf_conviction - 50.0) / 50.0)
+        closing_factor = 1.0 + (closing_strength / 100.0) * 0.5
+        breakout_factor = 1.0 + np.clip(breakout_conf / 100.0, 0.0, 1.0)
+        micro_boost = 1.0 + np.maximum(0.0, intraday_support * 2.0)
+        sentiment_bonus = np.where((base_kinetic > 0) & (market_sentiment < 0.4), 1.0 + (0.4 - market_sentiment) * 1.5, 1.0)
         
-        # 激活计算
-        # 公式性质：在 beta 处值为 0.5；小于 beta 时迅速衰减；大于 beta 时迅速饱和
-        activated_score = 1.0 / (1.0 + np.exp(exponent))
+        # 计算线性推力 (作为基准)
+        linear_thrust = base_kinetic * kinematic_factor * (engine_load * ignition_boost) * initial_impulse * purity_factor * conviction_factor * closing_factor * breakout_factor * micro_boost * sentiment_bonus
+
+        # --- 2. 非线性临界激发 (Non-Linear Critical Excitation) ---
+        # 构建“临界共振指数” (Critical Resonance Index, CRI)
+        # 逻辑：当 速度(Slope)、推升(Pushing)、点火(Ignition)、纯度(Purity) 同时具备时，CRI 极高。
+        # 我们使用归一化后的因子相乘来寻找共振点。
+        # items: 
+        #   k_slope ( -1 ~ 1 ) -> map to 0 ~ 1: (x+1)/2
+        #   pushing ( 0 ~ 100 ) -> map to 0 ~ 1: x/100
+        #   purity  ( -1 ~ 1 ) -> map to 0 ~ 1: (x+1)/2
+        norm_slope = (k_slope + 1.0) * 0.5
+        norm_pushing = np.clip(pushing_score / 100.0, 0.0, 1.0)
+        norm_purity = (flow_directionality + 1.0) * 0.5
+        norm_ignition = np.tanh(abnormal_vol) # 0 ~ 1
         
-        # 修正：我们需要保留原始分数的幅度信息，而不是单纯变成 0/1 开关
-        # 因此，使用 激活因子 对 原始分数 进行 加权，而不是直接替换
-        # 这样既压制了低分，又保留了高分区的差异
-        final_stealth_vector = raw_linear_score * activated_score * 2.0 # *2.0 是为了补偿 Sigmoid 的压缩效应
+        # CRI = 几何平均或乘积。这里使用加权乘积强调“短板效应” (只要有一个不行，整体就不行)
+        cri = norm_slope * norm_pushing * norm_purity * norm_ignition
         
-        # 再次 Clipping 保证物理意义
-        final_stealth_vector = np.clip(final_stealth_vector, 0, 1)
-        # ---------------------------
-        # 7. 探针埋点
-        # ---------------------------
-        self._debug_trace['stealth_details'] = {
-            'raw_linear': raw_linear_score[-1],
-            'activation_factor': activated_score[-1],
-            'final_vector': final_stealth_vector[-1],
-            'phase_state': 'Critical' if raw_linear_score[-1] > beta else 'Noise',
-            'components': f"Base:{base_intensity[-1]:.2f}/Holo:{holographic_multiplier[-1]:.2f}/Kin:{k_multiplier[-1]:.2f}"
-        }
-        return pd.Series(final_stealth_vector, index=df_index).astype(np.float32)
+        # 激发函数：Sigmoid 变体
+        # 当 CRI > 0.15 (经验阈值，意味着各项指标均值 > 0.6) 时，开始非线性放大
+        # 放大倍数最大限制为 2.0 倍 (即总推力翻倍)
+        # tanh((x - threshold) * sharp)
+        # threshold=0.15, sharpness=5.0
+        excitation_gain = 1.0 + np.maximum(0.0, np.tanh((cri - 0.15) * 5.0)) * 1.0 
+        
+        return linear_thrust * excitation_gain
 
-    def _calc_structural_entropy_vector(self, df_index: pd.Index, raw: Dict[str, pd.Series]) -> pd.Series:
+    def _calc_structure_component(self, winner_rate: np.ndarray, control_solidity: np.ndarray, chip_entropy: np.ndarray, chip_stability: np.ndarray, peak_conc: np.ndarray, accumulation_score: np.ndarray, cost_avg: np.ndarray, close: np.ndarray, trend_alignment: np.ndarray, hab_structure: np.ndarray, conc_slope: np.ndarray, winner_accel: np.ndarray, platform_quality: np.ndarray, foundation_strength: np.ndarray) -> np.ndarray:
         """
-        【V16.3 · 晶格化相变版】
-        逻辑：Structure = Activation( Raw_Linear_Product )
-        引入物理相变逻辑，强制过滤“平庸结构”，只保留越过“成核势垒”的完美锁仓。
+        【V25.0】维度B：金刚石结构共振模型 (Diamond Structure Resonance)
+        核心逻辑：
+        1. 引入“金刚石相变”机制。当 有序度、稳定性、平台质量、HAB底仓 四维共振时，结构发生质变。
+        2. 方程：FinalStructure = LinearStructure * (1 + Sigmoid(SRI - Threshold))
         """
-        # ---------------------------
-        # 1. 静态结构状态 (Static)
-        # ---------------------------
-        entropy = raw['chip_entropy'].values
-        entropy_score = np.clip(1.0 - entropy * 1.5, 0, 1)
-        stability = raw['chip_stability'].values
-        peak = raw['concentration_peak'].values
-        peak_score = np.exp(-0.5 * peak)
-        thermo_order = entropy_score * stability * (0.6 + 0.4 * peak_score)
-        skew = raw['chip_skewness'].values
-        spatial_score = np.tanh(skew * 2.0) * 0.5 + 0.5
-        spatial_score = np.where(skew < -0.5, spatial_score * 0.1, spatial_score)
-        win_rate = raw['winner_rate'].values
-        game_lock = np.exp(-((win_rate - 0.25) ** 2) / (2 * 0.15 ** 2))
-        tick_bal = raw['tick_balance'].values
-        micro_score = np.tanh(tick_bal - 1.0) * 0.3 + 1.0
-        # ---------------------------
-        # 2. 物理致密性 (Compactness)
-        # ---------------------------
-        c95 = raw['cost_95'].values
-        c5 = raw['cost_5'].values
-        bandwidth = (c95 - c5) / (c5 + 1e-9)
-        # 带宽越窄，爆发力越强。放宽一点衰减系数，避免误杀
-        compactness = np.exp(-2.5 * np.clip(bandwidth - 0.05, 0, None))
-        # ---------------------------
-        # 3. 微观刚性 & 收敛 (Rigidity & Convergence)
-        # ---------------------------
-        low_lock = raw['intra_low_lock'].values
-        rigidity = np.tanh(low_lock * 2.0) * 0.4 + 0.6
-        conv_ratio = raw['chip_convergence'].values
-        convergence = np.tanh(conv_ratio) * 0.2 + 1.0
-        # ---------------------------
-        # 4. 运动学修正 (Kinematics)
-        # ---------------------------
-        s_ent = raw['slope_entropy'].values
-        v_ent = np.tanh(-s_ent / 0.005)
-        a_conc = raw['accel_conc'].values
-        a_lock = np.tanh(a_conc / 0.002)
-        j_ent = raw['jerk_entropy'].values
-        j_mut = np.abs(np.tanh(j_ent / 0.001)) * 0.1
-        kinematic_evol = 1.0 + (v_ent * 0.2) + (a_lock * 0.1) + j_mut
-        # ---------------------------
-        # 5. HAB 沉淀 (HAB)
-        # ---------------------------
-        beh_acc_series = raw['behavior_accumulation']
-        hab_depth_raw = beh_acc_series.rolling(window=21, min_periods=5).sum().fillna(0).values
-        hab_depth = np.tanh(hab_depth_raw / 10.0)
-        stab_series = raw['chip_stability']
-        stab_mean_21 = stab_series.rolling(window=21, min_periods=5).mean().fillna(0).values
-        current_stab = stab_series.values
-        stab_ratio = np.clip(current_stab / (stab_mean_21 + 1e-9), 0.5, 1.5)
-        hab_factor = (0.5 + 0.5 * hab_depth) * stab_ratio
-        # ---------------------------
-        # 6. 线性连乘 (Raw Product)
-        # ---------------------------
-        # 注意：这里是 7 个因子的连乘。如果每个因子平均 0.8，0.8^7 ≈ 0.2
-        # 所以 Raw Score 会天然偏低。
-        raw_product = (thermo_order * spatial_score * game_lock * micro_score * compactness * rigidity * convergence * kinematic_evol * hab_factor)
-        # ---------------------------
-        # 7. 非线性激活 (Phase Transition Activation) [NEW]
-        # ---------------------------
-        # 成核阈值 Beta = 0.25 (对应连乘后的物理意义：各分项表现优良)
-        # 陡峭度 Alpha = 10.0 (瞬间结晶)
-        alpha = 10.0
-        beta = 0.25
-        # 计算激活因子
-        exponent = -alpha * (raw_product - beta)
-        exponent = np.clip(exponent, -20, 20)
-        activation_factor = 1.0 / (1.0 + np.exp(exponent))
-        # 最终输出：原始分 * 激活因子 * 补偿系数
-        # 补偿系数 3.0：将 0.25 左右的分数拉回到 0.75 以上的可信区间
-        final_vector = raw_product * activation_factor * 3.0
-        # 再次截断
-        final_vector = np.clip(final_vector, 0, 1)
-        # ---------------------------
-        # 8. 探针埋点
-        # ---------------------------
-        self._debug_trace['struct_details'] = {
-            'raw_product': raw_product[-1],
-            'activation': activation_factor[-1],
-            'final': final_vector[-1],
-            'compactness': compactness[-1],
-            'hab': hab_factor[-1],
-            'state': 'LOCKED' if final_vector[-1] > 0.6 else 'LOOSE'
-        }
-        return pd.Series(final_vector, index=df_index).astype(np.float32)
+        # --- 1. Linear Base Structure (线性基础结构 - V24.0逻辑) ---
+        # [Static]
+        cost_gap = (close - cost_avg) / (cost_avg + 1e-9)
+        cost_rbf = np.exp(-10.0 * (cost_gap - 0.05)**2)
+        safe_entropy = np.clip(chip_entropy, 0.0, 1.0)
+        safe_stability = np.clip(chip_stability, 0.0, 1.0)
+        orderliness = (1.0 - safe_entropy) * (0.5 + 0.5 * safe_stability)
+        peak_efficiency = peak_conc * winner_rate
+        control_factor = 1.0 + np.clip(control_solidity, -0.5, 0.5) * 0.4
+        acc_factor = 1.0 + (accumulation_score / 100.0)
+        trend_factor = 1.0 + trend_alignment * 0.5
+        static_score = orderliness * peak_efficiency * cost_rbf * control_factor * acc_factor * trend_factor
 
-    def _calc_divergence_vector(self, df_index: pd.Index, raw: Dict[str, pd.Series]) -> pd.Series:
-        """
-        【V17.3 · 奇异点共振版】
-        逻辑：Vector = Activation( Raw_Linear_Product )
-        引入非线性共振激活，将多维连乘导致的低数值压抑，还原为物理意义上的高强度共振信号。
-        """
-        # ---------------------------
-        # 1. 基础背离状态 (Base)
-        # ---------------------------
-        pf_div = raw['pf_divergence'].values
-        pf_score = np.tanh(pf_div) * 0.5 + 0.5
-        sm_div = raw['sm_divergence'].values
-        sm_score = np.tanh(sm_div / 50.0).clip(0, 1)
-        macro_div = pf_score * 0.4 + sm_score * 0.6
-        hf_div = raw['hf_divergence_micro'].values
-        hf_score = np.tanh(hf_div / 10.0) * 0.5 + 0.5
-        tick_abn = raw['tick_abnormal'].values
-        abn_score = np.tanh(tick_abn - 1.0).clip(0, 1)
-        micro_div = hf_score * 0.7 + abn_score * 0.3
-        sentiment = raw['market_sentiment'].values
-        panic_score = np.exp(-5.0 * sentiment)
-        inst_buy = raw['sm_inst_net_buy'].values
-        buy_score = np.tanh(inst_buy / 5000000.0).clip(0, 1)
-        psycho_div = np.sqrt(panic_score * buy_score)
-        base_state = np.sqrt(macro_div * micro_div) * (1.0 + psycho_div * 0.5)
-        # ---------------------------
-        # 2. 统计显著性 (Stats)
-        # ---------------------------
-        z_score = raw['flow_zscore'].values
-        stats_factor = 1.0 / (1.0 + np.exp(-(z_score - 1.0))) * 0.4 + 0.8
-        # ---------------------------
-        # 3. 结构动量 (Struct)
-        # ---------------------------
-        chip_rsi = raw['chip_rsi_div'].values
-        struct_factor = 1.0 + np.tanh(chip_rsi) * 0.3
-        # ---------------------------
-        # 4. 元数据 (Meta)
-        # ---------------------------
-        div_str = raw['div_strength'].values
-        meta_factor = np.tanh(div_str) * 0.5 + 0.5
-        # ---------------------------
-        # 5. 运动学 & HAB (Kinematics & HAB)
-        # ---------------------------
-        s_pf = raw['slope_pf_div'].values
-        s_sm = raw['slope_sm_div'].values
-        v_pf = np.tanh(s_pf / 0.05)
-        v_sm = np.tanh(s_sm / 2.0)
-        velocity = v_pf * 0.4 + v_sm * 0.6
-        a_pf = raw['accel_pf_div'].values
-        accel = np.tanh(a_pf / 0.01) * 0.5
-        j_pf = raw['jerk_pf_div'].values
-        jerk = np.abs(np.tanh(j_pf / 0.005)) * 0.1
-        kinematic_trend = 1.0 + (velocity * 0.3) + accel + jerk
-        kinematic_trend = np.clip(kinematic_trend, 0.5, 1.5)
-        sm_div_series = raw['sm_divergence']
-        hab_raw = sm_div_series.rolling(window=21, min_periods=5).sum().fillna(0).values
-        hab_depth = np.tanh(hab_raw / 400.0)
-        potential_factor = np.where(hab_depth > 0, 1.0 + hab_depth * 0.4, 1.0 + hab_depth * 1.0)
-        # ---------------------------
-        # 6. 线性连乘 (Raw Product)
-        # ---------------------------
-        # 7个因子连乘，数值会极低
-        raw_product = base_state * kinematic_trend * potential_factor * stats_factor * struct_factor * meta_factor
-        # ---------------------------
-        # 7. 非线性共振激活 (Resonance Activation) [NEW]
-        # ---------------------------
-        # 共振阈值 Beta = 0.15 (对应平均单因子 0.73)
-        # 爆发速率 Alpha = 12.0 (极速共振)
-        alpha = 12.0
-        beta = 0.15
-        exponent = -alpha * (raw_product - beta)
-        exponent = np.clip(exponent, -20, 20)
-        activation_factor = 1.0 / (1.0 + np.exp(exponent))
-        # 能量补偿：乘 5.0，将 0.15 附近的 Raw Score 暴力拉升到 0.75 以上
-        final_vector = raw_product * activation_factor * 5.0
-        # 截断
-        final_vector = np.clip(final_vector, 0, 1)
-        self._debug_trace['div_details'] = {
-            'raw_product': raw_product[-1],
-            'activation': activation_factor[-1],
-            'final': final_vector[-1],
-            'state': 'RESONANCE' if final_vector[-1] > 0.7 else 'NOISE',
-            'components': f"Base:{base_state[-1]:.2f}/Stats:{stats_factor[-1]:.2f}/Kin:{kinematic_trend[-1]:.2f}"
-        }
-        return pd.Series(final_vector, index=df_index).astype(np.float32)
+        # [Inertia & Kinematics]
+        inertia_bonus = 1.0 + np.maximum(0.0, (hab_structure - 0.6) * 1.25)
+        k_conc_slope = np.tanh(conc_slope * 2.0)
+        k_winner_accel = np.tanh(winner_accel * 1.0)
+        evolution_factor = 1.0 + (k_conc_slope * 0.2 + k_winner_accel * 0.1)
 
-    def _calc_anomaly_location_vector(self, df_index: pd.Index, raw: Dict[str, pd.Series]) -> pd.Series:
-        """
-        【V18.3 · 事件视界坍缩模型】
-        逻辑：Vector = Raw_Product * Topology_Gate * Resonance_Activation
-        引入拓扑门控，对“非安全区”的异动实行“零容忍”政策；引入共振激活，对“完美风暴”实行指数级放大。
-        """
-        is_pit = raw['state_golden_pit'].values
-        sr_ratio = raw['support_res_ratio'].values
-        sr_score = np.tanh((sr_ratio - 0.5) * 2.0).clip(0, 1)
-        trapped = raw['pressure_trapped'].values
-        vacuum_score = np.exp(-3.0 * trapped)
-        close = raw['close'].values
-        cost_floor = raw['cost_5pct'].values
-        dist = (close - cost_floor) / (close + 1e-9)
-        safety_score = np.exp(-10.0 * np.clip(dist, 0, None))
-        topology = np.maximum(is_pit, sr_score * vacuum_score * safety_score)
-        lo_net = raw['large_order_net'].values
-        lo_score = np.tanh(lo_net / 10000000.0).clip(0, 1)
-        cluster_idx = raw['clustering_idx'].values
-        cluster_score = np.tanh((cluster_idx - 0.3) * 3.0).clip(0, 1)
-        morning = raw['morning_flow'].values
-        closing = raw['closing_flow'].values
-        time_score = np.tanh((morning * 0.6 + closing * 0.4) * 2.0).clip(0, 1)
-        tick_vol = raw['tick_abnormal_vol'].values
-        abn_score = np.tanh(tick_vol - 1.0).clip(0, 1)
-        event_horizon = lo_score * cluster_score * (0.7 + 0.3 * time_score) * abn_score
-        s_lo = raw['slope_large_net'].values
-        a_lo = raw['accel_large_net'].values
-        j_lo = raw['jerk_large_net'].values
-        v_force = np.tanh(s_lo / 5000000.0)
-        a_force = np.tanh(a_lo / 1000000.0)
-        j_force = np.abs(np.tanh(j_lo / 500000.0)) * 0.1
-        s_sr = raw['slope_support'].values
-        v_support = np.tanh(s_sr / 0.05)
-        s_cl = raw['slope_cluster'].values
-        v_cluster = np.tanh(s_cl / 0.02)
-        warp_factor = 1.0 + (v_force * 0.3) + (a_force * 0.2) + (v_support * 0.2) + (v_cluster * 0.1) + j_force
-        warp_factor = np.clip(warp_factor, 0.5, 1.8)
-        hab_21 = raw['hab_net_amount_21'].values
-        hab_depth = np.tanh(hab_21 / 50000000.0)
-        mass_factor = np.where(hab_depth > 0, 1.0 + hab_depth * 0.5, 1.0 + hab_depth * 1.5)
-        tests = raw['support_tests'].values
-        resilience = np.exp(-((tests - 4.0)**2) / (2 * 2.5**2)) * 0.5 + 0.7
-        skew = raw['micro_skew'].values
-        skew_factor = np.tanh(skew * 2.0) * 0.2 + 1.0
-        prob = raw['rev_prob'].values
-        prob_factor = np.where(prob > 0.7, 1.0 + (prob - 0.7) * 1.0, prob / 0.7)
-        base_system = (topology * event_horizon) * warp_factor * mass_factor
-        raw_product = base_system * resilience * skew_factor * prob_factor
-        topo_gate = 1.0 / (1.0 + np.exp(-15.0 * (topology - 0.3)))
-        resonance_activation = 1.0 / (1.0 + np.exp(-12.0 * (raw_product - 0.10)))
-        final_vector = raw_product * topo_gate * (resonance_activation * 5.0)
-        final_vector = np.clip(final_vector, 0, 1)
-        self._debug_trace['loc_details'] = {
-            'raw_product': raw_product[-1],
-            'topology': topology[-1],
-            'topo_gate': topo_gate[-1],
-            'activation': resonance_activation[-1],
-            'final': final_vector[-1],
-            'event_hrz': event_horizon[-1]
-        }
-        if self._is_probe_enabled(pd.DataFrame(index=df_index)):
-            print(f"[PROBE V18.3 LOC] Final: {final_vector[-1]:.4f} | Raw: {raw_product[-1]:.4f} | Gate: {topo_gate[-1]:.2f} | Act: {resonance_activation[-1]:.2f}")
-        return pd.Series(final_vector, index=df_index).astype(np.float32)
+        # [Platform & Foundation]
+        norm_platform = np.clip(platform_quality / 100.0, 0.0, 1.0)
+        platform_factor = 1.0 + norm_platform * 0.5
+        norm_foundation = np.clip(foundation_strength / 100.0, 0.0, 1.0)
+        foundation_factor = 1.0 + norm_foundation * 0.3
+        
+        linear_structure = static_score * inertia_bonus * evolution_factor * platform_factor * foundation_factor
 
-    def _is_probe_enabled(self, df: pd.DataFrame) -> bool:
-        return get_param_value(self.debug_params.get('enabled'), False) and self.probe_dates
+        # --- 2. Diamond Resonance Excitation (金刚石共振激发) ---
+        # 构建 SRI (Structural Resonance Index)
+        # 选取四大支柱：
+        # 1. Norm_Entropy_Inv (有序度): 越低越好 -> 1 - entropy
+        # 2. Norm_Stability (锁仓度): 越高越好
+        # 3. Norm_Platform (整固度): 越高越好
+        # 4. Norm_HAB (底仓深度): 越高越好
+        norm_entropy_inv = 1.0 - safe_entropy
+        norm_stability = safe_stability
+        # norm_platform 已计算
+        norm_hab = np.clip(hab_structure, 0.0, 1.0)
+        
+        # SRI 计算：采用乘积逻辑，强调无短板
+        sri = norm_entropy_inv * norm_stability * norm_platform * norm_hab
+        
+        # 激发函数
+        # Threshold = 0.25 (意味着四项均值约为 0.7，即 0.7^4 ≈ 0.24)
+        # 只有当 SRI > 0.25 时，开始显著放大，最大放大 2.0 倍
+        excitation_gain = 1.0 + np.maximum(0.0, np.tanh((sri - 0.25) * 3.0)) * 1.0
+        
+        return linear_structure * excitation_gain
 
-    def _output_full_debug_info(self, df_index: pd.Index, final_score: pd.Series):
+    def _calc_drag_component(self, vpa_efficiency: np.ndarray, profit_pressure: np.ndarray, turnover_rate: np.ndarray, trapped_pressure: np.ndarray, dist_score: np.ndarray, intraday_dist: np.ndarray, instability: np.ndarray, hab_inventory: np.ndarray, pressure_release: np.ndarray, shakeout_score: np.ndarray, chip_divergence: np.ndarray, dist_slope: np.ndarray, dist_accel: np.ndarray, dist_jerk: np.ndarray) -> np.ndarray:
+        """
+        【V29.0】维度C：非线性临界阻力模型 (Non-Linear Critical Drag)
+        核心逻辑：引入“阻力相变”机制。当被动负载与主动派发在不稳定环境中对齐时，阻力将产生非线性爆炸。
+        方程：FinalDrag = LinearDrag * (1 + NonLinearExcitation) + HiddenDivergence
+        """
+        # --- 1. Linear Base Drag (线性基础阻力) ---
+        passive_load = (np.maximum(0.0, profit_pressure) * 1.5) + (np.maximum(0.0, trapped_pressure) * 2.0)
+        norm_dist = np.clip(dist_score / 100.0, 0.0, 1.0)
+        norm_intra = np.clip(intraday_dist / 100.0, 0.0, 1.0)
+        hab_resistance_base = np.tanh(np.maximum(0.0, -hab_inventory / 100000.0))
+        # HAB 缓冲 (存量意识)
+        hab_relief = 1.0 / (1.0 + np.maximum(0.0, np.tanh(hab_inventory / 500000.0)) * 1.5)
+        active_barrier_score = (norm_dist + norm_intra + hab_resistance_base) * hab_relief
+        active_barrier = np.expm1(active_barrier_score) * 2.0
+        # 动力学因子
+        k_d_slope = np.tanh(dist_slope * 0.4)
+        k_d_accel = np.tanh(dist_accel * 0.2)
+        k_d_jerk  = np.tanh(dist_jerk * 0.1)
+        kinematic_drag_factor = 1.0 + (k_d_slope * 0.4 + k_d_accel * 0.2 + k_d_jerk * 0.1)
+        # 粘滞与泄压
+        viscosity = 1.0 + (np.clip(instability / 100.0, 0.0, 1.0) * 0.5 + (1.0 - np.clip(vpa_efficiency, 0.0, 1.0)) * 0.5)
+        relief_valve = 1.0 + (np.clip(pressure_release / 100.0, 0.0, 1.0) * 1.0 + np.clip(shakeout_score / 100.0, 0.0, 1.0) * 0.5)
+        turnover_drag = np.maximum(0.0, turnover_rate - 0.03) * 5.0
+        # 计算初步线性阻力
+        linear_drag = ((passive_load + active_barrier) * kinematic_drag_factor + turnover_drag) * viscosity / relief_valve
+        # --- 2. Non-Linear Critical Excitation (非线性临界激发) [New] ---
+        # 构建“阻力共振指数 (DRI)”
+        # 选取三个核心负面因子：派发力度、环境不稳、低效率
+        norm_instability = np.clip(instability / 100.0, 0.0, 1.0)
+        norm_friction = 1.0 - np.clip(vpa_efficiency, 0.0, 1.0)
+        # 只有三者在高位对齐时，DRI 才会显著上升 (乘法效应)
+        dri = active_barrier_score * norm_instability * norm_friction
+        # 非线性增益：当 DRI > 0.2 时，阻力进入“崩溃激发区”
+        # 使用 tanh 模拟饱和非线性
+        non_linear_gain = 1.0 + np.maximum(0.0, np.tanh((dri - 0.2) * 4.0)) * 2.0
+        # --- 3. Synthesis (合成) ---
+        hidden_drag = np.maximum(0.0, chip_divergence) * 2.0
+        return linear_drag * non_linear_gain + hidden_drag
+
+    def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, gap_momentum: np.ndarray, emotional_extreme: np.ndarray, energy_conc: np.ndarray, reversal_prob: np.ndarray, is_leader: np.ndarray, theme_hotness: np.ndarray, lock_ratio: np.ndarray, coordinated_attack: np.ndarray, flow_21d: np.ndarray, flow_55d: np.ndarray, sm_slope_13: np.ndarray, sm_accel_13: np.ndarray, sm_jerk_13: np.ndarray, sm_net_buy: np.ndarray, idx: pd.Index) -> np.ndarray:
+        """
+        【V33.0】张量合成 - 引入全息共振指数(HRI)与非线性指数增益
+        1. 消除零基陷阱与引入动力学跃迁、HAB存量意识。
+        2. [新增] 提取全息共振指数(HRI)，捕捉多维物理场极值对齐的瞬间。
+        3. [新增] 施加指数级非线性增益(Exponential Resonance Gain)，撕裂妖股与普通票的得分差距。
+        """
+        energy_damping = np.tanh(np.abs(sm_net_buy) / 10000000.0) * np.clip(energy_conc / 100.0, 0.0, 1.0)
+        k_slope = np.tanh(sm_slope_13) * 0.3
+        k_accel = np.tanh(sm_accel_13) * 0.3
+        k_jerk  = np.tanh(sm_jerk_13) * 0.4
+        kinematic_burst = 1.0 + np.maximum(0.0, (k_slope + k_accel + k_jerk) * energy_damping)
+        combined_inventory = (flow_21d * 0.6) + (flow_55d * 0.4)
+        hab_buffer = np.clip(1.0 - (1.0 / (1.0 + np.exp(combined_inventory / 50000000.0))), 0.0, 0.9)
+        norm_theme = np.clip(theme_hotness / 100.0, 0.0, 1.0)
+        leader_premium = 1.0 + (is_leader * 0.5) + (norm_theme * 0.2)
+        base_tensor = thrust * structure * (1.0 + gap_momentum) * leader_premium * kinematic_burst
+        alpha_threshold = 1.5
+        raw_effective_drag = drag * (1.0 - hab_buffer)
+        squeeze_transition = 1.0 / (1.0 + np.exp(-2.0 * (base_tensor - alpha_threshold * raw_effective_drag)))
+        squeeze_bonus = squeeze_transition * raw_effective_drag * emotional_extreme * (energy_conc/100.0) * (1.0 + coordinated_attack) * kinematic_burst
+        safe_lock_ratio = np.clip(lock_ratio / 100.0, 0.0, 0.95)
+        final_drag = (raw_effective_drag * raw_effective_drag) * (1.0 - squeeze_transition) * (1.0 - reversal_prob) * (1.0 - safe_lock_ratio)
+        raw_intent = (base_tensor / (1.0 + final_drag)) + squeeze_bonus
+        hri = (base_tensor * (1.0 + squeeze_bonus)) / (1.0 + final_drag)
+        hri_threshold = 3.0
+        hri_excess = np.clip(hri - hri_threshold, 0.0, 2.5)
+        resonance_gain = 1.0 + np.expm1(hri_excess * 1.5)
+        final_intent = raw_intent * resonance_gain
+        if self._is_probe_enabled():
+            print(f"\n[PROBE-SYNTHESIS-V33.0] 非线性指数增益与HRI全息审计...")
+            for i in range(len(base_tensor)):
+                if hri_excess[i] > 0.0 or np.isnan(final_intent[i]):
+                    ts = idx[i].strftime('%Y-%m-%d')
+                    print(f"[{ts}] --- V33.0 非线性增益相变探针 ---")
+                    print(f"  [RAW INTENT] BaseTensor: {base_tensor[i]:.4f} | SqueezeBonus: {squeeze_bonus[i]:.4f} | FinalDrag: {final_drag[i]:.4f}")
+                    print(f"  [RESONANCE HRI] HRI Value: {hri[i]:.4f} (Threshold: {hri_threshold})")
+                    print(f"  [EXP GAIN] HRI Excess: {hri_excess[i]:.4f} | Resonance Multiplier: x{resonance_gain[i]:.4f}")
+                    print(f"  [OUT] Raw Intent: {raw_intent[i]:.4f} -> Final Amplified Intent: {final_intent[i]:.4f}\n")
+        return final_intent
+
+    def _is_probe_enabled(self) -> bool:
+        return get_param_value(self.debug_params.get('enabled'), False) and \
+               get_param_value(self.debug_params.get('should_probe'), False)
+
+    def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, final):
+        """
+        【V33.0】探针终极升级：全息共振、HAB存量与动力学突变透视
+        不再只是输出结果，而是通过“反向推演”展示每一个关键物理量对最终意图的贡献。
+        """
         if not self.probe_dates: return
-        last_date = df_index[-1]
-        print(f"\n====== [CalculateCovertAccumulation PROBE] {last_date} ======")
-        print(f"Final Score: {final_score.values[-1]:.4f}")
-        
-        # 打印原始值快照
-        raw = self._debug_trace.get('raw_sample_end', {})
-        print("\n>>> [1. Critical Raw Inputs]")
-        print(f"  Stealth_Flow_Ratio: {raw.get('stealth_flow_ratio', 0):.4f}")
-        print(f"  Absorption_Energy: {raw.get('absorption_energy', 0):.1f}")
-        print(f"  SmartMoney_NetBuy: {raw.get('sm_inst_net_buy', 0):.0f}")
-        print(f"  Chip_Entropy: {raw.get('chip_entropy', 0):.4f}")
-        
-        # 打印矢量分量
-        vec = self._debug_trace.get('vectors', {})
-        print("\n>>> [2. Vector Components]")
-        print(f"  [Stealth Vector]: {vec.get('stealth', 0):.4f}")
-        print(f"  [Structure Vector]: {vec.get('structure', 0):.4f}")
-        print(f"  [Divergence Vector]: {vec.get('divergence', 0):.4f}")
-        print("=========================================================\n")
+        target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
+        current_dates = idx.tz_localize(None).normalize()
+        locs = np.where(current_dates.isin(target_dates))[0]
+        if len(locs) == 0: locs = [-1]
+        for i in locs:
+            ts = idx[i]
+            # --- 关键节点重新计算用于回显 ---
+            # 动力学与能量阻尼
+            net_buy = raw['sm_net_buy'].values[i]
+            energy_damping = np.tanh(np.abs(net_buy) / 10000000.0) * np.clip(raw['energy_conc'].values[i] / 100.0, 0.0, 1.0)
+            k_burst = 1.0 + max(0.0, (np.tanh(raw['sm_slope_13'].values[i]) * 0.3 + np.tanh(raw['sm_acc_13'].values[i]) * 0.3 + np.tanh(raw['sm_jerk_13'].values[i]) * 0.4) * energy_damping)
+            # HAB 免疫力
+            comb_inv = (raw['flow_21d'].values[i] * 0.6) + (raw['flow_55d'].values[i] * 0.4)
+            hab_imm = np.clip(1.0 - (1.0 / (1.0 + np.exp(comb_inv / 50000000.0))), 0.0, 0.9)
+            # 阻力相变
+            eff_drag = drag[i] * (1.0 - hab_imm)
+            # 共振增益
+            hri = (thrust[i] * structure[i] * (1.0 + raw['gap_momentum'].values[i]) * (1.0 + (raw['is_leader'].values[i]*0.5)) * k_burst) / (1.0 + eff_drag)
+            res_gain = 1.0 + np.expm1(np.clip(hri - 3.0, 0.0, 2.5) * 1.5)
+            report = [
+                f"\n=== [PROBE V33.0] Holographic Resonance Audit @ {ts.strftime('%Y-%m-%d')} ===",
+                f"【A. Kinematics (动力学)】 Burst: x{k_burst:.4f} | Damping: {energy_damping:.4f} | Jerk: {raw['sm_jerk_13'].values[i]:.2f}",
+                f"【B. HAB (存量意识)】 21d/55d Inv: {raw['flow_21d'].values[i]:.0f}/{raw['flow_55d'].values[i]:.0f} | Immunity: {hab_imm*100:.1f}%",
+                f"【C. Ecosystem (生态)】 Leader: {raw['is_leader'].values[i]} | LockRatio: {raw['lock_ratio'].values[i]:.2f}% | Attack: {raw['coordinated_attack'].values[i]}",
+                f"【D. Resonance (共振)】 HRI: {hri:.4f} (Threshold: 3.0) -> Resonance Multiplier: x{res_gain:.4f}",
+                f"【E. Synthesis (合成)】 Thrust: {thrust[i]:.4f} | Structure: {structure[i]:.4f} | EffectiveDrag: {eff_drag:.4f}",
+                f"【F. Result (最终)】 Raw Intent: {raw_intent[i]:.4f} | Final Normalized Score: {final[i]:.4f}",
+                f"===============================================================\n"
+            ]
+            self._probe_cache.extend(report)
+            for line in report: print(line)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
