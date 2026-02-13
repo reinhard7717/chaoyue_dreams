@@ -23,10 +23,13 @@ class CalculateWinnerConvictionDecay:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V8.0 · 主执行流】引入全量数据探针，执行非线性物理融合
-        - 修改思路：由线性权重改为活跃维度动态重整，并增加真空熔断的强制干预。
+        【V19.0 · 主执行流】量子相位共振升级版
+        - 修改思路：
+            1. 将 raw_signals 透传至 _calculate_synergy_factor 以支持高维计算。
+            2. 引入 V19.0 相位共振逻辑，替代原有的线性融合。
+        - 版本号：V19.0.0
         """
-        print(f"\n{'#'*35} [WINNER_CONVICTION_DECAY V8.0] PHASE INITIATED {'#'*35}")
+        print(f"\n{'#'*35} [WINNER_CONVICTION_DECAY V19.0] PHASE INITIATED {'#'*35}")
         method_name = "calculate_winner_conviction_decay"
         is_debug_enabled = get_param_value(self.helper.debug_params.get('enabled'), True)
         probe_ts = None
@@ -51,11 +54,12 @@ class CalculateWinnerConvictionDecay:
         dec_f = self._calculate_deception_filter(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values)
         ctx_m = self._calculate_contextual_modulator(df, df_index, raw_signals, params_dict, method_name, _temp_debug_values, is_debug_enabled, probe_ts)
         st_b = self._calculate_stealth_accumulation_bonus(df_index, raw_signals, _temp_debug_values)
-        # 4. 融合层：基于相位坍塌逻辑的终极缝合
-        syn_f = self._calculate_synergy_factor(conv_s, res_s, _temp_debug_values)
+        # 4. 融合层：量子相位共振逻辑 (V19.0 Update: 传入 raw_signals)
+        syn_f = self._calculate_synergy_factor(conv_s, res_s, raw_signals, _temp_debug_values)
+        # 5. 终极缝合与决策
         final_s = self._perform_final_fusion(df_index, conv_s, res_s, dec_f, st_b, params_dict, _temp_debug_values)
-        # 5. 决策层：EWD 因子与极速锁存
-        ewd_f = self._calculate_ewd_factor(conv_s, res_s, ctx_m, _temp_debug_values)
+        # 6. 决策层：EWD 因子与极速锁存
+        ewd_f = self._calculate_ewd_factor(conv_s, res_s, ctx_m, raw_signals, _temp_debug_values)
         latched_s = self._apply_latch_logic(df_index, final_s, ewd_f, params_dict, _temp_debug_values)
         if is_debug_enabled and probe_ts: self._execute_intelligence_probe(method_name, probe_ts, _temp_debug_values, latched_s)
         return latched_s.astype(np.float32)
@@ -170,12 +174,9 @@ class CalculateWinnerConvictionDecay:
         hab_cfg = params_dict['hab_settings']
         kinetic_targets = params_dict['kinetic_targets']
         stat_targets = params_dict['stat_targets']
-        
         print(f"\n[V18.6_KINETIC_FIELD_GENERATION]")
-        
         # 1. 基础加载 (Base Loading)
         all_cols = set(kinetic_targets + stat_targets['long_std'] + stat_targets['long_only'] + stat_targets['accum_21'])
-        
         # 额外需要但未在上述自动列表中的独立列 (Manual Additions)
         manual_additions = [
             'days_since_last_peak_D', 'winner_rate_D', 'net_amount_ratio_D', 'TURNOVER_STABILITY_INDEX_D',
@@ -187,7 +188,6 @@ class CalculateWinnerConvictionDecay:
             'intraday_trough_filling_degree_D', 'intraday_low_lock_ratio_D',
             'closing_flow_intensity_D', 'inflow_persistence_D'
         ]
-        
         for col in manual_additions:
             all_cols.add(col)
             
@@ -287,30 +287,24 @@ class CalculateWinnerConvictionDecay:
         intent_factor = np.tanh((intent - 40.0) / 20.0)
         stress_log = np.log1p(test_count)
         elastic_modulus = intent_factor * stress_log # 弹性
-        
         close_p = raw_signals['close_D']
         cost_floor = raw_signals['cost_5pct_D']
         floor_gap = ((close_p - cost_floor) / (close_p + 1e-4)).clip(lower=-0.1)
         rigidity_score = np.exp(-(floor_gap ** 2) * 50.0) # 刚性
-        
         stab_change = raw_signals['chip_stability_change_5d_D']
         healing_score = np.tanh(stab_change * 8.0).clip(-1, 1) # 自愈
-        
         # --- 2. Hyper-Material Mechanics V8.8 (超材料特性) ---
         # A. 主动修复 (Active Repair)
         # 填坑度：假设 0-100。高填坑度代表多头在日内的反击能力。
         filling_degree = raw_signals['intraday_trough_filling_degree_D']
         active_repair = np.tanh(filling_degree / 40.0).clip(0, 1.2) # 奖励系数
-        
         # B. 低位超导 (Low-Temp Superconductivity)
         # 低位锁仓率：假设 0-100。在低位不卖，说明底部极其坚固。
         low_lock = raw_signals['intraday_low_lock_ratio_D']
         lock_bonus = np.tanh((low_lock - 30.0) / 20.0).clip(0, 0.8)
-        
         # 综合 Base Modulus
         # 权重调整：主动修复和低位锁仓是实战检验过的硬指标，权重较高
         base_modulus = (np.tanh(elastic_modulus) * 0.3 + rigidity_score * 0.25 + healing_score * 0.2 + active_repair * 0.25 + lock_bonus * 0.2)
-        
         # --- 3. Kinetic Dynamics V8.7 (动力学修正) ---
         price_velocity = raw_signals['SLOPE_5_OCH_D']
         impact_ratio = raw_signals['flow_impact_ratio_D']
@@ -327,7 +321,6 @@ class CalculateWinnerConvictionDecay:
             fatigue_penalty = np.tanh(abs(intent_slope.iloc[-1]) * 0.5).clip(0, 1)
             
         kinetic_factor = 1.0 - (shock_energy * 0.5 + fatigue_penalty * 0.5)
-        
         # --- 4. HAB Memory V8.7 & V8.8 (存量意识) ---
         # A. 结构硬化 (Structure Hardening)
         # 累积测试次数
@@ -337,21 +330,15 @@ class CalculateWinnerConvictionDecay:
         # 综合硬化分：测试多 且 修复好
         hardening_raw = (accum_tests / 50.0) + (accum_fill / 1000.0) # 归一化估算
         hardening_bonus = np.tanh(hardening_raw).clip(0, 0.6)
-        
         # B. 锈蚀负担 (Corrosion)
         accum_trapped = raw_signals['HAB_ACCUM_21_pressure_trapped_D']
         corrosion_penalty = np.tanh(accum_trapped / 2000.0).clip(0, 0.8)
-        
         hab_factor = 1.0 + hardening_bonus - corrosion_penalty
-        
         # --- 5. 综合韧性 (Final Resilience) ---
         raw_resilience = base_modulus * kinetic_factor * hab_factor
-        
         # --- 6. 真空脆性熔断 ---
         brittle_fracture = np.where(vacuum_risk > 0.6, vacuum_risk * 1.5, 0.0)
-        
         final_resilience = (raw_resilience - brittle_fracture).clip(-1, 1)
-        
         # 7. 全息探针 (修复：增加 .iloc[-1] 给 Series 变量)
         print(f"\n[V8.8.1_HYPER_MATERIAL_MECHANICS_PROBE]")
         print(f"  > [BASE] Modulus: {base_modulus.iloc[-1]:.4f} (Repair:{active_repair.iloc[-1]:.2f}, Lock:{lock_bonus.iloc[-1]:.2f})")
@@ -360,11 +347,84 @@ class CalculateWinnerConvictionDecay:
         # hardening_bonus 和 corrosion_penalty 是 Series，需要 iloc[-1]
         print(f"  > [MEMORY] Hardening: +{hardening_bonus.iloc[-1]:.4f} (AccumFill:{accum_fill.iloc[-1]:.0f}) | Corrosion: -{corrosion_penalty.iloc[-1]:.4f}")
         print(f"  > FINAL_RESILIENCE: {final_resilience.iloc[-1]:.4f}")
-        
         _temp_debug_values["resilience_analysis"] = {
             "base": base_modulus, "repair": active_repair, "hardening": hardening_bonus, "fracture": brittle_fracture
         }
         return final_resilience
+
+    def _calculate_synergy_factor(self, conviction: pd.Series, resilience: pd.Series, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V19.2 · 全息超导协同网络】(Holographic Superconducting Synergy Network)
+        - 升级重点：引入《最终军械库》中的行为（聪明钱协同）、物理（VPA效率）与结构（均线相干）数据进行多维校准。
+        - 核心逻辑：
+            1. 理论场 (V19.1)：保留动力学与存量记忆计算。
+            2. 效率门控 (VPA Gate)：低效率=高摩擦，强制衰减共振值。
+            3. 行为助推 (Behavioral Booster)：机构游资协同攻击触发“超导倍率”。
+            4. 结构锚定 (Structural Anchor)：均线相干度决定共振的有效载荷。
+        - 版本号：V19.2.0
+        """
+        # --- 1. 理论场构建 (V19.1 Kinetic Base) ---
+        c_vec = np.tanh(conviction * 1.2)
+        r_vec = np.tanh(resilience * 1.2)
+        base_interference = c_vec * r_vec * 2.0
+        flow_cons = raw_signals.get('flow_consistency_D', pd.Series(0.5, index=conviction.index))
+        chip_stab = raw_signals.get('chip_stability_D', pd.Series(0.5, index=conviction.index))
+        transmission_coef = 0.5 + (np.tanh(flow_cons) * 0.4 + np.tanh(chip_stab) * 0.3)
+        energy_conc = raw_signals.get('energy_concentration_D', pd.Series(50.0, index=conviction.index))
+        excitation_multiplier = 1.0 + np.tanh((energy_conc - 40.0) / 30.0).clip(0) * 0.5
+        vacuum_risk = _temp_debug_values.get("cross_module_signals", {}).get("vacuum_risk", pd.Series(0.0, index=conviction.index))
+        damping_factor = 1.0 - (vacuum_risk ** 2)
+        raw_synergy = base_interference * transmission_coef * excitation_multiplier * damping_factor
+        # 动力学修正
+        syn_slope = ta.slope(raw_synergy, length=5).fillna(0)
+        syn_accel = ta.slope(syn_slope, length=5).fillna(0)
+        syn_jerk = ta.slope(syn_accel, length=5).fillna(0)
+        locking_bonus = np.where((raw_synergy > 0) & (syn_accel > 0), np.tanh(syn_accel * 5.0) * 0.3, 0.0)
+        decoherence_penalty = np.where(syn_jerk < -0.05, np.tanh(abs(syn_jerk) * 10.0) * 0.4, 0.0)
+        # 存量密度
+        synergy_accum = raw_synergy.rolling(window=13).sum().fillna(0)
+        density_coef = 0.8 + np.tanh(synergy_accum / 6.0).clip(0) * 0.4
+        theoretical_synergy = (raw_synergy + locking_bonus - decoherence_penalty) * density_coef
+
+        # --- 2. V19.2 全息维度校准 (Holographic Calibration) ---
+        # A. 效率门控 (Thermodynamic Efficiency Gate)
+        # VPA_EFFICIENCY_D: 量价效率。如果 < 0.4，说明全是摩擦，共振无效。
+        vpa_eff = raw_signals.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=conviction.index))
+        # 门控逻辑：效率越低，折扣越狠。效率 > 0.8 无损通过。
+        efficiency_gate = np.tanh(vpa_eff * 2.0).clip(0.3, 1.0)
+        # B. 行为助推 (Behavioral Booster)
+        # SMART_MONEY_HM_COORDINATED_ATTACK_D: 机构游资协同攻击 (通常为 0 或 1，或者是分数)
+        # SMART_MONEY_SYNERGY_BUY_D: 协同买入强度
+        coord_attack = raw_signals.get('SMART_MONEY_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=conviction.index))
+        syn_buy = raw_signals.get('SMART_MONEY_SYNERGY_BUY_D', pd.Series(0.0, index=conviction.index))
+        # 助推逻辑：如果有显性攻击信号，给予非线性加成
+        attack_boost = 0.0
+        if theoretical_synergy.iloc[-1] > 0: # 仅在正向共振时助推
+            # 协同攻击存在 或者 协同买入强度大
+            is_attacking = (coord_attack > 0) | (syn_buy > 0.5)
+            attack_boost = np.where(is_attacking, 0.25, 0.0)
+            
+        # C. 结构锚定 (Structural Anchor)
+        # MA_COHERENCE_RESONANCE_D: 均线相干共振度
+        ma_coherence = raw_signals.get('MA_COHERENCE_RESONANCE_D', pd.Series(50.0, index=conviction.index))
+        # 锚定逻辑：如果均线共振度低 (<30)，说明结构松散，Synergy 容易夭折，需打折。
+        # 如果均线共振度极高 (>80)，说明趋势极其强劲，保持原值或微增。
+        structure_anchor = np.tanh(ma_coherence / 40.0).clip(0.6, 1.1)
+
+        # --- 3. 终极合成 (Hyper-Fusion) ---
+        # Final = (Theoretical + Boost) * Gate * Anchor
+        final_synergy_raw = (theoretical_synergy + attack_boost) * efficiency_gate * structure_anchor
+        # 归一化
+        final_synergy = np.tanh(final_synergy_raw).clip(-1, 1).fillna(0)
+        # 4. 全息探针
+        print(f"\n[V19.2_HOLOGRAPHIC_SUPERCONDUCTING_PROBE]")
+        print(f"  > [THEORY] Kinetic: {theoretical_synergy.iloc[-1]:.4f} (Accum13: {synergy_accum.iloc[-1]:.2f})")
+        print(f"  > [GATE] VPA_Eff: {vpa_eff.iloc[-1]:.2f} -> Gate: {efficiency_gate.iloc[-1]:.2f} (Thermodynamic Loss Check)")
+        print(f"  > [BOOST] CoordAttack: {coord_attack.iloc[-1]:.1f} | SynBuy: {syn_buy.iloc[-1]:.2f} -> Boost: +{pd.Series(attack_boost).iloc[-1]:.2f}")
+        print(f"  > [ANCHOR] MA_Coherence: {ma_coherence.iloc[-1]:.1f} -> Anchor: {structure_anchor.iloc[-1]:.2f}")
+        print(f"  > FINAL_SYNERGY_FACTOR: {final_synergy.iloc[-1]:.4f}")
+        _temp_debug_values["cross_module_signals"]["synergy_factor"] = final_synergy
+        return final_synergy
 
     def _perform_final_fusion(self, df_index: pd.Index, conviction_score: pd.Series, resilience_score: pd.Series, deception_filter: pd.Series, stealth_bonus: pd.Series, params_dict: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
@@ -507,7 +567,6 @@ class CalculateWinnerConvictionDecay:
         avg_vec = (v1 + v2 + v3) / 3.0
         dispersion = (np.abs(v1 - avg_vec) + np.abs(v2 - avg_vec) + np.abs(v3 - avg_vec)) / 3.0
         coherence_score = np.exp(-dispersion * 3.5)
-        
         # 2. 博弈熵 (Game Entropy) [新增] - "对手盘质量"
         # Divergence > 0 表示机构卖、游资买 (背离)。值越大，筹码质量越差。
         game_div = raw_signals['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D']
@@ -515,36 +574,29 @@ class CalculateWinnerConvictionDecay:
         game_accel = raw_signals['ACCEL_5_SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D']
         # 博弈风险：静态背离 + 动态恶化
         game_entropy = (np.tanh(game_div.clip(0) * 1.5) * 0.7 + np.tanh(game_accel.clip(0) * 5.0) * 0.3).clip(0, 1)
-        
         # 3. 临界熵 (Criticality Entropy) [新增] - "沙堆崩塌风险"
         # 获利盘 > 95% 时，处于临界态。此时任何风吹草动都是高风险。
         winner_rate = raw_signals['winner_rate_D']
         # 临界惩罚：90%以下风险低，95%以上风险指数级上升
         criticality_penalty = (1 / (1 + np.exp(-(winner_rate - 95.0) * 0.5))).clip(0, 1)
-        
         # 4. 结构熵 (Structural Entropy) - "微观混乱"
         chip_ent = raw_signals['chip_entropy_D']
         chip_z = ((chip_ent - raw_signals['HAB_LONG_chip_entropy_D']) / (raw_signals['HAB_STD_chip_entropy_D'] + 1e-4)).clip(0)
         chip_risk = np.tanh(chip_z * 0.8)
-        
         # 信噪比修正：如果一致性低，结构熵会被放大
         consistency = raw_signals['flow_consistency_D'] # 0~1
         snr_factor = 1.0 + (1.0 - consistency) # 一致性越低，因子越大(最大2.0)
         structural_penalty = (chip_risk * snr_factor).clip(0, 1)
-        
         # 5. 热力熵 (Thermal Entropy) - "无效做功"
         vpa_eff = raw_signals['VPA_EFFICIENCY_D']
         thermal_penalty = (1.0 - vpa_eff).clip(0, 1)
-        
         # 6. 融合计算
         # EWD = 相干性 * (1 - 各种熵增惩罚)
         # 注意：每一项都是 1.0 (完美) ~ 0.0 (糟糕)
         raw_ewd = coherence_score * (1.0 - game_entropy * 0.8) * (1.0 - criticality_penalty * 0.6) * (1.0 - structural_penalty * 0.7) * (1.0 - thermal_penalty * 0.5)
-        
         # 7. 真空奇点保护
         v_risk = _temp_debug_values.get("cross_module_signals", {}).get("vacuum_risk", pd.Series(0.0, index=conviction.index))
         final_ewd = np.maximum(raw_ewd, np.tanh(v_risk * 2.8)).clip(0, 1)
-        
         # 8. 全息探针
         print(f"\n[V9.5_EWD_GAME_THERMODYNAMICS_PROBE]")
         print(f"  > [MACRO] Coherence: {coherence_score.iloc[-1]:.4f}")
@@ -552,7 +604,6 @@ class CalculateWinnerConvictionDecay:
         print(f"  > [CRITICAL] WinnerRate: {winner_rate.iloc[-1]:.2f}% | Penalty: {criticality_penalty.iloc[-1]:.4f}")
         print(f"  > [STRUCT] ChipZ: {chip_z.iloc[-1]:.4f} | Consistency: {consistency.iloc[-1]:.4f} | Risk: {structural_penalty.iloc[-1]:.4f}")
         print(f"  > FINAL_EWD: {final_ewd.iloc[-1]:.4f}")
-        
         _temp_debug_values["ewd_analysis"] = {"factor": final_ewd, "game_entropy": game_entropy}
         return final_ewd
 
@@ -579,11 +630,9 @@ class CalculateWinnerConvictionDecay:
         suppression_score = 0.0
         if kinematic_bonus.iloc[-1] > 0.1:
             suppression_score = (1.0 - np.tanh(price_accel / 0.02)).clip(0, 1)
-        
         # 基础分
         base_v96 = (inventory_score * 0.4 + kinematic_bonus * 0.6) * (1.0 + ordering_score * 0.5 + suppression_score * 0.5)
         base_v96 = np.tanh(base_v96).clip(0, 1)
-        
         # --- 2. 算法聚集 (Algo Clustering) [新增] ---
         # 逻辑：Tick聚集度越高，拆单越明显。计算 Z-Score。
         clust_val = raw_signals['tick_clustering_index_D']
@@ -592,25 +641,20 @@ class CalculateWinnerConvictionDecay:
         # 异常聚集：超过历史均值 1 个标准差以上
         clustering_z = ((clust_val - clust_mean) / (clust_std + 1e-4)).clip(0)
         clustering_bonus = np.tanh(clustering_z * 0.8) # 映射到 0~1
-        
         # --- 3. 能量压缩 (Energy Compression) [新增] ---
         # 逻辑：压缩率越高，爆发越近。且要求压缩正在“收敛”(Slope > 0)
         comp_rate = raw_signals['MA_POTENTIAL_COMPRESSION_RATE_D']
         comp_slope = raw_signals['SLOPE_5_MA_POTENTIAL_COMPRESSION_RATE_D']
         # 压缩分：绝对值高 + 正在收敛
         compression_bonus = (np.tanh(comp_rate / 10.0) * 0.6 + np.tanh(comp_slope).clip(0) * 0.4).clip(0, 1)
-        
         # --- 4. 综合计算 ---
         # 乘数效应：如果有算法拆单，吸筹概率大幅提升；如果有压缩，爆发概率提升
         raw_bonus = base_v96 * (1.0 + clustering_bonus * 0.5) * (1.0 + compression_bonus * 0.4)
-        
         # --- 5. 置信度门控 (Confidence Gate) ---
         # 利用数据层的 intraday_accumulation_confidence_D (假设范围0-100)
         conf_val = raw_signals['intraday_accumulation_confidence_D']
         conf_coef = np.tanh(conf_val / 50.0).clip(0.5, 1.2) # 最低0.5，最高1.2倍放大
-        
         final_bonus = np.tanh(raw_bonus * conf_coef).clip(0, 1)
-        
         # 6. 全息探针
         print(f"\n[V9.7_DARK_MATTER_COMPRESSION_PROBE]")
         print(f"  > [BASE_V9.6] Score: {base_v96.iloc[-1]:.4f} (Inv:{inventory_score.iloc[-1]:.2f}, Ord:{ordering_score.iloc[-1]:.2f})")
@@ -618,7 +662,6 @@ class CalculateWinnerConvictionDecay:
         print(f"  > [ENERGY] CompRate: {comp_rate.iloc[-1]:.2f} | Slope: {comp_slope.iloc[-1]:.4f} -> Bonus: {compression_bonus.iloc[-1]:.4f}")
         print(f"  > [GATE] Confidence: {conf_val.iloc[-1]:.1f} -> Coef: {conf_coef.iloc[-1]:.4f}")
         print(f"  > FINAL_STEALTH_BONUS: {final_bonus.iloc[-1]:.4f}")
-        
         _temp_debug_values["stealth_bonus"] = final_bonus
         return final_bonus
 
@@ -647,41 +690,33 @@ class CalculateWinnerConvictionDecay:
         abn_jerk = raw_signals['JERK_5_tick_abnormal_volume_ratio_D']
         abn_jerk_mad = raw_signals['HAB_MAD_JERK_5_tick_abnormal_volume_ratio_D']
         pulse_score = np.tanh(abn_jerk / (abn_jerk_mad * 2.0 + 1e-6)).clip(0, 1)
-        
         # --- 2. 散户陷阱 (Retail Trap) [新增] ---
         # 逻辑：散户买入占比(SM Rate) 如果在加速上升 (Accel > 0)，说明散户在疯狂接盘
         sm_rate_accel = raw_signals['ACCEL_5_buy_sm_amount_rate_D']
         sm_mad = raw_signals['HAB_MAD_ACCEL_5_buy_sm_amount_rate_D']
         # 仅当加速为正时计算风险
         retail_trap_score = np.tanh(sm_rate_accel.clip(0) / (sm_mad * 2.0 + 1e-6)).clip(0, 1)
-        
         # --- 3. 派发确信 (Distribution Certainty) [新增] ---
         # 逻辑：直接使用微观派发置信度
         dist_conf = raw_signals['intraday_distribution_confidence_D']
         distribution_penalty = np.tanh(dist_conf / 60.0).clip(0, 1) # 60分以上风险迅速饱和
-        
         # --- 4. 锁仓崩塌 (Locking Fracture) [新增] ---
         # 逻辑：高位锁仓率(Lock90) 如果在下降 (Slope < 0)，说明底仓松动
         lock_slope = raw_signals['SLOPE_5_high_position_lock_ratio_90_D']
         # 斜率越负，风险越大
         locking_fracture = (-np.tanh(lock_slope * 10.0)).clip(0, 1)
-        
         # --- 5. 综合计算 ---
         # 基础欺骗分
         base_deception = (churning_score * 0.25 + fracture_risk * 0.25 + pulse_score * 0.2)
         # 新增维度欺骗分
         advanced_deception = (retail_trap_score * 0.2 + distribution_penalty * 0.25 + locking_fracture * 0.15)
-        
         total_deception = (base_deception + advanced_deception).clip(0, 1)
-        
         # 稳定性修正
         chip_stab = raw_signals['chip_stability_D']
         stability_penalty = (1.0 - chip_stab).clip(0, 1)
         boosted_deception = (total_deception * (1.0 + stability_penalty * 0.5)).clip(0, 1)
-        
         # 输出过滤器系数 (1.0 = 无欺骗)
         filter_score = 1.0 - boosted_deception
-        
         # 6. 全息探针
         print(f"\n[V10.0_DECEPTION_EVENT_HORIZON_PROBE]")
         print(f"  > [BASE] Churn: {churning_score.iloc[-1]:.2f} | Frac: {fracture_risk.iloc[-1]:.2f} | Pulse: {pulse_score.iloc[-1]:.2f}")
@@ -689,7 +724,6 @@ class CalculateWinnerConvictionDecay:
         print(f"  > [DIST] Conf: {dist_conf.iloc[-1]:.1f} -> Penalty: {distribution_penalty.iloc[-1]:.4f}")
         print(f"  > [LOCK] Slope: {lock_slope.iloc[-1]:.4f} -> Fracture: {locking_fracture.iloc[-1]:.4f}")
         print(f"  > FINAL_DECEPTION_SCORE: {boosted_deception.iloc[-1]:.4f} -> FILTER: {filter_score.iloc[-1]:.4f}")
-        
         _temp_debug_values["deception_analysis"] = {"score": boosted_deception, "filter": filter_score}
         return filter_score
 
@@ -721,37 +755,30 @@ class CalculateWinnerConvictionDecay:
         profit = raw_signals['profit_pressure_D']
         uptrend = raw_signals['uptrend_strength_D']
         structure_score = (1.0 - np.tanh((profit / (uptrend + 1e-4)).clip(0, 100) / 50.0)).clip(0, 1)
-        
         base_context = (raw_theme_score * 0.4 + sentiment_score * 0.4 + structure_score * 0.2).clip(0, 1)
-        
         # --- 2. 协同增益 (Synergy Bonus) [新增] ---
         # 逻辑：如果协同指标为正，说明机构游资在合力做多，环境分给予非线性加成
         synergy_val = raw_signals['SMART_MONEY_SYNERGY_BUY_D']
         # 协同加成：synergy > 0 时，最高给予 0.3 的绝对加分
         synergy_bonus = np.tanh(synergy_val.clip(0) * 2.0) * 0.3
-        
         # --- 3. 竞速优势 (Rank Velocity) [新增] ---
         # 逻辑：行业排名加速度，衡量板块的“超车”能力
         rank_accel = raw_signals['industry_rank_accel_D']
         # 竞速修正：加速向上(>0)奖励，加速向下(<0)惩罚
         # 映射到 -0.15 ~ +0.15
         velocity_mod = np.tanh(rank_accel * 5.0) * 0.15
-        
         # --- 4. 稳态过滤 (Stability Filter) [新增] ---
         # 逻辑：换手稳定性越高，环境越可靠
         stability = raw_signals['TURNOVER_STABILITY_INDEX_D']
         # 稳态系数：0.8 ~ 1.1 (极度稳定给予 1.1 倍奖励)
         stability_coef = 0.8 + (stability.clip(0, 1) * 0.3)
-        
         # --- 5. 综合计算 ---
         # Raw = 基础 + 协同 + 竞速
         raw_modulator = base_context + synergy_bonus + velocity_mod
         # Apply Stability & Leader Immunity
         leader_score = raw_signals['industry_leader_score_D']
         immunity = 0.8 + np.tanh(leader_score / 40.0) * 0.7
-        
         final_modulator = (raw_modulator * stability_coef * immunity).clip(0, 1)
-        
         # 6. 全息探针
         print(f"\n[V10.2_SYNERGY_VELOCITY_PROBE]")
         print(f"  > [BASE] Theme:{raw_theme_score.iloc[-1]:.2f} | Sent:{sentiment_score.iloc[-1]:.2f} | Struct:{structure_score.iloc[-1]:.2f}")
@@ -759,7 +786,6 @@ class CalculateWinnerConvictionDecay:
         print(f"  > [VELOCITY] RankAccel:{rank_accel.iloc[-1]:.4f} -> Mod:{velocity_mod.iloc[-1]:.4f}")
         print(f"  > [STABILITY] StabIdx:{stability.iloc[-1]:.4f} -> Coef:{stability_coef.iloc[-1]:.4f}")
         print(f"  > FINAL_CONTEXT_MODULATOR: {final_modulator.iloc[-1]:.4f}")
-        
         _temp_debug_values["context_analysis"] = {"modulator": final_modulator, "synergy_bonus": synergy_bonus}
         return final_modulator
 
@@ -791,19 +817,16 @@ class CalculateWinnerConvictionDecay:
         act_mad = raw_signals['HAB_MAD_JERK_5_main_force_activity_index_D']
         # 归一化：只关注负向突变
         thrust_failure = (-np.tanh(act_jerk / (act_mad * 2.0 + 1e-6))).clip(0, 1)
-        
         # --- B. 阻力激增 (Drag Surge) ---
         # 流向阻力的 Accel。如果阻力在加速变大，说明上方抛压正在非线性增长。
         res_accel = raw_signals['ACCEL_5_flow_resistance_level_D']
         res_mad = raw_signals['HAB_MAD_ACCEL_5_flow_resistance_level_D']
         drag_surge = np.tanh(res_accel / (res_mad * 1.5 + 1e-6)).clip(0, 1)
-        
         # --- C. 升力崩塌 (Lift Collapse) ---
         # 冲击比率的 Slope。如果斜率为负，说明同样的资金带来的价格涨幅在变小（效率降低）。
         eff_slope = raw_signals['SLOPE_5_flow_impact_ratio_D']
         # 效率越低，Risk 放大系数越大 (1.0 ~ 2.0)
         lift_loss_factor = 1.0 + (-np.tanh(eff_slope * 2.0)).clip(0)
-        
         # --- D. 惯性与意愿 (Mass & Intent - V11.5保留) ---
         # 质量惯性
         inst_accum = raw_signals['HAB_ACCUM_21_SMART_MONEY_INST_NET_BUY_D']
@@ -812,20 +835,15 @@ class CalculateWinnerConvictionDecay:
         # 意愿修正
         intent_slope = raw_signals['SLOPE_5_INTRADAY_SUPPORT_INTENT_D']
         intent_risk_factor = 1.0 + (-np.tanh(intent_slope)).clip(0)
-        
         # --- E. 综合计算 ---
         # 核心气动方程
         aerodynamic_stress = (thrust_failure * 0.5 + drag_surge * 0.5) * lift_loss_factor
-        
         # 结合质量与意愿
         raw_risk = (aerodynamic_stress / mass_inertia) * intent_risk_factor
-        
         # 价格修正 (Price Context - 只有在高位或上涨中失速才危险)
         och_accel = raw_signals['OCH_ACCELERATION_D']
         price_context = np.tanh((och_accel + 0.01) * 20).clip(0, 1)
-        
         final_risk = np.tanh(raw_risk * price_context * 1.5).clip(0, 1)
-        
         # F. 全息探针 (修复：增加 .iloc[-1])
         print(f"\n[V12.1_AERODYNAMIC_STALL_PROBE]")
         print(f"  > [THRUST] ActJerk:{act_jerk.iloc[-1]:.2e} -> Failure:{thrust_failure.iloc[-1]:.4f}")
@@ -833,7 +851,6 @@ class CalculateWinnerConvictionDecay:
         print(f"  > [LIFT] EffSlope:{eff_slope.iloc[-1]:.4f} -> LossFactor:{lift_loss_factor.iloc[-1]:.2f}")
         print(f"  > [INERTIA] Mass:{mass_inertia.iloc[-1]:.4f} | IntentRisk:{intent_risk_factor.iloc[-1]:.2f}")
         print(f"  > FINAL_STALL_RISK: {final_risk.iloc[-1]:.4f}")
-        
         _temp_debug_values["cross_module_signals"]["stalling_risk"] = final_risk
         return final_risk
 
@@ -849,18 +866,15 @@ class CalculateWinnerConvictionDecay:
         mig_jerk = raw_signals['JERK_5_intraday_cost_center_migration_D']
         mig_mad = raw_signals['HAB_MAD_JERK_5_intraday_cost_center_migration_D']
         landslide_shock = (-np.tanh(mig_jerk / (mig_mad * 1.618 + 1e-6))).clip(0, 1)
-        
         vol_accel = raw_signals['ACCEL_5_intraday_cost_center_volatility_D']
         vol_mad = raw_signals['HAB_MAD_ACCEL_5_intraday_cost_center_volatility_D']
         fissure_spread = np.tanh(vol_accel / (vol_mad * 1.5 + 1e-6)).clip(0, 1)
-        
         # --- B. 峰度坍塌 (Morphological Weathering) [新增] ---
         # 筹码峰度的 Slope。如果 Slope < 0，说明峰度在降低，筹码在发散。
         kurt_slope = raw_signals['SLOPE_5_chip_kurtosis_D']
         kurt_mad = raw_signals['HAB_MAD_SLOPE_5_chip_kurtosis_D']
         # 归一化：负斜率越大，风险越大
         kurtosis_collapse = (-np.tanh(kurt_slope / (kurt_mad * 2.0 + 1e-6))).clip(0, 1)
-        
         # --- C. 摩擦生热 (Friction Heat) [新增] ---
         # 日内博弈指数。计算 Z-Score，衡量当前的博弈强度是否异常。
         game_val = raw_signals['intraday_chip_game_index_D']
@@ -868,27 +882,20 @@ class CalculateWinnerConvictionDecay:
         game_std = raw_signals['HAB_STD_intraday_chip_game_index_D']
         # 摩擦系数：至少 1.0，如果博弈激烈则放大侵蚀效果
         friction_coef = 1.0 + np.tanh(((game_val - game_mean) / (game_std + 1e-4)).clip(0) * 0.5)
-        
         # --- D. 沉积缓冲 (Sediment Buffer) ---
         sed_accum = raw_signals['HAB_ACCUM_21_intraday_chip_consolidation_degree_D']
         sediment_thickness = (1 / (1 + np.exp(-(sed_accum - 1000) / 300))).clip(0.1, 1.2)
-        
         # --- E. 综合计算 ---
         # 物理意义：(位移破坏 + 结构破坏 + 形态破坏) * 能量强度 / 抵抗力
-        
         structural_damage = (landslide_shock * 0.35 + fissure_spread * 0.35 + kurtosis_collapse * 0.3)
-        
         raw_erosion = (structural_damage * friction_coef) / sediment_thickness
-        
         final_erosion = np.tanh(raw_erosion).clip(0, 1)
-        
         # F. 全息探针 (修复：增加 .iloc[-1])
         print(f"\n[V13.1_STRUCTURAL_WEATHERING_PROBE]")
         print(f"  > [DAMAGE] Slide:{landslide_shock.iloc[-1]:.2f} | Fissure:{fissure_spread.iloc[-1]:.2f} | Kurtosis:{kurtosis_collapse.iloc[-1]:.2f}")
         print(f"  > [FRICTION] GameIdx:{game_val.iloc[-1]:.2f} -> Coef:{friction_coef.iloc[-1]:.2f}")
         print(f"  > [BUFFER] Thickness:{sediment_thickness.iloc[-1]:.4f}")
         print(f"  > FINAL_EROSION_INDEX: {final_erosion.iloc[-1]:.4f}")
-        
         _temp_debug_values["cross_module_signals"]["erosion_index"] = final_erosion
         return final_erosion
 
@@ -904,48 +911,37 @@ class CalculateWinnerConvictionDecay:
         p_ent_jerk = raw_signals['JERK_5_PRICE_ENTROPY_D']
         p_ent_mad = raw_signals['HAB_MAD_JERK_5_PRICE_ENTROPY_D']
         signal_shock = np.tanh(p_ent_jerk / (p_ent_mad * 1.618 + 1e-6)).clip(0, 1)
-        
         c_ent_accel = raw_signals['ACCEL_5_concentration_entropy_D']
         c_ent_mad = raw_signals['HAB_MAD_ACCEL_5_concentration_entropy_D']
         structure_decay = np.tanh(c_ent_accel / (c_ent_mad * 1.5 + 1e-6)).clip(0, 1)
-        
         p_ent_accum = raw_signals['HAB_ACCUM_21_PRICE_ENTROPY_D']
         criticality = (1 / (1 + np.exp(-(p_ent_accum - 15.0) / 3.0))).clip(0.5, 1.5)
-        
         en_conc = raw_signals['energy_concentration_D']
         energy_amp = 1.0 + np.tanh(en_conc / 50.0).clip(0)
-        
         div_jerk = raw_signals['JERK_5_high_freq_flow_divergence_D']
         div_mad = raw_signals['HAB_MAD_JERK_5_high_freq_flow_divergence_D']
         micro_trigger = np.tanh(div_jerk / (div_mad * 2.0 + 1e-6)).clip(0, 1)
-        
         thermo_chaos = (signal_shock * 0.4 + structure_decay * 0.6) * criticality * energy_amp * (1.0 + micro_trigger)
-        
         # --- B. 几何曲率 (Geometric Curvature) [新增] ---
         # 监测"几何奇点"。曲率 Jerk 极大，说明走势从平滑突然折断。
         curv_jerk = raw_signals['JERK_5_GEOM_ARC_CURVATURE_D']
         curv_mad = raw_signals['HAB_MAD_JERK_5_GEOM_ARC_CURVATURE_D']
         # 归一化：关注正向曲率突变
         curvature_tear = np.tanh(curv_jerk / (curv_mad * 2.0 + 1e-6)).clip(0, 1)
-        
         # --- C. 吸引子耗散 (Attractor Dissipation) [新增] ---
         # 资金聚类强度。如果强度在快速衰减 (Slope < 0)，说明系统失去了"主心骨"。
         clust_slope = raw_signals['SLOPE_5_flow_cluster_intensity_D']
         clust_mad = raw_signals['HAB_MAD_SLOPE_5_flow_cluster_intensity_D']
         # 耗散系数：1.0 ~ 2.0
         dissipation_factor = 1.0 + (-np.tanh(clust_slope / (clust_mad + 1e-6))).clip(0)
-        
         # --- D. 先验校准 (Systemic Prior) [新增] ---
         # 反转预警分 (假设 0-100)
         rev_score = raw_signals['reversal_warning_score_D']
         prior_prob = np.tanh(rev_score / 60.0).clip(0.5, 1.5)
-        
         # --- E. 综合共振 ---
         # 逻辑：(热力学混乱 + 几何断裂) * 拓扑结构瓦解 * 系统先验
         raw_resonance = (thermo_chaos + curvature_tear * 0.5) * dissipation_factor * prior_prob
-        
         final_score = np.tanh(raw_resonance * 0.8).clip(0, 1)
-        
         # F. 全息探针 (修复：增加 .iloc[-1])
         print(f"\n[V15.1_GEOMETRIC_SINGULARITY_PROBE]")
         print(f"  > [THERMO] Chaos: {thermo_chaos.iloc[-1]:.4f} (Sig:{signal_shock.iloc[-1]:.2f}, Struc:{structure_decay.iloc[-1]:.2f}, Crit:{criticality.iloc[-1]:.2f})")
@@ -953,7 +949,6 @@ class CalculateWinnerConvictionDecay:
         print(f"  > [TOPO] ClustSlope: {clust_slope.iloc[-1]:.2e} -> Dissipation: {dissipation_factor.iloc[-1]:.2f}")
         print(f"  > [PRIOR] RevScore: {rev_score.iloc[-1]:.1f} -> Prob: {prior_prob.iloc[-1]:.2f}")
         print(f"  > FINAL_CHAOS_RESONANCE: {final_score.iloc[-1]:.4f}")
-        
         _temp_debug_values["cross_module_signals"]["chaos_resonance"] = final_score
         return final_score
 
@@ -969,45 +964,34 @@ class CalculateWinnerConvictionDecay:
         stag_jerk = raw_signals['JERK_5_industry_stagnation_score_D']
         stag_mad = raw_signals['HAB_MAD_JERK_5_industry_stagnation_score_D']
         breakout_force = (-np.tanh(stag_jerk / (stag_mad * 1.5 + 1e-6))).clip(0, 1)
-        
         clust_accel = raw_signals['ACCEL_5_flow_cluster_intensity_D']
         clust_mad = raw_signals['HAB_MAD_ACCEL_5_flow_cluster_intensity_D']
         cohesion_force = np.tanh(clust_accel / (clust_mad * 1.5 + 1e-6)).clip(0, 1)
-        
         rank_slope = raw_signals['industry_rank_slope_D']
         velocity_score = np.tanh(-rank_slope).clip(0, 1)
-        
         energy_accum = raw_signals['HAB_ACCUM_21_SMART_MONEY_HM_COORDINATED_ATTACK_D']
         potential_factor = (1 / (1 + np.exp(-(energy_accum - 10.0) / 3.0))).clip(0.5, 1.5)
-        
         base_synergy = (breakout_force * 0.35 + cohesion_force * 0.35 + velocity_score * 0.3) * potential_factor
-        
         # --- B. 时空共振 (Timeframe Sync) [新增] ---
         # 日月同步性：正值代表共振，负值代表背离。
         sync_val = raw_signals['daily_monthly_sync_D']
         # 如果共振度极高，给予奖励；如果背离，给予惩罚
         sync_factor = np.tanh(sync_val / 20.0).clip(0.5, 1.3) # 0.5 ~ 1.3
-        
         # --- C. 主升浪加速 (Markup Acceleration) [新增] ---
         # 行业拉升分。如果正在加速进入拉升期 (Accel > 0)，这是最肥美的鱼身。
         markup_accel = raw_signals['ACCEL_5_industry_markup_score_D']
         markup_mad = raw_signals['HAB_MAD_ACCEL_5_industry_markup_score_D']
         # 仅奖励正向加速
         markup_boost = 1.0 + np.tanh(markup_accel.clip(0) / (markup_mad + 1e-6)).clip(0) * 0.5 # 1.0 ~ 1.5
-        
         # --- D. 结构性否决 (Structural Veto) [新增] ---
         # 行业下降分。如果分数过高 (>60)，说明板块处于结构性熊市，协同不可信。
         downtrend_score = raw_signals['industry_downtrend_score_D']
         # 否决系数：分数越高，系数越接近 0
         veto_factor = (1.0 - np.tanh(downtrend_score / 40.0)).clip(0, 1)
-        
         # --- E. 综合计算 ---
         # 物理意义：(点火 + 燃料) * 大势 * 阶段 * 滤网
-        
         raw_synergy = base_synergy * sync_factor * markup_boost * veto_factor
-        
         final_synergy = np.tanh(raw_synergy * 1.2).clip(0, 1)
-        
         # F. 全息探针 (修复：增加 .iloc[-1])
         print(f"\n[V16.8.1_DIMENSIONAL_RESONANCE_PROBE]")
         print(f"  > [BASE] Breakout:{breakout_force.iloc[-1]:.2f} | Cohesion:{cohesion_force.iloc[-1]:.2f} | Pot:{potential_factor.iloc[-1]:.2f}")
@@ -1015,7 +999,6 @@ class CalculateWinnerConvictionDecay:
         print(f"  > [KAIROS] MarkupAccel:{markup_accel.iloc[-1]:.2f} -> Boost:{markup_boost.iloc[-1]:.2f}")
         print(f"  > [VETO] DownScore:{downtrend_score.iloc[-1]:.1f} -> Factor:{veto_factor.iloc[-1]:.2f}")
         print(f"  > FINAL_SYNERGY_SCORE: {final_synergy.iloc[-1]:.4f}")
-        
         _temp_debug_values["cross_module_signals"]["macro_synergy"] = final_synergy
         return final_synergy
 
@@ -1032,29 +1015,23 @@ class CalculateWinnerConvictionDecay:
         lock_jerk = raw_signals['JERK_5_intraday_high_lock_ratio_D']
         lock_mad = raw_signals['HAB_MAD_JERK_5_intraday_high_lock_ratio_D']
         fracture_shock = (-np.tanh(lock_jerk / (lock_mad * 1.618 + 1e-6))).clip(0, 1)
-        
         leader_slope = raw_signals['SLOPE_5_industry_leader_score_D']
         leader_snap = (-np.tanh(leader_slope * 2.0)).clip(0, 1)
-        
         trapped_accum = raw_signals['HAB_ACCUM_21_pressure_trapped_D']
         trapped_accel = raw_signals['ACCEL_5_pressure_trapped_D']
         gravity_base = (1 / (1 + np.exp(-(trapped_accum - 500.0) / 100.0))).clip(0.5, 1.5)
         gravity_dynamic = 1.0 + np.tanh(trapped_accel.clip(0) * 2.0)
-        
         kurt_val = raw_signals['high_freq_flow_kurtosis_D']
         kurt_mean = raw_signals['HAB_LONG_high_freq_flow_kurtosis_D']
         kurt_std = raw_signals['HAB_STD_high_freq_flow_kurtosis_D']
         kurt_z = ((kurt_val - kurt_mean) / (kurt_std + 1e-4)).clip(0)
         tail_risk = 1.0 + np.tanh(kurt_z * 0.5)
-        
         limit_accel = raw_signals['ACCEL_5_down_limit_pct_D']
         limit_mad = raw_signals['HAB_MAD_ACCEL_5_down_limit_pct_D']
         panic_spread = np.tanh(limit_accel.clip(0) / (limit_mad * 1.5 + 1e-6)).clip(0, 1)
-        
         price_slope = raw_signals['SLOPE_5_OCH_D']
         turn_jerk = raw_signals['JERK_5_turnover_rate_D']
         turn_mad = raw_signals['HAB_MAD_JERK_5_turnover_rate_D']
-        
         # 修复：初始化为 Series 确保类型统一
         freeze_factor = pd.Series(1.0, index=df_index)
         if price_slope.iloc[-1] < 0 and turn_jerk.iloc[-1] < 0:
@@ -1062,41 +1039,32 @@ class CalculateWinnerConvictionDecay:
             freeze_factor = 1.0 + freeze_severity
             
         physical_collapse = (fracture_shock * 0.6 + leader_snap * 0.4) * gravity_base * gravity_dynamic * tail_risk * (1.0 + panic_spread) * freeze_factor
-        
         # --- B. 派发意图 (Distribution Intent) [新增] ---
         # 派发行为分的 Accel。如果加速，说明主力去意已决。
         dist_accel = raw_signals['ACCEL_5_behavior_distribution_D']
         dist_mad = raw_signals['HAB_MAD_ACCEL_5_behavior_distribution_D']
         # 归一化：正向加速
         intent_factor = np.tanh(dist_accel.clip(0) / (dist_mad + 1e-6)).clip(0, 1)
-        
         # HAB 校验：如果长期处于高派发状态(Accum high)，风险更高
         dist_accum = raw_signals['HAB_ACCUM_21_behavior_distribution_D']
         accum_risk = (1 / (1 + np.exp(-(dist_accum - 1000.0) / 200.0))).clip(0.5, 1.2)
-        
         distribution_risk = 1.0 + (intent_factor * accum_risk)
-        
         # --- C. 反转临界 (Reversal Criticality) [新增] ---
         # 反转概率 (0-1)。
         rev_prob = raw_signals['reversal_prob_D']
         # 临界系数：只有当概率 > 0.7 时开始生效，> 0.9 时极度危险
         # 映射到 0.8 ~ 1.5
         criticality = 0.8 + np.tanh((rev_prob - 0.7) * 5.0).clip(0) * 0.7
-        
         # --- D. 综合计算 ---
         # 物理意义：物理崩塌 * 主观恶意 * 数学必然
-        
         raw_resonance = physical_collapse * distribution_risk * criticality
-        
         final_collapse = np.tanh(raw_resonance).clip(0, 1)
-        
         # E. 全息探针 (修复：增加 .iloc[-1])
         print(f"\n[V18.1_DOMINO_SINGULARITY_PROBE]")
         print(f"  > [PHYSICAL] Base:{physical_collapse.iloc[-1]:.4f} (Panic:{panic_spread.iloc[-1]:.2f}, Freeze:{freeze_factor.iloc[-1]:.2f})")
         print(f"  > [INTENT] DistAccel:{dist_accel.iloc[-1]:.2e} | Accum:{dist_accum.iloc[-1]:.0f} -> Risk:{distribution_risk.iloc[-1]:.2f}")
         print(f"  > [CRITICAL] RevProb:{rev_prob.iloc[-1]:.2f} -> Coef:{criticality.iloc[-1]:.2f}")
         print(f"  > FINAL_CHAIN_COLLAPSE: {final_collapse.iloc[-1]:.4f}")
-        
         _temp_debug_values["cross_module_signals"]["chain_collapse"] = final_collapse
         return final_collapse
 

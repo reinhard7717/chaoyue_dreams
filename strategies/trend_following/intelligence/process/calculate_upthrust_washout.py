@@ -184,11 +184,9 @@ class CalculateUpthrustWashoutRelationship:
         # 如果今日笔均显著小于历史基准 (ratio > 1.2)，说明单子被拆碎了
         frag_ratio = baseline_size / (avg_trade_size + 1e-9)
         n_frag = np.tanh(frag_ratio - 1.0).clip(0, 1) # 超过1.0的部分才开始计分
-        
         # 2. 机器指纹 (Clustering)
         # 拆单通常由算法执行，会留下高聚类痕迹
         n_clustering = np.tanh(clustering * 3).clip(0, 1)
-        
         # 3. 暗流涌动 (Undercurrent)
         # 计算"非大单"的净流向 (中小单 = 总 - 大)
         small_medium_net = total_net - large_net
@@ -196,12 +194,9 @@ class CalculateUpthrustWashoutRelationship:
         # 如果大单在流出(或微弱)，但中小单在强力流入，这是吸筹铁证
         sm_scale = small_medium_net.rolling(60, min_periods=1).std().replace(0, 1e-9)
         n_sm_net = np.tanh(small_medium_net / sm_scale).clip(0, 1)
-        
         # 大单掩护: 如果大单是流出的(mask=1)，则中小单流入的权重更高
         large_mask = np.where(large_net <= 0, 1.2, 0.8)
-        
         stealth_flow = (n_sm_net * large_mask).clip(0, 1)
-        
         # 4. 最终合成
         # 拆单吸筹 = 单子碎 * 有规律 * 暗中买
         split_score = (n_frag * 0.3 + n_clustering * 0.3 + stealth_flow * 0.4).clip(0, 1)
@@ -442,40 +437,31 @@ class CalculateUpthrustWashoutRelationship:
         base_solidity = np.tanh(ratio_sr - 0.8).clip(0, 1)
         test_bonus = np.log1p(test_count).clip(0, 2) / 2.0
         resilience = base_solidity * (0.5 + 0.5 * test_bonus)
-        
         c_scale = cost_mig.abs().rolling(60, min_periods=1).mean().replace(0, 1e-9)
         n_mig = cost_mig / c_scale
         gravity_stable = (np.tanh(n_mig + 0.5) + 1.0) / 2.0
-        
         a_scale = acc_supp.rolling(60, min_periods=1).std().replace(0, 1e-9)
         n_acc = np.tanh(acc_supp / a_scale)
         boost = (1.0 + n_acc * 0.5).clip(0.5, 1.5)
-        
         return (resilience * gravity_stable * boost).clip(0, 1).fillna(0)
 
     def _assess_skewed_deception_narrative(self, morning: pd.Series, stealth: pd.Series, high_lock: pd.Series, skew: pd.Series, pct_chg: pd.Series) -> pd.Series:
         n_morning = np.tanh((morning - 0.4) * 3).clip(0, 1)
         n_stealth = np.tanh(stealth * 2).clip(0, 1)
         lure_score = (n_morning * 0.6 + n_stealth * 0.4)
-        
         trap_score = np.tanh(high_lock * 3).clip(0, 1)
-        
         s_scale = skew.abs().rolling(60, min_periods=1).max().replace(0, 1e-9)
         kill_score = (-np.tanh(skew / s_scale)).clip(0, 1)
-        
         is_drop = (pct_chg < 0).astype(int)
-        
         return ((lure_score * 0.4 + trap_score * 0.3 + kill_score * 0.3) * is_drop).fillna(0)
 
     def _assess_fractal_manipulation_fingerprint(self, abnormal: pd.Series, clustering: pd.Series, anomaly: pd.Series, acc_abnormal: pd.Series) -> pd.Series:
         n_abnormal = np.tanh(abnormal * 2).clip(0, 1)
         n_clustering = np.tanh(clustering * 3).clip(0, 1)
         n_anomaly = np.tanh(anomaly).clip(0, 1)
-        
         a_scale = acc_abnormal.rolling(60, min_periods=1).std().replace(0, 1e-9)
         n_acc = np.tanh(acc_abnormal / a_scale)
         boost = (1.0 + n_acc * 0.5).clip(0.8, 1.5)
-        
         base_manipulation = (n_abnormal * 0.4 + n_clustering * 0.4 + n_anomaly * 0.2)
         return (base_manipulation * boost).clip(0, 1).fillna(0)
 
