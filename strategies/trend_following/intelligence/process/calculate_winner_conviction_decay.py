@@ -817,13 +817,11 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_institutional_erosion_index(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V13.0 · 结构风化侵蚀核心】
-        逻辑公式：Index = (滑坡 + 裂隙 + 峰度坍塌) * 摩擦系数 / 沉积缓冲
-        - 滑坡 (Landslide): 重心 Jerk < 0。
-        - 裂隙 (Fissure): 波动率 Accel > 0。
-        - 峰度坍塌 (Kurtosis): Slope < 0 (筹码峰变平)。
-        - 摩擦系数 (Friction): Game Index 高 (博弈激烈)。
-        - 版本号：V13.0.0
+        【V13.1 · 结构风化侵蚀核心】修复探针打印格式错误
+        - 修改思路：
+            1. 修复在 print f-string 中直接格式化 Series (landslide_shock 等) 导致的 TypeError。
+            2. 确保所有中间变量在输出时均使用 .iloc[-1] 转为标量。
+        - 版本号：V13.1.0
         """
         # --- A. 滑坡与裂隙 (保留 V12.8) ---
         mig_jerk = raw_signals['JERK_5_intraday_cost_center_migration_D']
@@ -862,11 +860,11 @@ class CalculateWinnerConvictionDecay:
         
         final_erosion = np.tanh(raw_erosion).clip(0, 1)
         
-        # F. 全息探针
-        print(f"\n[V13.0_STRUCTURAL_WEATHERING_PROBE]")
-        print(f"  > [DAMAGE] Slide:{landslide_shock:.2f} | Fissure:{fissure_spread:.2f} | Kurtosis:{kurtosis_collapse:.2f}")
-        print(f"  > [FRICTION] GameIdx:{game_val.iloc[-1]:.2f} -> Coef:{friction_coef:.2f}")
-        print(f"  > [BUFFER] Thickness:{sediment_thickness:.4f}")
+        # F. 全息探针 (修复：增加 .iloc[-1])
+        print(f"\n[V13.1_STRUCTURAL_WEATHERING_PROBE]")
+        print(f"  > [DAMAGE] Slide:{landslide_shock.iloc[-1]:.2f} | Fissure:{fissure_spread.iloc[-1]:.2f} | Kurtosis:{kurtosis_collapse.iloc[-1]:.2f}")
+        print(f"  > [FRICTION] GameIdx:{game_val.iloc[-1]:.2f} -> Coef:{friction_coef.iloc[-1]:.2f}")
+        print(f"  > [BUFFER] Thickness:{sediment_thickness.iloc[-1]:.4f}")
         print(f"  > FINAL_EROSION_INDEX: {final_erosion.iloc[-1]:.4f}")
         
         _temp_debug_values["cross_module_signals"]["erosion_index"] = final_erosion
