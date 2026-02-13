@@ -757,12 +757,11 @@ class CalculateWinnerConvictionDecay:
 
     def _calculate_institutional_stalling_jerk_risk(self, df_index: pd.Index, raw_signals: Dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         """
-        【V12.0 · 气动失速核心】
-        逻辑公式：Risk = (推力熄火 + 阻力激增) * (1 - 升力效率) / (惯性质量 * 意愿)
-        - 推力熄火：Activity Jerk < 0 (断崖式不干活)。
-        - 阻力激增：Resistance Accel > 0 (抛压加速变大)。
-        - 升力效率：Impact Ratio 下降 (资金推不动价格)。
-        - 版本号：V12.0.0
+        【V12.1 · 气动失速核心】修复探针打印格式错误
+        - 修改思路：
+            1. 修复在 print f-string 中直接格式化 Series (thrust_failure 等) 导致的 TypeError。
+            2. 确保所有中间变量在输出时均使用 .iloc[-1] 转为标量。
+        - 版本号：V12.1.0
         """
         # --- A. 推力熄火 (Thrust Failure) ---
         # 主力活跃度的 Jerk。如果瞬间变为极大的负值，说明主力“拔插头”了。
@@ -805,12 +804,12 @@ class CalculateWinnerConvictionDecay:
         
         final_risk = np.tanh(raw_risk * price_context * 1.5).clip(0, 1)
         
-        # F. 全息探针
-        print(f"\n[V12.0_AERODYNAMIC_STALL_PROBE]")
-        print(f"  > [THRUST] ActJerk:{act_jerk.iloc[-1]:.2e} -> Failure:{thrust_failure:.4f}")
-        print(f"  > [DRAG] ResAccel:{res_accel.iloc[-1]:.2e} -> Surge:{drag_surge:.4f}")
-        print(f"  > [LIFT] EffSlope:{eff_slope.iloc[-1]:.4f} -> LossFactor:{lift_loss_factor:.2f}")
-        print(f"  > [INERTIA] Mass:{mass_inertia:.4f} | IntentRisk:{intent_risk_factor:.2f}")
+        # F. 全息探针 (修复：增加 .iloc[-1])
+        print(f"\n[V12.1_AERODYNAMIC_STALL_PROBE]")
+        print(f"  > [THRUST] ActJerk:{act_jerk.iloc[-1]:.2e} -> Failure:{thrust_failure.iloc[-1]:.4f}")
+        print(f"  > [DRAG] ResAccel:{res_accel.iloc[-1]:.2e} -> Surge:{drag_surge.iloc[-1]:.4f}")
+        print(f"  > [LIFT] EffSlope:{eff_slope.iloc[-1]:.4f} -> LossFactor:{lift_loss_factor.iloc[-1]:.2f}")
+        print(f"  > [INERTIA] Mass:{mass_inertia.iloc[-1]:.4f} | IntentRisk:{intent_risk_factor.iloc[-1]:.2f}")
         print(f"  > FINAL_STALL_RISK: {final_risk.iloc[-1]:.4f}")
         
         _temp_debug_values["cross_module_signals"]["stalling_risk"] = final_risk
