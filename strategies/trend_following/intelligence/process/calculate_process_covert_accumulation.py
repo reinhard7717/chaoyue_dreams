@@ -60,6 +60,74 @@ class CalculateProcessCovertAccumulation:
         final_score = self._apply_signal_latching(raw_final_score, market_context_score, covert_action_score, chip_optimization_score, df_index, _temp_debug_values)
         _temp_debug_values["final_score"] = final_score
 
+    def _apply_signal_latching(self, final_score: pd.Series, context: pd.Series, action: pd.Series, chip: pd.Series, df_index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V7.1新增】熵权锁存器 (Entropy-Weighted Latch)。
+        -逻辑说明:
+        1.计算三维评分的'共振熵'(EWD):三者越接近，标准差越小，熵越低，信号越纯。
+        2.时域积分:在5日窗口内，若有3日以上满足(高分+低熵)，则激活锁定。
+        3.动量保护:激活后使用tanh加速并限制回撤速率，除非跌破熔断阈值。
+        """
+        # 1.计算共振熵(Entropy of Weights Dispersion)
+        # 使用标准差衡量三者的离散度，越小越共振
+        components = pd.concat([context, action, chip], axis=1)
+        ewd_factor = components.std(axis=1) # 熵因子
+        # 2.定义触发条件
+        # 阈值:总分>0.6 且 熵<0.15 (即各分项分差不大，形成合力)
+        high_score_mask = final_score > 0.6
+        low_entropy_mask = ewd_factor < 0.15
+        trigger_signal = (high_score_mask & low_entropy_mask).astype(int)
+        # 3.时域积分(Rolling Window)
+        # 5天内至少3天满足触发条件
+        rolling_trigger = trigger_signal.rolling(window=5).sum()
+        activation_mask = rolling_trigger >= 3
+        # 4.状态机迭代(使用Numpy加速循环)
+        # 逻辑:一旦Activation激活，开启Momentum保护
+        raw_values = final_score.values
+        active_flags = activation_mask.fillna(0).values
+        latched_values = np.zeros_like(raw_values)
+        # 参数设定
+        decay_rate = 0.98 # 动量衰减(每天只允许跌2%)
+        break_threshold = 0.40 # 熔断阈值(跌破此值立即解锁)
+        is_locked = False
+        last_val = 0.0
+        for i in range(len(raw_values)):
+            curr_raw = raw_values[i]
+            is_active = active_flags[i] > 0
+            # 状态更新
+            if is_active:
+                is_locked = True
+                # 激活时刻，给予tanh非线性加速，强化信号
+                # 将 0.6~1.0 的区间推向 0.8~1.0
+                curr_val = np.tanh(curr_raw * 2.0) 
+                # 锁定值取当前的强化值与历史保护值的较大者
+                last_val = max(curr_val, last_val * decay_rate)
+            elif is_locked:
+                # 处于锁定保护期
+                if curr_raw < break_threshold:
+                    # 熔断: 真实的崩塌，解除锁定
+                    is_locked = False
+                    last_val = curr_raw
+                else:
+                    # 保护: 即使原始值回撤，输出值只能缓慢衰减
+                    # 取 (原始值) 和 (昨天的衰减值) 的最大值
+                    last_val = max(curr_raw, last_val * decay_rate)
+            else:
+                # 普通状态
+                last_val = curr_raw
+            
+            latched_values[i] = last_val
+        # 5.封装输出
+        latched_series = pd.Series(latched_values, index=df_index).clip(0, 1)
+        # 记录关键调试信息
+        _temp_debug_values["锁存器状态"] = {
+            "EWD_Entropy": float(ewd_factor.iloc[-1]) if len(ewd_factor)>0 else 0.0,
+            "Rolling_Trigger": int(rolling_trigger.iloc[-1]) if len(rolling_trigger)>0 else 0,
+            "Is_Locked": bool(is_locked)
+        }
+        # print(f"DEBUG_PROBE:LatchApplied|EWD={ewd_factor.iloc[-1]:.4f}|Locked={is_locked}")
+        return latched_series
+
     def _get_covert_accumulation_config(self, config: Dict) -> Tuple[Dict, Dict, Dict, Dict, int, int, Dict, float, List[int], Dict, List[int], Dict, float, float, float, float, Dict, float, Dict, float]:
         """
         【V2.17·配置安全合并版】获取配置参数。
