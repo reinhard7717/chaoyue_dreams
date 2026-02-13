@@ -273,7 +273,7 @@ class CalculateCostAdvantageTrendRelationship:
         return final_efficiency_series
 
     def _calculate_cost_migration_elasticity(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V26.1.1 · 超弹性共振与反脆弱增益 (全链路探针版)】"""
+        """【V26.1.2 · 超弹性共振 (修复:主升浪锚定误杀)】"""
         close = self.helper._get_safe_series(df, 'close_D', 1.0, "close")
         cost_50 = self.helper._get_safe_series(df, 'cost_50pct_D', 1.0, "cost_50")
         cost_5 = self.helper._get_safe_series(df, 'cost_5pct_D', 1.0, "cost_5")
@@ -318,7 +318,9 @@ class CalculateCostAdvantageTrendRelationship:
         threshold = 0.6
         raw_elast = np.where(synergized_score > threshold, synergized_score * (1.0 + 0.8 * np.exp(2.5 * (synergized_score - threshold))), synergized_score)
         final_elasticity = pd.Series(raw_elast, index=idx)
-        violation = (np.maximum(0, norm_slope_c5) * 0.2 + np.maximum(0, norm_accel_c5) * 0.3 + np.maximum(0, norm_jerk_c5) * 0.5)
+        rally_protection = np.maximum(0, norm_slope_price)
+        raw_violation = (np.maximum(0, norm_slope_c5) * 0.2 + np.maximum(0, norm_accel_c5) * 0.3 + np.maximum(0, norm_jerk_c5) * 0.5)
+        violation = raw_violation * (1.0 - rally_protection * 0.8)
         anchorage_penalty = pd.Series(np.exp(-violation * 4.0), index=idx)
         ceiling_penalty = pd.Series(np.exp(-trapped_pressure * 2.5), index=idx)
         span = (cost_95 - cost_5) / (cost_50 + 1e-8)
@@ -330,18 +332,16 @@ class CalculateCostAdvantageTrendRelationship:
         if is_debug and probe_ts:
             p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
             print(f"[Probe-D4] 成本迁移弹性详情 @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"  > 状态输入: Turnover={p_val(turnover):.2f}, ProfitPress={p_val(profit_pressure):.2f}, TrappedPress={p_val(trapped_pressure):.2f}")
-            print(f"  > 剪刀差与粘性: ScissorInst={p_val(scissor_inst):.3f}, ViscousHAB={p_val(viscous_hab):.3f} -> DimHAB={p_val(dim_hab):.3f}")
-            print(f"  > 模量与分形: Modulus={p_val(dim_modulus):.3f}, Fractal={p_val(dim_fractal):.3f}")
+            print(f"  > 状态输入: Turnover={p_val(turnover):.2f}, ProfitPress={p_val(profit_pressure):.2f}")
             print(f"  > 基础得分: Synergized={p_val(synergized_score):.3f} -> FinalElasticity={p_val(final_elasticity):.3f}")
-            print(f"  > 关键惩罚: Violation(底松动)={p_val(pd.Series(violation, index=idx)):.3f} -> AnchorPenalty={p_val(anchorage_penalty):.4f}")
-            print(f"  > 关键惩罚: Trapped(顶套牢)={p_val(trapped_pressure):.3f} -> CeilingPenalty={p_val(ceiling_penalty):.4f}")
+            print(f"  > 锚定修正: RawViolation={p_val(pd.Series(raw_violation, index=idx)):.3f}, RallyProtect={p_val(pd.Series(rally_protection, index=idx)):.2f}")
+            print(f"  > 最终惩罚: Violation={p_val(pd.Series(violation, index=idx)):.3f} -> AnchorPenalty={p_val(anchorage_penalty):.4f}")
             print(f"  > 最终结果: Final={p_val(final_score):.4f}")
             self._probe_val("Final_Elasticity", final_score.loc[probe_ts], temp_vals, "CostElasticity_V26.1")
         return final_score
 
     def _calculate_structure_negentropy(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
-        """【V30.1.1 · 超序参量与乘法锁定熵 (全链路探针版)】"""
+        """【V30.1.2 · 超序参量 (修复:自适应熵阈值)】"""
         chip_entropy = self.helper._get_safe_series(df, 'chip_entropy_D', 0.5, "chip_entropy")
         conc_entropy = self.helper._get_safe_series(df, 'concentration_entropy_D', 0.5, "conc_entropy")
         intra_entropy = self.helper._get_safe_series(df, 'intraday_chip_entropy_D', 0.5, "intra_entropy")
@@ -353,7 +353,7 @@ class CalculateCostAdvantageTrendRelationship:
         flow_stab = self.helper._get_safe_series(df, 'TURNOVER_STABILITY_INDEX_D', 0.5, "flow_stab")
         total_micro_entropy = chip_entropy * 0.4 + conc_entropy * 0.3 + intra_entropy * 0.3
         hab_entropy_34 = total_micro_entropy.rolling(window=34, min_periods=1).mean()
-        score_internal = 1.0 / (1.0 + np.exp(12.0 * (hab_entropy_34 - 0.55)))
+        score_internal = 1.0 / (1.0 + np.exp(6.0 * (total_micro_entropy - hab_entropy_34)))
         negent_price = 1.0 / (1.0 + np.exp(12.0 * (price_entropy - 0.55)))
         score_r2 = ((reg_r2 - 0.6) * 2.5).clip(0, 1)
         score_external = np.sqrt(negent_price * score_r2)
@@ -381,12 +381,11 @@ class CalculateCostAdvantageTrendRelationship:
         if is_debug and probe_ts:
             p_val = lambda s: s.loc[probe_ts] if probe_ts in s.index else 0
             print(f"[Probe-D5] 结构熵逆详情 @ {probe_ts.strftime('%Y-%m-%d')}")
-            print(f"  > 熵值输入: MicroEntropy={p_val(total_micro_entropy):.3f}, PriceEntropy={p_val(price_entropy):.3f}, HAB={p_val(hab_entropy_34):.3f}")
-            print(f"  > 核心评分: Internal={p_val(score_internal):.3f}, External={p_val(score_external):.3f} -> OrderParam={p_val(order_parameter):.3f}")
-            print(f"  > 晶体化: CrystalScore={p_val(crystal_score):.3f} (LockGain={p_val(lock_gain):.2f})")
-            print(f"  > 动力学门控: Kinetics={p_val(kinetics_modulator):.2f}, FractalDim={p_val(fractal_dim):.2f}(Gate={p_val(fractal_gate):.1f})")
-            print(f"  > 最终门控: TrendGate={p_val(pd.Series(trend_gate, index=idx)):.2f}, Turnover={p_val(turnover):.2f}")
-            print(f"  > 最终结果: Synergized={p_val(synergized_negentropy):.4f} -> Final={p_val(final_score):.4f} {'(熔断)' if p_val(turnover) < 0.5 else ''}")
+            print(f"  > 熵值监测: Current={p_val(total_micro_entropy):.3f}, HistoryAvg={p_val(hab_entropy_34):.3f}")
+            print(f"  > 自适应评分: Delta=(Curr-Avg)={p_val(total_micro_entropy) - p_val(hab_entropy_34):.3f} -> InternalScore={p_val(score_internal):.3f}")
+            print(f"  > 外部有序: PriceEnt={p_val(price_entropy):.3f}, R2={p_val(reg_r2):.3f} -> External={p_val(score_external):.3f}")
+            print(f"  > 晶体化: Crystal={p_val(crystal_score):.3f} (OrderParam={p_val(order_parameter):.3f})")
+            print(f"  > 最终结果: Final={p_val(final_score):.4f}")
             self._probe_val("Final_Negentropy", final_score.loc[probe_ts], temp_vals, "Negentropy_V30.1")
         return final_score
 
