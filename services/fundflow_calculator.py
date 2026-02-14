@@ -415,7 +415,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 时间窗口更新为斐波拉契数列 [3, 5, 8, 13, 21, 34, 55]
         """
-        print("[探针] 执行 calculate_absolute_metrics: 使用斐波拉契时间窗口")
         metrics = {}
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
         net_arr = self.net_amount_array
@@ -446,7 +445,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 将10日均线替换为8日均线
         """
-        print("[探针] 执行 calculate_relative_metrics: 替换为8日计算")
         metrics = {}
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
         daily_amount = 0.0
@@ -533,7 +531,6 @@ class FundFlowFactorCalculator:
         版本: V2.5
         说明: 使用纯NumPy向量化替代 scipy.stats.percentileofscore，提速约50倍
         """
-        print("[探针] 执行 _determine_intensity_level: Numpy向量化分位计算")
         if len(self.net_amount_array) < 21:
             if abs(net_amount) > 10000: return 4
             if abs(net_amount) > 5000: return 3
@@ -560,7 +557,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 基础识别窗口扩展至13日斐波拉契周期
         """
-        print("[探针] 执行 calculate_behavior_patterns: 基础窗口13日")
         patterns = {}
         limit = 13
         if len(self.net_amount_array) < limit:
@@ -593,7 +589,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 吸筹窗口13日，长序列修正55日
         """
-        print("[探针] 执行 _calculate_accumulation_score")
         n = len(arr)
         if n < 13: return 0.0
         window = 13
@@ -764,7 +759,6 @@ class FundFlowFactorCalculator:
         版本: V2.7
         说明: 彻底移除 Scipy 依赖，信息熵与 R方 的求值全面转移至 Numba 引擎
         """
-        print("[探针] 执行 _determine_behavior_pattern: Numba 计算熵与趋势")
         raw_scores = np.array([max(0, acc), max(0, push), max(0, dist), max(0, shake)])
         pattern_names = ['ACCUMULATION', 'PUSHING', 'DISTRIBUTION', 'SHAKEOUT']
         total_score = np.sum(raw_scores)
@@ -819,7 +813,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 归一化基准替换为21日
         """
-        print("[探针] 执行 _calculate_outflow_quality")
         if current_net >= 0:
             return 50.0
         pct_chg = 0.0
@@ -846,7 +839,6 @@ class FundFlowFactorCalculator:
         版本: V2.5
         说明: 接入 Numba JIT 编译器，大幅提升时序衰减遍历速度
         """
-        print("[探针] 执行 _calculate_inflow_persistence: 接入Numba引擎")
         arr = self.net_amount_array
         if len(arr) == 0: return 0
         window = arr[-34:] if len(arr) > 34 else arr
@@ -859,7 +851,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 对比基准调整为21日
         """
-        print("[探针] 执行 _detect_large_order_anomaly")
         arr = self.net_amount_array
         if len(arr) < 13: return False, 0.0
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
@@ -953,7 +944,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 取样窗口更改为13日
         """
-        print("[探针] 执行 _calculate_flow_stability")
         arr = self.net_amount_array
         n = len(arr)
         if n < 13: return 50.0
@@ -989,7 +979,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 共振参数对齐至21日和55日
         """
-        print("[探针] 执行 calculate_multi_period_sync")
         sync_metrics = {}
         for key in ['daily_weekly_sync', 'daily_monthly_sync', 
                    'short_mid_sync', 'mid_long_sync']:
@@ -1021,7 +1010,6 @@ class FundFlowFactorCalculator:
         版本: V2.8
         说明: 使用 Numba 优化的皮尔逊相关系数替代 np.corrcoef 降低小数组开销
         """
-        print("[探针] 执行 _calculate_vector_resonance: Numba 皮尔逊相关性")
         if len(s1) < 2 or len(s2) < 2: return 50.0
         std1 = np.std(s1) + 1e-6
         std2 = np.std(s2) + 1e-6
@@ -1046,7 +1034,6 @@ class FundFlowFactorCalculator:
         版本: V2.8
         说明: 使用 Numba 相关系数函数替代原有的 Numpy 复杂运算
         """
-        print("[探针] 执行 _calculate_sync_score: Numba 同步度分析")
         s1 = np.array(series1, dtype=np.float64)
         s2 = np.array(series2, dtype=np.float64)
         n = len(s1)
@@ -1067,7 +1054,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 改用8日动量，参数基准上调至21日
         """
-        print("[探针] 执行 calculate_trend_momentum")
         momentum = {}
         for key in ['flow_momentum_5d', 'flow_momentum_8d', 'flow_acceleration',
                    'uptrend_strength', 'downtrend_strength']:
@@ -1100,7 +1086,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 对齐13日斐波拉契周期
         """
-        print("[探针] 执行 _calculate_robust_trend_strength")
         window = 13
         if len(self.net_amount_array) < window: return 0.0, 0.0
         cum_flow = np.cumsum(self.net_amount_array[-window:])
@@ -1153,7 +1138,6 @@ class FundFlowFactorCalculator:
         版本: V2.8
         说明: 彻底移除 scipy.stats.linregress 和 np.corrcoef，引入 Numba 引擎进行极速回归和相关性分析
         """
-        print("[探针] 执行 _calculate_complex_trend_strength: Numba 回归与相关性分析")
         if len(self.net_amount_array) < 10: return 0.0, 0.0
         y = self.net_amount_array[-10:]
         vol = self.volume_array[-10:]
@@ -1183,7 +1167,6 @@ class FundFlowFactorCalculator:
         版本: V2.8
         说明: 使用 Numba 线性回归替代原有的 NumPy 手动代数运算，提升小数组执行效率
         """
-        print("[探针] 执行 _calculate_trend_strength: 接入 Numba 线性回归")
         if len(self.net_amount_series) < 10:
             return 0.0, 0.0
         y = np.array(self.net_amount_series[-10:], dtype=np.float64)
@@ -1201,7 +1184,6 @@ class FundFlowFactorCalculator:
         版本: V2.4
         说明: 分析窗口缩放至13日
         """
-        print("[探针] 执行 calculate_divergence_metrics")
         divergence = {
             'divergence_type': 'NONE',
             'divergence_strength': 0.0,
@@ -1334,7 +1316,6 @@ class FundFlowFactorCalculator:
         版本: V2.5
         说明: 将 percentileofscore 替换为极速 NumPy 向量化实现
         """
-        print("[探针] 执行 calculate_statistical_metrics: 移除 scipy 开销")
         stats_metrics = {}
         arr = self.net_amount_array
         if len(arr) < 13:
@@ -1382,7 +1363,6 @@ class FundFlowFactorCalculator:
         版本: V2.7
         说明: 使用 Numba 优化的自相关计算替换 np.corrcoef 避免矩阵分配
         """
-        print("[探针] 执行 calculate_prediction_metrics: Numba 极速自相关")
         prediction = {}
         arr = self.net_amount_array
         if len(arr) < 10:
@@ -1668,7 +1648,6 @@ class FundFlowFactorCalculator:
         版本: V2.6
         说明: 使用 Numba 机器码引擎替换了原生的 Python 游程检测循环
         """
-        print("[探针] 执行 _calculate_flow_persistence_minutes: 调用 Numba 极速游程检测")
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         if len(times) == 0: return 0.0
         amounts = df['amount'].values
@@ -1893,7 +1872,6 @@ class FundFlowFactorCalculator:
         版本: V2.9
         说明: 引入 Numba 单次遍历聚合，消除原有的高开销布尔掩码与中间数组分配
         """
-        print("[探针] 执行 _calculate_closing_flow_features: Numba 单次遍历内存优化")
         metrics = {'closing_flow_ratio': None, 'closing_flow_intensity': None}
         times = df['trade_time'].values.astype('int64') 
         amounts = df['amount'].values
@@ -1924,7 +1902,6 @@ class FundFlowFactorCalculator:
         版本: V2.5
         说明: 使用 Numba 状态机完全重构内部循环，彻底消除数万级别Tick扫描的性能瓶颈
         """
-        print("[探针] 执行 _calculate_flow_cluster_features: 调用 Numba 极速状态机")
         metrics = {'flow_cluster_intensity': None, 'flow_cluster_duration': None}
         time_int = df['trade_time'].values.astype('int64') // 10**9 // 3
         if len(time_int) == 0: return metrics
@@ -1970,7 +1947,6 @@ class FundFlowFactorCalculator:
         版本: V2.6
         说明: 彻底移除低效的 Pandas resample 引擎，采用纯 NumPy 边界寻址算法实现亚毫秒级高频重采样聚合
         """
-        print("[探针] 执行 _calculate_high_freq_divergence: 纯 NumPy 内存级重采样计算")
         metrics = {'high_freq_flow_divergence': None}
         if len(df) < 100: return metrics 
         df = df.sort_values('trade_time')
@@ -2096,7 +2072,6 @@ class FundFlowFactorCalculator:
         版本: V2.7
         说明: 使用 Numba 联合矩估计替换 scipy.stats 调用，大幅降低包装开销
         """
-        print("[探针] 执行 _calculate_high_freq_statistics: 调用 Numba 极速矩估计")
         metrics = {'high_freq_flow_skewness': None, 'high_freq_flow_kurtosis': None}
         times_3s = df['trade_time'].values.astype('datetime64[s]').astype('int64') // 3
         if len(times_3s) == 0: return metrics
@@ -2129,7 +2104,6 @@ class FundFlowFactorCalculator:
         版本: V2.9
         说明: 使用 Numba 取代 Numpy 切片掩码聚合，消除中间内存碎片
         """
-        print("[探针] 执行 _calculate_time_period_distribution: Numba 内存连续聚合")
         metrics = {'morning_flow_ratio': None, 'afternoon_flow_ratio': None}
         times = df['trade_time'].values
         if len(times) == 0: return metrics
@@ -2158,7 +2132,6 @@ class FundFlowFactorCalculator:
         版本: V2.9
         说明: 引入 Numba 单次 O(N) 遍历取代多次布尔位运算，极大提升 Tick 数据处理速度
         """
-        print("[探针] 执行 _calculate_stealth_flow_indicators: Numba 单次扫描提速")
         metrics = {'stealth_flow_ratio': None}
         if len(df) == 0: return metrics
         small_order_threshold = 50000.0
