@@ -26,13 +26,15 @@ class CalculateMainForceRallyIntent:
 
     def _load_data(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V15.0】加载数据，NaN填充为0.0以保持张量计算的连续性
+        【V15.1 · 绝对领域防爆版】加载数据
+        强制拦截 DataFrame 中的逐行 NaN，在物理场游走前赋予绝对 0.0 中性基底，
+        杜绝个别特征缺失引发的局部 NaN 污染整个张量网络。
         """
         data = {}
         col_map = self._get_required_column_map()
         for key, col_name in col_map.items():
             series = self.helper._get_safe_series(df, col_name, 0.0)
-            data[key] = series.astype(np.float32)
+            data[key] = series.fillna(0.0).astype(np.float32)
         return data
 
     def _get_required_column_map(self) -> Dict[str, str]:
@@ -262,8 +264,8 @@ class CalculateMainForceRallyIntent:
 
     def _calc_structure_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V31.4 · 晶格相变结构场】
-        探针升级：内嵌打印所有的 Raw Lattice 和 Core Status。
+        【V31.5 · 晶格相变结构场】
+        增加底层结构底线 (0.01)，坚决杜绝 Structure 退化为 0.0 导致外层张量乘法发生黑洞湮灭。
         """
         cost_avg = raw['cost_avg'].values
         close = raw['close'].values
@@ -335,7 +337,8 @@ class CalculateMainForceRallyIntent:
         resonance_core = base_structure * excitation_gain
         avalanche_threshold = 1.5
         avalanche_gain = 1.0 + (np.maximum(0.0, resonance_core - avalanche_threshold) ** 2) * 2.0
-        final_structure = np.nan_to_num(resonance_core * avalanche_gain, nan=0.0, posinf=100.0, neginf=0.0)
+        # 核心防爆：坚决守住 0.01 的物理底线，严禁 Structure 退化为 0
+        final_structure = np.clip(np.nan_to_num(resonance_core * avalanche_gain, nan=1.0, posinf=100.0, neginf=0.01), 0.01, 100.0)
         if self._is_probe_enabled():
             target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
             current_dates = idx.tz_localize(None).normalize()
@@ -343,7 +346,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-STRUCTURE-V31.4] 晶格相变全息审计(含原始数据) @ {ts}",
+                    f"\n[PROBE-STRUCTURE-V31.5] 晶格相变全息审计(底层防爆版) @ {ts}",
                     f"  |- 熵稳平衡机制 (Entropy-Stability):",
                     f"     [Raw Lattice] ChipEntropy:{chip_entropy[i]:.4f}, ChipStability:{chip_stability[i]:.4f}, IntraConsol:{intra_consolidation[i]:.2f}, MACoherence:{ma_coherence[i]:.2f}",
                     f"     Stability Adjusted: {stability_raw[i]:.4f} | Entropy Penalty: {entropy_penalty[i]:.4f} -> Lattice Orderliness: {lattice_orderliness[i]:.4f}",
@@ -453,8 +456,10 @@ class CalculateMainForceRallyIntent:
 
     def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V38.6 · 张量合成】
-        探针升级：内嵌打印所有的 Raw Eco, Vortex, 和 Singularity 指标。
+        【V38.7 · 张量合成】
+        定向张量耦合版 (Directional Tensor Coupling)：
+        当主力推力向下(负向)时，坚实的阵地结构与生态优势应表现为“摩擦阻力”(除法缓冲跌势)，
+        而不是荒谬地去倍增负向推力(乘法加剧跌势)。这是算法符合真实物理模型的终极拼图。
         """
         mf_net_buy = raw['mf_net_buy'].values
         pushing_score = raw['pushing_score'].values
@@ -494,7 +499,18 @@ class CalculateMainForceRallyIntent:
         norm_breakout_pot = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (breakout_pot - 50.0), -50.0, 50.0)))
         norm_turnover_stab = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (turnover_stability - 50.0), -50.0, 50.0)))
         eco_premium = 1.0 + (is_leader * 0.8) + (hm_top_tier * 0.6) + (breakout_conf * 0.4) + (norm_theme * 0.3) + (trend_confirm / 100.0) * 0.5
-        base_tensor = thrust * structure * (1.0 + gap_momentum) * eco_premium * kinematic_burst * (1.0 + norm_breakout_pot) * (1.0 + norm_turnover_stab * 0.5)
+        
+        # 核心物理修复：定向张量耦合
+        # 推力向上(>=0): 优质结构与生态起乘数放大作用。
+        # 推力向下(<0): 优质结构与生态起缓冲除数作用，避免反常理地放大跌势。
+        eff_structure = np.where(thrust >= 0, structure, 1.0 / np.clip(structure, 0.01, 100.0))
+        eff_eco_premium = np.where(thrust >= 0, eco_premium, 1.0 / np.clip(eco_premium, 0.01, 100.0))
+        eff_gap_mom = np.where(thrust >= 0, 1.0 + gap_momentum, 1.0 / np.clip(1.0 + gap_momentum, 0.01, 10.0))
+        eff_breakout = np.where(thrust >= 0, 1.0 + norm_breakout_pot, 1.0 / np.clip(1.0 + norm_breakout_pot, 0.01, 10.0))
+        eff_turnover = np.where(thrust >= 0, 1.0 + norm_turnover_stab * 0.5, 1.0 / np.clip(1.0 + norm_turnover_stab * 0.5, 0.01, 10.0))
+        
+        base_tensor = thrust * eff_structure * eff_gap_mom * eff_eco_premium * kinematic_burst * eff_breakout * eff_turnover
+        
         norm_lock_ratio = 1.0 / (1.0 + np.exp(np.clip(-0.1 * (lock_ratio - 50.0), -50.0, 50.0)))
         raw_effective_drag = drag * (1.0 - np.maximum(0.0, np.minimum(hab_immunity, 0.90)))
         exp_arg = np.clip(-2.0 * (base_tensor - 1.5 * raw_effective_drag), -50.0, 50.0)
@@ -521,14 +537,16 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-SYNTHESIS-V38.6] 张量奇点共振全息探针(含原始数据) @ {ts}",
+                    f"\n[PROBE-SYNTHESIS-V38.7] 张量奇点共振全息探针(定向耦合版) @ {ts}",
                     f"  |- 多维动力学与抗噪 (Multi-Kinematics):",
                     f"     [Raw Config] MFNetBuy:{mf_net_buy[i]:.2f}, PushingScore:{pushing_score[i]:.2f}",
                     f"     MF Kine: {k_mf[i]:.4f} | Push Kine: {k_push[i]:.4f} | Damping: {kine_damping[i]:.4f} -> Burst: x{kinematic_burst[i]:.4f}",
-                    f"  |- 生态溢价与锁仓 (Ecosystem & Lock-in):",
+                    f"  |- 定向耦合结构与生态 (Directional Coupling):",
                     f"     [Raw Eco]    ThemeHot:{theme_hotness[i]:.2f}, Leader:{is_leader[i]:.0f}, BreakoutConf:{breakout_conf[i]:.0f}, HMTopTier:{hm_top_tier[i]:.0f}, TrendConf:{trend_confirm[i]:.2f}",
-                    f"     [Raw Aux]    GapMom:{gap_momentum[i]:.2f}, LockRatio:{lock_ratio[i]:.2f}, BreakoutPot:{breakout_pot[i]:.2f}, TurnoverStab:{turnover_stability[i]:.2f}",
-                    f"     Eco Premium: x{eco_premium[i]:.4f} | Turnover Stab Norm: {norm_turnover_stab[i]:.4f}",
+                    f"     Eff_Structure: {eff_structure[i]:.4f} | Eff_Eco_Premium: {eff_eco_premium[i]:.4f} | Eff_Breakout: {eff_breakout[i]:.4f}",
+                    f"  |- HAB 蓄水池防御与燃烧 (HAB Defense & Fuel):",
+                    f"     HAB Pool: {combined_inventory[i]:.0f} -> Immunity Shield: {hab_immunity[i]*100:.2f}%",
+                    f"     Drag Extinguishment: {drag[i]:.4f} -> Effective Drag: {raw_effective_drag[i]:.4f}",
                     f"  |- 黄金坑轧空涡流 (Golden Pit & Squeeze):",
                     f"     [Raw Vortex] GoldenPit:{golden_pit[i]:.0f}, GameIntens:{game_intensity[i]:.2f}, EnergyConc:{energy_conc[i]:.2f}, EmoExtreme:{emotional_extreme[i]:.0f}, RevProb:{reversal_prob[i]:.2f}",
                     f"     Squeeze Transition: {squeeze_transition[i]:.4f} | Trap Reversal Factor: {trap_reversal_factor[i]:.4f}",
