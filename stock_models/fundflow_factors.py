@@ -122,6 +122,32 @@ class FundFlowFactorBase(models.Model):
         help_text='过去55日累计成交量'
     )
     
+    total_net_amount_8d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='8日累计净流入(万元)', null=True, blank=True,
+        help_text='过去8日累计资金净流入额'
+    )
+    avg_daily_net_8d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='8日均净流入(万元)', null=True, blank=True,
+        help_text='过去8日平均每日净流入额'
+    )
+    total_volume_8d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='8日累计成交量(万手)', null=True, blank=True,
+        help_text='过去8日累计成交量'
+    )
+    net_amount_ratio_ma8 = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='8日均净流入占比(%)', null=True, blank=True,
+        help_text='过去8日平均净流入占比'
+    )
+    flow_momentum_8d = models.DecimalField(
+        max_digits=10, decimal_places=4,
+        verbose_name='8日资金动量', null=True, blank=True,
+        help_text='净流入量的8日变化率'
+    )
+    
     # ==================== 2. 相对强度指标 ====================
     # 2.1 净流入占比（相对成交额）
     net_amount_ratio = models.DecimalField(
@@ -270,10 +296,10 @@ class FundFlowFactorBase(models.Model):
         verbose_name='5日资金动量', null=True, blank=True,
         help_text='净流入量的5日变化率'
     )
-    flow_momentum_10d = models.DecimalField(
+    flow_momentum_13d = models.DecimalField(
         max_digits=10, decimal_places=4,
-        verbose_name='10日资金动量', null=True, blank=True,
-        help_text='净流入量的10日变化率'
+        verbose_name='13日资金动量', null=True, blank=True,
+        help_text='净流入量的13日变化率'
     )
     
     # 6.2 加速度指标
@@ -358,13 +384,13 @@ class FundFlowFactorBase(models.Model):
     )
     
     # 9.2 波动性
-    flow_volatility_10d = models.DecimalField(
+    flow_volatility_13d = models.DecimalField(
         max_digits=10, decimal_places=4,
-        verbose_name='10日资金流波动率', null=True, blank=True
+        verbose_name='13日资金流波动率', null=True, blank=True
     )
-    flow_volatility_20d = models.DecimalField(
+    flow_volatility_21d = models.DecimalField(
         max_digits=10, decimal_places=4,
-        verbose_name='20日资金流波动率', null=True, blank=True
+        verbose_name='21日资金流波动率', null=True, blank=True
     )
     
     # ==================== 10. 预测指标 ====================

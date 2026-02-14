@@ -37,7 +37,10 @@ class CalculateMainForceRallyIntent:
 
     def _get_required_column_map(self) -> Dict[str, str]:
         """
-        【V48.0】数据映射重构：完整继承V47.0，并引入军械库中的均线势能压缩率、换手率稳定性及推力高阶动力学。
+        【V49.0】数据映射重构：解决底层特征断层Bug，进行等效物理场替换。
+        1. 废弃不存在的 control_solidity_index_D，替换为清单中的 consolidation_chip_stability_D (整固期筹码稳定性)。
+        2. 同步更新控盘坚实度的13日动力学前缀。
+        3. 废弃不存在的 VOLATILITY_INSTABILITY_INDEX_21d_D，替换为清单中的 flow_volatility_20d_D (20日资金流波动率)。
         """
         return {
             'close': 'close_D',
@@ -56,7 +59,7 @@ class CalculateMainForceRallyIntent:
             'mf_activity': 'intraday_main_force_activity_D',
             'energy_conc': 'energy_concentration_D',
             'winner_rate': 'winner_rate_D',
-            'control_solidity': 'control_solidity_index_D',
+            'control_solidity': 'consolidation_chip_stability_D',
             'chip_entropy': 'chip_entropy_D',
             'chip_stability': 'chip_stability_D',
             'peak_conc': 'peak_concentration_D',
@@ -73,7 +76,7 @@ class CalculateMainForceRallyIntent:
             'trapped_pressure': 'pressure_trapped_D',
             'dist_score': 'distribution_score_D',
             'intraday_dist': 'intraday_distribution_confidence_D',
-            'instability': 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'instability': 'flow_volatility_20d_D',
             'pressure_release': 'pressure_release_index_D',
             'shakeout_score': 'shakeout_score_D',
             'chip_divergence': 'chip_divergence_ratio_D',
@@ -108,9 +111,9 @@ class CalculateMainForceRallyIntent:
             'consolidation_chip_conc': 'consolidation_chip_concentration_D',
             'rounding_bottom': 'STATE_ROUNDING_BOTTOM_D',
             'sr_ratio': 'support_resistance_ratio_D',
-            'ctrl_slope_13': 'SLOPE_13_control_solidity_index_D',
-            'ctrl_accel_13': 'ACCEL_13_control_solidity_index_D',
-            'ctrl_jerk_13': 'JERK_13_control_solidity_index_D',
+            'ctrl_slope_13': 'SLOPE_13_consolidation_chip_stability_D',
+            'ctrl_accel_13': 'ACCEL_13_consolidation_chip_stability_D',
+            'ctrl_jerk_13': 'JERK_13_consolidation_chip_stability_D',
             'outflow_qual': 'outflow_quality_D',
             'intra_skew': 'intraday_price_distribution_skewness_D',
             'ind_downtrend': 'industry_downtrend_score_D',

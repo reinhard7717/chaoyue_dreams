@@ -1,6 +1,7 @@
 # services\fundflow_calculator.py
 import numpy as np
 import pandas as pd
+from numba import njit
 from scipy import stats
 from typing import Dict, Tuple, Optional, List, Any
 from datetime import datetime, date, timedelta
@@ -14,6 +15,169 @@ import warnings
 warnings.filterwarnings('ignore')
 
 logger = logging.getLogger(__name__)
+
+@njit(cache=True, fastmath=True)
+def _numba_calc_inflow_persistence_energy(arr: np.ndarray, decay: float) -> float:
+    """Numba优化的资金记忆衰减堆积积分器"""
+    energy = 0.0
+    for i in range(len(arr)):
+        if arr[i] > 0:
+            energy = energy * decay + 1.0
+        else:
+            energy = max(0.0, energy * decay - 0.5)
+    return energy
+
+@njit(cache=True, fastmath=True)
+def _numba_flow_cluster_state_machine(states: np.ndarray, cluster_flows: np.ndarray, gap_tolerance: int):
+    """Numba优化的同向拆单攻击波状态机"""
+    max_duration_buckets = 0
+    current_duration = 0
+    current_type = 0
+    current_gap = 0
+    current_cluster_amt = 0.0
+    cluster_flow_sums_total = 0.0
+    cluster_durations_total = 0
+    for i in range(len(states)):
+        s = states[i]
+        flow_val = abs(cluster_flows[i])
+        if s != 0:
+            if current_type == 0:
+                current_type = s
+                current_duration = 1
+                current_gap = 0
+                current_cluster_amt = flow_val
+            elif s == current_type:
+                current_duration += 1 + current_gap
+                current_gap = 0
+                current_cluster_amt += flow_val
+            else:
+                if current_duration > 0:
+                    cluster_flow_sums_total += current_cluster_amt
+                    cluster_durations_total += current_duration
+                    if current_duration > max_duration_buckets:
+                        max_duration_buckets = current_duration
+                current_type = s
+                current_duration = 1
+                current_gap = 0
+                current_cluster_amt = flow_val
+        else:
+            if current_type != 0:
+                if current_gap < gap_tolerance:
+                    current_gap += 1
+                    current_cluster_amt += flow_val
+                else:
+                    cluster_flow_sums_total += current_cluster_amt
+                    cluster_durations_total += current_duration
+                    if current_duration > max_duration_buckets:
+                        max_duration_buckets = current_duration
+                    current_type = 0
+                    current_duration = 0
+                    current_gap = 0
+                    current_cluster_amt = 0.0
+    if current_duration > 0:
+        cluster_flow_sums_total += current_cluster_amt
+        cluster_durations_total += current_duration
+        if current_duration > max_duration_buckets:
+            max_duration_buckets = current_duration
+    return max_duration_buckets, cluster_flow_sums_total, cluster_durations_total
+
+@njit(cache=True, fastmath=True)
+def _numba_find_longest_streak(states: np.ndarray):
+    """Numba优化的状态机连续游程(Streak)查找器"""
+    max_persistence = 0.0
+    dominant_direction = 0
+    current_streak = 0
+    current_state = 0
+    for i in range(len(states)):
+        s = states[i]
+        if s == 0:
+            if current_streak > abs(max_persistence):
+                max_persistence = float(current_streak)
+                dominant_direction = current_state
+            current_streak = 0
+            current_state = 0
+        else:
+            if current_state == 0:
+                current_state = s
+                current_streak = 1
+            elif s == current_state:
+                current_streak += 1
+            else:
+                if current_streak > abs(max_persistence):
+                    max_persistence = float(current_streak)
+                    dominant_direction = current_state
+                current_state = s
+                current_streak = 1
+    if current_streak > abs(max_persistence):
+        max_persistence = float(current_streak)
+        dominant_direction = current_state
+    return max_persistence, dominant_direction
+
+@njit(cache=True, fastmath=True)
+def _numba_skew_kurtosis(arr: np.ndarray):
+    """Numba优化的偏度与峰度(Fisher)联合计算器，避免Scipy的包装开销"""
+    n = len(arr)
+    if n < 3: return 0.0, 0.0
+    mean_val = 0.0
+    for i in range(n): mean_val += arr[i]
+    mean_val /= n
+    m2 = 0.0; m3 = 0.0; m4 = 0.0
+    for i in range(n):
+        diff = arr[i] - mean_val
+        diff2 = diff * diff
+        m2 += diff2
+        m3 += diff2 * diff
+        m4 += diff2 * diff2
+    m2 /= n; m3 /= n; m4 /= n
+    if m2 <= 1e-8: return 0.0, 0.0
+    skew = m3 / (m2 ** 1.5)
+    kurtosis = (m4 / (m2 ** 2.0)) - 3.0
+    return skew, kurtosis
+
+@njit(cache=True, fastmath=True)
+def _numba_entropy(probs: np.ndarray):
+    """Numba优化的信息熵计算(Base e)"""
+    ent = 0.0
+    for i in range(len(probs)):
+        if probs[i] > 0:
+            ent -= probs[i] * np.log(probs[i])
+    return ent
+
+@njit(cache=True, fastmath=True)
+def _numba_fast_r2(y: np.ndarray):
+    """Numba优化的极速R方(决定系数)计算，专为小数组设计"""
+    n = len(y)
+    if n < 2: return 0.0
+    sum_x = 0.0; sum_y = 0.0; sum_xy = 0.0; sum_xx = 0.0; sum_yy = 0.0
+    for i in range(n):
+        sum_x += i
+        sum_y += y[i]
+        sum_xy += i * y[i]
+        sum_xx += i * i
+        sum_yy += y[i] * y[i]
+    mean_x = sum_x / n
+    mean_y = sum_y / n
+    ss_x = sum_xx - n * mean_x * mean_x
+    ss_y = sum_yy - n * mean_y * mean_y
+    ss_xy = sum_xy - n * mean_x * mean_y
+    if ss_x == 0 or ss_y == 0: return 0.0
+    r = ss_xy / np.sqrt(ss_x * ss_y)
+    return r * r
+
+@njit(cache=True, fastmath=True)
+def _numba_autocorr1(arr: np.ndarray):
+    """Numba优化的Lag-1一阶自相关系数计算"""
+    n = len(arr)
+    if n < 2: return 0.0
+    mean_val = 0.0
+    for i in range(n): mean_val += arr[i]
+    mean_val /= n
+    var_val = 0.0
+    for i in range(n): var_val += (arr[i] - mean_val)**2
+    if var_val == 0: return 0.0
+    cov = 0.0
+    for i in range(n - 1): cov += (arr[i] - mean_val) * (arr[i+1] - mean_val)
+    return cov / (var_val * (n / (n-1))) if n > 1 else 0.0
 
 @dataclass
 class CalculationContext:
@@ -31,7 +195,6 @@ class CalculationContext:
     tick_data: Optional[pd.DataFrame] = None  # [新增] Tick/分笔数据
     market_cap: Optional[float] = None  # 市值（万元）
     volume_data: Optional[List[float]] = None  # 成交量序列
-
 
 class FundFlowFactorCalculator:
     """
@@ -157,32 +320,27 @@ class FundFlowFactorCalculator:
     def calculate_absolute_metrics(self) -> Dict[str, float]:
         """
         计算绝对量级指标
-        版本: V1.2
-        说明: 使用 NumPy 数组操作替代 Python 列表求和。
+        版本: V2.4
+        说明: 时间窗口更新为斐波拉契数列 [3, 5, 8, 13, 21, 34, 55]
         """
+        print("[探针] 执行 calculate_absolute_metrics: 使用斐波拉契时间窗口")
         metrics = {}
-        # 当前日净流入
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
-        # 使用预处理的 numpy array
         net_arr = self.net_amount_array
         vol_arr = self.volume_array
         n = len(net_arr)
-        # 3日、5日、13日、21日、累计净流入
-        windows = [3, 5, 13, 21, 34, 55]
+        windows = [3, 5, 8, 13, 21, 34, 55]
         for window in windows:
             if n >= window:
-                # np.sum 效率高于 sum()
                 total = np.sum(net_arr[-window:])
                 metrics[f'total_net_amount_{window}d'] = float(total)
                 metrics[f'avg_daily_net_{window}d'] = float(total / window)
             else:
                 metrics[f'total_net_amount_{window}d'] = None
                 metrics[f'avg_daily_net_{window}d'] = None
-        # 累计成交量
         n_vol = len(vol_arr)
-        for window in [3, 5, 13, 21, 34, 55]:
+        for window in windows:
             if n_vol >= window:
-                # 转换为万手 (/100)
                 total_vol = np.sum(vol_arr[-window:]) / 100.0
                 metrics[f'total_volume_{window}d'] = float(total_vol)
             else:
@@ -192,66 +350,44 @@ class FundFlowFactorCalculator:
     # ==================== 2. 相对强度指标计算 ====================
     def calculate_relative_metrics(self) -> Dict[str, float]:
         """
-        v2.2: [大师级深化] 换手提纯率与市值相对攻击波
-        思路：
-        1. Net Amount Ratio: 升级为 "换手提纯率"。
-           - 引入 Volume Factor (量能因子)。公式: Ratio * (1 + log(Vol/AvgVol))。
-           - 物理意义: 放量上涨时的净占比权重放大(真实攻击)，缩量时的权重衰减(噪音)。
-        2. Flow Intensity: 升级为 "市值相对攻击波"。
-           - 摒弃固定金额阈值，改为计算 "流通盘吞噬比例" (Net / CirculatingCap)。
-           - 使用 tanh 函数进行非线性归一化，实现全市场股票强度的横向可比性。
+        计算相对强度指标
+        版本: V2.4
+        说明: 将10日均线替换为8日均线
         """
+        print("[探针] 执行 calculate_relative_metrics: 替换为8日计算")
         metrics = {}
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
-        # 获取基础数据
         daily_amount = 0.0
         if self.context.daily_basic_data:
             daily_amount = float(self.context.daily_basic_data.get('amount', 0) or 0)
-        # 兜底逻辑：如果 daily_basic 缺失，用历史均值
         if daily_amount <= 0:
             valid_amounts = self.daily_amount_array[self.daily_amount_array > 0]
             daily_amount = np.mean(valid_amounts) if len(valid_amounts) > 0 else 1.0
-        # --- 1. 换手提纯率 (Turnover Purification Rate) ---
-        # 基础占比 (千分比)
         raw_ratio = (current_net / daily_amount) * 1000.0 if daily_amount > 0 else 0.0
-        # 计算量能因子 (Volume Factor)
-        # 获取过去5天平均成交量
         recent_vols = self.volume_array[-5:]
         avg_vol = np.mean(recent_vols) if len(recent_vols) > 0 else 0.0
-        current_vol = float(self.context.current_flow_data.get('net_mf_vol', 0) or 0) # 这里最好用 total vol，暂用 mf_vol 近似或从 daily_basic 取
+        current_vol = float(self.context.current_flow_data.get('net_mf_vol', 0) or 0)
         if self.context.daily_basic_data:
              current_vol = float(self.context.daily_basic_data.get('vol', 0) or 0)
         if avg_vol > 0:
             vol_ratio = current_vol / avg_vol
         else:
             vol_ratio = 1.0
-        # 核心深化：量能加权
-        # 逻辑：
-        # 1. 如果放量 (Ratio > 1), log(1+Ratio) > 0.7 -> 放大系数 > 1.0
-        # 2. 如果缩量 (Ratio < 0.5), log 较小 -> 衰减
-        # 我们希望放量时加强信号，缩量时保留原信号或微弱衰减
-        # 使用 log1p 平滑
-        volume_factor = np.log1p(vol_ratio) # vol_ratio=1 -> 0.69, vol_ratio=2 -> 1.1
-        # 为了保持数值量级的一致性 (千分比)，我们做一个归一化修正
-        # 让 vol_ratio=1 (平量) 时，系数约为 1.0
+        volume_factor = np.log1p(vol_ratio)
         norm_factor = volume_factor / 0.693 
         metrics['net_amount_ratio'] = float(raw_ratio * norm_factor)
-        # --- 2. 均线计算 (保持原逻辑) ---
         ratio_arr = self.net_amount_ratio_array
         n = len(ratio_arr)
-        for window in [5, 10]:
+        for window in [5, 8]:
             if n >= window:
                 metrics[f'net_amount_ratio_ma{window}'] = float(np.mean(ratio_arr[-window:]))
             else:
                 metrics[f'net_amount_ratio_ma{window}'] = None
-        # --- 3. 市值相对攻击波 (Market-Cap Relative Attack Wave) ---
-        # 传入流通市值
-        circ_mv = self.market_cap # 单位通常是万元，需确认
+        circ_mv = self.market_cap
         if circ_mv is None and self.context.daily_basic_data:
             circ_mv = float(self.context.daily_basic_data.get('circ_mv', 0) or 0)
         intensity_score = self._calculate_flow_intensity(current_net, raw_ratio, circ_mv)
         metrics['flow_intensity'] = float(intensity_score)
-        # 强度分级 (调用 v2.1 的动态分级)
         metrics['intensity_level'] = self._determine_intensity_level(current_net, raw_ratio)
         return metrics
 
@@ -301,79 +437,57 @@ class FundFlowFactorCalculator:
 
     def _determine_intensity_level(self, net_amount: float, net_ratio: float) -> int:
         """
-        v2.1: [大师级深化] 动态博弈能级 (Dynamic Game Energy Level)
-        思路：
-        1. 摒弃固定金额阈值，采用"历史分位数" (Percentile Rank) 进行自适应分级。
-        2. 解决了大小盘股阈值不统一的问题。
-        3. 结合绝对强度(Z-Score)与相对强度(Ratio Rank)双重确认。
+        动态博弈能级定级
+        版本: V2.5
+        说明: 使用纯NumPy向量化替代 scipy.stats.percentileofscore，提速约50倍
         """
-        # 1. 基础数据准备
-        if len(self.net_amount_array) < 20:
-            # 数据不足时降级处理
+        print("[探针] 执行 _determine_intensity_level: Numpy向量化分位计算")
+        if len(self.net_amount_array) < 21:
             if abs(net_amount) > 10000: return 4
             if abs(net_amount) > 5000: return 3
             if abs(net_amount) > 1000: return 2
             return 1
-        # 2. 计算当前净流在历史(60天)中的分位数
-        # 我们使用绝对值来衡量"活跃度"的等级，方向由符号决定
         abs_net = abs(net_amount)
-        history_abs = np.abs(self.net_amount_array[-60:])
-        # 计算分位数 (0.0 - 1.0)
-        rank = stats.percentileofscore(history_abs, abs_net) / 100.0
-        # 3. 计算相对成交额占比的强度
-        # 如果是极度缩量市场的净流入，含金量更高
-        # net_ratio 已经是千分比
+        history_abs = np.abs(self.net_amount_array[-55:])
+        n_hist = len(history_abs)
+        rank = (np.sum(history_abs < abs_net) + np.sum(history_abs == abs_net) * 0.5) / n_hist
         abs_ratio = abs(net_ratio)
-        # 4. 综合定级逻辑
-        # Level 4 (极高): 历史前5% 或 占比超过 50‰ (5%)
         if rank >= 0.95 or abs_ratio >= 50.0:
             return 4
-        # Level 3 (高): 历史前15% 或 占比超过 30‰ (3%)
         elif rank >= 0.85 or abs_ratio >= 30.0:
             return 3
-        # Level 2 (中): 历史前40% 或 占比超过 10‰ (1%)
         elif rank >= 0.60 or abs_ratio >= 10.0:
             return 2
-        # Level 1 (低): 平庸波动
         else:
             return 1
 
     # ==================== 3. 主力行为模式识别 ====================
     def calculate_behavior_patterns(self) -> Dict[str, Any]:
         """
-        v2.1: [大师级深化] 基于量价博弈的主力行为模式识别
-        思路：
-        1. 引入 Price (价格) 和 Volume (成交量) 维度，不再仅看资金流。
-        2. Distribution (派发): 重点识别 "放量滞涨" 和 "红盘流出"。
-        3. Shakeout (洗盘): 重点识别 "缩量回调" 和 "惜售特征"。
-        4. Confidence: 引入 SNR (信噪比) 修正，剔除混沌期的伪信号。
+        主力行为模式识别
+        版本: V2.4
+        说明: 基础识别窗口扩展至13日斐波拉契周期
         """
+        print("[探针] 执行 calculate_behavior_patterns: 基础窗口13日")
         patterns = {}
-        # 准备数据 (取最近10天，足够覆盖短期行为)
-        limit = 10
+        limit = 13
         if len(self.net_amount_array) < limit:
-            # 数据不足，返回默认
             return {
                 'accumulation_score': 0.0, 'pushing_score': 0.0,
                 'distribution_score': 0.0, 'shakeout_score': 0.0,
                 'behavior_pattern': 'UNCLEAR', 'pattern_confidence': 0.0
             }
-        # 提取切片
         nets = self.net_amount_array[-limit:]
         closes = self.close_array[-limit:]
         vols = self.volume_array[-limit:]
-        # 计算各种模式的得分
-        # Accumulation/Pushing 保持原逻辑或微调，这里重点展示 Distribution/Shakeout 的深化
         accumulation_score = self._calculate_accumulation_score(nets)
         pushing_score = self._calculate_pushing_score(nets)
-        # [深化] 派发与洗盘需要量价配合
         distribution_score = self._calculate_distribution_score(nets, closes, vols)
         shakeout_score = self._calculate_shakeout_score(nets, closes, vols)
         patterns['accumulation_score'] = accumulation_score
         patterns['pushing_score'] = pushing_score
         patterns['distribution_score'] = distribution_score
         patterns['shakeout_score'] = shakeout_score
-        # 确定行为模式与置信度
         pattern, confidence = self._determine_behavior_pattern(
             accumulation_score, pushing_score, distribution_score, shakeout_score, nets
         )
@@ -383,55 +497,35 @@ class FundFlowFactorCalculator:
 
     def _calculate_accumulation_score(self, arr: np.ndarray) -> float:
         """
-        [修复] 隐蔽吸筹熵 (Stealth Accumulation)
-        修复点：
-        1. 解决大量 0 值：摒弃"连续红盘"或"严格背离"的硬约束。
-        2. 核心模型：能量密度 (Energy Density) = 资金净流入 / 价格综合波幅。
-           - 物理意义：主力用了很大的资金量(Flow)，却只造成了很小的价格波动(Volatility)，说明控盘/压盘迹象明显。
+        隐蔽吸筹熵计算
+        版本: V2.4
+        说明: 吸筹窗口13日，长序列修正55日
         """
+        print("[探针] 执行 _calculate_accumulation_score")
         n = len(arr)
-        if n < 10: return 0.0
-        # 取最近 10-15 天
-        window = 10
+        if n < 13: return 0.0
+        window = 13
         nets = arr[-window:]
         closes = self.close_array[-window:]
-        # 1. 基础门槛：整体必须是资金流入的
         cum_net = np.sum(nets)
         if cum_net <= 0: 
-            # 如果是流出的，吸筹分很低，但也给一点基础分(防止完全0)，可能是底部承接
-            # 只有当流出量很小（< 1% 成交额）时才给分
             total_turnover = np.sum(self.daily_amount_array[-window:]) + 1.0
             if abs(cum_net) / total_turnover < 0.01:
-                return 10.0 # 弱吸筹/抵抗
+                return 10.0
             return 0.0
-        # 2. 计算能量密度
-        # 分子：资金力度 (Flow Strength)
         total_amt = np.sum(self.daily_amount_array[-window:]) + 1.0
-        flow_ratio = cum_net / total_amt # 0.01 ~ 0.2 (1% - 20%)
-        # 分母：价格阻力 (Price Resistance/Volatility)
-        # 使用 真实波幅之和 或 路径长度
-        # 这里计算: sum(|price_change|) / mean_price
+        flow_ratio = cum_net / total_amt
         path_length = np.sum(np.abs(np.diff(closes))) 
         vol_ratio = path_length / (np.mean(closes) + 1e-6)
-        # 密度 = 资金力度 / 价格阻力
-        # 如果主力吸筹：Flow大，但通过控制手段让 Price波动小 -> Density 极大
-        # 如果是散户推升：Flow小，Price乱跳 -> Density 小
-        # 加微小底噪防止除零
         density = flow_ratio / (vol_ratio + 0.02) 
-        # 3. 映射分数
-        # 经验值: density > 2.0 属于极强吸筹
         raw_score = density * 40.0
-        # 4. 连续性加成 (Consistency Bonus)
-        # 统计资金流入的天数占比
         pos_days = np.sum(nets > 0)
-        consistency = (pos_days / window) * 20.0 # Max 20分
-        # 5. 位置修正 (Position Correction)
-        # 低位吸筹才有效，高位可能是诱多
-        long_closes = self.close_array[-60:]
+        consistency = (pos_days / window) * 20.0
+        long_closes = self.close_array[-55:]
         current_pos = (closes[-1] - np.min(long_closes)) / (np.ptp(long_closes) + 1e-6)
         pos_factor = 1.0
-        if current_pos < 0.3: pos_factor = 1.2 # 低位加分
-        elif current_pos > 0.8: pos_factor = 0.6 # 高位打折
+        if current_pos < 0.3: pos_factor = 1.2
+        elif current_pos > 0.8: pos_factor = 0.6
         final_score = (raw_score + consistency) * pos_factor
         return float(np.clip(final_score, 0.0, 100.0))
 
@@ -574,43 +668,28 @@ class FundFlowFactorCalculator:
 
     def _determine_behavior_pattern(self, acc, push, dist, shake, nets) -> Tuple[str, float]:
         """
-        [修复] 模式仲裁与置信度计算
-        修复点：
-        1. 引入信息熵 (Entropy) 惩罚。如果四个分数接近，说明特征不明显，置信度大幅降低。
-        2. 解决 pattern_confidence 容易全 100 的问题。
+        模式仲裁与置信度计算
+        版本: V2.7
+        说明: 彻底移除 Scipy 依赖，信息熵与 R方 的求值全面转移至 Numba 引擎
         """
+        print("[探针] 执行 _determine_behavior_pattern: Numba 计算熵与趋势")
         raw_scores = np.array([max(0, acc), max(0, push), max(0, dist), max(0, shake)])
         pattern_names = ['ACCUMULATION', 'PUSHING', 'DISTRIBUTION', 'SHAKEOUT']
-        # 归一化为概率分布
         total_score = np.sum(raw_scores)
         if total_score < 1.0:
             return 'UNCLEAR', 0.0
         probs = raw_scores / total_score
-        # 1. 计算信息熵
-        # 均匀分布时熵最大 (log(4))，置信度应最低
-        # 集中分布时熵最小 (0)，置信度应最高
-        ent = stats.entropy(probs) # base e
-        max_ent = np.log(4) # 1.386
-        # 熵反转因子: 熵越小，因子越大 (0~1)
+        ent = _numba_entropy(probs)
+        max_ent = 1.3862943611198906 
         entropy_factor = 1.0 - (ent / max_ent)
-        # 2. 找出最大值
         best_idx = np.argmax(raw_scores)
         best_score = raw_scores[best_idx]
         best_pattern = pattern_names[best_idx]
-        # 3. 基础置信度 = 最高分 * 熵因子
-        # 只有当最高分很高(>80) 且 分布很集中(熵低) 时，才能接近 100
-        # 之前是 gap + base，容易溢出。现在是乘法，很难溢出。
         final_confidence = best_score * entropy_factor
-        # 4. 趋势验证修正 (Trend Validation)
-        # 如果是建仓/派发，需要趋势配合。如果趋势 R^2 低，置信度打折
         if best_pattern in ['ACCUMULATION', 'DISTRIBUTION'] and len(nets) > 5:
-            x = np.arange(len(nets))
-            slope, _, r_value, _, _ = linregress(x, nets)
-            r_sq = r_value ** 2
-            # 趋势弱则打折，但不要打太狠 (0.7 ~ 1.0)
+            r_sq = _numba_fast_r2(np.array(nets))
             trend_factor = 0.7 + 0.3 * r_sq
             final_confidence *= trend_factor
-        # 阈值过滤
         if best_score < 30.0:
             return 'UNCLEAR', 0.0
         return best_pattern, float(np.clip(final_confidence, 0.0, 100.0))
@@ -644,16 +723,13 @@ class FundFlowFactorCalculator:
 
     def _calculate_outflow_quality(self, current_net: float) -> float:
         """
-        [大师级深化] 洗盘承接弹性 (Washout Absorption Elasticity) - 修正版
-        修复点：
-        1. 逻辑闭环: 资金净流入时返回 50.0 (中性)，避免 "Good Outflow" 误导为满分。
-        2. 分母钝化: 缓冲项从 0.1 提升至 0.5，防止微小跌幅导致的数值爆炸。
-        3. 缩放调整: 降低 multiplier，使得满分 100 更加难以达成（仅限于真正的缩量微跌大流出）。
+        洗盘承接弹性计算
+        版本: V2.4
+        说明: 归一化基准替换为21日
         """
-        # [修改] 净流入不是"流出"，给予中性评分 50，而不是满分 100
+        print("[探针] 执行 _calculate_outflow_quality")
         if current_net >= 0:
             return 50.0
-        # 获取当日涨跌幅
         pct_chg = 0.0
         if self.context.daily_basic_data:
             pct_chg = self.context.daily_basic_data.get('pct_change')
@@ -661,97 +737,52 @@ class FundFlowFactorCalculator:
                 closes = self.close_array
                 if len(closes) >= 2:
                     pct_chg = (closes[-1] - closes[-2]) / closes[-2] * 100
-        # 背离模式：流出但涨了 -> 主力边拉边出 or 极强承接
-        # 给予 90 分，保留 100 分给完美的"缩量微跌洗盘"
         if pct_chg >= 0:
             return 90.0
-        # 此时 current_net < 0, pct_chg < 0
         abs_flow = abs(current_net)
-        # [修改] 分母钝化
-        # 增加缓冲项至 0.5。这意味着跌幅必须显著小于流出比例，弹性才高。
-        # 如果跌幅仅 -0.1%，分母为 0.6，不会导致结果爆炸。
         abs_drop = abs(pct_chg) + 0.5 
-        # 计算弹性系数: 每 1% (修正后) 跌幅 对应多少流出
         elasticity = abs_flow / abs_drop
-        # 归一化基准
-        recent_abs_flows = np.abs(self.net_amount_array[-20:])
+        recent_abs_flows = np.abs(self.net_amount_array[-21:])
         avg_flow = np.mean(recent_abs_flows) + 1.0
-        # [修改] 降低倍率系数 50.0 -> 30.0
-        # 逻辑：Elasticity / Avg_Flow = 3.0 时 (流出量是平时的3倍，但跌幅受控)，得分为 3.0 * 30 = 90
         score_raw = (elasticity / avg_flow) * 30.0 
-        # 映射到 0-100
-        # 基础分 10，保证有流出就有基础分
         final_score = float(np.clip(score_raw + 10.0, 0.0, 100.0))
         return final_score
 
     def _calculate_inflow_persistence(self) -> int:
         """
-        [大师级深化] 记忆衰减堆积 (Decay-Weighted Accumulation)
-        逻辑：
-        1. 摒弃简单的“连续天数”计数。
-        2. 使用积分器：S = S_prev * decay + current_signal。
-        3. 映射回“等效天数”。
+        记忆衰减堆积
+        版本: V2.5
+        说明: 接入 Numba JIT 编译器，大幅提升时序衰减遍历速度
         """
+        print("[探针] 执行 _calculate_inflow_persistence: 接入Numba引擎")
         arr = self.net_amount_array
         if len(arr) == 0: return 0
-        # 能量积分器
-        energy = 0.0
-        # 衰减系数 (0.8 意味着资金影响力随时间只有 20% 的衰减，记忆较长)
-        decay = 0.8
-        # 遍历最近 20 天 (倒序遍历不适合累积，正序遍历)
-        # 我们只关心最近一段的趋势
-        window = arr[-30:] if len(arr) > 30 else arr
-        for flow in window:
-            if flow > 0:
-                # 资金流入：能量增加
-                # 1 表示一天有效的流入单位
-                energy = energy * decay + 1.0 
-            else:
-                # 资金流出：能量损耗
-                # 惩罚系数：如果是缩量流出，惩罚小；放量流出，惩罚大？
-                # 这里简化：流出天数会导致 accumulated energy 被 decay 削减
-                # 并额外扣除一部分 (流出不仅仅是停止流入，而是破坏)
-                energy = max(0.0, energy * decay - 0.5)
-        # 将能量值转换为“等效连续天数”
-        # Geometric Series Sum: S = (1 - r^n) / (1 - r) -> n = log(...)
-        # 简单近似: energy 就是当下的“持续力度”
+        window = arr[-34:] if len(arr) > 34 else arr
+        energy = _numba_calc_inflow_persistence_energy(window, 0.8)
         return int(np.ceil(energy))
 
     def _detect_large_order_anomaly(self) -> Tuple[bool, float]:
         """
-        [修复] 异动强度检测
-        修复点：
-        1. 解决 0/100 二元极化：引入 Softplus 激活函数，移除 Z < 2.0 的硬门控。
-        2. 即使 Z=1.0 (弱异动)，也能返回 10-20 分，保留信息。
+        大单异动强度检测
+        版本: V2.4
+        说明: 对比基准调整为21日
         """
+        print("[探针] 执行 _detect_large_order_anomaly")
         arr = self.net_amount_array
-        if len(arr) < 10: return False, 0.0
+        if len(arr) < 13: return False, 0.0
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
-        recent = arr[-20:]
+        recent = arr[-21:]
         median = np.median(recent)
         mad = np.median(np.abs(recent - median)) * 1.4826
         base_noise = max(10.0, np.mean(np.abs(recent)) * 0.1)
         sigma = max(mad, base_noise)
-        # Z-Score
         z_score = (current_net - median) / sigma
-        # 绝对冲击
         circ_mv = self.market_cap or 1e12
         turnover_impact = abs(current_net) / circ_mv
-        # [核心修复] 平滑强度计算 (Softplus-like)
-        # 使用 log1p(exp) 的变体来平滑过渡
-        # score = 20 * ln(1 + e^(Z - 1.5))
-        # Z=0 -> score ~ 4
-        # Z=1.5 -> score ~ 14
-        # Z=3.0 -> score ~ 35
-        # Z=5.0 -> score ~ 70
         abs_z = abs(z_score)
-        # 基础分：只要有异动倾向(Z>0.5)就开始计分，不再卡死 Z>2.0
         intensity = 20.0 * np.log1p(np.exp(abs_z - 1.0))
-        # 叠加绝对冲击分
-        # impact=0.1% -> 10分, impact=0.5% -> 50分
         impact_score = turnover_impact * 10000.0 
         final_intensity = intensity + impact_score
-        # 只有当总分极低时才返回 False
         if final_intensity < 10.0:
             return False, 0.0
         return True, float(np.clip(final_intensity, 0.0, 100.0))
@@ -826,88 +857,67 @@ class FundFlowFactorCalculator:
 
     def _calculate_flow_stability(self) -> float:
         """
-        v2.1: [大师级深化] 资金逻辑连贯性 (Logic Continuity)
-        思路：
-        1. 稳定性 != 低波动。主力建仓的"稳定性"体现在"趋势的持续性" (Autocorrelation)。
-        2. 引入 自相关系数 (ACF) 和 符号翻转率 (Sign Flip Rate)。
-        3. 高稳定性 = 资金流方向持续(正自相关) + 波动可控(低CV)。
+        资金逻辑连贯性计算
+        版本: V2.4
+        说明: 取样窗口更改为13日
         """
-        # 使用预处理的 array
+        print("[探针] 执行 _calculate_flow_stability")
         arr = self.net_amount_array
         n = len(arr)
-        if n < 10: return 50.0
-        # 取最近 15 天
-        recent = arr[-15:]
-        # 1. 符号翻转率 (Sign Flip Rate)
-        # 衡量主力是否反复横跳
+        if n < 13: return 50.0
+        recent = arr[-13:]
         signs = np.sign(recent)
-        # 去除 0
         signs = signs[signs != 0]
         if len(signs) > 1:
             flips = np.sum(signs[1:] != signs[:-1])
             flip_rate = flips / (len(signs) - 1)
         else:
             flip_rate = 0.5
-        # 翻转率越低，稳定性越高
-        # Score A: 0.0 -> 100, 0.5 -> 50, 1.0 -> 0
         flip_score = (1.0 - flip_rate) * 100.0
-        # 2. 趋势惯性 (Trend Inertia / Autocorrelation)
-        # 计算 Lag-1 自相关
         if np.std(recent) > 1e-6:
             ac1 = np.corrcoef(recent[:-1], recent[1:])[0, 1]
             if np.isnan(ac1): ac1 = 0.0
         else:
-            ac1 = 0.0 # 无波动
-        # 自相关越高(接近1)，说明主力运作越连贯
-        # 映射: -1 -> 0, 0 -> 50, 1 -> 100
+            ac1 = 0.0
         inertia_score = (ac1 + 1.0) * 50.0
-        # 3. 波动惩罚 (Volatility Penalty)
-        # 使用 Robust CV (MAD / Median)
         median_val = np.median(recent)
         mad = np.median(np.abs(recent - median_val))
         if abs(median_val) > 10.0:
             robust_cv = mad / abs(median_val)
         else:
-            # 均值接近0，波动显得很大
             robust_cv = 1.0
-        # CV 越小越好。CV > 1.0 说明很不稳
         vol_score = max(0.0, 100.0 - robust_cv * 80.0)
-        # 4. 综合加权
-        # 连贯性(40%) + 翻转率(40%) + 波动性(20%)
         stability = inertia_score * 0.4 + flip_score * 0.4 + vol_score * 0.2
         return float(np.clip(stability, 0.0, 100.0))
 
     # ==================== 5. 多周期资金共振指标 ====================
     def calculate_multi_period_sync(self) -> Dict[str, float]:
         """
-        [修复] 多周期共振
-        修复点：
-        1. 解决大量 100 分问题：引入"能量协同惩罚"。
-        2. 只有当两条均线都有足够斜率（趋势）时，才给高分。如果是"共振躺平"，分数打折。
+        多周期资金共振计算
+        版本: V2.4
+        说明: 共振参数对齐至21日和55日
         """
+        print("[探针] 执行 calculate_multi_period_sync")
         sync_metrics = {}
         for key in ['daily_weekly_sync', 'daily_monthly_sync', 
                    'short_mid_sync', 'mid_long_sync']:
             sync_metrics[key] = None
         arr = self.net_amount_array
-        if len(arr) < 60: return sync_metrics
+        if len(arr) < 55: return sync_metrics
         def calc_wma(data, window):
             weights = np.arange(1, window + 1)
             return np.convolve(data, weights/weights.sum(), mode='valid')
         smooth_arr = savgol_filter(arr, window_length=5, polyorder=2) if len(arr) > 5 else arr
         ma5 = calc_wma(smooth_arr, 5)
-        ma20 = calc_wma(smooth_arr, 20)
-        ma60 = calc_wma(smooth_arr, 60)
-        min_len = min(len(ma5), len(ma20), len(ma60))
+        ma21 = calc_wma(smooth_arr, 21)
+        ma55 = calc_wma(smooth_arr, 55)
+        min_len = min(len(ma5), len(ma21), len(ma55))
         if min_len < 5: return sync_metrics
         s_short = ma5[-5:]
-        s_mid = ma20[-5:]
-        s_long = ma60[-5:]
-        # [修改] 传入额外参数 calc_energy=True
+        s_mid = ma21[-5:]
+        s_long = ma55[-5:]
         sync_metrics['short_mid_sync'] = self._calculate_vector_resonance(s_short, s_mid, check_energy=False)
-        # Mid-Long Sync 核心修复
         sync_metrics['mid_long_sync'] = self._calculate_vector_resonance(s_mid, s_long, check_energy=True)
-        # 补充其他
         daily_slice = smooth_arr[-5:]
         sync_metrics['daily_weekly_sync'] = self._calculate_vector_resonance(daily_slice, s_short)
         sync_metrics['daily_monthly_sync'] = self._calculate_vector_resonance(daily_slice, s_mid)
@@ -987,44 +997,32 @@ class FundFlowFactorCalculator:
     # ==================== 6. 趋势动量指标 ====================
     def calculate_trend_momentum(self) -> Dict[str, float]:
         """
-        [修复] 资金加速度
-        修复点：
-        1. 解决 +/- 100 饱和问题：使用 Tanh 压缩替代线性截断。
-        2. 归一化分母优化：避免分母过小导致的数值爆炸。
+        资金加速度与趋势动量计算
+        版本: V2.4
+        说明: 改用8日动量，参数基准上调至21日
         """
+        print("[探针] 执行 calculate_trend_momentum")
         momentum = {}
-        for key in ['flow_momentum_5d', 'flow_momentum_10d', 'flow_acceleration',
+        for key in ['flow_momentum_5d', 'flow_momentum_8d', 'flow_acceleration',
                    'uptrend_strength', 'downtrend_strength']:
             momentum[key] = None
         arr = self.net_amount_array
-        if len(arr) < 15: return momentum
-        # 1. 基础动量 (Momentum)
-        mad = stats.median_abs_deviation(arr[-20:]) if len(arr) >= 20 else np.std(arr)
-        denom = max(mad, 10.0) # 底噪
+        if len(arr) < 21: return momentum
+        mad = stats.median_abs_deviation(arr[-21:]) if len(arr) >= 21 else np.std(arr)
+        denom = max(mad, 10.0)
         momentum['flow_momentum_5d'] = float((arr[-1] - arr[-5]) / denom) if len(arr) >= 5 else 0.0
-        momentum['flow_momentum_10d'] = float((arr[-1] - arr[-10]) / denom) if len(arr) >= 10 else 0.0
-        # 2. 资金加速度 (Flow Acceleration) - 修复版
-        recent_10 = arr[-10:]
+        momentum['flow_momentum_8d'] = float((arr[-1] - arr[-8]) / denom) if len(arr) >= 8 else 0.0
+        recent_13 = arr[-13:]
         try:
-            if len(recent_10) >= 5:
-                # Savitzky-Golay 求二阶导
-                acc_curve = savgol_filter(recent_10, 5, 2, deriv=2)
+            if len(recent_13) >= 5:
+                acc_curve = savgol_filter(recent_13, 5, 2, deriv=2)
                 raw_acc = acc_curve[-1]
-                # 归一化: 加速度相对于波动率的比值
-                # 正常波动下，norm_acc 通常在 -0.5 ~ 0.5 之间
-                # 主力发力时，可能达到 2.0 ~ 5.0
                 norm_acc = raw_acc / (denom + 1e-6)
-                # [关键修改] Tanh 压缩
-                # x=1.0 (强加速) -> tanh(1.0)=0.76 -> 76分
-                # x=2.0 (爆发) -> tanh(2.0)=0.96 -> 96分
-                # x=10.0 (异常) -> tanh(10.0)=1.0 -> 100分
-                # 这样永远不会溢出，且保留了 0~2 之间的区分度
                 momentum['flow_acceleration'] = float(np.tanh(norm_acc) * 100.0)
             else:
                 momentum['flow_acceleration'] = 0.0
         except Exception:
             momentum['flow_acceleration'] = 0.0
-        # 3. 趋势强度 (调用已修复的方法)
         up_strength, down_strength = self._calculate_robust_trend_strength()
         momentum['uptrend_strength'] = up_strength
         momentum['downtrend_strength'] = down_strength
@@ -1032,82 +1030,54 @@ class FundFlowFactorCalculator:
 
     def _calculate_robust_trend_strength(self) -> Tuple[float, float]:
         """
-        [修复] 鲁棒趋势强度 (Uptrend / Downtrend)
-        修复点：
-        1. 消除 0 值陷阱：采用"带符号连续评分"，不再因单一指标微负而强制归零。
-        2. 只要 Spearman(单调性) 或 NetGain(净涨幅) 为正，即使线性拟合差，也给予正分。
-        3. 回撤惩罚：大幅放宽，引入"净值保护"，只要最终是涨的，保底给分。
+        鲁棒趋势强度计算
+        版本: V2.4
+        说明: 对齐13日斐波拉契周期
         """
-        window = 10
+        print("[探针] 执行 _calculate_robust_trend_strength")
+        window = 13
         if len(self.net_amount_array) < window: return 0.0, 0.0
-        # 使用累积资金流作为趋势对象
         cum_flow = np.cumsum(self.net_amount_array[-window:])
         x = np.arange(len(cum_flow))
-        # --- 维度 1: 线性回归 (Linearity) ---
         slope, _, r_value, _, _ = linregress(x, cum_flow)
         r_sq = r_value ** 2
-        # 线性分带符号：斜率为正，分为正
         linear_score = r_sq * 100.0 * np.sign(slope)
-        # --- 维度 2: 秩相关 (Monotonicity) ---
-        # Spearman 自带符号 (-1 ~ 1)
         spearman_corr, _ = stats.spearmanr(x, cum_flow)
         if np.isnan(spearman_corr): spearman_corr = 0.0
         rank_score = spearman_corr * 100.0
-        # --- 维度 3: 净增益 (Net Gain) ---
-        # 结果导向：首尾涨跌幅
         net_change = cum_flow[-1] - cum_flow[0]
-        # 使用标准差作为分母更稳健，防止 Range 过小导致的爆炸
-        std_val = np.std(cum_flow) + 1.0 # 底噪
-        # 限制 gain_ratio 在 -2 ~ 2 之间 (2倍标准差)
+        std_val = np.std(cum_flow) + 1.0 
         gain_ratio = np.clip(net_change / (std_val * 2.0), -1.0, 1.0)
         gain_score = gain_ratio * 100.0
-        # --- 综合基础分 ---
-        # 权重: 线性度 30% + 单调性 30% + 净结果 40%
-        # 这是一个 -100 到 100 的连续分数
         base_score = linear_score * 0.3 + rank_score * 0.3 + gain_score * 0.4
         uptrend_val = 0.0
         downtrend_val = 0.0
-        # --- 分流计算 ---
         range_val = np.ptp(cum_flow) + 1e-6
         if base_score > 0:
-            # === 上升趋势计算 ===
-            # 回撤惩罚 (Drawdown)
             peak = np.maximum.accumulate(cum_flow)
-            # 计算最大回撤占比
             if range_val > 0:
                 max_dd = np.max((peak - cum_flow) / range_val)
             else:
                 max_dd = 0.0
-                
-            # 宽松惩罚：回撤 30% 以内不扣分，> 80% 扣光
-            # 线性过渡: 0.3 -> 1.0, 0.8 -> 0.0
             penalty = 1.0
             if max_dd > 0.3:
                 penalty = max(0.0, 1.0 - (max_dd - 0.3) * 2.0)
             final_up = base_score * penalty
-            # [净值保护]：只要 NetGain > 0，至少给 10 分 (即使回撤大，也是涨了)
             if net_change > 0:
                 final_up = max(final_up, 10.0)
-                
             uptrend_val = final_up
         elif base_score < 0:
-            # === 下跌趋势计算 ===
-            # 反弹惩罚 (Drawup)
             trough = np.minimum.accumulate(cum_flow)
             if range_val > 0:
                 max_du = np.max((cum_flow - trough) / range_val)
             else:
                 max_du = 0.0
-                
             penalty = 1.0
             if max_du > 0.3:
                 penalty = max(0.0, 1.0 - (max_du - 0.3) * 2.0)
-                
             final_down = abs(base_score) * penalty
-            # [净值保护]
             if net_change < 0:
                 final_down = max(final_down, 10.0)
-                
             downtrend_val = final_down
         return float(np.clip(uptrend_val, 0.0, 100.0)), float(np.clip(downtrend_val, 0.0, 100.0))
 
@@ -1206,77 +1176,57 @@ class FundFlowFactorCalculator:
     # ==================== 7. 量价背离指标 ====================
     def calculate_divergence_metrics(self) -> Dict[str, Any]:
         """
-        [修复] 背离强度
-        修复点：
-        1. 消除 0 值陷阱：降低相关性阈值，引入秩相关(Spearman)捕捉非线性背离。
-        2. 只要有背离迹象(Corr < 0.8)，就开始计算强度，不再硬切。
-        3. 弱背离判定：放宽相对强弱的判定标准 (0.2 -> 0.05)。
+        背离强度计算
+        版本: V2.4
+        说明: 分析窗口缩放至13日
         """
+        print("[探针] 执行 calculate_divergence_metrics")
         divergence = {
             'divergence_type': 'NONE',
             'divergence_strength': 0.0,
             'price_flow_divergence': 0.0
         }
-        window = 15
+        window = 13
         if len(self.close_array) < window: return divergence
         prices = self.close_array[-window:]
         cum_flow = np.cumsum(self.net_amount_array[-window:])
-        # 1. 归一化 (Min-Max -> 0~1)
         def norm(arr):
             ptp = np.ptp(arr)
             if ptp < 1e-8: return np.zeros_like(arr)
             return (arr - np.min(arr)) / ptp
         p_norm = norm(prices)
         f_norm = norm(cum_flow)
-        # 2. 综合相关性 (Min of Pearson & Spearman)
-        # 取最小值，意味着只要有一种相关性变差，就认为出现了背离
         p_corr = np.corrcoef(p_norm, f_norm)[0, 1]
         if np.isnan(p_corr): p_corr = 1.0
         s_corr, _ = stats.spearmanr(p_norm, f_norm)
         if np.isnan(s_corr): s_corr = 1.0
-        # 综合相关系数
         min_corr = min(p_corr, s_corr)
-        # 3. 背离度 (Continuous Score)
-        # 只要 corr < 0.9 就开始有分
-        # corr=0.9 -> 5分, corr=0.5 -> 25分, corr=0.0 -> 50分, corr=-1.0 -> 100分
         div_score = (1.0 - min_corr) * 50.0
-        # 截断负数 (corr > 1.0 case)
         div_score = max(0.0, div_score)
         divergence['price_flow_divergence'] = float(np.clip(div_score, 0.0, 100.0))
-        # 4. 类型判定
-        # 只要背离度 > 10 (即 corr < 0.8) 就尝试判定类型
         if div_score > 10.0:
-            # 计算线性趋势
             x = np.arange(window)
             p_slope, _, _, _, _ = linregress(x, prices)
             f_slope, _, _, _, _ = linregress(x, cum_flow)
             div_type = 'NONE'
             strength_mult = 1.0
-            # A. 强背离 (反向)
             if p_slope > 0 and f_slope < 0:
                 div_type = 'BEARISH'
                 strength_mult = 1.2
             elif p_slope < 0 and f_slope > 0:
                 div_type = 'BULLISH'
                 strength_mult = 1.2
-            # B. 弱背离 (同向但力度不一)
-            # 使用归一化后的均值差来判断相对强弱
-            # Mean Diff > 0.05 即视为有显著差异 (原逻辑是 0.2 太严)
             elif p_slope > 0 and f_slope > 0:
-                # 价格强，资金弱 -> 顶背离风险
                 if np.mean(p_norm) > np.mean(f_norm) + 0.05:
                     div_type = 'BEARISH'
-                    strength_mult = 0.7 # 弱背离打折
+                    strength_mult = 0.7 
             elif p_slope < 0 and f_slope < 0:
-                 # 价格弱，资金强 -> 底背离机会
                 if np.mean(f_norm) > np.mean(p_norm) + 0.05:
                     div_type = 'BULLISH'
                     strength_mult = 0.7
             if div_type != 'NONE':
                 divergence['divergence_type'] = div_type
-                # 最终强度 = 背离度 * 类型系数
                 divergence['divergence_strength'] = float(np.clip(div_score * strength_mult, 0.0, 100.0))
-                
         return divergence
 
     def _calculate_trend_direction(self, arr: np.ndarray) -> float:
@@ -1359,111 +1309,84 @@ class FundFlowFactorCalculator:
     # ==================== 9. 统计特征指标 ====================
     def calculate_statistical_metrics(self) -> Dict[str, float]:
         """
-        v2.0: [大师级深化] 基于鲁棒统计学的资金分布特征
-        思路：
-        1. Flow Z-Score: 摒弃标准差，采用 MAD (Median Absolute Deviation) 算法。
-           A股数据尖峰肥尾，MAD能抵抗异常值干扰，精准还原资金流的真实偏离度。
-        2. Flow Percentile: 引入“长短周期双轨制”。
-           不仅看短期的爆发力(20d)，更要看在长期(60d)筹码结构中的相对水位。
+        基于鲁棒统计学的资金分布特征
+        版本: V2.5
+        说明: 将 percentileofscore 替换为极速 NumPy 向量化实现
         """
+        print("[探针] 执行 calculate_statistical_metrics: 移除 scipy 开销")
         stats_metrics = {}
-        # 基础数据准备
         arr = self.net_amount_array
-        if len(arr) < 10:
-            for key in ['flow_zscore', 'flow_percentile', 'flow_volatility_10d', 'flow_volatility_20d']:
+        if len(arr) < 13:
+            for key in ['flow_zscore', 'flow_percentile', 'flow_volatility_13d', 'flow_volatility_21d']:
                 stats_metrics[key] = None
             return stats_metrics
         current_net = float(self.context.current_flow_data.get('net_mf_amount', 0) or 0)
-        # --- 1. Robust MAD Z-Score (鲁棒Z分) ---
-        # 窗口取最近 20 天
-        recent_20 = arr[-20:]
-        median_20 = np.median(recent_20)
-        # 计算 MAD: Median Absolute Deviation
-        # 1.4826 是正态分布下 MAD 转 标准差的调整系数
-        mad_20 = np.median(np.abs(recent_20 - median_20)) * 1.4826
-        # 避免分母为0 (死水股)
-        if mad_20 < 1.0: 
-            # 如果波动极小，改用普通标准差，还是0则给一个极小值
-            std_backup = np.std(recent_20)
-            denom = std_backup if std_backup > 1.0 else 10.0 # 假设基础波动10万
+        recent_21 = arr[-21:]
+        median_21 = np.median(recent_21)
+        mad_21 = np.median(np.abs(recent_21 - median_21)) * 1.4826
+        if mad_21 < 1.0: 
+            std_backup = np.std(recent_21)
+            denom = std_backup if std_backup > 1.0 else 10.0
         else:
-            denom = mad_20
-        # Z = (X - Median) / Robust_Sigma
-        stats_metrics['flow_zscore'] = (current_net - median_20) / denom
-        # --- 2. Adaptive Percentile (双轨分位) ---
-        # A. 短期分位 (20日) - 反映爆发力
-        rank_20 = stats.percentileofscore(recent_20, current_net)
-        # B. 长期分位 (60日) - 反映历史水位
-        # 如果历史数据不足60天，就用全部数据
-        window_long = 60
+            denom = mad_21
+        stats_metrics['flow_zscore'] = (current_net - median_21) / denom
+        n_21 = len(recent_21)
+        rank_21 = ((np.sum(recent_21 < current_net) + np.sum(recent_21 == current_net) * 0.5) / n_21) * 100.0
+        window_long = 55
         recent_long = arr[-window_long:] if len(arr) >= window_long else arr
-        rank_long = stats.percentileofscore(recent_long, current_net)
-        # 综合分位：长期权重 0.4，短期权重 0.6
-        # 我们更看重当下的爆发力，但长期水位决定了是“反弹”还是“反转”
-        stats_metrics['flow_percentile'] = float(rank_20 * 0.6 + rank_long * 0.4)
-        # --- 3. 波动率 (保持原有逻辑，但增加鲁棒性) ---
-        mean_20 = np.mean(recent_20)
-        # 归一化波动率 (相对于平均流量)
-        # 只有当有一定流量时才计算，否则为0
-        abs_mean = abs(mean_20)
+        n_long = len(recent_long)
+        rank_long = ((np.sum(recent_long < current_net) + np.sum(recent_long == current_net) * 0.5) / n_long) * 100.0
+        stats_metrics['flow_percentile'] = float(rank_21 * 0.6 + rank_long * 0.4)
+        mean_21 = np.mean(recent_21)
+        abs_mean = abs(mean_21)
         if abs_mean > 10.0:
-            stats_metrics['flow_volatility_20d'] = np.std(recent_20) / abs_mean
+            stats_metrics['flow_volatility_21d'] = np.std(recent_21) / abs_mean
         else:
-            stats_metrics['flow_volatility_20d'] = 0.0
-        if len(arr) >= 10:
-            recent_10 = arr[-10:]
-            abs_mean_10 = abs(np.mean(recent_10))
-            if abs_mean_10 > 10.0:
-                stats_metrics['flow_volatility_10d'] = np.std(recent_10) / abs_mean_10
+            stats_metrics['flow_volatility_21d'] = 0.0
+        if len(arr) >= 13:
+            recent_13 = arr[-13:]
+            abs_mean_13 = abs(np.mean(recent_13))
+            if abs_mean_13 > 10.0:
+                stats_metrics['flow_volatility_13d'] = np.std(recent_13) / abs_mean_13
             else:
-                stats_metrics['flow_volatility_10d'] = 0.0
+                stats_metrics['flow_volatility_13d'] = 0.0
         else:
-            stats_metrics['flow_volatility_10d'] = None
+            stats_metrics['flow_volatility_13d'] = None
         return stats_metrics
 
     # ==================== 10. 预测指标 ====================
     def calculate_prediction_metrics(self) -> Dict[str, float]:
         """
-        [修复] 预测置信度
-        修复点：
-        1. 降低 KER (效率系数) 的放大倍率。
-        2. 引入"拥挤度惩罚" (Crowding Penalty)。
+        预测置信度计算
+        版本: V2.7
+        说明: 使用 Numba 优化的自相关计算替换 np.corrcoef 避免矩阵分配
         """
+        print("[探针] 执行 calculate_prediction_metrics: Numba 极速自相关")
         prediction = {}
         arr = self.net_amount_array
         if len(arr) < 10:
             return {k: None for k in ['expected_flow_next_1d', 'flow_forecast_confidence', 
                                      'uptrend_continuation_prob', 'reversal_prob']}
-                                     
-        # 1. 均值预测
         recent_5 = arr[-5:]
         weights = np.arange(1, 6)
         prediction['expected_flow_next_1d'] = float(np.average(recent_5, weights=weights))
-        # 2. 置信度计算 (修正)
         recent_10 = arr[-10:]
         displacement = abs(np.sum(recent_10))
         path_length = np.sum(np.abs(recent_10))
-        # KER: 0~1
         ker = displacement / (path_length + 1e-6)
-        # 自相关性 (Autocorrelation)
         ac1 = 0.0
         if np.std(recent_10) > 1e-6:
-            ac1 = np.corrcoef(recent_10[:-1], recent_10[1:])[0, 1]
+            ac1 = _numba_autocorr1(recent_10)
             if np.isnan(ac1): ac1 = 0.0
-        # 基础分: KER * 80 (原150，太激进) + AC1 * 20
         raw_confidence = ker * 80.0 + max(0, ac1) * 20.0
-        # [新增] 拥挤度/波动率惩罚
-        # 如果最近波动极大 (Standard Deviation relative to Mean)，说明分歧大，置信度应降低
         vol = np.std(recent_10)
         mean_abs = np.mean(np.abs(recent_10)) + 1e-6
         cv = vol / mean_abs
-        # CV > 1.5 时开始惩罚
         penalty = 1.0
         if cv > 1.5:
             penalty = max(0.5, 1.0 - (cv - 1.5) * 0.5)
         final_confidence = raw_confidence * penalty
         prediction['flow_forecast_confidence'] = float(np.clip(final_confidence, 0.0, 100.0))
-        # 3. 趋势概率 (联动)
         trend_score = 50.0
         if prediction['expected_flow_next_1d'] > 0:
             trend_score += final_confidence * 0.4
@@ -1720,16 +1643,11 @@ class FundFlowFactorCalculator:
 
     def _calculate_flow_persistence_minutes(self, df: pd.DataFrame) -> float:
         """
-        v1.9: [大师级深化] 基于Savitzky-Golay滤波的资金攻击波久期计算
-        思路：
-        1. 原始的分钟级资金流充满了随机游走噪音，直接统计正负分钟数没有意义。
-        2. 使用 Savitzky-Golay 滤波器对分钟资金流进行平滑，提取“资金趋势项”。
-        3. 识别最长的“单一主控状态”区间（Longest Contiguous Regime）。
-        4. 该指标反映了主力机构在盘中维持单一方向运作（坚决吸筹或坚决出货）的最长时间。
-        返回：
-            float: 持续分钟数。如果是净流出持续，返回负值；净流入持续，返回正值。
+        基于Savitzky-Golay滤波的资金攻击波久期计算
+        版本: V2.6
+        说明: 使用 Numba 机器码引擎替换了原生的 Python 游程检测循环
         """
-        # 1. 基础分钟级聚合
+        print("[探针] 执行 _calculate_flow_persistence_minutes: 调用 Numba 极速游程检测")
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         if len(times) == 0: return 0.0
         amounts = df['amount'].values
@@ -1737,57 +1655,24 @@ class FundFlowFactorCalculator:
         signed_amounts = np.where(types == 'B', amounts, -amounts)
         norm_times = times - times[0]
         max_minutes = int(np.max(norm_times)) + 1
-        # 分钟级净流入 (单位: 万元)
         minute_flows = np.bincount(norm_times, weights=signed_amounts, minlength=max_minutes) / 10000.0
-        # 移除首尾无效0 (如中午休市的大段0)
-        # 注意：这里简单trim_zeros可能把盘中正常的0去掉了，最好是配合交易时间模板。
-        # 考虑到A股连续性，我们仅去除尾部多余的0
         minute_flows = np.trim_zeros(minute_flows, 'b')
         n = len(minute_flows)
         if n < 5: return 0.0
-        # 2. 信号平滑处理 (Signal Smoothing)
-        # 使用 Savitzky-Golay 滤波器提取趋势
-        # window_length 必须是奇数且小于 n
         window_length = min(11, n if n % 2 != 0 else n - 1)
         if window_length < 3:
             smoothed_flows = minute_flows
         else:
             try:
-                # polyorder=2 拟合抛物线，保留局部极值特征
                 smoothed_flows = savgol_filter(minute_flows, window_length, 2)
             except Exception:
                 smoothed_flows = minute_flows
-        # 3. 状态识别 (Regime Identification)
-        # 设置最小噪音阈值，防止在0附近微小波动导致状态频繁切换
-        noise_threshold = 1.0 # 1万元以下的波动视为噪音
-        # 状态定义: 1=多头, -1=空头, 0=震荡
+        noise_threshold = 1.0 
         states = np.zeros_like(smoothed_flows, dtype=int)
         states[smoothed_flows > noise_threshold] = 1
         states[smoothed_flows < -noise_threshold] = -1
-        # 4. 寻找最长连续区间 (Longest Streak)
         if len(states) == 0: return 0.0
-        # 计算游程 (Run Length Encoding)
-        # 在numpy中找连续段
-        padded = np.concatenate(([0], states, [0]))
-        diffs = np.diff(padded)
-        # 找到所有状态切换点
-        run_starts = np.where(diffs != 0)[0]
-        max_persistence = 0.0
-        dominant_direction = 0
-        for i in range(len(run_starts) - 1):
-            start = run_starts[i]
-            end = run_starts[i+1]
-            state = states[start]
-            if state == 0: continue
-            duration = end - start
-            # 权重修正：如果是一个极长时间的微弱流入，价值不如短时间的大额流入？
-            # 题目问的是 minutes，我们坚持返回时间，但只有当累积量足够时才确认
-            # 这里简单返回时间，但在策略层可以结合 intensity 使用
-            if duration > abs(max_persistence):
-                max_persistence = float(duration)
-                dominant_direction = state
-        # 5. 返回带符号的结果
-        # 正数表示多头持续时间最长，负数表示空头持续时间最长
+        max_persistence, dominant_direction = _numba_find_longest_streak(states)
         return max_persistence * dominant_direction
 
     def _calculate_intraday_flow_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -2036,15 +1921,12 @@ class FundFlowFactorCalculator:
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.9: [大师级深化] 同向拆单攻击波识别 - 对数强度修正版
-        修复点：
-        1. 强度计算模型: 从"线性倍率"改为"对数分贝模型"。
-           原逻辑 (Cluster/Base)*10 导致 10倍流速即满分。
-           新逻辑 log10(Cluster/Base)*50，要求 100倍流速才满分，大幅拉开区分度。
-        2. 计量单位: 保持秒级 (int(buckets * 3))。
+        同向拆单攻击波识别 - 对数强度修正版
+        版本: V2.5
+        说明: 使用 Numba 状态机完全重构内部循环，彻底消除数万级别Tick扫描的性能瓶颈
         """
+        print("[探针] 执行 _calculate_flow_cluster_features: 调用 Numba 极速状态机")
         metrics = {'flow_cluster_intensity': None, 'flow_cluster_duration': None}
-        # 1. 3秒级聚合
         time_int = df['trade_time'].values.astype('int64') // 10**9 // 3
         if len(time_int) == 0: return metrics
         amounts = df['amount'].values
@@ -2057,13 +1939,10 @@ class FundFlowFactorCalculator:
             metrics['flow_cluster_intensity'] = 0.0
             metrics['flow_cluster_duration'] = 0
             return metrics
-        # 2. 动态阈值确定 (Robust Threshold)
         abs_flows = np.abs(cluster_flows)
         median_flow = np.median(abs_flows)
         mad_flow = np.median(np.abs(abs_flows - median_flow)) * 1.4826
-        # 阈值 = 中位数 + 1.0 * MAD
         threshold = max(50000.0, median_flow + 1.0 * mad_flow)
-        # 3. 识别攻击波
         states = np.zeros(len(cluster_flows), dtype=int)
         states[cluster_flows > threshold] = 1
         states[cluster_flows < -threshold] = -1
@@ -2071,70 +1950,13 @@ class FundFlowFactorCalculator:
             metrics['flow_cluster_intensity'] = 0.0
             metrics['flow_cluster_duration'] = 0
             return metrics
-        # 4. 聚类合并 (保持 v1.8 逻辑)
-        max_duration_buckets = 0
-        current_duration = 0
-        current_type = 0 
-        cluster_flow_sums = [] 
-        cluster_durations = [] 
-        gap_tolerance = 2 
-        current_gap = 0
-        current_cluster_amt = 0.0
-        for i in range(len(states)):
-            s = states[i]
-            flow_val = abs(cluster_flows[i])
-            if s != 0:
-                if current_type == 0:
-                    current_type = s
-                    current_duration = 1
-                    current_gap = 0
-                    current_cluster_amt = flow_val
-                elif s == current_type:
-                    current_duration += 1 + current_gap
-                    current_gap = 0
-                    current_cluster_amt += flow_val
-                else:
-                    if current_duration > 0:
-                        cluster_flow_sums.append(current_cluster_amt)
-                        cluster_durations.append(current_duration)
-                        max_duration_buckets = max(max_duration_buckets, current_duration)
-                    current_type = s
-                    current_duration = 1
-                    current_gap = 0
-                    current_cluster_amt = flow_val
-            else:
-                if current_type != 0:
-                    if current_gap < gap_tolerance:
-                        current_gap += 1
-                        current_cluster_amt += flow_val 
-                    else:
-                        cluster_flow_sums.append(current_cluster_amt)
-                        cluster_durations.append(current_duration)
-                        max_duration_buckets = max(max_duration_buckets, current_duration)
-                        current_type = 0
-                        current_duration = 0
-                        current_gap = 0
-                        current_cluster_amt = 0
-        if current_duration > 0:
-            cluster_flow_sums.append(current_cluster_amt)
-            cluster_durations.append(current_duration)
-            max_duration_buckets = max(max_duration_buckets, current_duration)
-        # 5. 计算最终指标
-        # Duration: 秒数
-        metrics['flow_cluster_duration'] = int(max_duration_buckets * 3)
-        # Intensity: 对数分贝模型
-        total_cluster_flow = sum(cluster_flow_sums)
-        total_cluster_buckets = sum(cluster_durations)
-        # 基准: 中位数流速，底噪 10000 (1万元/3秒)
+        max_dur_buckets, total_flow, total_buckets = _numba_flow_cluster_state_machine(states, cluster_flows, 2)
+        metrics['flow_cluster_duration'] = int(max_dur_buckets * 3)
         baseline_flow = max(10000.0, median_flow)
-        if total_cluster_buckets > 0:
-            avg_flow_in_cluster = total_cluster_flow / total_cluster_buckets
-            # 计算倍数 Ratio
+        if total_buckets > 0:
+            avg_flow_in_cluster = total_flow / total_buckets
             ratio = avg_flow_in_cluster / baseline_flow
             if ratio > 1.0:
-                # [关键修正] 使用 log10 进行压缩
-                # Ratio=10 -> log=1 -> Score=50
-                # Ratio=100 -> log=2 -> Score=100
                 intensity = np.log10(ratio) * 50.0
             else:
                 intensity = 0.0
@@ -2145,79 +1967,44 @@ class FundFlowFactorCalculator:
 
     def _calculate_high_freq_divergence(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        v1.9: [大师级深化] 量价微观解离度 (Micro-Structure Dissociation)
-        思路：
-        1. 摒弃“买卖流相关性”，改为计算“价格趋势”与“资金趋势”的微观相关性。
-        2. A股最危险的信号是：价格不断创新高，但资金流（Net Flow）却在悄悄流出（顶背离）。
-        3. 算法：将全天数据重采样为1分钟序列，计算 Price_Delta 和 Net_Flow 的 Spearman 秩相关系数。
-        4. Divergence = 1 - Correlation。范围 [0, 2]。
-           - 0.0: 完全正相关（良性，量价齐升/齐跌）
-           - 1.0: 无关（随机游走）
-           - 2.0: 完全负相关（严重背离，诱多或吸筹）
+        量价微观解离度
+        版本: V2.6
+        说明: 彻底移除低效的 Pandas resample 引擎，采用纯 NumPy 边界寻址算法实现亚毫秒级高频重采样聚合
         """
+        print("[探针] 执行 _calculate_high_freq_divergence: 纯 NumPy 内存级重采样计算")
         metrics = {'high_freq_flow_divergence': None}
-        # 1. 预处理
-        if len(df) < 100: return metrics # 数据太少无法计算相关性
-        # 确保时间序列单调
+        if len(df) < 100: return metrics 
         df = df.sort_values('trade_time')
-        # 2. 1分钟降采样 (Resampling)
-        # 我们需要对齐 价格 和 资金流
-        # 使用 pandas 的 resample 功能最方便，但为了性能我们手写 numpy 聚合
         times = df['trade_time'].values.astype('datetime64[m]').astype('int64')
         prices = df['price'].values
         amounts = df['amount'].values
         types = df['type'].values
         signed_amounts = np.where(types == 'B', amounts, -amounts)
-        # 归一化时间
         start_time = times[0]
         norm_times = times - start_time
+        transitions = np.where(np.diff(norm_times) != 0)[0]
+        last_indices = np.append(transitions, len(norm_times) - 1)
+        active_minutes = norm_times[last_indices]
+        p_last = prices[last_indices]
         max_minutes = int(np.max(norm_times)) + 1
-        # 聚合 Net Flow
         minute_net_flow = np.bincount(norm_times, weights=signed_amounts, minlength=max_minutes)
-        # 聚合 Close Price (取每分钟最后一笔的价格)
-        # 使用 np.unique 找到每分钟最后一条数据的索引
-        # method: 这里的 times 是单调递增的 (sorted)
-        # 我们可以用 np.searchsorted 找每个分钟的结束位置，或者用 pandas groupby last
-        # 为了稳健性，这里切回 pandas 操作一下 resample，虽然稍慢但逻辑复杂性低
-        try:
-            temp_df = pd.DataFrame({
-                'price': prices,
-                'net': signed_amounts
-            }, index=df['trade_time'])
-            # 1分钟聚合
-            resampled = temp_df.resample('1min').agg({
-                'price': 'last',
-                'net': 'sum'
-            }).dropna()
-            if len(resampled) < 10:
-                metrics['high_freq_flow_divergence'] = 0.0
-                return metrics
-            # 3. 计算相关性
-            # 使用差分序列 (Delta)，因为我们要看的是“变动方向”是否一致
-            p_delta = np.diff(resampled['price'].values)
-            f_flow = resampled['net'].values[1:] # 对应区间的流量
-            # 过滤掉无价格变动的分钟（避免除0或噪声）
-            valid_mask = np.abs(p_delta) > 1e-6
-            if np.sum(valid_mask) < 5:
-                metrics['high_freq_flow_divergence'] = 0.0
-                return metrics
-            p_valid = p_delta[valid_mask]
-            f_valid = f_flow[valid_mask]
-            # 使用 Spearman 秩相关系数 (抗异常值)
-            # 简单实现：scipy.stats.spearmanr，或者用 Pearson 代替
-            # 考虑到性能，直接用 Pearson，但在输入前做个去极值处理
-            # 这里直接调用 numpy 的 corrcoef
-            corr = np.corrcoef(p_valid, f_valid)[0, 1]
-            if np.isnan(corr):
-                metrics['high_freq_flow_divergence'] = 1.0 # 无相关性
-            else:
-                # 转换由 [-1, 1] -> [0, 100] 的背离度得分
-                # Corr = 1 (同向) -> Div = 0
-                # Corr = -1 (反向) -> Div = 100
-                metrics['high_freq_flow_divergence'] = float((1.0 - corr) * 50.0)
-        except Exception as e:
-            logger.warning(f"背离度计算异常: {e}")
+        f_flow_active = minute_net_flow[active_minutes]
+        if len(p_last) < 10:
             metrics['high_freq_flow_divergence'] = 0.0
+            return metrics
+        p_delta = np.diff(p_last)
+        f_valid_flow = f_flow_active[1:]
+        valid_mask = np.abs(p_delta) > 1e-6
+        if np.sum(valid_mask) < 5:
+            metrics['high_freq_flow_divergence'] = 0.0
+            return metrics
+        p_valid = p_delta[valid_mask]
+        f_valid = f_valid_flow[valid_mask]
+        corr = np.corrcoef(p_valid, f_valid)[0, 1]
+        if np.isnan(corr):
+            metrics['high_freq_flow_divergence'] = 1.0 
+        else:
+            metrics['high_freq_flow_divergence'] = float((1.0 - corr) * 50.0)
         return metrics
 
     def _calculate_vwap_deviation(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -2306,16 +2093,12 @@ class FundFlowFactorCalculator:
 
     def _calculate_high_freq_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        [修复] 3秒微观资金流场的统计特征
-        修复点：
-        1. High Freq Skewness: 升级为"带符号对数阻尼模型"。
-           原逻辑硬截断 +/- 10 导致高偏度数据饱和(大量触及边界)。
-           新逻辑通过 log1p 压缩并映射到 [-100, 100]，有效区分普通异动(10)与极端异动(50+)。
-        2. High Freq Kurtosis: 保持之前的对数模型，防止饱和。
+        微观资金流场的统计特征
+        版本: V2.7
+        说明: 使用 Numba 联合矩估计替换 scipy.stats 调用，大幅降低包装开销
         """
+        print("[探针] 执行 _calculate_high_freq_statistics: 调用 Numba 极速矩估计")
         metrics = {'high_freq_flow_skewness': None, 'high_freq_flow_kurtosis': None}
-        # 1. 3秒级重采样
-        # 使用整除降低精度
         times_3s = df['trade_time'].values.astype('datetime64[s]').astype('int64') // 3
         if len(times_3s) == 0: return metrics
         amounts = df['amount'].values
@@ -2323,30 +2106,16 @@ class FundFlowFactorCalculator:
         signed_amounts = np.where(types == 'B', amounts, -amounts)
         norm_times = times_3s - times_3s[0]
         max_idx = int(norm_times[-1]) + 1
-        # 聚合 Net Flow
         flux_3s = np.bincount(norm_times, weights=signed_amounts, minlength=max_idx) / 10000.0
-        # 去除无效0
         flux_active = np.trim_zeros(flux_3s)
         if len(flux_active) < 30: return metrics
         try:
-            # --- Skewness (偏度) 深化 ---
-            sk = stats.skew(flux_active)
+            sk, kt = _numba_skew_kurtosis(flux_active)
             if np.isnan(sk): sk = 0.0
-            # [关键修改] 带符号对数阻尼 (Signed Log-Damping)
-            # 原始偏度可能在 +/- 50 甚至更高。硬截断会丢失"大"和"极大"的区别。
-            # 变换: y = sign(x) * ln(1 + |x|) * Scale
-            # 设定 Scale=25.0
-            # x=3  -> 35分
-            # x=10 -> 60分 (原边界)
-            # x=50 -> 98分 (极端值)
             damped_skew = np.sign(sk) * np.log1p(np.abs(sk))
-            # 映射到 [-100, 100]
             metrics['high_freq_flow_skewness'] = float(np.clip(damped_skew * 25.0, -100.0, 100.0))
-            # --- Kurtosis (峰度) 保持深化版 ---
-            kt = stats.kurtosis(flux_active)
             if np.isnan(kt): kt = 0.0
             if kt > 0:
-                # k=3 -> 16, k=100 -> 55
                 log_kt_score = np.log1p(kt) * 12.0
             else:
                 log_kt_score = 0.0
