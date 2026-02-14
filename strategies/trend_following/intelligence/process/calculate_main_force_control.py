@@ -195,7 +195,7 @@ class CalculateMainForceControlRelationship:
         1. 严格映射《最终军械库清单.txt》，移除不存在的列引用。
         2. 引入 Tick级数据、聪明钱数据、熵数据。
         3. 动力学预处理：计算 Tick流与资金流的加速度。
-        4. [新增] 填充全链路调试探针的源头数据。
+        4. [修复] 分离 Sentiment(情绪) 与 State(状态) 字典，并处理字段共用与缺失补全。
         """
         # --- 1. Market (基础行情) ---
         market_raw = {
@@ -206,98 +206,110 @@ class CalculateMainForceControlRelationship:
             "circ_mv": df['circ_mv_D'].replace(0, np.nan).astype(np.float32),
             "up_limit": df['up_limit_D'].astype(np.float32),
         }
+        
         # --- 2. Funds (核心资金 - 升级为 Tick/Smart/Large 矢量组) ---
-        # 关键升级：不再信任单一的 net_mf，而是提取 Tick 和 Smart Money
         funds_raw = {
             # 微观核动力 (Tick Level)
-            "tick_lg_net": df['tick_large_order_net_D'].astype(np.float32),  # Tick级大单净额
-            "tick_lg_count": df['tick_large_order_count_D'].astype(np.float32), # Tick级大单笔数
+            "tick_lg_net": df['tick_large_order_net_D'].astype(np.float32),
+            "tick_lg_count": df['tick_large_order_count_D'].astype(np.float32),
             # 机构/聪明钱 (Smart Money)
-            "smart_net_buy": df['SMART_MONEY_HM_NET_BUY_D'].astype(np.float32), # 鸿蒙聪明钱净买
-            "smart_attack": df['SMART_MONEY_HM_COORDINATED_ATTACK_D'].astype(np.float32), # 协同攻击信号
-            "inst_net_buy": df['SMART_MONEY_INST_NET_BUY_D'].astype(np.float32), # 机构净买
+            "smart_net_buy": df['SMART_MONEY_HM_NET_BUY_D'].astype(np.float32),
+            "smart_attack": df['SMART_MONEY_HM_COORDINATED_ATTACK_D'].astype(np.float32),
+            "inst_net_buy": df['SMART_MONEY_INST_NET_BUY_D'].astype(np.float32),
             # 传统资金流
-            "net_mf_calibrated": df['net_mf_amount_D'].astype(np.float32), # 基础净流
-            "buy_lg_amt": df['buy_lg_amount_D'].astype(np.float32), # 交易所大单买入
+            "net_mf_calibrated": df['net_mf_amount_D'].astype(np.float32),
+            "buy_lg_amt": df['buy_lg_amount_D'].astype(np.float32),
             # 资金特征
-            "flow_consistency": df['flow_consistency_D'].astype(np.float32), # 资金一致性
-            "flow_efficiency": df['flow_efficiency_D'].astype(np.float32),   # 资金推升效率
-            "stealth_flow": df['stealth_flow_ratio_D'].astype(np.float32),   # 隐形资金占比
-            # 预留槽位 (由HAB逻辑填充)
+            "flow_consistency": df['flow_consistency_D'].astype(np.float32),
+            "flow_efficiency": df['flow_efficiency_D'].astype(np.float32),
+            "stealth_flow": df['stealth_flow_ratio_D'].astype(np.float32),
+            # [新增] 聪明钱背离 (映射自 price_flow_divergence_D)
+            "smart_divergence": df['price_flow_divergence_D'].astype(np.float32),
+            # 预留槽位
             "hab_net_mf_21": None, "hab_net_mf_34": None
         }
-        # HAB 存量计算：基于 tick_lg_net 和 smart_net_buy 的加权合成流
-        # 逻辑：构建「真·主力存量」，而非散户混合存量
+        # HAB 存量计算
         composite_flow = (funds_raw["tick_lg_net"] * 0.5 + funds_raw["smart_net_buy"] * 0.3 + funds_raw["net_mf_calibrated"] * 0.2)
         funds_raw["hab_net_mf_21"] = composite_flow.rolling(window=21, min_periods=10).sum()
         funds_raw["hab_net_mf_34"] = composite_flow.rolling(window=34, min_periods=15).sum()
-        # --- 3. Structure (结构与熵 - 升级核心) ---
+
+        # --- 3. Structure (结构与熵) ---
         structure_raw = {
-            # 熵与分形 (V40 新增)
-            "chip_entropy": df['chip_entropy_D'].astype(np.float32), # 筹码熵 (判断混乱度)
-            "price_entropy": df['PRICE_ENTROPY_D'].astype(np.float32), # 价格熵
-            "fractal_dim": df['PRICE_FRACTAL_DIM_D'].astype(np.float32), # 分形维数
-            # 筹码状态
-            "chip_stability": df['chip_stability_D'].astype(np.float32), # 筹码稳定性
-            "concentration": df['chip_concentration_ratio_D'].astype(np.float32), # 集中度
-            "winner_rate": df['winner_rate_D'].astype(np.float32), # 获利比例
-            "profit_ratio": df['profit_ratio_D'].astype(np.float32), # 获利盘 (清单数据)
-            "pressure_trapped": df['pressure_trapped_D'].astype(np.float32), # 套牢盘 (清单数据)
-            "cost_5pct": df['cost_5pct_D'].astype(np.float32), # 底部成本
-            "avg_cost": df['weight_avg_cost_D'].astype(np.float32), # 均价
-            # 形态
+            "chip_entropy": df['chip_entropy_D'].astype(np.float32),
+            "price_entropy": df['PRICE_ENTROPY_D'].astype(np.float32),
+            "fractal_dim": df['PRICE_FRACTAL_DIM_D'].astype(np.float32),
+            "chip_stability": df['chip_stability_D'].astype(np.float32),
+            "concentration": df['chip_concentration_ratio_D'].astype(np.float32),
+            "winner_rate": df['winner_rate_D'].astype(np.float32),
+            "profit_ratio": df['profit_ratio_D'].astype(np.float32),
+            "pressure_trapped": df['pressure_trapped_D'].astype(np.float32),
+            "cost_5pct": df['cost_5pct_D'].astype(np.float32),
+            "avg_cost": df['weight_avg_cost_D'].astype(np.float32),
             "r2": df['GEOM_REG_R2_D'].astype(np.float32),
             "bias_55": df['BIAS_55_D'].astype(np.float32),
-            # 辅助
             "ma_coherence": df['MA_COHERENCE_RESONANCE_D'].astype(np.float32)
         }
-        # --- 4. Sentiment & State (情绪与状态) ---
-        sentiment_state = {
-            "vpa_efficiency": df['VPA_EFFICIENCY_D'].astype(np.float32), # VPA效能
-            "pushing_score": df['pushing_score_D'].astype(np.float32), # 推升评分
-            "shakeout_score": df['shakeout_score_D'].astype(np.float32), # 洗盘评分
-            "market_leader": df['STATE_MARKET_LEADER_D'].astype(np.float32), # 龙头状态
-            "golden_pit": df['STATE_GOLDEN_PIT_D'].astype(np.float32), # 黄金坑状态
+
+        # --- 4. Sentiment & State (情绪与状态 - 分离兼容) ---
+        # 提取公共状态变量
+        _market_leader = df['STATE_MARKET_LEADER_D'].astype(np.float32)
+        _golden_pit = df['STATE_GOLDEN_PIT_D'].astype(np.float32)
+        
+        # [Sentiment] 情绪字典：包含 leverage_model 所需的 market_leader/golden_pit
+        sentiment_raw = {
+            "vpa_efficiency": df['VPA_EFFICIENCY_D'].astype(np.float32),
+            "pushing_score": df['pushing_score_D'].astype(np.float32),
+            "shakeout_score": df['shakeout_score_D'].astype(np.float32),
             "turnover_stability": df['TURNOVER_STABILITY_INDEX_D'].astype(np.float32),
             "t0_buy_conf": df['intraday_accumulation_confidence_D'].astype(np.float32),
             "t0_sell_conf": df['intraday_distribution_confidence_D'].astype(np.float32),
             "industry_rank": df['industry_strength_rank_D'].astype(np.float32),
             "reversal_prob": df['reversal_prob_D'].astype(np.float32),
             "divergence_strength": df['divergence_strength_D'].astype(np.float32),
-            "turnover": df['turnover_rate_D'].astype(np.float32)
+            "turnover": df['turnover_rate_D'].astype(np.float32),
+            # [新增] ADX (fuse_control_scores 需要)
+            "adx_14": df['ADX_14_D'].astype(np.float32),
+            # [兼容] 冗余存储状态
+            "market_leader": _market_leader,
+            "golden_pit": _golden_pit
         }
+
+        # [State] 状态字典：包含 fuse_control_scores 所需的 golden_pit/breakout
+        state_raw = {
+            "market_leader": _market_leader,
+            "golden_pit": _golden_pit,
+            # [新增] 突破确认 (fuse_control_scores 需要)
+            "breakout_confirmed": df['STATE_BREAKOUT_CONFIRMED_D'].astype(np.float32)
+        }
+
         # --- 5. EMA System ---
         ema_system = {
             "ema_13": df['EMA_13_D'].astype(np.float32),
             "ema_55": df['EMA_55_D'].astype(np.float32),
         }
-        
-        # --- 探针输出与数据快照 ---
-        # 将原始数据填入黑匣子，供 debug_output 调用
+
+        # --- 探针输出 ---
         if _temp_debug_values is not None:
             _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {
                 "Close": market_raw['close'],
                 "Tick_Lg_Net": funds_raw['tick_lg_net'],
                 "Smart_Net_Buy": funds_raw['smart_net_buy'],
+                "Smart_Divergence": funds_raw['smart_divergence'],
                 "Chip_Entropy": structure_raw['chip_entropy'],
-                "Price_Entropy": structure_raw['price_entropy'],
-                "Flow_Consistency": funds_raw['flow_consistency'],
-                "HAB_Net_MF_21": funds_raw['hab_net_mf_21']
+                "ADX_14": sentiment_raw['adx_14'],
+                "Breakout_Confirmed": state_raw['breakout_confirmed']
             }
 
         if probe_ts:
             snap_tick = funds_raw['tick_lg_net'].loc[probe_ts] if probe_ts in funds_raw['tick_lg_net'].index else np.nan
-            snap_smart = funds_raw['smart_net_buy'].loc[probe_ts] if probe_ts in funds_raw['smart_net_buy'].index else np.nan
-            print(f"[探针] V40.0.0 物理总线挂载。探针日数据:")
-            print(f"      - Tick大单净额: {snap_tick:,.0f}")
-            print(f"      - SmartMoney净买: {snap_smart:,.0f}")
-            print(f"      - 复合HAB_21存量计算完成")
+            print(f"[探针] V40.0.0 物理总线挂载。State/Sentiment 双字典分离完成。")
 
         return {
             "market": market_raw,
             "funds": funds_raw,
             "structure": structure_raw,
-            "sentiment": sentiment_state,
+            "sentiment": sentiment_raw,
+            "state": state_raw, # [修复] 显式返回 state 字典
             "ema": ema_system
         }
 
