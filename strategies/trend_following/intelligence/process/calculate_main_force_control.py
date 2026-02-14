@@ -68,17 +68,14 @@ class CalculateMainForceControlRelationship:
         """
         method_name = "calculate_main_force_control_relationship"
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
-        
         # --- 0. 调试探针初始化 ---
         # _temp_debug_values 是全链路的“黑匣子”，所有子方法都会向其中写入关键中间变量
         _temp_debug_values = {} 
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
-        
         if probe_ts:
             print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V40.0.0 (熵减矢量版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-
         # --- 1. 物理层 (Physics Layer) ---
         # 职责：原料质检与状态挂载
         # V40升级：严苛模式，拒绝缺失关键物理量
@@ -86,45 +83,36 @@ class CalculateMainForceControlRelationship:
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
                 print(f"[熔断] {method_name}: 关键军械库信号缺失，策略强制终止。")
                 return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # 获取全量上下文 (Context)，此处已包含 HAB 存量、双熵(Entropy) 和 矢量合成预处理
         control_context = self._get_raw_control_signals(df, method_name, _temp_debug_values, probe_ts)
-
         # --- 2. 组件层 (Component Layer) ---
         # 职责：独立维度的深度计算
-        
         # 2.1 [传统控盘] (Traditional): 时空动力学与混沌博弈
         scores_traditional = self._calculate_traditional_control_score_components(
             control_context, df.index, _temp_debug_values
         )
         if scores_traditional.isnull().all():
              return pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # 2.2 [成本优势] (Cost Advantage): 熵减动力学与 HAB 护盾
         scores_cost_advantage = self._calculate_main_force_cost_advantage_score(
             control_context, df.index, _temp_debug_values
         )
-
         # 2.3 [净活动力] (Net Activity): 矢量合成与惯性阻尼
         scores_net_activity = self._calculate_main_force_net_activity_score(
             control_context, df.index, config, method_name, _temp_debug_values
         )
-
         # --- 3. 转换层 (Translation Layer) ---
         # 职责：将各维度的原始分转换统一量纲，准备进行融合
         # V40: 采用内联归一化逻辑，此处主要提取标准化后的流向与意图分供下游使用
         norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down = \
             self._normalize_components(df, control_context, scores_traditional, config, method_name, _temp_debug_values)
-
         # --- 4. 合成层 (Synthesis Layer) ---
         # 职责：结构融合与杠杆放大
-        
         # 4.1 [结构融合] (Fusion): 将 传统分、结构分 与 成本分 进行熵减融合
         # V40: 引入双熵博弈 (Price Entropy vs Chip Entropy)
         fused_control_score = self._fuse_control_scores(
             norm_traditional, norm_structural, control_context, _temp_debug_values
         )
-
         # 4.2 [风控杠杆] (Leverage): 计算当前状态允许放大的倍数 (0.0 ~ 12.0)
         # V40: 引入 HAB 风险记忆与动力学预警
         control_leverage = self._calculate_control_leverage_model(
@@ -140,7 +128,6 @@ class CalculateMainForceControlRelationship:
             context=control_context, 
             _temp_debug_values=_temp_debug_values
         )
-
         # --- 5. 决策层 (Decision Layer) ---
         # 职责：输出最终信号
         # 核心公式：最终得分 = 矢量净活动力(动力) * 熵减风控杠杆(结构)
@@ -148,12 +135,9 @@ class CalculateMainForceControlRelationship:
         # - 动力 (Activity) 是物理做功的基础。
         # - 杠杆 (Leverage) 是由 熵(Entropy) 和 结构(Structure) 决定的放大器。
         # - 高混乱度 (High Entropy) 会导致 Leverage -> 0，从而熔断 Activity。
-        
         raw_final_score = scores_net_activity * control_leverage
-        
         # 极值剪裁：限制在 [-1, 1] 区间
         final_control_score = raw_final_score.clip(-1, 1).astype(np.float32)
-
         # --- 6. 调试输出与收尾 ---
         _temp_debug_values["最终结果"] = {
             "Net_Activity (Vector)": scores_net_activity,
@@ -162,7 +146,6 @@ class CalculateMainForceControlRelationship:
             "Cost_Advantage": scores_cost_advantage,
             "Final_Score": final_control_score
         }
-
         # 如果探针激活，执行全链路打印
         if probe_ts:
             self._calculate_main_force_control_relationship_debug_output(
@@ -171,7 +154,6 @@ class CalculateMainForceControlRelationship:
                 method_name, 
                 probe_ts
             )
-            
         return final_control_score
 
     def _get_control_parameters(self, config: Dict) -> Tuple[Dict, Dict]:
@@ -206,7 +188,6 @@ class CalculateMainForceControlRelationship:
             "circ_mv": df['circ_mv_D'].replace(0, np.nan).astype(np.float32),
             "up_limit": df['up_limit_D'].astype(np.float32),
         }
-        
         # --- 2. Funds (核心资金 - 升级为 Tick/Smart/Large 矢量组) ---
         funds_raw = {
             # 微观核动力 (Tick Level)
@@ -232,7 +213,6 @@ class CalculateMainForceControlRelationship:
         composite_flow = (funds_raw["tick_lg_net"] * 0.5 + funds_raw["smart_net_buy"] * 0.3 + funds_raw["net_mf_calibrated"] * 0.2)
         funds_raw["hab_net_mf_21"] = composite_flow.rolling(window=21, min_periods=10).sum()
         funds_raw["hab_net_mf_34"] = composite_flow.rolling(window=34, min_periods=15).sum()
-
         # --- 3. Structure (结构与熵) ---
         structure_raw = {
             "chip_entropy": df['chip_entropy_D'].astype(np.float32),
@@ -249,12 +229,10 @@ class CalculateMainForceControlRelationship:
             "bias_55": df['BIAS_55_D'].astype(np.float32),
             "ma_coherence": df['MA_COHERENCE_RESONANCE_D'].astype(np.float32)
         }
-
         # --- 4. Sentiment & State (情绪与状态 - 分离兼容) ---
         # 提取公共状态变量
         _market_leader = df['STATE_MARKET_LEADER_D'].astype(np.float32)
         _golden_pit = df['STATE_GOLDEN_PIT_D'].astype(np.float32)
-        
         # [Sentiment] 情绪字典：包含 leverage_model 所需的 market_leader/golden_pit
         sentiment_raw = {
             "vpa_efficiency": df['VPA_EFFICIENCY_D'].astype(np.float32),
@@ -273,7 +251,6 @@ class CalculateMainForceControlRelationship:
             "market_leader": _market_leader,
             "golden_pit": _golden_pit
         }
-
         # [State] 状态字典：包含 fuse_control_scores 所需的 golden_pit/breakout
         state_raw = {
             "market_leader": _market_leader,
@@ -281,13 +258,11 @@ class CalculateMainForceControlRelationship:
             # [新增] 突破确认 (fuse_control_scores 需要)
             "breakout_confirmed": df['STATE_BREAKOUT_CONFIRMED_D'].astype(np.float32)
         }
-
         # --- 5. EMA System ---
         ema_system = {
             "ema_13": df['EMA_13_D'].astype(np.float32),
             "ema_55": df['EMA_55_D'].astype(np.float32),
         }
-
         # --- 探针输出 ---
         if _temp_debug_values is not None:
             _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {
@@ -299,11 +274,9 @@ class CalculateMainForceControlRelationship:
                 "ADX_14": sentiment_raw['adx_14'],
                 "Breakout_Confirmed": state_raw['breakout_confirmed']
             }
-
         if probe_ts:
             snap_tick = funds_raw['tick_lg_net'].loc[probe_ts] if probe_ts in funds_raw['tick_lg_net'].index else np.nan
             print(f"[探针] V40.0.0 物理总线挂载。State/Sentiment 双字典分离完成。")
-
         return {
             "market": market_raw,
             "funds": funds_raw,
@@ -407,13 +380,11 @@ class CalculateMainForceControlRelationship:
             # > 65% 为主力控盘舒适区，奖励显著增加
             # < 40% 为套牢区，给予负分
             return (2.0 / (1.0 + np.exp(-(s - 65.0) * 0.15))) - 1.0
-            
         def _tf_entropy(e):
             # 熵传递 (反向)：
             # 熵越低(有序)越好。Entropy < 70 为高度有序。
             # 假设 entropy 范围 0-100 (根据清单数据特性调整)
             return 1.0 / (1.0 + np.exp((e - 75.0) * 0.1)) 
-            
         def _tf_trapped_damping(t, shield):
             # 阻尼函数：
             # 套牢盘(t) 产生物理阻力，指数衰减。
@@ -487,7 +458,6 @@ class CalculateMainForceControlRelationship:
                 "Is_Jailbreak": is_jailbreak,
                 "Final_Cost_Score": final_score
             }
-            
         if is_jailbreak.any():
             print(f"[探针] 成本优势: 监测到 {is_jailbreak.sum()} 个点位触发【泥沼突围】模式，HAB护盾已激活。")
         return final_score.astype(np.float32)
@@ -537,7 +507,6 @@ class CalculateMainForceControlRelationship:
             # 计算均价 (避免除以零)
             vwma = (roll_amt / roll_vol.replace(0, np.nan))
             return vwma
-            
         # 计算核心成本线
         hab_cost_buy_21 = _calc_hab_vwma(daily_main_buy_amt, daily_main_buy_vol, 21).fillna(close)
         hab_cost_sell_21 = _calc_hab_vwma(daily_main_sell_amt, daily_main_sell_vol, 21).fillna(close)
@@ -608,7 +577,6 @@ class CalculateMainForceControlRelationship:
                 "Smart_Bias_Mean": smart_bias.mean(),
                 "Unit_Mismatch_Count": unit_mismatch.sum()
             }
-            
         return result
 
     def _calculate_main_force_net_activity_score(self, context: Dict, index: pd.Index, config: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
@@ -729,7 +697,6 @@ class CalculateMainForceControlRelationship:
                 "Eff_Multiplier": eff_multiplier,
                 "Final_Activity_Score": final_score
             }
-            
         return final_score.astype(np.float32)
 
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
@@ -847,7 +814,6 @@ class CalculateMainForceControlRelationship:
                 "Gap_Bonus": gap_bonus.mean(),
                 "Final_Trad_Score": final_score
             }
-            
         print(f"[探针] 传统控盘: 混沌归一化完成。平均熵修正系数: {entropy_scalar.mean():.2f} (高熵压制), 惯性保护触发点数: {(inertia_protection < 1.0).sum()}")
         return final_score.astype(np.float32)
 
@@ -968,7 +934,6 @@ class CalculateMainForceControlRelationship:
                 "Risk_Breaker_Active": (risk_breaker < 1.0).sum(),
                 "Final_Leverage": final_lev
             }
-            
         print(f"[探针] 风控杠杆: 熵减模型运行。HAB稳定态占比: {(is_structurally_stable).mean():.1%}, 风险熔断触发: {(risk_breaker < 0.5).sum()} 次")
         return final_lev
 
@@ -1082,7 +1047,6 @@ class CalculateMainForceControlRelationship:
         # 状态豁免：如果是黄金坑，忽略部分惩罚
         if is_golden_pit.any():
             raw_final = raw_final.mask(is_golden_pit & (raw_final < 0), raw_final * 0.5) # 负分减半
-            
         # 幂律扩张 (Power Law Expansion)
         # 增强区分度：两端极化
         expanded_final = np.sign(raw_final) * np.power(np.abs(raw_final), 1.5)
@@ -1100,12 +1064,10 @@ class CalculateMainForceControlRelationship:
                 "Smart_Gate": sm_gate,
                 "Final_Fused_Score": final_fused
             }
-            
         if (entropy_penalty < 0.6).sum() > 0:
             print(f"[探针] 结构融合: 监测到 { (entropy_penalty < 0.6).sum() } 个点位存在【伪有序】特征 (价格稳/筹码乱)，已执行熵减惩罚。")
         if (hab_shield > 0.8).sum() > 0:
             print(f"[探针] 结构融合: HAB护盾激活。主力高度锁仓，短期结构波动已被平滑。")
-            
         return final_fused
 
     def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
@@ -1121,12 +1083,10 @@ class CalculateMainForceControlRelationship:
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds'] # 获取资金上下文
-        
         # --- 1. 传统控盘分归一化 (Bipolar -1 to 1) ---
         # 逻辑：传统分包含乖离张力，分布较广。使用 Tanh(x/std) 保持中心敏感。
         std_trad = scores_traditional.std() if scores_traditional.std() > 0 else 1.0
         norm_traditional = np.tanh(scores_traditional / (std_trad * 1.5))
-
         # --- 2. 结构控盘分 MTF 计算 (Kinetic MTF Structure) ---
         # 逻辑：不依赖 helper，直接计算 chip_stability 的多周期斜率共振。
         stability = s_struct['chip_stability']
@@ -1138,23 +1098,19 @@ class CalculateMainForceControlRelationship:
         mtf_struct_raw = slope_5 * 0.5 + slope_13 * 0.3 + slope_21 * 0.2
         # 将变化率转化为 [-1, 1] 的控盘强度。0.01 的日均变化即为极强信号。
         norm_structural = np.tanh(mtf_struct_raw * 100.0)
-
         # --- 3. 辅助指标归一化 (Unipolar 0 to 1) ---
         # 流量一致性: 原始 0-100 -> [0, 1]
         # [修复] 修正引用路径，从 context['funds'] 中获取
         flow_consistency = f_funds.get('flow_consistency', pd.Series(50, index=df.index)).fillna(50)
         norm_flow = (flow_consistency / 100.0).clip(0, 1)
-
         # 意图信心分 (Sigmoid 强化): 0.5 为中性，强化两极
         def _intent_sigmoid(s: pd.Series):
             return 1.0 / (1.0 + np.exp(-10.0 * (s - 0.5)))
         norm_t0_buy = _intent_sigmoid(s_sent['t0_buy_conf'])
         norm_t0_sell = _intent_sigmoid(s_sent['t0_sell_conf'])
-
         # 脉冲强度 (Min-Max 缩放): 0.0-1.0
         norm_vwap_up = s_sent['pushing_score'].clip(0, 1)
         norm_vwap_down = s_sent['shakeout_score'].clip(0, 1)
-
         # --- 4. 转换层探针捕获 ---
         if _temp_debug_values is not None:
             _temp_debug_values["归一化处理"] = {
@@ -1163,7 +1119,6 @@ class CalculateMainForceControlRelationship:
                 "flow_consistency_norm": norm_flow,
                 "t0_buy_boost": norm_t0_buy
             }
-            
         print(f"[探针] 组件归一化自研逻辑执行完成。结构斜率均值: {mtf_struct_raw.mean():.6f}")
         return norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down
 

@@ -585,7 +585,6 @@ class CalculateMainForceRallyIntent:
             comb_inv = (raw['flow_21d'].values[i] * 0.6) + (raw['flow_55d'].values[i] * 0.4)
             hab_imm = np.clip(1.0 - (1.0 / (1.0 + np.exp(np.clip(comb_inv / 50000.0, -50.0, 50.0)))), 0.0, 0.9)
             eff_drag = drag[i] * (1.0 - hab_imm)
-            
             report = [
                 f"\n=== [PROBE V33.8] CalculateMainForceRallyIntent Full-Chain Audit @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【0. Raw Data Overview (全局底层核心数据快照)】",
