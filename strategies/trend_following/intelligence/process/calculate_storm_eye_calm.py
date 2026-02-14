@@ -237,7 +237,7 @@ class CalculateStormEyeCalm:
             'industry_preheat_score_D', 'industry_rank_accel_D', 'industry_strength_rank_D',
             'trend_confirmation_score_D', 'main_force_activity_index_D',
             'intraday_cost_center_migration_D', 'migration_convergence_ratio_D', 'tick_chip_balance_ratio_D',
-            'VPA_EFFICIENCY_D', 'VPA_MF_ADJUSTED_EFF_D', 'VPA_ACCELERATION_5D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
+            'VPA_EFFICIENCY_D', 'VPA_MF_ADJUSTED_EFF_D', 'VPA_ACCELERATION_13D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
             'OCH_ACCELERATION_D', 'OCH_D', 'PDI_14_D', 'NDI_14_D', 'price_vs_ma_21_ratio_D', 
             'price_vs_ma_55_ratio_D', 'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 
             'amount_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D',
@@ -251,7 +251,7 @@ class CalculateStormEyeCalm:
         说明: 生成 104 项动力学指标并在生成后立即执行 3-Sigma 限幅校验。
         """
         raw_data = {col: df[col] for col in self._get_required_signals(params, {}, []) if col in df.columns}
-        raw_data['JERK_5_VPA_ACCELERATION_5D'] = self._clip_physical_outliers(raw_data['VPA_ACCELERATION_5D'].diff().diff().diff())
+        raw_data['JERK_5_VPA_ACCELERATION_13D'] = self._clip_physical_outliers(raw_data['VPA_ACCELERATION_13D'].diff().diff().diff())
         raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['VPA_MF_ADJUSTED_EFF_D'].diff(13))
         raw_data['ACCEL_8_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['SLOPE_13_VPA_MF_ADJUSTED_EFF_D'].diff(8))
         raw_data['JERK_5_VPA_MF_ADJUSTED_EFF_D'] = self._clip_physical_outliers(raw_data['VPA_MF_ADJUSTED_EFF_D'].diff().diff().diff())
@@ -601,8 +601,8 @@ class CalculateStormEyeCalm:
         """
         # print(f"--- [动量耗散平衡探针] @ {df_index[-1]} ---")
         # 1. 量价加速度及其收敛脉冲 (Jerk)
-        vpa_accel = raw_data['VPA_ACCELERATION_5D']
-        vpa_accel_jerk = raw_data.get('JERK_5_VPA_ACCELERATION_5D', vpa_accel.diff().diff())
+        vpa_accel = raw_data['VPA_ACCELERATION_13D']
+        vpa_accel_jerk = raw_data.get('JERK_5_VPA_ACCELERATION_13D', vpa_accel.diff().diff())
         # 2. 耗散锁定：使用高斯核锁定加速度绝对零点
         # 物理含义：加速度越接近 0，系统动能耗散越彻底
         dissipation_focus = self._calculate_physics_score(vpa_accel, mode='zero_focus', sensitivity=40.0, denoise=True)
@@ -783,7 +783,7 @@ class CalculateStormEyeCalm:
         """
         # print(f"--- [相位锁定共振探针] @ {df_index[-1]} ---")
         # 1. 提取量价加速度与价格加速度 
-        vpa_accel = raw_data['VPA_ACCELERATION_5D']
+        vpa_accel = raw_data['VPA_ACCELERATION_13D']
         price_accel = raw_data['MA_ACCELERATION_EMA_55_D']
         # 2. 动能同步收敛锁定：使用高斯核锁定两者同时趋近于零的深度 
         vpa_focus = self._calculate_physics_score(vpa_accel, mode='zero_focus', sensitivity=40.0, denoise=True)
@@ -792,7 +792,7 @@ class CalculateStormEyeCalm:
         # 物理含义：当两者同步波动或同步收敛时，余弦相似度趋于 1 
         resonance_sim = (vpa_accel * price_accel).rolling(window=5).mean() / (vpa_accel.abs().rolling(window=5).mean() * price_accel.abs().rolling(window=5).mean() + 1e-9)
         # 4. 结合 Jerk 稳定性：排除由于剧烈跳变产生的虚假共振 
-        vpa_jerk = self._calculate_physics_score(raw_data.get('JERK_5_VPA_ACCELERATION_5D', 0), mode='zero_focus', sensitivity=60.0, denoise=True)
+        vpa_jerk = self._calculate_physics_score(raw_data.get('JERK_5_VPA_ACCELERATION_13D', 0), mode='zero_focus', sensitivity=60.0, denoise=True)
         # 5. 最终共振分：收敛锁定 * 相位协同 * 稳定性
         plr_score = vpa_focus * price_focus * (0.5 + 0.5 * resonance_sim.clip(0, 1)) * vpa_jerk
         # print(f"  -- VPA加速度: {vpa_accel.iloc[-1]:.4f} | 价格加速度: {price_accel.iloc[-1]:.4f} | 相位共振分: {plr_score.iloc[-1]:.4f}")
