@@ -588,10 +588,11 @@ class CalculateMainForceRallyIntent:
         return get_param_value(self.debug_params.get('enabled'), False) and \
                get_param_value(self.debug_params.get('should_probe'), False)
 
-    def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, final):
+def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, final):
         """
-        【V33.2 · 探针终极升级】
-        同步修复探针内核算逻辑的防爆盾漏水问题，应用同样的裁剪与约束原则。
+        【V33.3 · 探针终极升级 - 全链路溯源版】
+        新增“【0. Raw Data (原始数据透视)】”模块，直接打印底层传入的核心原始特征值，
+        彻底解决“数据源异常 vs 模型计算异常”的归因难题，实现全息白盒监控。
         """
         if not self.probe_dates: return
         target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
@@ -599,6 +600,7 @@ class CalculateMainForceRallyIntent:
         locs = np.where(current_dates.isin(target_dates))[0]
         if len(locs) == 0: locs = [-1]
         for i in locs:
+            if i == -1: continue
             ts = idx[i]
             net_buy = raw['sm_net_buy'].values[i]
             energy_damping = np.tanh(np.abs(net_buy) / 10000000.0) * np.clip(raw['energy_conc'].values[i] / 100.0, 0.0, 1.0)
@@ -609,7 +611,13 @@ class CalculateMainForceRallyIntent:
             hri = (thrust[i] * structure[i] * (1.0 + raw['gap_momentum'].values[i]) * (1.0 + (raw['is_leader'].values[i]*0.5)) * k_burst) / (1.0 + eff_drag)
             res_gain = 1.0 + np.expm1(np.clip(hri - 3.0, 0.0, 2.5) * 1.5)
             report = [
-                f"\n=== [PROBE V33.2] CalculateMainForceRallyIntent Holographic Resonance Audit @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V33.3] CalculateMainForceRallyIntent Full-Chain Audit @ {ts.strftime('%Y-%m-%d')} ===",
+                f"【0. Raw Data (底层核心原始数据)】",
+                f"   [Thrust] SM_NetBuy: {raw['sm_net_buy'].values[i]:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | Flow_21d: {raw['flow_21d'].values[i]:.2f} | Flow_55d: {raw['flow_55d'].values[i]:.2f}",
+                f"   [Struct] Close: {raw['close'].values[i]:.2f} | Cost_Avg: {raw['cost_avg'].values[i]:.2f} | Chip_Entropy: {raw['chip_entropy'].values[i]:.4f} | Control_Solidity: {raw['control_solidity'].values[i]:.4f}",
+                f"   [Drag]   Profit_Pres: {raw['profit_pressure'].values[i]:.4f} | Trapped_Pres: {raw['trapped_pressure'].values[i]:.4f} | Dist_Score: {raw['dist_score'].values[i]:.4f} | Turnover: {raw['turnover'].values[i]:.4f}",
+                f"   [Eco]    Market_Sentiment: {raw['market_sentiment'].values[i]:.4f} | Is_Leader: {raw['is_leader'].values[i]:.1f} | Reversal_Prob: {raw['reversal_prob'].values[i]:.4f}",
+                f"---------------------------------------------------------------",
                 f"【A. Kinematics (动力学)】 Burst: x{k_burst:.4f} | Damping: {energy_damping:.4f} | Jerk: {raw['sm_jerk_13'].values[i]:.2f}",
                 f"【B. HAB (存量意识)】 21d/55d Inv: {raw['flow_21d'].values[i]:.0f}/{raw['flow_55d'].values[i]:.0f} | Immunity: {hab_imm*100:.1f}%",
                 f"【C. Ecosystem (生态)】 Leader: {raw['is_leader'].values[i]} | LockRatio: {raw['lock_ratio'].values[i]:.2f}% | Attack: {raw['coordinated_attack'].values[i]}",
@@ -620,7 +628,6 @@ class CalculateMainForceRallyIntent:
             ]
             self._probe_cache.extend(report)
             for line in report: print(line)
-
 
 
 
