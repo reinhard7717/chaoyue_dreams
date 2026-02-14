@@ -155,10 +155,8 @@ class CalculateMainForceRallyIntent:
         structure = self._calc_structure_component(raw, idx)
         drag = self._calc_drag_component(raw, idx)
         raw_intent = self._calc_tensor_synthesis(thrust, structure, drag, raw, idx)
-        
         # 核心修复：neginf 必须映射为极负数(-1000.0)，严禁映射为 0.0 导致砸盘意图被掩盖
         raw_intent_clean = np.nan_to_num(raw_intent, nan=0.0, posinf=1000.0, neginf=-1000.0)
-        
         med = np.median(raw_intent_clean)
         mad = np.median(np.abs(raw_intent_clean - med))
         robust_mad = np.maximum(mad, 0.05)
@@ -488,7 +486,6 @@ class CalculateMainForceRallyIntent:
         breakout_pot = raw['breakout_pot'].values
         ma_compression = raw['ma_compression'].values
         turnover_stability = raw['turnover_stability'].values
-        
         norm_push = 1.0 / (1.0 + np.exp(np.clip(-0.1 * (pushing_score - 50.0), -50.0, 50.0)))
         kine_damping = np.tanh(np.abs(mf_net_buy) / 10000.0) * norm_push
         k_mf = np.tanh(mf_slope_13) * 0.3 + np.tanh(mf_accel_13) * 0.3 + np.tanh(mf_jerk_13) * 0.4
@@ -501,15 +498,12 @@ class CalculateMainForceRallyIntent:
         norm_breakout_pot = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (breakout_pot - 50.0), -50.0, 50.0)))
         norm_turnover_stab = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (turnover_stability - 50.0), -50.0, 50.0)))
         eco_premium = 1.0 + (is_leader * 0.8) + (hm_top_tier * 0.6) + (breakout_conf * 0.4) + (norm_theme * 0.3) + (trend_confirm / 100.0) * 0.5
-        
         eff_structure = np.where(thrust >= 0, structure, 1.0 / np.clip(structure, 0.01, 100.0))
         eff_eco_premium = np.where(thrust >= 0, eco_premium, 1.0 / np.clip(eco_premium, 0.01, 100.0))
         eff_gap_mom = np.where(thrust >= 0, 1.0 + gap_momentum, 1.0 / np.clip(1.0 + gap_momentum, 0.01, 10.0))
         eff_breakout = np.where(thrust >= 0, 1.0 + norm_breakout_pot, 1.0 / np.clip(1.0 + norm_breakout_pot, 0.01, 10.0))
         eff_turnover = np.where(thrust >= 0, 1.0 + norm_turnover_stab * 0.5, 1.0 / np.clip(1.0 + norm_turnover_stab * 0.5, 0.01, 10.0))
-        
         base_tensor = thrust * eff_structure * eff_gap_mom * eff_eco_premium * kinematic_burst * eff_breakout * eff_turnover
-        
         norm_lock_ratio = 1.0 / (1.0 + np.exp(np.clip(-0.1 * (lock_ratio - 50.0), -50.0, 50.0)))
         raw_effective_drag = drag * (1.0 - np.maximum(0.0, np.minimum(hab_immunity, 0.90)))
         exp_arg = np.clip(-2.0 * (base_tensor - 1.5 * raw_effective_drag), -50.0, 50.0)
@@ -520,31 +514,25 @@ class CalculateMainForceRallyIntent:
         squeeze_bonus = squeeze_transition * raw_effective_drag * emotional_extreme * norm_game_intensity * kinematic_burst * trap_reversal_factor * norm_energy
         norm_reversal_prob = np.clip(reversal_prob / 100.0, 0.0, 1.0)
         final_drag = (raw_effective_drag * raw_effective_drag) * (1.0 - squeeze_transition) * (1.0 - norm_reversal_prob) * (1.0 - norm_lock_ratio * 0.5)
-        
         # 核心物理修复：重力加速度效应！
         raw_intent = np.where(
             base_tensor >= 0,
             (base_tensor / (1.0 + final_drag)) + squeeze_bonus,
             base_tensor * (1.0 + np.sqrt(np.maximum(0.0, final_drag))) # 跌落时，抛压是加速器
         )
-        
         t1_multiplier = np.exp(np.clip(np.tanh((t1_premium - 50.0) / 20.0), -2.0, 2.0))
         norm_compression = np.tanh(np.maximum(0.0, ma_compression) / 50.0)
-        
         hri = np.where(
             base_tensor >= 0,
             (base_tensor * (1.0 + squeeze_bonus)) / (1.0 + final_drag),
             base_tensor * (1.0 + np.sqrt(np.maximum(0.0, final_drag)))
         )
-        
         hri_threshold = 3.0
         hri_excess = np.clip(np.maximum(0.0, hri - hri_threshold), 0.0, 10.0)
         exponent_gain = np.clip(hri_excess * t1_multiplier * (1.0 + norm_compression + hab_fuel), 0.0, 20.0)
         singularity_gain = 1.0 + np.expm1(exponent_gain)
-        
         # 同步修复合成层截断
         final_intent = np.nan_to_num(raw_intent * singularity_gain, nan=0.0, posinf=1000.0, neginf=-1000.0)
-        
         if self._is_probe_enabled():
             target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
             current_dates = idx.tz_localize(None).normalize()
@@ -617,8 +605,8 @@ class CalculateMainForceRallyIntent:
             for line in report: print(line)
 
     def _is_probe_enabled(self) -> bool:
-        return get_param_value(self.debug_params.get('enabled'), False) and \
-               get_param_value(self.debug_params.get('should_probe'), False)
+        return False
+        # return get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
 
 
 

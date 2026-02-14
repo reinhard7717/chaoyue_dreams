@@ -57,14 +57,14 @@ class CalculateMainForceControlRelationship:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.0.0 · 主力控盘五层金字塔决策系统】
+        【V40.0.0 · 主力控盘五层金字塔决策系统 · 熵减矢量版】
         职责：调度全量计算流程，将物理层数据转化为决策层信号。
         架构：
-        1. 物理层 (Physics): 挂载全量军械库数据，计算 HAB 存量与动力学状态。
-        2. 组件层 (Components): 并行计算 成本优势(V34)、净活动(V14)、传统控盘(V13)。
-        3. 转换层 (Translation): 执行微观传递函数与归一化。
-        4. 合成层 (Synthesis): 执行结构融合与杠杆计算。
-        5. 决策层 (Decision): 输出最终控盘分数。
+        1. 物理层 (Physics): 挂载全量军械库数据，计算 HAB 存量与双熵动力学状态。
+        2. 组件层 (Components): 并行计算 传统控盘(V40)、成本优势(V40)、净活动力(V40)。
+        3. 转换层 (Translation): 执行微观传递函数与归一化 (Kinetic Normalizer)。
+        4. 合成层 (Synthesis): 执行 熵减结构融合 与 状态记忆风控杠杆。
+        5. 决策层 (Decision): 输出最终控盘分数 (Activity * Leverage)。
         """
         method_name = "calculate_main_force_control_relationship"
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
@@ -74,45 +74,47 @@ class CalculateMainForceControlRelationship:
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
         if probe_ts:
-            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')}")
+            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V40.0.0 (熵减矢量版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
         # --- 1. 物理层 (Physics Layer) ---
         # 职责：原料质检与状态挂载
+        # V40升级：严苛模式，拒绝缺失关键物理量
         if hasattr(self, '_validate_arsenal_signals'):
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
+                print(f"[熔断] {method_name}: 关键军械库信号缺失，策略强制终止。")
                 return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 获取全量上下文 (Context)，此处已包含 HAB 存量和 Slope/Accel/Jerk 计算
+        # 获取全量上下文 (Context)，此处已包含 HAB 存量、双熵(Entropy) 和 矢量合成预处理
         control_context = self._get_raw_control_signals(df, method_name, _temp_debug_values, probe_ts)
         # --- 2. 组件层 (Component Layer) ---
         # 职责：独立维度的深度计算
-        # 2.1 [传统控盘] (Traditional): 基于均线、MACD、KDJ 的经典共振
+        # 2.1 [传统控盘] (Traditional): 时空动力学与混沌博弈
         scores_traditional = self._calculate_traditional_control_score_components(
             control_context, df.index, _temp_debug_values
         )
         if scores_traditional.isnull().all():
              return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 2.2 [成本优势] (Cost Advantage): V34 版本，含 HAB 护盾、阻尼吸收与非线性增益
+        # 2.2 [成本优势] (Cost Advantage): 熵减动力学与 HAB 护盾
         scores_cost_advantage = self._calculate_main_force_cost_advantage_score(
             control_context, df.index, _temp_debug_values
         )
-        # 2.3 [净活动力] (Net Activity): V14 版本，基于资金流的内能与生态温度
+        # 2.3 [净活动力] (Net Activity): 矢量合成与惯性阻尼
         scores_net_activity = self._calculate_main_force_net_activity_score(
             control_context, df.index, config, method_name, _temp_debug_values
         )
         # --- 3. 转换层 (Translation Layer) ---
         # 职责：将各维度的原始分转换统一量纲，准备进行融合
-        # 注意：scores_traditional 等本身已是分值，但此处计算 MTF 结构分和辅助指标归一化
+        # V40: 采用内联归一化逻辑，此处主要提取标准化后的流向与意图分供下游使用
         norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down = \
             self._normalize_components(df, control_context, scores_traditional, config, method_name, _temp_debug_values)
         # --- 4. 合成层 (Synthesis Layer) ---
         # 职责：结构融合与杠杆放大
-        # 4.1 [结构融合] (Fusion): 将 传统分、结构分(MTF) 与 成本分 进行博弈融合
-        # V26.0 逻辑：引入状态依赖与锁仓效率
+        # 4.1 [结构融合] (Fusion): 将 传统分、结构分 与 成本分 进行熵减融合
+        # V40: 引入双熵博弈 (Price Entropy vs Chip Entropy)
         fused_control_score = self._fuse_control_scores(
             norm_traditional, norm_structural, control_context, _temp_debug_values
         )
         # 4.2 [风控杠杆] (Leverage): 计算当前状态允许放大的倍数 (0.0 ~ 12.0)
-        # 核心逻辑：结构越好 (fused_control_score 高)，对 资金动力 (scores_net_activity) 的放大倍数越高
+        # V40: 引入 HAB 风险记忆与动力学预警
         control_leverage = self._calculate_control_leverage_model(
             df.index, 
             fused_score=fused_control_score,       # 结构分 (作为基准)
@@ -128,18 +130,18 @@ class CalculateMainForceControlRelationship:
         )
         # --- 5. 决策层 (Decision Layer) ---
         # 职责：输出最终信号
-        # 核心公式：最终得分 = 净活动力(动力) * 风控杠杆(结构)
+        # 核心公式：最终得分 = 矢量净活动力(动力) * 熵减风控杠杆(结构)
         # 解释：
-        # - 如果没有动力 (Activity=0)，无论结构多好，得分都是 0 (死水)。
-        # - 如果结构极差 (Leverage<1)，即使有动力，得分也会被压缩 (假突破)。
-        # - 如果结构完美 (Leverage>5) 且 动力充足，得分会瞬间饱和 (主升浪)。
+        # - 动力 (Activity) 是物理做功的基础。
+        # - 杠杆 (Leverage) 是由 熵(Entropy) 和 结构(Structure) 决定的放大器。
+        # - 高混乱度 (High Entropy) 会导致 Leverage -> 0，从而熔断 Activity。
         raw_final_score = scores_net_activity * control_leverage
         # 极值剪裁：限制在 [-1, 1] 区间
         final_control_score = raw_final_score.clip(-1, 1).astype(np.float32)
         # --- 6. 调试输出与收尾 ---
         _temp_debug_values["最终结果"] = {
-            "Net_Activity": scores_net_activity,
-            "Control_Leverage": control_leverage,
+            "Net_Activity (Vector)": scores_net_activity,
+            "Control_Leverage (Entropy)": control_leverage,
             "Fused_Structure": fused_control_score,
             "Cost_Advantage": scores_cost_advantage,
             "Final_Score": final_control_score
@@ -171,207 +173,96 @@ class CalculateMainForceControlRelationship:
 
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
         """
-        【V35.0.0 · 物理层总线与动力学预处理 (Physics Bus & Kinematics Pre-calc)】
+        【V40.0.0 · 物理层总线 (Physics Bus - Arsenal Map)】
         职责：
-        1. 全量挂载：根据所有下游组件的需求，提取军械库全量数据。
-        2. HAB 存量计算：预计算 13/21/34/55 日资金与 VPA 存量。
-        3. 动力学预处理：计算资金与成本的 Slope/Accel/Jerk，并执行零基去噪 (Log/Tanh)。
-        4. 归类分发：将数据结构化为 Market, Funds, Structure, Sentiment, State, EMA 六大板块。
+        1. 严格映射《最终军械库清单.txt》，移除不存在的列引用。
+        2. 引入 Tick级数据、聪明钱数据、熵数据。
+        3. 动力学预处理：计算 Tick流与资金流的加速度。
         """
-        # =========================================================================
-        # 1. Market (基础行情)
-        # =========================================================================
+        # --- 1. Market (基础行情) ---
         market_raw = {
             "close": df['close_D'].astype(np.float32),
-            "open": df['open_D'].astype(np.float32),
-            "high": df['high_D'].astype(np.float32),
-            "low": df['low_D'].astype(np.float32),
             "amount": df['amount_D'].astype(np.float32),
-            "volume": df['volume_D'].astype(np.float32),
             "pct_change": df['pct_change_D'].astype(np.float32),
             "turnover_rate": df['turnover_rate_D'].astype(np.float32),
-            "circ_mv": df['circ_mv_D'].astype(np.float32),
+            "circ_mv": df['circ_mv_D'].replace(0, np.nan).astype(np.float32),
             "up_limit": df['up_limit_D'].astype(np.float32),
-            "down_limit": df['down_limit_D'].astype(np.float32),
         }
-        # =========================================================================
-        # 2. Funds (资金流与动力学)
-        # =========================================================================
-        # 基础净流
-        net_mf = df['net_mf_amount_D'].astype(np.float32).fillna(0)
+        # --- 2. Funds (核心资金 - 升级为 Tick/Smart/Large 矢量组) ---
+        # 关键升级：不再信任单一的 net_mf，而是提取 Tick 和 Smart Money
         funds_raw = {
-            # --- 基础净流 ---
-            "net_mf_calibrated": net_mf,
-            
-            # --- 分单明细 (用于 V9 均价计算) ---
-            "buy_elg_amt": df.get('buy_elg_amount_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "buy_lg_amt": df.get('buy_lg_amount_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "sell_elg_amt": df.get('sell_elg_amount_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "sell_lg_amt": df.get('sell_lg_amount_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "buy_elg_vol": df.get('buy_elg_vol_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "buy_lg_vol": df.get('buy_lg_vol_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "sell_elg_vol": df.get('sell_elg_vol_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "sell_lg_vol": df.get('sell_lg_vol_D', pd.Series(0, index=df.index)).astype(np.float32),
-            
-            # --- 聪明钱信号 (用于 V14/V12/V26) ---
-            "smart_money_net": df['SMART_MONEY_HM_NET_BUY_D'].astype(np.float32),
-            "smart_money_attack": df['SMART_MONEY_HM_COORDINATED_ATTACK_D'].astype(np.float32),
-            "smart_divergence": df['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'].astype(np.float32),
-            "smart_synergy": df.get('SMART_MONEY_SYNERGY_BUY_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "inst_net_buy": df['SMART_MONEY_INST_NET_BUY_D'].astype(np.float32),
-            
-            # --- 辅助资金 ---
-            "tick_lg_net": df['tick_large_order_net_D'].astype(np.float32),
-            "net_energy_flow": df.get('net_energy_flow_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "flow_efficiency": df.get('flow_efficiency_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "closing_intensity": df.get('closing_flow_intensity_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "gap_momentum": df.get('GAP_MOMENTUM_STRENGTH_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "stealth_flow": df.get('stealth_flow_ratio_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "vwap_dev": df.get('vwap_deviation_D', pd.Series(0, index=df.index)).astype(np.float32),
-            
-            # --- 预留槽位 ---
-            "hab_net_mf_13": None, "hab_net_mf_21": None, 
-            "hab_net_mf_34": None, "hab_net_mf_55": None,
-            "net_mf_slope": None, "net_mf_accel": None, "net_mf_jerk": None,
-            "hab_vpa_power_34": None, "hab_vpa_power_55": None
+            # 微观核动力 (Tick Level)
+            "tick_lg_net": df['tick_large_order_net_D'].astype(np.float32),  # Tick级大单净额
+            "tick_lg_count": df['tick_large_order_count_D'].astype(np.float32), # Tick级大单笔数
+            # 机构/聪明钱 (Smart Money)
+            "smart_net_buy": df['SMART_MONEY_HM_NET_BUY_D'].astype(np.float32), # 鸿蒙聪明钱净买
+            "smart_attack": df['SMART_MONEY_HM_COORDINATED_ATTACK_D'].astype(np.float32), # 协同攻击信号
+            "inst_net_buy": df['SMART_MONEY_INST_NET_BUY_D'].astype(np.float32), # 机构净买
+            # 传统资金流
+            "net_mf_calibrated": df['net_mf_amount_D'].astype(np.float32), # 基础净流
+            "buy_lg_amt": df['buy_lg_amount_D'].astype(np.float32), # 交易所大单买入
+            # 资金特征
+            "flow_consistency": df['flow_consistency_D'].astype(np.float32), # 资金一致性
+            "flow_efficiency": df['flow_efficiency_D'].astype(np.float32),   # 资金推升效率
+            "stealth_flow": df['stealth_flow_ratio_D'].astype(np.float32),   # 隐形资金占比
+            # 预留槽位 (由HAB逻辑填充)
+            "hab_net_mf_21": None, "hab_net_mf_34": None
         }
-        # --- 计算 HAB (Historical Accumulation Buffer) ---
-        # 逻辑：预计算 13/21/34/55 日的滚动资金存量，供 V14(净活动) 和 V34(成本护盾) 使用
-        fib_periods = [13, 21, 34, 55]
-        for p in fib_periods:
-            funds_raw[f"hab_net_mf_{p}"] = net_mf.rolling(window=p, min_periods=int(p*0.5)).sum()
-        # --- 计算 VPA 存量 (供 V13 使用) ---
-        vpa_raw = df['VPA_MF_ADJUSTED_EFF_D'].fillna(0)
-        funds_raw['hab_vpa_power_34'] = vpa_raw.rolling(34).sum()
-        funds_raw['hab_vpa_power_55'] = vpa_raw.rolling(55).sum()
-        # --- 计算 资金动力学 (Kinematics) ---
-        # 逻辑：物理强度(Intensity) -> 差分(Diff) -> 归一化(Tanh)
-        circ_mv_safe = market_raw['circ_mv'].replace(0, np.nan)
-        # 1. 强度归一化 (解决大盘股与小盘股量级差异)
-        control_intensity = net_mf / circ_mv_safe 
-        # 2. 物理差分 (解决百分比变化的零基陷阱)
-        slope_mf = control_intensity.diff(5) * 10.0 
-        accel_mf = slope_mf.diff(3)
-        jerk_mf = accel_mf.diff(3)
-        # 3. 鲁棒映射 (Tanh 压制异常值)
-        funds_raw['net_mf_slope'] = np.tanh(slope_mf).fillna(0)
-        funds_raw['net_mf_accel'] = np.tanh(accel_mf).fillna(0)
-        funds_raw['net_mf_jerk'] = np.tanh(jerk_mf).fillna(0)
-        # =========================================================================
-        # 3. Structure (成本与筹码结构)
-        # =========================================================================
+        # HAB 存量计算：基于 tick_lg_net 和 smart_net_buy 的加权合成流
+        # 逻辑：构建「真·主力存量」，而非散户混合存量
+        composite_flow = (funds_raw["tick_lg_net"] * 0.5 + funds_raw["smart_net_buy"] * 0.3 + funds_raw["net_mf_calibrated"] * 0.2)
+        funds_raw["hab_net_mf_21"] = composite_flow.rolling(window=21, min_periods=10).sum()
+        funds_raw["hab_net_mf_34"] = composite_flow.rolling(window=34, min_periods=15).sum()
+        # --- 3. Structure (结构与熵 - 升级核心) ---
         structure_raw = {
-            # --- 成本分布 ---
-            "cost_5pct": df['cost_5pct_D'].astype(np.float32),
-            "cost_95pct": df['cost_95pct_D'].astype(np.float32),
-            "cost_50pct": df['cost_50pct_D'].astype(np.float32),
-            "weight_avg_cost": df['weight_avg_cost_D'].astype(np.float32),
-            "profit_ratio": df['profit_ratio_D'].astype(np.float32),
-            "pressure_trapped": df['pressure_trapped_D'].astype(np.float32),
-            "winner_rate": df['winner_rate_D'].astype(np.float32),
-            
-            # --- 筹码状态 ---
-            "chip_stability": df['chip_stability_D'].astype(np.float32),
-            "chip_entropy": df['chip_entropy_D'].astype(np.float32),
-            "chip_convergence": df.get('chip_convergence_ratio_D', pd.Series(50, index=df.index)).astype(np.float32),
-            "concentration": df['chip_concentration_ratio_D'].astype(np.float32),
-            "lock_ratio_90": df.get('high_position_lock_ratio_90_D', pd.Series(0, index=df.index)).astype(np.float32),
-            
-            # --- 几何形态 ---
-            "geom_r2": df['GEOM_REG_R2_D'].astype(np.float32),
-            "fractal_dim": df['PRICE_FRACTAL_DIM_D'].astype(np.float32),
-            "price_entropy": df['PRICE_ENTROPY_D'].astype(np.float32),
-            "bias_55": df['BIAS_55_D'].astype(np.float32),
-            "ma_tension": df.get('MA_POTENTIAL_TENSION_INDEX_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "ma_coherence": df.get('MA_COHERENCE_RESONANCE_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "support_strength": df.get('support_strength_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "resistance_strength": df.get('resistance_strength_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "rubber_band": df.get('MA_RUBBER_BAND_EXTENSION_D', pd.Series(0, index=df.index)).astype(np.float32),
-            
-            # --- 动态迁移 ---
-            "cost_migration": df['intraday_cost_center_migration_D'].astype(np.float32),
-            "game_index": df['intraday_chip_game_index_D'].astype(np.float32),
-            
-            # --- 预留槽位 ---
-            "cost_slope": None, "cost_accel": None
+            # 熵与分形 (V40 新增)
+            "chip_entropy": df['chip_entropy_D'].astype(np.float32), # 筹码熵 (判断混乱度)
+            "price_entropy": df['PRICE_ENTROPY_D'].astype(np.float32), # 价格熵
+            "fractal_dim": df['PRICE_FRACTAL_DIM_D'].astype(np.float32), # 分形维数
+            # 筹码状态
+            "chip_stability": df['chip_stability_D'].astype(np.float32), # 筹码稳定性
+            "concentration": df['chip_concentration_ratio_D'].astype(np.float32), # 集中度
+            "winner_rate": df['winner_rate_D'].astype(np.float32), # 获利比例
+            "profit_ratio": df['profit_ratio_D'].astype(np.float32), # 获利盘 (清单数据)
+            "pressure_trapped": df['pressure_trapped_D'].astype(np.float32), # 套牢盘 (清单数据)
+            "cost_5pct": df['cost_5pct_D'].astype(np.float32), # 底部成本
+            "avg_cost": df['weight_avg_cost_D'].astype(np.float32), # 均价
+            # 形态
+            "r2": df['GEOM_REG_R2_D'].astype(np.float32),
+            "bias_55": df['BIAS_55_D'].astype(np.float32)
         }
-        # --- 计算 成本动力学 (Cost Kinematics) ---
-        # 逻辑：为 V34 成本模型预计算重心移动方向
-        avg_cost = structure_raw['weight_avg_cost']
-        # 1. 对数化 (Log) 消除高价股与低价股的斜率差异
-        cost_log = np.log(avg_cost.replace(0, np.nan))
-        # 2. 物理差分
-        cost_slope_raw = cost_log.diff(13) * 100.0 
-        cost_accel_raw = cost_slope_raw.diff(8)
-        # 3. 结果存储 (注意：此处不Tanh，留给下游根据需要处理，或在此处统一处理)
-        # V35决定：在此处不进行 Tanh，保留原始物理量级供调试，归一化在微观函数中进行
-        structure_raw['cost_slope'] = cost_slope_raw.fillna(0)
-        structure_raw['cost_accel'] = cost_accel_raw.fillna(0)
-        # =========================================================================
-        # 4. Sentiment (情绪与行为)
-        # =========================================================================
-        sentiment_behavior = {
-            "adx_14": df['ADX_14_D'].astype(np.float32),
-            "vpa_efficiency": df['VPA_EFFICIENCY_D'].astype(np.float32),
-            "turnover": df['turnover_rate_D'].astype(np.float32),
-            "turnover_stability": df.get('TURNOVER_STABILITY_INDEX_D', pd.Series(50, index=df.index)).astype(np.float32),
-            
-            # --- 流动性与意图 ---
-            "flow_consistency": df['flow_consistency_D'].astype(np.float32),
-            "pushing_score": df['pushing_score_D'].astype(np.float32),
-            "shakeout_score": df['shakeout_score_D'].astype(np.float32),
+        # --- 4. Sentiment & State (情绪与状态) ---
+        sentiment_state = {
+            "vpa_efficiency": df['VPA_EFFICIENCY_D'].astype(np.float32), # VPA效能
+            "pushing_score": df['pushing_score_D'].astype(np.float32), # 推升评分
+            "shakeout_score": df['shakeout_score_D'].astype(np.float32), # 洗盘评分
+            "market_leader": df['STATE_MARKET_LEADER_D'].astype(np.float32), # 龙头状态
+            "golden_pit": df['STATE_GOLDEN_PIT_D'].astype(np.float32), # 黄金坑状态
+            "turnover_stability": df['TURNOVER_STABILITY_INDEX_D'].astype(np.float32),
             "t0_buy_conf": df['intraday_accumulation_confidence_D'].astype(np.float32),
             "t0_sell_conf": df['intraday_distribution_confidence_D'].astype(np.float32),
-            "intraday_support_intent": df['INTRADAY_SUPPORT_INTENT_D'].astype(np.float32),
-            
-            # --- 风险警示 ---
-            "reversal_warning": df.get('reversal_warning_score_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "reversal_prob": df.get('reversal_prob_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "divergence_strength": df.get('divergence_strength_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "bbw": df.get('BBW_21_2.0_D', pd.Series(0, index=df.index)).astype(np.float32),
+            "industry_rank": df['industry_strength_rank_D'].astype(np.float32),
         }
-        # =========================================================================
-        # 5. State (系统状态)
-        # =========================================================================
-        system_state = {
-            "market_leader": df['STATE_MARKET_LEADER_D'].astype(np.float32),
-            "golden_pit": df['STATE_GOLDEN_PIT_D'].astype(np.float32),
-            "breakout_confirmed": df['STATE_BREAKOUT_CONFIRMED_D'].astype(np.float32),
-            "rounding_bottom": df.get('STATE_ROUNDING_BOTTOM_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "robust_trend": df.get('STATE_ROBUST_TREND_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "parabolic_warning": df.get('STATE_PARABOLIC_WARNING_D', pd.Series(0, index=df.index)).astype(np.float32),
-            
-            # --- 行业增强 ---
-            "industry_rank": df.get('industry_strength_rank_D', pd.Series(50, index=df.index)).astype(np.float32),
-            "industry_markup": df.get('industry_markup_score_D', pd.Series(50, index=df.index)).astype(np.float32),
-        }
-        # =========================================================================
-        # 6. EMA (均线系统)
-        # =========================================================================
+        # --- 5. EMA System ---
         ema_system = {
-            "ema_13": df.get('EMA_13_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "ema_21": df.get('EMA_21_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "ema_55": df.get('EMA_55_D', pd.Series(0, index=df.index)).astype(np.float32),
-            "ema_144": df.get('EMA_144_D', pd.Series(0, index=df.index)).astype(np.float32),
-        }
-        # --- 上下文打包 ---
-        context = {
-            "market": market_raw, 
-            "funds": funds_raw, 
-            "structure": structure_raw, 
-            "sentiment": sentiment_behavior, 
-            "state": system_state, 
-            "ema": ema_system
+            "ema_13": df['EMA_13_D'].astype(np.float32),
+            "ema_55": df['EMA_55_D'].astype(np.float32),
         }
         # --- 探针输出 ---
         if probe_ts:
-            snap_conc = structure_raw['concentration'].loc[probe_ts] if probe_ts in structure_raw['concentration'].index else np.nan
-            print(f"[探针] V35.0.0 物理层总线挂载完毕。")
-            print(f"      - HAB存量计算完成 (Periods: 13, 21, 34, 55)")
-            print(f"      - 动力学三阶导数计算完成 (Funds & Cost)")
-            print(f"      - [探针数据] 筹码集中度: {snap_conc:.2f}%")
-            
-        return context
+            snap_tick = funds_raw['tick_lg_net'].loc[probe_ts] if probe_ts in funds_raw['tick_lg_net'].index else np.nan
+            snap_smart = funds_raw['smart_net_buy'].loc[probe_ts] if probe_ts in funds_raw['smart_net_buy'].index else np.nan
+            print(f"[探针] V40.0.0 物理总线挂载。探针日数据:")
+            print(f"      - Tick大单净额: {snap_tick:,.0f}")
+            print(f"      - SmartMoney净买: {snap_smart:,.0f}")
+            print(f"      - 复合HAB_21存量计算完成")
+        return {
+            "market": market_raw,
+            "funds": funds_raw,
+            "structure": structure_raw,
+            "sentiment": sentiment_state,
+            "ema": ema_system
+        }
 
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
         """
@@ -413,558 +304,759 @@ class CalculateMainForceControlRelationship:
 
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V34.0.0 · 成本博弈共振与阻尼吸收模型 (Resonance & Absorption Model)】
-        职责：
-        1. 继承全链路物理层逻辑（HAB、动力学、微观传递函数）。
-        2. 优化：引入 'HAB阻尼吸收'，主力存量可抵消套牢压力。
-        3. 优化：引入 '结构共振'，胜率/安全/重心三维齐备时触发连乘奖励。
-        4. 优化：引入 '泥沼突围'，在重压力区识别强动力学反转。
+        【V40.0.0 · 成本优势与熵减动力学博弈模型 (Cost Advantage & Entropy Kinematics)】
+        修改思路：
+        1. 数据层升级：引入筹码熵(Entropy)、获利盘(Profit)、套牢盘(Trapped)及HAB存量，构建“双熵博弈”。
+        2. 动力学(Kinematics)：采用 Log-Space 计算成本重心的 Slope/Accel/Jerk，彻底规避“零基陷阱”与量纲失真。
+        3. HAB存量缓冲(Buffer)：利用 21日/34日 资金存量构建“反阻力护盾”，当存量充足时，抵消套牢盘的物理阻尼。
+        4. 内联归一化(Inline Norm)：拒绝通用Helper，针对成本物理特性自研 _tf_sigmoid_winner 等传递函数。
+        5. 非线性增益(Gamma)：针对“蓝天模式(BlueSky)”与“泥沼突围(Jailbreak)”场景应用 Gamma 扩张。
+        6. 深度融合：将 结构有序度(Entropy) 与 成本动力学(Trend) 进行矢量乘积融合。
         """
-        print(f"[探针] CalculateMainForceCostAdvantageScore 正在计算成本优势分")
+        # --- 1. 数据挂载 (Data Mounting) ---
         m = context['market']
         s = context['structure']
         f = context['funds']
         close = m['close']
-        # =========================================================================
-        # 1. 微观传递函数定义 (保持 V33 核心逻辑)
-        # =========================================================================
-        def _tf_winner_sigmoid(series: pd.Series) -> pd.Series:
-            # 胜率传递：60-90% 敏感区
-            return (2.0 / (1.0 + np.exp(-(series - 65.0) * 0.15))) - 1.0
-        def _tf_safety_rbf(close_series: pd.Series, cost_series: pd.Series) -> pd.Series:
-            # 安全垫：RBF 黄金区间 (12%)
-            alpha = (close_series - cost_series) / close_series.replace(0, np.nan)
-            gaussian_score = np.exp(-np.power((alpha - 0.12) / 0.15, 2))
-            over_extension_penalty = np.tanh((alpha - 0.35) * 10.0).clip(0, 1) * 1.5
-            return (gaussian_score * 1.5 - 0.5) - over_extension_penalty
-        def _tf_trapped_decay(series: pd.Series) -> pd.Series:
-            # 压力传递：指数衰减
-            return np.exp(-(series / 25.0))
-        def _tf_kinematic_tanh(series: pd.Series, scale: float = 1.0) -> pd.Series:
-            # 动力传递：鲁棒 Tanh
-            return np.tanh(series * scale)
-        # =========================================================================
-        # 2. 物理量提取与预处理
-        # =========================================================================
+        # 核心成本数据
+        avg_cost = s.get('weight_avg_cost', close) # 权重均价
         cost_5 = s.get('cost_5pct', close * 0.9)
-        avg_cost = s.get('weight_avg_cost', close)
+        # 博弈数据
         winner_rate = s.get('winner_rate', pd.Series(50, index=index))
-        trapped_ratio = s.get('pressure_trapped', pd.Series(50, index=index))
-        cost_migration = s.get('cost_migration', pd.Series(0, index=index))
-        # HAB 存量计算
-        if 'hab_net_mf_21' in f:
-            hab_21 = f['hab_net_mf_21']
-        else:
-            hab_21 = f.get('net_mf_calibrated', pd.Series(0, index=index)).rolling(21).sum()
-            
+        profit_ratio = s.get('profit_ratio', pd.Series(50, index=index))
+        pressure_trapped = s.get('pressure_trapped', pd.Series(50, index=index))
+        # 熵与结构 (V40新增)
+        chip_entropy = s.get('chip_entropy', pd.Series(100, index=index)) # 筹码熵 (高=混乱, 低=有序)
+        concentration = s.get('concentration', pd.Series(50, index=index))
+        # HAB 存量 (从 funds 中提取或计算)
+        # 逻辑：如果没有预计算的 hab_21，则现场计算。这是“存量意识”的核心。
+        hab_21 = f.get('hab_net_mf_21', f['net_mf_calibrated'].rolling(21).sum())
         circ_mv = m['circ_mv'].replace(0, np.nan)
+        # --- 2. 成本动力学 (Cost Kinematics: Log-Space) ---
+        # 步骤：
+        # 1. 对数化：处理股价从 10元涨到11元 与 100元涨到110元 的等效性。
+        # 2. 斐波拉契差分：Slope(13) -> Accel(8) -> Jerk(5)
+        log_cost = np.log(avg_cost.replace(0, np.nan))
+        # Slope (13): 长期趋势方向 (一阶导)
+        # 乘以 100 转化为类百分比量级
+        slope_cost = log_cost.diff(13) * 100.0 
+        # Accel (8): 趋势加速力度 (二阶导)
+        # 消除线性趋势，保留加速度
+        accel_cost = slope_cost.diff(8)
+        # Jerk (5): 趋势变率的变率 (三阶导)
+        # 用于捕捉拐点：加速衰竭或加速启动
+        jerk_cost = accel_cost.diff(5)
+        # 零基陷阱处理：由于使用了 Log Returns，天然规避了除以零的问题。
+        # 仅需填充 NaN
+        slope_cost = slope_cost.fillna(0)
+        accel_cost = accel_cost.fillna(0)
+        jerk_cost = jerk_cost.fillna(0)
+        # --- 4. 自研内联归一化 (Inline Normalization) ---
+        # 拒绝使用通用 helper，针对成本特性定制微观传递函数
+        def _tf_winner(s): 
+            # 胜率传递：
+            # > 65% 为主力控盘舒适区，奖励显著增加
+            # < 40% 为套牢区，给予负分
+            return (2.0 / (1.0 + np.exp(-(s - 65.0) * 0.15))) - 1.0
+            
+        def _tf_entropy(e):
+            # 熵传递 (反向)：
+            # 熵越低(有序)越好。Entropy < 70 为高度有序。
+            # 假设 entropy 范围 0-100 (根据清单数据特性调整)
+            return 1.0 / (1.0 + np.exp((e - 75.0) * 0.1)) 
+            
+        def _tf_trapped_damping(t, shield):
+            # 阻尼函数：
+            # 套牢盘(t) 产生物理阻力，指数衰减。
+            # HAB护盾(shield) 提供线性补偿。
+            # 逻辑：如果有大量主力存量(shield high)，即使有套牢盘，也不认为是死套，而是“吸筹”。
+            raw_decay = np.exp(-(t / 25.0)) # 典型值 50 -> exp(-2) = 0.13 (阻力大)
+            buffered_decay = raw_decay + (shield * 0.6) # 护盾最大补偿 0.6
+            return buffered_decay.clip(0, 1.0)
+        def _tf_kinematics(k, sensitivity=1.0, threshold=0.0):
+            # 动力学 Tanh 映射
+            return np.tanh((k - threshold) * sensitivity)
+        # --- 3. HAB 存量缓冲系统 (HAB Shield) ---
+        # 逻辑：计算资金存量密度，构建护盾
         hab_density = hab_21 / circ_mv
-        # 动力学数据
-        cost_slope = s.get('cost_slope', pd.Series(0, index=index))
-        cost_accel = s.get('cost_accel', pd.Series(0, index=index))
-        norm_slope = _tf_kinematic_tanh(cost_slope, scale=2.0)
-        norm_accel = _tf_kinematic_tanh(cost_accel, scale=5.0)
-        # =========================================================================
-        # 3. 核心状态判定 (逻辑优化版)
-        # =========================================================================
-        # [判定 A] 蓝天模式 (Blue Sky) - 增加防伪逻辑
-        # 优化：获利盘高 + 无套牢 + 成本重心未显著下移 (Slope > -0.1)
-        is_blue_sky = (winner_rate > 85.0) & (trapped_ratio < 10.0) & (norm_slope > -0.1)
-        # [判定 B] 泥沼模式 (Mud)
-        is_mud = (trapped_ratio > 60.0)
-        # [判定 C] 洗盘护盾 (Washout Shield)
-        is_washout = (norm_slope < 0) & (hab_density > 0.005)
-        shield_val = _tf_kinematic_tanh(hab_density * 50.0).clip(0, 0.5)
-        # [判定 D] 出货预警 (Distribution)
-        is_distribution = (norm_slope <= 0) & (hab_density < -0.005)
-        # [判定 E] 攻击加速 (Aggressive) & [判定 F] 泥沼突围 (Jailbreak)
-        # 突围条件：在泥沼中，出现强力的加速上攻信号
-        is_aggressive = (norm_slope > 0.1) & (norm_accel > 0.05) & (cost_migration > 0.2)
-        is_jailbreak = is_mud & is_aggressive
-        # =========================================================================
-        # 4. 评分计算与深度融合 (Deep Fusion)
-        # =========================================================================
-        # 4.1 应用微观传递函数
-        score_winner = _tf_winner_sigmoid(winner_rate)
-        score_safety = _tf_safety_rbf(close, cost_5)
-        score_gravity = _tf_kinematic_tanh((close - avg_cost) / avg_cost.replace(0, np.nan), scale=10.0).clip(0, 1)
-        # 4.2 阻尼吸收逻辑 (Damping Absorption) - 优化点
-        # 原始阻尼
-        raw_damping = _tf_trapped_decay(trapped_ratio)
-        # 存量吸收能力：HAB密度越高，吸收能力越强 (0~0.3的补偿)
-        absorption_capacity = _tf_kinematic_tanh(hab_density * 30.0).clip(0, 0.3)
-        # 只有当阻尼存在(小于1)且存量为正时，才应用吸收
-        effective_damping = (raw_damping + absorption_capacity).clip(0, 1.0)
-        # 蓝天模式下阻尼失效
-        effective_damping = effective_damping.mask(is_blue_sky, 1.0)
-        # 4.3 线性加权
-        base_score = (score_winner * 0.5 + score_safety * 0.3 + score_gravity * 0.2)
-        # 4.4 结构共振 (Structure Resonance) - 优化点
-        # 如果三者皆为正，说明结构极其稳固，给予 1.15倍 共振奖励
-        is_resonant = (score_winner > 0) & (score_safety > 0) & (score_gravity > 0)
-        resonance_multiplier = pd.Series(1.0, index=index).mask(is_resonant, 1.15)
-        # 4.5 应用阻尼与共振
-        damped_score = base_score * effective_damping * resonance_multiplier
-        # 4.6 状态修正 (护盾与惩罚)
-        state_score = damped_score.copy()
-        state_score = state_score.mask(is_washout & (state_score < 0.2), 0.2 + shield_val)
-        state_score = state_score.mask(is_distribution, state_score - 0.5)
-        # =========================================================================
-        # 5. 非线性相变增益 (Gamma Expansion)
-        # =========================================================================
-        gamma = pd.Series(1.5, index=index)
-        # 蓝天 -> 0.8 (极易)
-        gamma = gamma.mask(is_blue_sky, 0.8)
-        # 泥沼 -> 2.0 (极难)
-        # 优化：如果是“突围”状态，Gamma 从 2.0 降至 1.4，给予反转机会
-        mud_gamma = pd.Series(2.0, index=index).mask(is_jailbreak, 1.4)
-        gamma = gamma.mask(is_mud, mud_gamma)
-        # 动力加速 -> 普适性降低阻力
-        gamma = gamma - (is_aggressive.astype(float) * 0.2)
-        # 执行非线性映射
-        clipped_state = state_score.clip(-1.0, 1.0)
-        final_nonlinear = np.sign(clipped_state) * np.power(np.abs(clipped_state), gamma)
-        # =========================================================================
-        # 6. 最终物理增强
-        # =========================================================================
-        conc_factor = (s.get('concentration', pd.Series(50, index=index)) / 70.0).clip(0.6, 1.4)
-        kinetic_boost = pd.Series(1.0, index=index).mask(is_aggressive, 1.25)
-        final_score = (final_nonlinear * conc_factor * kinetic_boost).clip(-1.0, 1.0)
-        # =========================================================================
-        # 7. 调试输出
-        # =========================================================================
+        # 护盾强度映射：0.005 (0.5%) 的流通盘净买入即为强护盾
+        hab_shield = np.tanh(hab_density * 50.0).clip(0, 1.0)
+        # --- 5. 核心逻辑计算 ---
+        # A. 静态优势分 (Static Advantage)
+        score_winner = _tf_winner(winner_rate)
+        # 安全垫 (Safety): 股价不应偏离成本太远(超买)，也不应太低(破位)
+        # 理想区间：成本上方 0% ~ 15%
+        cost_bias = (close - avg_cost) / avg_cost.replace(0, np.nan)
+        score_safety = np.exp(-np.power((cost_bias - 0.05)/0.2, 2)) * 2.0 - 1.0
+        # B. 动态趋势分 (Dynamic Trend)
+        # 权重：加速度(Accel) > 速度(Slope) > 跃度(Jerk)
+        # 逻辑：我们更看重主力拉升的“爆发力”(Accel)
+        kine_score = _tf_kinematics(slope_cost, 0.5) * 0.3 + \
+                     _tf_kinematics(accel_cost, 2.0) * 0.5 + \
+                     _tf_kinematics(jerk_cost, 2.0) * 0.2
+                     
+        # C. 结构有序度 (Structural Order)
+        # 引入熵的概念：低熵 + 高集中度 = 强控盘
+        score_order = _tf_entropy(chip_entropy)
+        # --- 6. 深度融合与阻尼应用 ---
+        # [Step 1] 基础合成
+        # 静态(底气) + 动态(意图) + 结构(状态)
+        raw_score = (score_winner * 0.35 + kine_score * 0.45 + score_order * 0.2)
+        # [Step 2] 阻尼应用 (Damping)
+        # 计算有效阻尼：套牢盘 - HAB护盾
+        effective_damping = _tf_trapped_damping(pressure_trapped, hab_shield)
+        damped_score = raw_score * effective_damping
+        # --- 7. 非线性增益与场景优化 ---
+        # 场景 A: 蓝天模式 (Blue Sky)
+        # 条件：获利盘 > 90% (上方无压力)
+        is_blue_sky = (profit_ratio > 90.0)
+        # 场景 B: 泥沼突围 (Jailbreak)
+        # 条件：深套(Pressure > 60) 但 动力学强劲(Accel > 0) 且 有护盾(Shield > 0.2)
+        is_jailbreak = (pressure_trapped > 60.0) & (accel_cost > 0.05) & (hab_shield > 0.2)
+        # Gamma 增益控制
+        gamma = pd.Series(1.0, index=index)
+        # 蓝天模式下，更容易获得高分 (Gamma < 1 放大正值)
+        gamma = gamma.mask(is_blue_sky & (damped_score > 0), 0.7)
+        # 泥沼突围下，给予额外奖励常数
+        jailbreak_bonus = is_jailbreak.astype(np.float32) * 0.4
+        # 最终计算：Power Law 扩张
+        # Sign * |Score|^Gamma
+        final_score = np.sign(damped_score) * np.power(np.abs(damped_score), gamma)
+        final_score = final_score + jailbreak_bonus
+        # 熵值熔断：如果极度混乱 (Order < 0.2)，且得分为正，强制衰减
+        entropy_penalty = pd.Series(1.0, index=index)
+        entropy_penalty = entropy_penalty.mask((score_order < 0.2) & (final_score > 0), 0.5)
+        final_score = (final_score * entropy_penalty).clip(-1.0, 1.0)
+        # --- Debug Output ---
         if _temp_debug_values is not None:
-            _temp_debug_values["组件_成本优势"] = {
-                "Score_Winner": score_winner,
-                "Score_Safety": score_safety,
+            _temp_debug_values["组件_成本优势(V40熵减版)"] = {
+                "HAB_Shield": hab_shield,
+                "Log_Slope_13": slope_cost,
+                "Log_Accel_8": accel_cost,
+                "Score_Order (Entropy)": score_order,
                 "Effective_Damping": effective_damping,
-                "Is_Resonant": is_resonant,
                 "Is_Jailbreak": is_jailbreak,
                 "Final_Cost_Score": final_score
             }
+            
         if is_jailbreak.any():
-            print(f"[探针] 泥沼突围 (Jailbreak): 在重压区监测到强动力学信号，Gamma惩罚已调低。")
-        if is_resonant.any():
-            print(f"[探针] 结构共振 (Resonance): 胜率/安全/重心三维齐备，触发 1.15倍 结构乘数。")
+            print(f"[探针] 成本优势: 监测到 {is_jailbreak.sum()} 个点位触发【泥沼突围】模式，HAB护盾已激活。")
         return final_score.astype(np.float32)
 
     def _calculate_main_force_avg_prices(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
         """
-        【V9.0.0 · 波动率自适应与非线性动力学增益模型】
-        职责：
-        1. 延续HAB存量锁控机制，拦截单日洗盘噪音。
-        2. 废弃全局通用归一化，自研“波动率自适应动力学归一化(Volatility-Adaptive Normalizer)”。
-        3. 利用个股自身的历史滚动标准差对Slope/Accel/Jerk进行股性降维，再通过 Tanh 映射。
-        4. 整合聪明钱与Tick大单作为非线性乘数，实现资金与结构的深度共振。
+        【V40.0.0 · 主力HAB存量均价与成本动力学模型 (HAB Cost Kinematics)】
+        修改思路：
+        1. 数据层升级：引入 `weight_avg_cost` (CYQ均价) 作为物理锚点，引入 `smart_net_buy` (聪明钱) 作为修正因子。
+        2. HAB存量均价：放弃简单的 EMA，构建基于 21日/55日 累积成交额与成交量的 VWMA (Volume Weighted Moving Average) 模型，真实反映主力持仓成本。
+        3. 动力学升级：对 HAB 成本曲线进行 Log-Space 下的 Slope/Accel/Jerk 计算，捕捉主力成本的移动趋势。
+        4. 归一化自研：针对价格乖离率 (Bias) 和动力学特征编写专用归一化逻辑，摒弃通用 Helper。
+        5. 非线性增益：引入“成本共振 (Cost Resonance)”，当主力成本与市场均价趋同时，给予高置信度权重。
         """
         m = context['market']
         f = context['funds']
         s = context['structure']
-        w_elg, w_lg = 1.5, 1.0
-        daily_buy_amt_w = (f['buy_elg_amt'] * w_elg) + (f['buy_lg_amt'] * w_lg)
-        daily_buy_vol_w = (f['buy_elg_vol'] * w_elg) + (f['buy_lg_vol'] * w_lg)
-        daily_sell_amt_w = (f['sell_elg_amt'] * w_elg) + (f['sell_lg_amt'] * w_lg)
-        daily_sell_vol_w = (f['sell_elg_vol'] * w_elg) + (f['sell_lg_vol'] * w_lg)
-        ema_span = 21
-        ema_buy_amt = daily_buy_amt_w.ewm(span=ema_span, adjust=False).mean()
-        ema_buy_vol = daily_buy_vol_w.ewm(span=ema_span, adjust=False).mean()
-        ema_sell_amt = daily_sell_amt_w.ewm(span=ema_span, adjust=False).mean()
-        ema_sell_vol = daily_sell_vol_w.ewm(span=ema_span, adjust=False).mean()
-        raw_buy_price = (ema_buy_amt / ema_buy_vol).replace([np.inf, -np.inf], np.nan)
-        raw_sell_price = (ema_sell_amt / ema_sell_vol).replace([np.inf, -np.inf], np.nan)
-        avg_raw = raw_buy_price.mean()
-        avg_close = m['close'].mean()
-        unit_mismatch_warning = False
-        if pd.notna(avg_raw) and avg_raw > 0 and (avg_close / avg_raw > 10.0 or avg_close / avg_raw < 0.1):
-            print(f"[致命异常探针] 量纲错配预警！拒绝执行防御性Hack掩盖！请检查军械库底层单位。")
-            unit_mismatch_warning = True
-        chip_mean = s.get('chip_mean', m['close'])
-        stealth_flow = f.get('stealth_flow', pd.Series(0.0, index=index))
-        vwap_dev = f.get('vwap_dev', pd.Series(0.0, index=index))
-        shadow_cost = m['close'] / (1.0 + vwap_dev.fillna(0) / 100.0)
-        stealth_factor = (stealth_flow / 100.0).clip(0, 0.4) if stealth_flow.mean() > 1.0 else stealth_flow.clip(0, 0.4)
-        weight_explicit = 0.7 - stealth_factor
-        weight_static = 0.3 - (stealth_factor * 0.25)
-        weight_shadow = stealth_factor * 1.25
-        fused_buy_price = (raw_buy_price * weight_explicit + chip_mean * weight_static + shadow_cost * weight_shadow).fillna(m['close'])
-        fused_sell_price = (raw_sell_price * 0.7 + chip_mean * 0.3).fillna(m['close'])
-        hab_21 = f['hab_net_mf_21']
-        daily_net = f['net_mf_calibrated']
-        safe_hab = hab_21.abs().clip(lower=1e-5)
-        flow_to_inventory_ratio = daily_net / safe_hab
-        is_wash_out = (hab_21 > 0) & (daily_net < 0) & (flow_to_inventory_ratio.abs() < 0.15)
-        locked_buy_price = fused_buy_price.copy()
-        locked_buy_price[is_wash_out] = np.nan
-        locked_buy_price = locked_buy_price.ffill().fillna(fused_buy_price)
-        smooth_buy = locked_buy_price.ewm(span=3, adjust=False).mean()
-        safe_smooth_buy = smooth_buy.clip(lower=1e-5)
-        buy_slope = np.log(safe_smooth_buy / safe_smooth_buy.shift(13).clip(lower=1e-5)) * 100.0
-        buy_accel = buy_slope - buy_slope.shift(8)
-        buy_jerk = buy_accel - buy_accel.shift(5)
-        buy_slope_clean = buy_slope.fillna(0)
-        buy_accel_clean = buy_accel.fillna(0)
-        buy_jerk_clean = buy_jerk.fillna(0)
-        slope_std = buy_slope_clean.rolling(window=252, min_periods=21).std().fillna(buy_slope_clean.std()).clip(lower=1e-3)
-        accel_std = buy_accel_clean.rolling(window=252, min_periods=21).std().fillna(buy_accel_clean.std()).clip(lower=1e-3)
-        jerk_std = buy_jerk_clean.rolling(window=252, min_periods=21).std().fillna(buy_jerk_clean.std()).clip(lower=1e-3)
-        norm_slope = np.tanh(buy_slope_clean / (slope_std * 2.0))
-        norm_accel = np.tanh(buy_accel_clean / (accel_std * 2.0))
-        norm_jerk = np.tanh(buy_jerk_clean / (jerk_std * 2.0))
-        raw_kinematic_energy = (norm_slope * 0.5) + (norm_accel * 0.3) + (norm_jerk * 0.2)
-        kinematic_gain = np.tanh(raw_kinematic_energy * 1.5)
-        smart_money_attack = f.get('smart_money_attack', pd.Series(0.0, index=index))
-        tick_lg_net = f.get('tick_lg_net', pd.Series(0.0, index=index))
-        smart_boost = pd.Series(1.0, index=index)
-        smart_boost = smart_boost.mask((smart_money_attack > 0.5) & (tick_lg_net > 0), 1.3)
-        smart_boost = smart_boost.mask((smart_money_attack < -0.5) & (tick_lg_net < 0), 0.7)
-        final_kinematic_power = (kinematic_gain * smart_boost).clip(-1.0, 1.0)
+        # --- 1. 数据提取与预处理 (Data Extraction) ---
+        # 基础量价
+        close = m['close']
+        turnover = m.get('turnover_rate', pd.Series(1.0, index=index)).replace(0, np.nan)
+        # 主力资金流 (特大单 + 大单)
+        buy_elg_amt = f.get('buy_elg_amt', pd.Series(0, index=index))
+        buy_lg_amt = f.get('buy_lg_amt', pd.Series(0, index=index))
+        buy_elg_vol = f.get('buy_elg_vol', pd.Series(0, index=index))
+        buy_lg_vol = f.get('buy_lg_vol', pd.Series(0, index=index))
+        sell_elg_amt = f.get('sell_elg_amt', pd.Series(0, index=index))
+        sell_lg_amt = f.get('sell_lg_amt', pd.Series(0, index=index))
+        sell_elg_vol = f.get('sell_elg_vol', pd.Series(0, index=index))
+        sell_lg_vol = f.get('sell_lg_vol', pd.Series(0, index=index))
+        # 聪明钱与筹码锚点
+        smart_net_buy = f.get('smart_net_buy', pd.Series(0, index=index)) # V40新增
+        cyq_avg_cost = s.get('weight_avg_cost', close) # 市场平均筹码成本
+        # --- 2. HAB 存量均价计算 (HAB VWMA) ---
+        # 逻辑：单日的均价容易受噪音干扰，使用 HAB (Historical Accumulation Buffer) 思想
+        # 计算 21日 (短期主力) 和 55日 (中期主力) 的滚动加权均价
+        # 合成单日主力买入/卖出数据
+        daily_main_buy_amt = buy_elg_amt + buy_lg_amt
+        daily_main_buy_vol = buy_elg_vol + buy_lg_vol
+        daily_main_sell_amt = sell_elg_amt + sell_lg_amt
+        daily_main_sell_vol = sell_elg_vol + sell_lg_vol
+        # 定义 HAB 计算器 (VWMA)
+        def _calc_hab_vwma(amt_series, vol_series, window):
+            # 滚动求和
+            roll_amt = amt_series.rolling(window=window, min_periods=int(window*0.5)).sum()
+            roll_vol = vol_series.rolling(window=window, min_periods=int(window*0.5)).sum()
+            # 计算均价 (避免除以零)
+            vwma = (roll_amt / roll_vol.replace(0, np.nan))
+            return vwma
+            
+        # 计算核心成本线
+        hab_cost_buy_21 = _calc_hab_vwma(daily_main_buy_amt, daily_main_buy_vol, 21).fillna(close)
+        hab_cost_sell_21 = _calc_hab_vwma(daily_main_sell_amt, daily_main_sell_vol, 21).fillna(close)
+        # 量纲检查 (Unit Check)
+        # 如果计算出的成本与股价差异过大 (例如 > 10倍)，说明元数据单位可能错配 (手 vs 股)
+        # 此时降级使用 close 或 cyq_avg_cost
+        price_ratio = hab_cost_buy_21 / close.replace(0, np.nan)
+        unit_mismatch = (price_ratio > 5.0) | (price_ratio < 0.2)
+        if unit_mismatch.any():
+            print(f"[探针] V40 HAB成本计算：监测到 {unit_mismatch.sum()} 个点位量纲异常，已自动回退至市场均价。")
+            hab_cost_buy_21 = hab_cost_buy_21.mask(unit_mismatch, cyq_avg_cost)
+            hab_cost_sell_21 = hab_cost_sell_21.mask(unit_mismatch, cyq_avg_cost)
+        # --- 3. 成本动力学 (Cost Kinematics) ---
+        # 对 HAB 成本曲线进行 Log-Space 求导
+        log_cost = np.log(hab_cost_buy_21.replace(0, np.nan))
+        # Slope (13): 成本移动方向
+        slope_cost = log_cost.diff(13) * 100.0
+        # Accel (8): 成本移动加速
+        accel_cost = slope_cost.diff(8)
+        # Jerk (5): 成本变率的变率
+        jerk_cost = accel_cost.diff(5)
+        # 去噪与填充
+        slope_clean = slope_cost.fillna(0)
+        accel_clean = accel_cost.fillna(0)
+        jerk_clean = jerk_cost.fillna(0)
+        # --- 4. 归一化与非线性增益 (Normalization & Gain) ---
+        # A. 动力学归一化 (Z-Tanh)
+        # 使用 252日 历史波动率作为基准
+        slope_std = slope_clean.rolling(252, min_periods=21).std().fillna(0.1).clip(lower=0.01)
+        norm_slope = np.tanh(slope_clean / (slope_std * 1.5))
+        norm_accel = np.tanh(accel_clean / (slope_std * 1.5)) # 加速度通常较小，复用 slope_std
+        # B. 聪明钱修正 (Smart Money Bias)
+        # 如果聪明钱大幅净买入，说明主力愿意以高于当前计算成本的价格吸筹
+        # 归一化聪明钱流向 [-1, 1]
+        circ_mv = m['circ_mv'].replace(0, np.nan)
+        smart_bias = np.tanh((smart_net_buy / circ_mv) * 1000.0) # 千分之几的力度
+        # C. 成本动力评分 (Kinematic Power)
+        raw_power = norm_slope * 0.5 + norm_accel * 0.3 + smart_bias * 0.2
+        # 非线性扩张
+        kinematic_power = np.sign(raw_power) * np.power(np.abs(raw_power), 1.2).clip(-1, 1)
+        # --- 5. 最终融合 (Final Fusion) ---
+        # 构建“锁定买入均价” (Locked Buy Price)
+        # 逻辑：结合 HAB计算均价 和 CYQ市场均价
+        # 换手率越低，CYQ权重越高 (静态)；换手率越高，Flow权重越高 (动态)。
+        flow_weight = np.tanh(turnover / 2.0).clip(0.2, 0.8) # 换手2%时权重约0.76
+        static_weight = 1.0 - flow_weight
+        final_buy_price = (hab_cost_buy_21 * flow_weight + cyq_avg_cost * static_weight)
+        final_sell_price = (hab_cost_sell_21 * flow_weight + cyq_avg_cost * static_weight)
+        # 聪明钱溢价修正
+        # 如果 SmartMoney 强力买入，上调主力成本线 (支撑位上移)
+        final_buy_price = final_buy_price * (1.0 + smart_bias * 0.02) # 最多修正 2%
+        # --- 6. 结果打包与调试 ---
         result = {
-            "unit_mismatch": unit_mismatch_warning,
-            "avg_buy": locked_buy_price,
-            "shadow_cost": shadow_cost,
-            "flow_to_inventory_ratio": flow_to_inventory_ratio,
-            "buy_slope": buy_slope_clean,
-            "buy_accel": buy_accel_clean,
-            "buy_jerk": buy_jerk_clean,
-            "kinematic_power": final_kinematic_power,
-            "avg_sell": fused_sell_price
+            "unit_mismatch": unit_mismatch.any(),
+            "avg_buy": final_buy_price,     # 最终主力买入成本 (支撑)
+            "avg_sell": final_sell_price,   # 最终主力卖出成本 (压力)
+            "buy_slope": slope_clean,       # 成本斜率
+            "buy_accel": accel_clean,       # 成本加速度
+            "buy_jerk": jerk_clean,         # 成本跃度
+            "kinematic_power": kinematic_power, # 成本动力评分
+            "shadow_cost": cyq_avg_cost     # 影子成本 (CYQ参考)
         }
-        _temp_debug_values["主力平均价格(V9自适应归一化)"] = {
-            "avg_buy_mean": locked_buy_price.mean(),
-            "slope_std_mean": slope_std.mean(),
-            "norm_slope_mean": norm_slope.mean(),
-            "kinematic_power_mean": final_kinematic_power.mean()
-        }
+        if _temp_debug_values is not None:
+            _temp_debug_values["主力平均价格(V40 HAB版)"] = {
+                "HAB_Cost_21": hab_cost_buy_21.mean(),
+                "Slope_Mean": slope_clean.mean(),
+                "Kinematic_Power": kinematic_power.mean(),
+                "Smart_Bias_Mean": smart_bias.mean(),
+                "Unit_Mismatch_Count": unit_mismatch.sum()
+            }
+            
         return result
 
     def _calculate_main_force_net_activity_score(self, context: Dict, index: pd.Index, config: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V14.0.0 · 内联稳健动态自适应归一化净活动模型】
-        职责：
-        1. 彻底废弃外部 helper 或 utils 的通用归一化方法。
-        2. 自研基于滚动中位数(Rolling Median)与滚动标准差(Rolling Std)的稳健动态归一化。
-        3. 延续非对称幂律增益与生态温度调控，保留极端势能。
-        4. 通过个股自身历史波动率(252日)对内能进行股性降维，最终输出 [-1, 1] 的高置信度控盘分。
+        【V40.0.0 · 矢量合成与HAB存量惯性净活动力模型 (Vector HAB-Inertia Activity)】
+        基于《最终军械库清单.txt》的深度重构：
+        1.  **数据增强**：采用 Tick级微观核动力 (tick_lg_net) + 聪明钱意图 (smart_net_buy) + 宏观资金流 (net_mf) 的三维矢量合成。
+            并引入 `flow_consistency` (一致性) 作为矢量合成的质量系数。
+        2.  **动力学去噪**：
+            -   **Slope (13)**: 趋势方向，采用 13日 EMA 平滑后的差分。
+            -   **Accel (8)**: 爆发力度，Slope 的 8日 差分。
+            -   **Jerk (5)**: 变盘信号，Accel 的 5日 差分。
+            -   **零基规避**：所有流向数据先标准化为“市值占比(千分之)”，再进行物理差分，彻底规避 %Change 的零基陷阱。
+        3.  **HAB 存量记忆系统 (HAB Memory System)**：
+            -   引入 **Historical Accumulation Buffer (HAB)**。
+            -   逻辑：若 `HAB_21` (21日累积存量) 高度盈余，则当日的微小流出被视为“良性换手”而非“出货”，给予阻尼豁免。
+            -   反之，若 `HAB_21` 为负，当日微小流入被视为“诱多”，信号被抑制。
+        4.  **内联自适应归一化**：
+            -   摒弃通用 Helper，使用基于 252日 历史波动率 (Rolling Std) 的 Tanh 动态映射。
+            -   针对 `flow_efficiency` (VPA效能) 使用 Sigmoid 映射。
+        5.  **非线性增益**：
+            -   **聪明钱共振 (Smart Resonance)**: 当 `smart_attack` (协同攻击) 触发时，对最终得分施加 1.5倍 非线性增益。
+            -   **一致性奖励**: 高一致性 (Consistency > 80) 触发指数级奖励。
         """
         f = context['funds']
         m = context['market']
-        synergy = f.get('smart_synergy', pd.Series(0.0, index=index))
-        divergence = f.get('smart_divergence', pd.Series(0.0, index=index))
-        ecology_modifier = 1.0 + (synergy * 0.4) - (divergence * 0.7)
-        tick_net = f.get('tick_lg_net', pd.Series(0.0, index=index))
-        smart_net = f.get('smart_money_net', pd.Series(0.0, index=index))
-        daily_net = f.get('net_mf_calibrated', pd.Series(0.0, index=index))
-        true_flow = (tick_net * 0.4 + smart_net * 0.4 + daily_net * 0.2) * ecology_modifier
-        amount_anchor = m['amount']
-        if amount_anchor.isnull().all():
-            print(f"[致命异常探针] 全市场成交额(Amount)断层，动力学物理锚点丢失！")
-            return pd.Series(0.0, index=index)
-        flow_velocity_13 = (true_flow.ewm(span=13, adjust=False).mean()) / amount_anchor * 100.0
-        flow_accel_8 = flow_velocity_13 - flow_velocity_13.shift(8)
-        flow_jerk_5 = flow_accel_8 - flow_accel_8.shift(5)
-        vel_std = flow_velocity_13.rolling(window=252, min_periods=21).std().replace(0, np.nan).fillna(flow_velocity_13.std()).clip(lower=1e-5)
-        acc_std = flow_accel_8.rolling(window=252, min_periods=21).std().replace(0, np.nan).fillna(flow_accel_8.std()).clip(lower=1e-5)
-        jrk_std = flow_jerk_5.rolling(window=252, min_periods=21).std().replace(0, np.nan).fillna(flow_jerk_5.std()).clip(lower=1e-5)
-        norm_vel = flow_velocity_13 / vel_std
-        norm_acc = flow_accel_8 / acc_std
-        norm_jrk = flow_jerk_5 / jrk_std
-        raw_linear_energy = (norm_vel * 0.5 + norm_acc * 0.3 + norm_jrk * 0.2)
-        is_resonance = (norm_vel * norm_acc > 0) & (norm_acc * norm_jrk > 0)
-        power_law_exponent = pd.Series(1.0, index=index).mask(is_resonance, 1.6)
-        amplified_energy = np.sign(raw_linear_energy) * (raw_linear_energy.abs() ** power_law_exponent)
-        hab_13 = f.get('hab_net_mf_13', pd.Series(0.0, index=index))
-        hab_21 = f.get('hab_net_mf_21', pd.Series(0.0, index=index))
-        hab_34 = f.get('hab_net_mf_34', pd.Series(0.0, index=index))
-        hab_55 = f.get('hab_net_mf_55', pd.Series(0.0, index=index))
-        consensus_inventory = hab_13 * 0.4 + hab_21 * 0.3 + hab_34 * 0.2 + hab_55 * 0.1
-        safe_inventory = consensus_inventory.abs().clip(lower=1e-5)
-        flow_to_inventory_ratio = true_flow / safe_inventory
-        buffer_impact = pd.Series(1.0, index=index)
-        has_deep_inventory = (consensus_inventory > 0) & (true_flow < 0)
-        dampener = 1.0 - np.exp(-15.0 * flow_to_inventory_ratio.abs())
-        buffer_impact = buffer_impact.mask(has_deep_inventory, dampener)
-        smart_attack = f.get('smart_money_attack', pd.Series(0.0, index=index))
-        energy_flow = f.get('net_energy_flow', pd.Series(0.0, index=index))
-        temperature_scalar = 1.0 + (smart_attack.clip(lower=0) * 0.5) + (energy_flow / 100.0).clip(lower=0) * 0.5
-        efficiency = f.get('flow_efficiency', pd.Series(0.0, index=index))
-        closing = f.get('closing_intensity', pd.Series(0.0, index=index))
-        quality_bonus = np.tanh(efficiency / 10.0) * 0.3 + np.tanh(closing / 5.0) * 0.3
-        golden_pit = (m['pct_change'] < -1.5) & (amplified_energy > 0) & has_deep_inventory
-        pit_multiplier = pd.Series(1.0, index=index).mask(golden_pit, 1.5)
-        final_internal_energy = amplified_energy * buffer_impact * pit_multiplier * temperature_scalar + quality_bonus.fillna(0)
-        energy_median = final_internal_energy.rolling(window=252, min_periods=21).median().fillna(final_internal_energy.median())
-        energy_std = final_internal_energy.rolling(window=252, min_periods=21).std().fillna(final_internal_energy.std()).clip(lower=1e-5)
-        adaptive_scaled_energy = (final_internal_energy - energy_median) / (energy_std * 1.5)
-        final_score = np.tanh(adaptive_scaled_energy).clip(-1.0, 1.0)
-        _temp_debug_values["组件_净活动(稳健自适应归一化模型)"] = {
-            "amplified_energy_mean": amplified_energy.mean(),
-            "final_internal_energy_mean": final_internal_energy.mean(),
-            "energy_median_mean": energy_median.mean(),
-            "energy_std_mean": energy_std.mean(),
-            "adaptive_scaled_energy_max": adaptive_scaled_energy.max(),
-            "final_score": final_score
-        }
-        print(f"[探针] 稳健动态自适应归一化执行完毕。波动率缩放基准(Std)均值: {energy_std.mean():.4f}, 映射后均分: {final_score.mean():.4f}")
-        return final_score
+        s = context['sentiment']
+        # --- 1. 矢量合成 (Vector Synthesis) ---
+        # 提取核心分量
+        tick_net = f.get('tick_lg_net', pd.Series(0, index=index)).fillna(0)  # 微观：最具爆发力 
+        smart_net = f.get('smart_net_buy', pd.Series(0, index=index)).fillna(0) # 机构：最具方向性 
+        macro_net = f.get('net_mf_calibrated', pd.Series(0, index=index)).fillna(0) # 宏观：容量验证 
+        # 归一化为物理强度 (Intensity): 千分之流通市值
+        # 解决大盘股与小盘股的量级不可比问题
+        circ_mv = m['circ_mv'].replace(0, np.nan)
+        norm_tick = (tick_net / circ_mv) * 1000.0
+        norm_smart = (smart_net / circ_mv) * 1000.0
+        norm_macro = (macro_net / circ_mv) * 1000.0
+        # 引入一致性质量因子
+        # flow_consistency: 0-100. 越高说明资金合力越强。
+        consistency = f.get('flow_consistency', pd.Series(50, index=index)).fillna(50)
+        quality_scalar = np.tanh((consistency - 40.0) / 20.0).clip(0.5, 1.5) # 映射到 [0.5, 1.5]
+        # 合成核心力向量 (Raw Vector Force)
+        # 权重分配：微观(0.45) > 机构(0.35) > 宏观(0.20)
+        raw_vector = (norm_tick * 0.45 + norm_smart * 0.35 + norm_macro * 0.20) * quality_scalar
+        # --- 2. HAB 存量记忆与惯性计算 (HAB Inertia) ---
+        # 存量意识：计算 21日 矢量存量
+        # 如果 context 中已计算 hab_net_mf_21 (基于复合流)，则直接使用，否则现场计算
+        hab_21 = f.get('hab_net_mf_21', raw_vector.rolling(window=21, min_periods=10).sum())
+        # HAB 惯性阻尼 (Damping)
+        # 逻辑：当 HAB > 10 (存量充足) 且 当日流出 (raw_vector < 0) 时，视为洗盘，衰减负向信号
+        # HAB 阈值设定：10 表示累积净流入达到流通盘的 1% (因为 raw_vector 是千分之)
+        is_washout_buffer = (hab_21 > 10.0) & (raw_vector < 0) & (raw_vector > -2.0) # 小幅流出
+        inertia_dampener = pd.Series(1.0, index=index)
+        inertia_dampener = inertia_dampener.mask(is_washout_buffer, 0.3) # 仅保留 30% 的负向影响
+        # 应用阻尼
+        buffered_vector = raw_vector * inertia_dampener
+        # --- 3. 动力学求导 (Kinematics Derivation) ---
+        # 避免零基陷阱：直接对物理强度 (Buffered Vector) 进行差分，而非百分比变化
+        # Velocity (13): 趋势速度 (EMA平滑)
+        velocity = buffered_vector.ewm(span=13, adjust=False).mean()
+        # Accel (8): 爆发加速度 (差分)
+        # 代表资金流入的“增量”变化
+        accel = velocity - velocity.shift(8)
+        # Jerk (5): 变盘跃度 (二阶差分)
+        # 代表加速度的衰竭或二次加速
+        jerk = accel - accel.shift(5)
+        # 填充 NaN
+        velocity = velocity.fillna(0)
+        accel = accel.fillna(0)
+        jerk = jerk.fillna(0)
+        # --- 4. 自适应稳健归一化 (Adaptive Robust Norm) ---
+        # 使用 252日 历史波动率 (Rolling Std) 作为基准
+        # 逻辑：不同股票的资金活跃度不同，必须自适应
+        def _adaptive_tanh(s: pd.Series, lookback=252, scale=2.0) -> pd.Series:
+            # 计算滚动标准差，使用 median 填充作为稳健兜底
+            roll_std = s.rolling(lookback, min_periods=21).std()
+            robust_std = roll_std.fillna(s.std()).replace(0, 0.1) # 防止除零
+            # Tanh 映射
+            return np.tanh(s / (robust_std * scale))
+        z_vel = _adaptive_tanh(velocity, scale=2.0)
+        z_acc = _adaptive_tanh(accel, scale=1.5) # 加速度更敏感，Scale 调小
+        z_jrk = _adaptive_tanh(jerk, scale=1.0)  # 跃度最敏感
+        # --- 5. 效率修正与非线性增益 (Efficiency & Gain) ---
+        # A. VPA 效率修正 (VPA Efficiency)
+        # 只有资金流入是不够的，必须产生价格位移才算“做功”
+        # flow_efficiency: 清单数据 
+        vpa_eff = f.get('flow_efficiency', pd.Series(50, index=index)).fillna(50)
+        # Sigmoid 映射：>50 奖励，<50 惩罚
+        eff_factor = 1.0 / (1.0 + np.exp(-(vpa_eff - 50.0) * 0.1)) # 0.0 ~ 1.0
+        # 映射到 [0.5, 1.5] 的乘数
+        eff_multiplier = eff_factor + 0.5 
+        # B. 聪明钱协同增益 (Smart Resonance Gain)
+        # smart_attack: 协同攻击信号 (0/1 或 连续值) 
+        smart_attack = f.get('smart_attack', pd.Series(0, index=index)).fillna(0)
+        is_attacking = smart_attack > 0.5
+        # C. 能量合成
+        # 基础动能
+        base_energy = (z_vel * 0.4 + z_acc * 0.4 + z_jrk * 0.2)
+        # 应用效率乘数
+        # 注意：如果 base_energy 为负 (流出)，效率高反而说明出货坚决，保持符号逻辑
+        final_energy = base_energy * eff_multiplier
+        # 应用非线性增益 (Power Law)
+        # 仅当 正向流入 且 聪明钱攻击 时触发
+        gain_exponent = pd.Series(1.0, index=index)
+        gain_exponent = gain_exponent.mask((final_energy > 0) & is_attacking, 1.4) # 1.4次幂扩张
+        # 最终映射
+        final_score = np.sign(final_energy) * np.power(np.abs(final_energy), gain_exponent)
+        final_score = final_score.clip(-1.0, 1.0)
+        # --- 6. 调试探针 ---
+        if _temp_debug_values is not None:
+            _temp_debug_values["组件_净活动(V40 HAB矢量版)"] = {
+                "Vector_Raw_Mean": raw_vector.mean(),
+                "HAB_21_Mean": hab_21.mean(),
+                "Inertia_Dampener_Active": (inertia_dampener < 1.0).sum(),
+                "Z_Vel": z_vel,
+                "Z_Acc": z_acc,
+                "Eff_Multiplier": eff_multiplier,
+                "Final_Activity_Score": final_score
+            }
+            
+        return final_score.astype(np.float32)
 
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V13.0.0 · 迟延激活与方向不对称质量映射传统控盘模型】
-        职责：
-        1. 推迟饱和激活(Late Activation)：所有中间共振层均保留在Logit无界空间计算，根除双重Tanh导致的阈值压缩塌陷。
-        2. 引入缺口动能(Gap Momentum)：修复均线滞后，为底层动能注入瞬间物理突变张量 。
-        3. 方向不对称质量映射(Direction-Aware Quality)：多头加权有序度，空头加权混沌度(崩盘踩踏效应)。
-        4. 动态状态机(Dynamic State Matrix)：利用换手稳定性与VPA效能缩放状态机常数，消除僵化静态加分 [cite: 1, 2]。
+        【V40.0.0 · 传统控盘时空共振与混沌博弈模型 (Spatiotemporal Resonance & Chaos Game)】
+        基于《最终军械库清单.txt》的深度重构：
+        1.  **数据维度扩张**：引入 `MA_COHERENCE_RESONANCE` (均线共振)、`GAP_MOMENTUM_STRENGTH` (缺口动能)、`PRICE_FRACTAL_DIM` (分形维数) 与 `PRICE_ENTROPY` (价格熵)。
+        2.  **时空动力学 (Spatiotemporal Kinematics)**：
+            -   **Slope (13)**: 趋势的一阶导，表征方向。
+            -   **Accel (8)**: 趋势的二阶导，表征力道。
+            -   **Jerk (5)**: 趋势的三阶导，表征变盘。
+            -   **零基陷阱规避**：对价格类指标使用 Log-Space 差分，对评分/比例类指标直接差分。
+        3.  **HAB 记忆系统 (HAB Memory)**：
+            -   引入 **Historical Accumulation Buffer (HAB)** 思想。
+            -   计算 `EMA_55` 的 34日 累积偏离度 (Bias Accumulation)，构建趋势惯性。
+            -   当惯性巨大时 (HAB >> 0)，当日微小的反向波动被视为噪音而非反转。
+        4.  **内联混沌归一化 (Chaos Normalization)**：
+            -   摒弃通用 Helper，构建基于“分形维数”和“熵”的自适应归一化。
+            -   **混沌状态 (High Entropy)**: 归一化区间压缩，降低信号置信度。
+            -   **有序状态 (Low Entropy)**: 归一化区间扩张，放大信号置信度。
+        5.  **非线性增益**：
+            -   **共振奖励**: 当 `MA_COHERENCE` (共振度) > 80 时，给予指数级奖励。
+            -   **缺口突变**: 引入 `GAP_MOMENTUM` 作为物理突变项，给予额外的动能加分。
         """
         m = context['market']
         ema = context['ema']
-        f_funds = context['funds']
         s_struct = context['structure']
         s_sent = context['sentiment']
-        s_state = context['state']
-        ema_55 = ema['ema_55']
-        ema_144 = ema.get('ema_144', pd.Series(0.0, index=index))
+        f_funds = context['funds'] # 需要用到 gap_momentum
+        # --- 1. 数据提取与预处理 (Data Extraction) ---
+        # 核心趋势锚点：EMA 55 (生命线)
+        ema_55 = ema.get('ema_55', pd.Series(0, index=index))
         if ema_55.isnull().all():
-            print(f"[致命异常探针] EMA55生命线数据全量缺失，传统动力学引擎停机！")
-            return pd.Series(0.0, index=index)
-        safe_ema_55 = ema_55.clip(lower=1e-5)
-        vel_13 = np.log(safe_ema_55 / safe_ema_55.shift(13).clip(lower=1e-5)) * 100.0
-        acc_8 = vel_13 - vel_13.shift(8)
-        jrk_5 = acc_8 - acc_8.shift(5)
-        vel_std = vel_13.rolling(window=252, min_periods=21).std().fillna(vel_13.std()).clip(lower=1e-3)
-        acc_std = acc_8.rolling(window=252, min_periods=21).std().fillna(acc_8.std()).clip(lower=1e-3)
-        jrk_std = jrk_5.rolling(window=252, min_periods=21).std().fillna(jrk_5.std()).clip(lower=1e-3)
-        norm_vel = vel_13 / vel_std
-        norm_acc = acc_8 / acc_std
-        norm_jrk = jrk_5 / jrk_std
-        adx = s_sent.get('adx_14', pd.Series(20.0, index=index)).fillna(20.0)
-        adx_activation = 1.0 / (1.0 + np.exp(-0.2 * (adx - 25.0)))
-        w_vel = 0.30 + adx_activation * 0.45 
-        w_jrk = 0.40 - adx_activation * 0.25 
-        w_acc = 1.0 - w_vel - w_jrk
-        gap_momentum = f_funds.get('gap_momentum', pd.Series(0.0, index=index)).fillna(0.0)
-        raw_linear_kine = (norm_vel * w_vel + norm_acc * w_acc + norm_jrk * w_jrk) + (gap_momentum / 10.0)
-        is_bull_resonance = (norm_vel > 0.1) & (norm_acc > 0.05) & (norm_jrk > 0.05)
-        is_bear_resonance = (norm_vel < -0.1) & (norm_acc < -0.05) & (norm_jrk < -0.05)
-        is_resonance = is_bull_resonance | is_bear_resonance
-        coherence = s_struct.get('ma_coherence', pd.Series(0.0, index=index)).fillna(0.0)
-        coherence_temperature = 1.0 + np.tanh(coherence / 50.0).clip(lower=0)
-        power_exponent = pd.Series(1.0, index=index).mask(is_resonance, 1.4 * coherence_temperature)
-        amplified_kine_score = np.sign(raw_linear_kine) * (raw_linear_kine.abs() ** power_exponent)
-        hab_vpa_34 = f_funds.get('hab_vpa_power_34', pd.Series(0.0, index=index))
-        hab_vpa_55 = f_funds.get('hab_vpa_power_55', pd.Series(0.0, index=index))
-        consensus_vpa_inventory = hab_vpa_34 * 0.4 + hab_vpa_55 * 0.6
-        inventory_std = consensus_vpa_inventory.rolling(252, min_periods=21).std().fillna(consensus_vpa_inventory.std()).clip(lower=1e-5)
-        norm_vpa_inventory = consensus_vpa_inventory / inventory_std
-        is_structural_washout = (norm_vpa_inventory > 1.0) & (amplified_kine_score < 0)
-        structural_buffer = pd.Series(1.0, index=index).mask(is_structural_washout, np.exp(-abs(amplified_kine_score)))
-        buffered_kine_score = amplified_kine_score * structural_buffer
-        q1 = buffered_kine_score.rolling(window=252, min_periods=21).quantile(0.25).fillna(buffered_kine_score.quantile(0.25))
-        q2 = buffered_kine_score.rolling(window=252, min_periods=21).median().fillna(buffered_kine_score.median())
-        q3 = buffered_kine_score.rolling(window=252, min_periods=21).quantile(0.75).fillna(buffered_kine_score.quantile(0.75))
-        upside_scale = (q3 - q2).clip(lower=1e-3)
-        downside_scale = (q2 - q1).clip(lower=1e-3)
-        asymmetric_scaled_kine_logit = pd.Series(np.where(buffered_kine_score > q2, (buffered_kine_score - q2) / upside_scale, (buffered_kine_score - q2) / downside_scale), index=index)
-        tension = s_struct.get('ma_tension', pd.Series(0.0, index=index)).fillna(0.0)
-        support = s_struct.get('support_strength', pd.Series(0.0, index=index)).fillna(0.0)
-        resistance = s_struct.get('resistance_strength', pd.Series(0.0, index=index)).fillna(0.0)
-        sr_log_ratio = np.log1p(support.clip(lower=0)) - np.log1p(resistance.clip(lower=0))
-        structure_resonance_logit = (coherence / 50.0) * 0.4 - (tension / 50.0) * 0.2 + sr_log_ratio * 0.4
-        raw_fused_energy = asymmetric_scaled_kine_logit * 0.65 + structure_resonance_logit * 0.35
-        base_fused_score = np.tanh(raw_fused_energy)
-        vpa_eff = s_sent.get('vpa_efficiency', pd.Series(0.0, index=index)).fillna(0.0)
-        vpa_multiplier = (1.0 + np.tanh(vpa_eff / 50.0)).clip(0.5, 1.5)
-        adx_confidence = (np.tanh((adx - 20.0) / 10.0) * 0.5 + 0.5).clip(0.5, 1.2)
-        entropy = s_struct.get('price_entropy', pd.Series(2.0, index=index)).fillna(2.0)
-        fractal_dim = s_struct.get('fractal_dim', pd.Series(1.5, index=index)).fillna(1.5)
-        entropy_penalty = 1.0 / (1.0 + np.exp(entropy - 1.8))
-        fractal_stability = 1.0 - (fractal_dim - 1.0).clip(0, 0.5) * 2.0
-        orderliness_multiplier = (entropy_penalty * 0.5 + fractal_stability * 0.5).clip(0.4, 1.5)
-        chaos_multiplier = 1.0 / orderliness_multiplier 
-        directional_quality_multiplier = pd.Series(np.where(base_fused_score > 0, orderliness_multiplier, chaos_multiplier), index=index)
-        safe_vpa = vpa_multiplier.clip(lower=0.1)
-        safe_adx = adx_confidence.clip(lower=0.1)
-        safe_dir_qual = directional_quality_multiplier.clip(lower=0.1)
-        geometric_quality_multiplier = np.power(safe_vpa * safe_adx * safe_dir_qual, 1.0/3.0)
-        quality_adjusted_score = base_fused_score * geometric_quality_multiplier
-        rubber_band = s_struct.get('rubber_band', pd.Series(0.0, index=index)).fillna(0.0)
-        reversal_warn = s_sent.get('reversal_warning', pd.Series(0.0, index=index)).fillna(0.0)
-        overextension_discount = np.exp(-np.abs(rubber_band) / 15.0) * (1.0 - (reversal_warn / 100.0).clip(0.0, 0.8))
-        macro_bear_mask = (m['close'] < ema_144) & (ema_144 > 0)
-        risk_adjusted_score = quality_adjusted_score.mask(macro_bear_mask & (quality_adjusted_score > 0), quality_adjusted_score * 0.5)
-        risk_adjusted_score = risk_adjusted_score.mask(risk_adjusted_score > 0, risk_adjusted_score * overextension_discount)
-        turnover_stability = s_sent.get('turnover_stability', pd.Series(50.0, index=index)).fillna(50.0)
-        dynamic_friction = np.tanh(turnover_stability / 50.0).clip(0.5, 1.5)
-        dynamic_state_scale = vpa_multiplier * dynamic_friction
-        is_parabolic = s_state.get('parabolic_warning', pd.Series(0.0, index=index)) > 0
-        is_golden_pit = s_state.get('golden_pit', pd.Series(0.0, index=index)) > 0
-        is_breakout = s_state.get('breakout_confirmed', pd.Series(0.0, index=index)) > 0
-        is_rounding = s_state.get('rounding_bottom', pd.Series(0.0, index=index)) > 0
-        is_robust = s_state.get('robust_trend', pd.Series(0.0, index=index)) > 0
-        state_multiplier = pd.Series(1.0, index=index).mask(is_parabolic, 0.1)
-        state_adder = pd.Series(0.0, index=index)
-        state_adder = state_adder.mask(is_golden_pit & (risk_adjusted_score > -0.5), 0.4 * dynamic_state_scale)
-        state_adder = state_adder.mask(is_breakout & (risk_adjusted_score > 0), 0.5 * dynamic_state_scale)
-        state_adder = state_adder.mask(is_rounding & (risk_adjusted_score > -0.2), 0.3 * dynamic_state_scale)
-        state_adder = state_adder.mask(is_robust & (risk_adjusted_score > 0.2), 0.2 * dynamic_state_scale)
-        final_score = (risk_adjusted_score * state_multiplier + state_adder).clip(-1.0, 1.0)
-        _temp_debug_values["组件_传统控盘(迟延激活与方向博弈)"] = {
-            "gap_momentum_mean": gap_momentum.mean(),
-            "asymmetric_scaled_kine_logit_mean": asymmetric_scaled_kine_logit.mean(),
-            "structure_resonance_logit_mean": structure_resonance_logit.mean(),
-            "base_fused_score_max": base_fused_score.max(),
-            "directional_quality_multiplier_mean": directional_quality_multiplier.mean(),
-            "dynamic_state_scale_mean": dynamic_state_scale.mean(),
-            "final_score": final_score
-        }
-        print(f"[探针] 迟延激活重构完成。突破双重Tanh封锁，多空方向质量乘数不对称率校验正常。")
-        return final_score
+             # 严苛模式：核心数据缺失直接熔断，不再静默填充
+             print(f"[熔断] 传统控盘: EMA_55 全量缺失，无法计算。")
+             return pd.Series(0.0, index=index)
+             
+        # [cite_start]辅助博弈数据 [cite: 1, 3]
+        coherence = s_struct.get('ma_coherence', pd.Series(0, index=index)).fillna(0) # 均线共振度
+        fractal_dim = s_struct.get('fractal_dim', pd.Series(1.5, index=index)).fillna(1.5) # 分形维数
+        entropy = s_struct.get('price_entropy', pd.Series(3.0, index=index)).fillna(3.0) # 价格熵
+        gap_momentum = f_funds.get('gap_momentum', pd.Series(0, index=index)).fillna(0) # 缺口动能 [cite: 1]
+        # --- 2. 时空动力学求导 (Spatiotemporal Kinematics) ---
+        # 使用 Log-Space 避免零基陷阱，且更符合金融资产的百分比增长特性
+        # Log-Price Transformation
+        log_ema = np.log(ema_55.replace(0, np.nan))
+        # Slope (13): 趋势方向
+        slope = log_ema.diff(13) * 100.0 # 转化为 % 级别
+        # Accel (8): 趋势力度
+        accel = slope.diff(8)
+        # Jerk (5): 趋势变盘
+        jerk = accel.diff(5)
+        # 填充 NaN
+        slope = slope.fillna(0)
+        accel = accel.fillna(0)
+        jerk = jerk.fillna(0)
+        # --- 3. HAB 趋势惯性记忆 (HAB Trend Inertia) ---
+        # 逻辑：计算 EMA_55 斜率的 34日 累积值。
+        # 如果长期处于上升趋势 (HAB_Slope > 5.0)，则具备强大的多头惯性。
+        hab_slope_34 = slope.rolling(window=34, min_periods=21).sum()
+        # 惯性阻尼 (Inertia Damping)
+        # 当惯性为正 (hab_slope_34 > 0) 且 当日出现减速 (accel < 0) 时，
+        # 只要减速幅度不大，视为良性调整，给予阻尼保护。
+        inertia_protection = pd.Series(1.0, index=index)
+        is_benign_pullback = (hab_slope_34 > 5.0) & (accel < 0) & (accel > -0.5)
+        inertia_protection = inertia_protection.mask(is_benign_pullback, 0.5) # 减半负向影响
+        # --- 4. 混沌自适应归一化 (Chaos Adaptive Norm) ---
+        # 逻辑：市场的有效性随“熵”变化。
+        # 高熵 (Entropy > 4.0) -> 市场混沌 -> 信号不可信 -> 归一化分母变大 (压缩得分)
+        # 低熵 (Entropy < 2.5) -> 市场有序 -> 信号可信 -> 归一化分母变小 (放大的分)
+        # 基础波动率 (252日)
+        base_vol = slope.rolling(252, min_periods=21).std().fillna(slope.std()).replace(0, 0.1)
+        # 熵修正系数 (Entropy Scalar)
+        # 假设 entropy 范围 1.0 ~ 5.0.  3.0 为中性。
+        entropy_scalar = (entropy / 3.0).clip(0.5, 2.0) # 熵越高，系数越大，分母越大
+        # 自适应分母
+        adaptive_denom = base_vol * entropy_scalar
+        # Tanh 映射
+        z_slope = np.tanh(slope / (adaptive_denom * 2.0))
+        z_accel = np.tanh(accel / (adaptive_denom * 1.5)) # 加速度更敏感
+        z_jerk = np.tanh(jerk / (adaptive_denom * 1.0))  # 跃度最敏感
+        # --- 5. 核心评分与非线性增益 (Scoring & Gain) ---
+        # A. 基础动能 (Kinetic Energy)
+        # 权重：趋势(Slope) 40%, 爆发(Accel) 40%, 变盘(Jerk) 20%
+        # 应用 HAB 惯性保护：如果处于良性回调，Accel 的负值会被 inertia_protection 缩小
+        base_score = (z_slope * 0.4 + (z_accel * inertia_protection) * 0.4 + z_jerk * 0.2)
+        # B. 结构共振增益 (Resonance Gain)
+        # [cite_start]coherence: 均线共振度 0~100 [cite: 1]
+        # 当均线高度共振 (>80) 时，说明多周期合力形成，给予 1.5倍 增益
+        resonance_mult = 1.0 + (np.tanh((coherence - 60.0) / 20.0).clip(0, 1.0) * 0.5)
+        # C. 缺口突变奖励 (Gap Mutation)
+        # [cite_start]gap_momentum: 缺口动能 [cite: 1]
+        # 缺口代表物理层级的能量跃迁，给予独立加分
+        gap_bonus = np.tanh(gap_momentum / 10.0).clip(-0.3, 0.3)
+        # D. 分形维数修正 (Fractal Correction)
+        # fractal_dim: 1.0 (直线) ~ 2.0 (平面)。接近 1.5 为随机游走。
+        # 当 D < 1.3 时，趋势性极强 (Trend Persistence)，奖励得分。
+        # 当 D > 1.7 时，均值回归极强 (Mean Reversion)，惩罚趋势分。
+        fractal_mult = pd.Series(1.0, index=index)
+        fractal_mult = fractal_mult.mask(fractal_dim < 1.3, 1.2) # 趋势增强
+        fractal_mult = fractal_mult.mask(fractal_dim > 1.7, 0.8) # 噪音抑制
+        # --- 6. 最终合成 ---
+        # 组合：(基础动能 * 共振 * 分形) + 缺口
+        raw_final = (base_score * resonance_mult * fractal_mult) + gap_bonus
+        # 限制范围
+        final_score = raw_final.clip(-1.0, 1.0)
+        # --- 7. 调试探针 ---
+        if _temp_debug_values is not None:
+            _temp_debug_values["组件_传统控盘(V40时空混沌版)"] = {
+                "HAB_Slope_34": hab_slope_34.mean(),
+                "Entropy_Scalar": entropy_scalar.mean(),
+                "Inertia_Active": (inertia_protection < 1.0).sum(),
+                "Coherence_Mult": resonance_mult.mean(),
+                "Fractal_Mult": fractal_mult.mean(),
+                "Gap_Bonus": gap_bonus.mean(),
+                "Final_Trad_Score": final_score
+            }
+            
+        print(f"[探针] 传统控盘: 混沌归一化完成。平均熵修正系数: {entropy_scalar.mean():.2f} (高熵压制), 惯性保护触发点数: {(inertia_protection < 1.0).sum()}")
+        return final_score.astype(np.float32)
 
-    def _calculate_control_leverage_model(self, index: pd.Index, fused_score: pd.Series, net_activity_score: pd.Series, 
-                                          norm_flow: pd.Series, cost_score: pd.Series, 
-                                          norm_t0_buy: pd.Series, norm_t0_sell: pd.Series, 
+    def _calculate_control_leverage_model(self, index: pd.Index, fused_score: pd.Series, net_activity_score: pd.Series,
+                                          norm_flow: pd.Series, cost_score: pd.Series,
+                                          norm_t0_buy: pd.Series, norm_t0_sell: pd.Series,
                                           norm_vwap_up: pd.Series, norm_vwap_down: pd.Series,
                                           context: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V12.0.0 · 矢量张量共振与流动性曲率杠杆模型】
-        职责：
-        1. 矢量张量共振(Tensor Resonance)：计算个股动能、行业强度、聪明钱热度在三维相空间的余弦方向一致性，激活超流态溢价。
-        2. 流动性曲率阻尼(Liquidity Curvature)：引入成交额边际贡献率，封杀地量空拉的虚假杠杆。
-        3. 记忆压力阻尼(Memory Damping)：利用 EMA 累积历史风险张力，实现风险响应的非对称时间衰减。
-        4. 全内联 MAD 归一化与非线性 Tanh 势能池，确保物理层量纲绝对正交。
+        【V40.0.0 · 熵减风控杠杆与HAB状态记忆模型 (Entropy-HAB Leverage)】
+        基于《最终军械库清单.txt》的深度重构：
+        1.  **数据层增强**：
+            -   [cite_start]引入 **双熵 (Dual Entropy)**: `chip_entropy_D` (筹码无序度) + `PRICE_ENTROPY_D` (价格无序度) [cite: 2, 3]。
+            -   [cite_start]引入 **风险 (Risk)**: `reversal_prob_D` (反转概率) + `divergence_strength_D` (背离强度) [cite: 2, 3]。
+            -   [cite_start]引入 **行业 (Industry)**: `industry_strength_rank_D` (行业排名) [cite: 2]。
+        2.  **动力学 (Kinetics)**:
+            -   计算 **熵的加速度 (Entropy Accel)**。如果混乱度正在加速上升 (Accel > 0)，即使当前绝对值不高，也需提前收缩杠杆。
+            -   应用斐波拉契 Slope(5) / Accel(3) 进行敏感度探测。
+        3.  **HAB 记忆系统 (HAB Memory)**:
+            -   计算 **风险HAB (Risk HAB)**: 13日 累积风险均值。
+            -   **惯性逻辑**: 如果长期稳定 (Low Risk HAB)，单日的熵增被视为噪音；如果长期混乱，单日低熵无效。
+        4.  **内联归一化**:
+            -   针对 Entropy 和 Rank 使用倒数/Sigmoid 自适应归一化。
+        5.  **非线性增益**:
+            -   [cite_start]**龙头特权 (Leader Privilege)**: `STATE_MARKET_LEADER` 触发 1.5倍 杠杆上限 [cite: 1]。
+            -   [cite_start]**聪明钱熔断 (Smart Override)**: `SMART_MONEY_HM_COORDINATED_ATTACK` 可豁免部分熵惩罚 [cite: 1]。
+        6.  **最终输出**: 动态杠杆系数 [0.0, 12.0]，决定了动力分转化为最终得分的放大倍数。
         """
-        sent, funds, struct, market, state = context['sentiment'], context['funds'], context['structure'], context['market'], context['state']
-        def _robust_norm_unipolar(s: pd.Series, lookback: int = 252) -> pd.Series:
-            median = s.rolling(lookback, min_periods=21).median().fillna(s.median())
-            mad = (s - median).abs().rolling(lookback, min_periods=21).median().fillna((s - s.median()).abs().median()).clip(lower=1e-5)
-            return (1.0 / (1.0 + np.exp(-1.5 * (s - median) / mad))).fillna(0.5)
-        def _get_slope_dir(s: pd.Series, p: int = 5) -> pd.Series:
-            return (s - s.shift(p)).apply(np.sign).fillna(0)
-        hab_cost = _temp_debug_values.get("主力平均价格(V9自适应归一化)", {}).get("avg_buy_mean", market['close'].mean())
-        hab_cost_series = pd.Series(hab_cost, index=index) if isinstance(hab_cost, float) else _temp_debug_values.get("主力平均价格(V9自适应归一化)", {}).get("avg_buy", pd.Series(market['close'].mean(), index=index))
-        hab_bias = (market['close'] - hab_cost_series) / hab_cost_series.replace(0, np.nan)
-        norm_bias_mult = 1.0 + (0.5 - _robust_norm_unipolar(hab_bias)) * 0.4
-        sqz_tension_raw = struct.get('profit_ratio', pd.Series(50.0, index=index)) - struct.get('pressure_trapped', pd.Series(50.0, index=index))
-        ind_rank = state.get('industry_rank', pd.Series(50.0, index=index))
-        sm_attack = funds.get('smart_money_attack', pd.Series(0.0, index=index))
-        dir_stock = _get_slope_dir(sqz_tension_raw)
-        dir_industry = _get_slope_dir(-ind_rank)
-        dir_smart = _get_slope_dir(sm_attack)
-        vector_resonance = ((dir_stock == dir_industry) & (dir_industry == dir_smart) & (dir_stock > 0)).astype(float)
-        resonance_multiplier = 1.0 + vector_resonance * 0.5
-        amt_ma252 = market['amount'].rolling(252, min_periods=21).mean().clip(lower=1e-5)
-        liquidity_ratio = market['amount'] / amt_ma252
-        liquidity_damping = np.tanh(liquidity_ratio * 5.0).clip(0.3, 1.0)
-        ind_markup = state.get('industry_markup', pd.Series(50.0, index=index))
-        sector_premium = (1.0 / (1.0 + np.exp(0.2 * (ind_rank - 20.0)))) * 0.65
-        synergy_scalar = (norm_bias_mult * resonance_multiplier * (1.0 + sector_premium)).fillna(1.0)
-        reversal_risk = (sent.get('reversal_prob', pd.Series(0.0, index=index)) / 100.0).clip(0, 1)
-        mem_risk_ema = reversal_risk.ewm(span=5).mean()
-        hard_breaker = pd.Series(1.0, index=index).mask(mem_risk_ema > 0.7, 0.15)
-        div_strength = sent.get('divergence_strength', pd.Series(0.0, index=index))
-        soft_risk_decay = np.exp(-(_robust_norm_unipolar(div_strength) * 2.0))
-        turn_stab = sent.get('turnover_stability', pd.Series(50.0, index=index))
-        friction = _robust_norm_unipolar(turn_stab).clip(0.4, 1.2)
-        lock_90 = struct.get('lock_ratio_90', pd.Series(0.0, index=index))
-        lockup_bonus = ((sent.get('turnover', pd.Series(3.0, index=index)) < 5.0) & (lock_90 > 65.0)).astype(float) * 0.5
-        super_bonus = _robust_norm_unipolar(struct.get('chip_convergence', pd.Series(50.0, index=index))) * 0.4
-        validation = (net_activity_score.clip(lower=0) * 0.4 + norm_flow * 0.3 + cost_score.clip(lower=0) * 0.2 + norm_t0_buy * 0.1).clip(0, 1)
-        internal_energy = (fused_score * validation + lockup_bonus + super_bonus + (0.2 - sent['bbw']).clip(lower=0) * 5.0).fillna(0)
-        base_lev = 1.0 + np.tanh(internal_energy / (1.0 / friction)) * 3.5
-        is_demon = (market.get('up_limit', pd.Series(0.0, index=index)) > 0) & (vector_resonance > 0) & (ind_rank < 15)
-        raw_lev = (base_lev * synergy_scalar * liquidity_damping) ** pd.Series(1.0, index=index).mask(is_demon, 1.4)
-        pos_lev = raw_lev * soft_risk_decay * hard_breaker
-        attrition = (funds.get('net_mf_calibrated', pd.Series(0.0, index=index)) / funds.get('hab_net_mf_21', pd.Series(0.0, index=index)).abs().clip(lower=1e-5)).abs()
-        is_shield = (funds.get('hab_net_mf_21', pd.Series(0.0, index=index)) > 0) & (attrition < 0.07)
-        punish_raw = (norm_t0_sell * 0.4 + norm_vwap_down * 0.3 + (1 - norm_flow) * 0.3).clip(0, 1)
-        neg_lev = (1.0 + fused_score) * np.exp(-(validation * 0.5 + punish_raw.mask(is_shield, 0.0) * 0.6)) * soft_risk_decay * hard_breaker
-        final_lev = pd.Series(np.where(fused_score > 0, pos_lev, neg_lev), index=index).clip(0, 12.0)
-        _temp_debug_values["风控_杠杆(矢量张量与流动性模型)"] = {
-            "vector_resonance_rate": vector_resonance.mean(),
-            "liquidity_damping_mean": liquidity_damping.mean(),
-            "mem_risk_ema_mean": mem_risk_ema.mean(),
-            "is_demon_rate": is_demon.mean(),
-            "final_leverage": final_lev
-        }
-        print(f"[探针] 杠杆张量共振闭环: 矢量一致性触发率:{vector_resonance.mean():.2%}, 流动性枯竭惩罚覆盖率:{(liquidity_damping < 0.5).mean():.2%}, 杠杆极值:{final_lev.max():.2f}")
+        s_struct = context['structure']
+        s_sent = context['sentiment'] # 注意：在 V40 _get_raw_control_signals 中，State 指标被打包进了 sentiment
+        f_funds = context['funds']
+        # --- 1. 数据提取 (Data Extraction) ---
+        # [cite_start]熵 (Entropy) [cite: 2, 3]
+        chip_ent = s_struct.get('chip_entropy', pd.Series(100, index=index)).fillna(100)
+        price_ent = s_struct.get('price_entropy', pd.Series(4, index=index)).fillna(4)
+        # [cite_start]风险 (Risk) [cite: 3]
+        rev_prob = s_sent.get('reversal_prob', pd.Series(0, index=index)).fillna(0) # 0-100
+        div_str = s_sent.get('divergence_strength', pd.Series(0, index=index)).fillna(0)
+        # [cite_start]状态 (State) [cite: 1, 2]
+        is_leader = s_sent.get('market_leader', pd.Series(0, index=index)) > 0.5
+        is_pit = s_sent.get('golden_pit', pd.Series(0, index=index)) > 0.5
+        ind_rank = s_sent.get('industry_rank', pd.Series(50, index=index)).fillna(50)
+        # [cite_start]聪明钱 (Smart) [cite: 1]
+        smart_attack = f_funds.get('smart_attack', pd.Series(0, index=index)).fillna(0)
+        # --- 2. 动力学风控 (Kinematic Risk) ---
+        # 计算“综合无序度” (Total Disorder)
+        # 归一化: Chip[0-100] -> [0,1], Price[1-5] -> [0,1]
+        norm_chip_ent = (chip_ent / 80.0).clip(0, 1.5)
+        norm_price_ent = ((price_ent - 1.5) / 2.5).clip(0, 1.5)
+        raw_disorder = (norm_chip_ent * 0.6 + norm_price_ent * 0.4)
+        # 熵的动力学：Slope(5) & Accel(3) - 快速反应
+        # 如果熵正在加速上升，说明市场正在失控
+        # 差分计算，无需对数，因为 disorder 已经是比率
+        ent_slope = raw_disorder.diff(5).fillna(0)
+        ent_accel = ent_slope.diff(3).fillna(0)
+        # 动力学惩罚: 如果加速混乱 (Accel > 0.05)，加大惩罚
+        # 这是一个“预警”机制，在混乱彻底爆发前降杠杆
+        kinetic_penalty = pd.Series(0.0, index=index)
+        kinetic_penalty = kinetic_penalty.mask(ent_accel > 0.05, 0.3) # 扣除 30% 杠杆
+        # --- 3. HAB 风险记忆 (HAB Risk Memory) ---
+        # 计算 13日 滚动平均无序度 (Structure Stability)
+        hab_disorder = raw_disorder.rolling(window=13, min_periods=5).mean().fillna(raw_disorder)
+        # 稳定性判定: 如果 HAB < 0.4 (长期有序)，则对单日的熵增宽容
+        # 逻辑：牛市急跌往往是买点，不要因为单日熵增就杀跌
+        is_structurally_stable = hab_disorder < 0.4
+        # 修正后的无序度 (Effective Disorder)
+        effective_disorder = raw_disorder.copy()
+        # 稳定状态下，单日混乱打 7 折计算
+        effective_disorder = effective_disorder.mask(is_structurally_stable, effective_disorder * 0.7)
+        # --- 4. 自研归一化与阻尼 (Custom Norm & Damping) ---
+        # A. 熵减阻尼 (Entropy Damping)
+        # 核心公式: Lev = Lev * exp(-k * Disorder^2)
+        # k=2.0 -> Disorder=0.5时 衰减到 0.6; Disorder=1.0时 衰减到 0.13
+        # 这是一个强非线性函数，对低熵非常友好，对高熵极度严苛
+        entropy_damping = np.exp(-2.0 * np.power(effective_disorder, 2))
+        # B. 行业地位修正 (Industry Scalar)
+        # Rank 1-5: 1.2x; Rank > 30: 0.8x
+        # 1 / (1 + exp(rank)) 逻辑变种
+        ind_scalar = 1.0 + (np.tanh((20.0 - ind_rank) / 10.0) * 0.2) # 0.8 ~ 1.2
+        # C. 风险概率熔断 (Risk Circuit Breaker)
+        # reversal_prob > 80% -> 强制 0.1x
+        risk_breaker = pd.Series(1.0, index=index)
+        risk_breaker = risk_breaker.mask(rev_prob > 80.0, 0.1)
+        risk_breaker = risk_breaker.mask(div_str > 80.0, 0.2)
+        # --- 5. 杠杆合成与非线性增益 ---
+        # 基础杠杆: 由 结构分 (fused_score) 决定
+        # fused_score [-1, 1] -> Base [1, 6]
+        # 结构越好，允许放大的倍数越高
+        base_lev = 1.0 + np.tanh(fused_score.clip(0, 1) * 2.5) * 5.0 
+        # 应用 熵阻尼 & 动力学惩罚
+        # (1 - kinetic_penalty) 是线性扣减
+        lev_step1 = base_lev * entropy_damping * (1.0 - kinetic_penalty)
+        # 应用 状态特权 (State Privilege)
+        # 龙头/金坑 享有 1.5倍/1.3倍 溢价
+        state_mult = pd.Series(1.0, index=index)
+        state_mult = state_mult.mask(is_leader, 1.5)
+        state_mult = state_mult.mask(is_pit, 1.3)
+        # 应用 聪明钱豁免 (Smart Override)
+        # 如果 smart_attack 存在，强制提升杠杆底线，且抵抗熵惩罚
+        # 逻辑：机构协同攻击是“有序的混沌”
+        attack_bonus = pd.Series(1.0, index=index)
+        attack_bonus = attack_bonus.mask(smart_attack > 0.5, 1.4)
+        # 综合计算
+        raw_final_lev = lev_step1 * ind_scalar * state_mult * attack_bonus * risk_breaker
+        # --- 6. 最终约束 ---
+        # 硬约束: 如果 净活动力(Net Activity) 为负，杠杆不能超过 1.0 
+        # 逻辑：主力在出逃时，结构再好也只能看作反弹，不能加杠杆做主升
+        final_lev = raw_final_lev.mask(net_activity_score < 0, raw_final_lev.clip(upper=1.0))
+        # 全局上限 12.0
+        final_lev = final_lev.clip(0.0, 12.0)
+        # --- 7. 调试探针 ---
+        if _temp_debug_values is not None:
+            _temp_debug_values["风控_杠杆(V40熵减HAB版)"] = {
+                "HAB_Disorder_13": hab_disorder.mean(),
+                "Entropy_Accel_Penalty": (kinetic_penalty > 0).sum(),
+                "Entropy_Damping": entropy_damping.mean(),
+                "State_Mult_Max": state_mult.max(),
+                "Risk_Breaker_Active": (risk_breaker < 1.0).sum(),
+                "Final_Leverage": final_lev
+            }
+            
+        print(f"[探针] 风控杠杆: 熵减模型运行。HAB稳定态占比: {(is_structurally_stable).mean():.1%}, 风险熔断触发: {(risk_breaker < 0.5).sum()} 次")
         return final_lev
 
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
         """
-        【V26.0.0 · 成本结构挤压与状态依赖物理融合模型】
-        职责：在多维博弈的基础上，引入筹码分布状态和市场形态对评分进行动态校准。
-        核心逻辑：
-        1. 成本挤压：获利盘主导时放大动力，套牢盘主导时抑制动力。
-        2. 锁定效率：奖励"缩量锁仓"的高控盘形态。
-        3. 状态物理：黄金坑豁免洗盘惩罚，假突破触发聪明钱熔断。
-        4. VPA效能：奖励高效推升。
-        5. 合成：采用幂律扩张 (Power Law Expansion) 拉开区分度。
+        【V40.0.0 · 熵减结构融合与HAB时空博弈模型 (Entropy-HAB Fusion)】
+        基于《最终军械库清单.txt》的深度重构：
+        1.  **数据层增强**：
+            -   引入 `winner_rate_D` (获利比例) 辅助 `profit_ratio` 计算更真实的筹码挤压。
+            -   引入 `chip_stability_D` (筹码稳定性) 的 Slope/Accel 动力学，预判结构变化。
+            -   引入 `SMART_MONEY_HM_COORDINATED_ATTACK_D` (聪明钱攻击) 作为最高级门控。
+        2.  **HAB 存量缓冲 (HAB Shield)**：
+            -   利用 `hab_net_mf_55` (中期存量) 构建护盾。当存量丰厚时，豁免短期结构恶化 (Stability Drop) 的惩罚。
+        3.  **双熵博弈 (Dual Entropy)**：
+            -   计算 `Entropy_Gap = Price_Entropy - Chip_Entropy`。
+            -   理想状态：价格有序 (Low Price Ent) + 筹码有序 (Low Chip Ent)。
+            -   伪突破状态：价格有序 + 筹码混乱 (High Chip Ent) -> 强惩罚。
+        4.  **内联归一化**:
+            -   针对 Squeeze (挤压) 和 Locking (锁仓) 编写非线性映射函数。
+        5.  **非线性增益**:
+            -   聪明钱攻击触发 1.25倍 乘数。
+            -   采用 Gamma 分布对最终得分进行扩张。
         """
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
         m_market = context['market']
-        s_state = context['state']
-        profit = s_struct['profit_ratio'].fillna(0)
-        trapped = s_struct['pressure_trapped'].fillna(0)
-        squeeze_potential = np.tanh((profit - trapped) / 20.0)
-        cost_modifier = 1.0 + (squeeze_potential * 0.3)
-        adx = s_sent['adx_14'].fillna(20.0)
-        dynamic_trad_weight = 1.0 / (1.0 + np.exp(-0.15 * (adx - 30.0)))
-        dynamic_trad_weight = dynamic_trad_weight.clip(0.2, 0.8)
-        dynamic_struct_weight = 1.0 - dynamic_trad_weight
-        base_score = (traditional_score * cost_modifier * dynamic_trad_weight + structural_score * dynamic_struct_weight)
-        hab_34 = f_funds.get('hab_net_mf_34', pd.Series(0, index=base_score.index))
+        s_state = context['state'] # 包含 Golden Pit, Breakout 等
+        # --- 1. 数据提取与预处理 ---
+        # 核心结构数据
+        profit = s_struct.get('profit_ratio', pd.Series(0, index=traditional_score.index)).fillna(0)
+        winner = s_struct.get('winner_rate', pd.Series(0, index=traditional_score.index)).fillna(0)
+        trapped = s_struct.get('pressure_trapped', pd.Series(0, index=traditional_score.index)).fillna(0)
+        # 动力学数据 (Stability Kinematics)
+        # 筹码稳定性反映了锁仓程度，直接对其求导
+        stability = s_struct.get('chip_stability', pd.Series(50, index=traditional_score.index)).fillna(50)
+        slope_stab = stability.diff(5).fillna(0)
+        accel_stab = slope_stab.diff(3).fillna(0)
+        # 熵数据
+        price_ent = s_struct.get('price_entropy', pd.Series(3, index=traditional_score.index)).fillna(3)
+        chip_ent = s_struct.get('chip_entropy', pd.Series(100, index=traditional_score.index)).fillna(100)
+        # 资金与HAB
+        hab_55 = f_funds.get('hab_net_mf_55', f_funds['net_mf_calibrated'].rolling(55).sum())
         circ_mv = m_market['circ_mv'].replace(0, np.nan)
         turnover = s_sent['turnover'].replace(0, np.nan).fillna(1.0)
-        hab_density = hab_34 / circ_mv
-        norm_turnover = turnover / 3.0
-        locking_ratio = (hab_density * 100.0) / norm_turnover
+        smart_attack = f_funds.get('smart_attack', pd.Series(0, index=traditional_score.index)).fillna(0)
+        sm_div = f_funds.get('smart_divergence', pd.Series(0, index=traditional_score.index)).fillna(0)
+        # --- 2. 成本结构挤压 (Cost Squeeze Dynamics) ---
+        # 逻辑：获利盘与胜率的双重确认。如果两者都高且套牢盘低，说明上方真空。
+        # Squeeze = ((Profit + Winner)/2 - Trapped)
+        # 归一化：Tanh映射，系数 20.0
+        squeeze_raw = ((profit + winner) * 0.5 - trapped)
+        squeeze_score = np.tanh(squeeze_raw / 20.0) # -1.0 ~ 1.0
+        # Squeeze 修正系数: 正向挤压放大信号，负向挤压(套牢)衰减信号
+        cost_modifier = 1.0 + (squeeze_score * 0.4)
+        # --- 3. HAB 存量护盾 (HAB Shield) ---
+        # 逻辑：计算主力持仓密度。
+        # 如果 HAB密度 > 1% (0.01)，则认为主力控盘深厚，对结构波动不敏感。
+        hab_density = (hab_55 / circ_mv).fillna(0)
+        hab_shield = np.tanh(hab_density * 30.0).clip(0, 1.0) # 0.0 ~ 1.0
+        # --- 4. 动态权重分配 (Dynamic Weighting) ---
+        # 基于 ADX (趋势强度)
+        # ADX > 40: 趋势确立，重传统(Traditional) 轻结构(Structural)
+        # ADX < 20: 震荡蓄势，重结构 轻传统
+        adx = s_sent['adx_14'].fillna(20.0)
+        w_trad = 1.0 / (1.0 + np.exp(-0.15 * (adx - 30.0))) # Sigmoid centered at 30
+        w_trad = w_trad.clip(0.3, 0.7) # 限制权重范围
+        w_struct = 1.0 - w_trad
+        # 基础融合分
+        base_score = (traditional_score * w_trad + structural_score * w_struct) * cost_modifier
+        # --- 5. 锁仓效率与动力学修正 (Locking Efficiency & Kinematics) ---
+        # A. 锁仓效率: (HAB / Turnover)
+        # 换手越低，HAB越高，说明锁仓越好。
+        # 归一化：Tanh
+        locking_ratio = (hab_density * 100.0) / (turnover / 3.0) # 归一化换手
         locking_gain = 1.0 + np.tanh(locking_ratio * 0.5).clip(-0.5, 0.8)
-        jerk = f_funds.get('net_mf_jerk', pd.Series(0, index=base_score.index))
-        bias_55 = s_struct['bias_55'].fillna(0)
-        sm_div = f_funds.get('smart_divergence', pd.Series(0, index=base_score.index))
-        jerk_std = jerk.rolling(252, min_periods=21).std().fillna(jerk.std()).replace(0, 1.0)
-        norm_jerk_z = jerk / jerk_std
-        is_golden_pit = s_state['golden_pit'] > 0
-        is_breakout = s_state['breakout_confirmed'] > 0
-        is_kinematic_fail = (norm_jerk_z < -1.5)
-        decay_factor = pd.Series(1.0, index=base_score.index)
-        high_risk_decay = np.exp(-(np.abs(norm_jerk_z) * 0.8)).clip(0, 1)
-        decay_factor = decay_factor.mask(is_kinematic_fail & (bias_55 > 20.0), high_risk_decay)
-        decay_factor = decay_factor.mask(is_golden_pit, 1.0)
-        sm_gate = pd.Series(1.0, index=base_score.index)
+        # B. 结构动力学 (Stability Kinematics)
+        # 如果稳定性正在加速上升 (Accel > 0)，说明筹码正在快速沉淀，奖励
+        # 如果稳定性加速下降，说明筹码松动
+        # HAB 护盾作用：如果 Shield 强，忽略短期松动
+        stab_kine = np.tanh(slope_stab * 0.1 + accel_stab * 0.2)
+        # 应用护盾：如果是负向变动，乘以 (1 - Shield)
+        stab_kine = stab_kine.mask(stab_kine < 0, stab_kine * (1.0 - hab_shield * 0.8))
+        # --- 6. 双熵博弈与门控 (Dual Entropy & Gating) ---
+        # 逻辑：价格熵(Price) vs 筹码熵(Chip)
+        # 归一化 Price[1-5] -> [0,1], Chip[0-100] -> [0,1]
+        norm_p_ent = ((price_ent - 1.0) / 4.0).clip(0, 1)
+        norm_c_ent = (chip_ent / 100.0).clip(0, 1)
+        # 熵质量 (Entropy Quality)
+        # 最佳：Price有序(Low) + Chip有序(Low)
+        # 最差：Price有序(Low) + Chip混乱(High) -> 典型的诱多/假突破
+        # 计算“伪装度” (Fake Degree): Price低 但 Chip高
+        fake_degree = (1.0 - norm_p_ent) * norm_c_ent
+        entropy_penalty = 1.0 - (fake_degree * 0.8) # 最大扣除 80%
+        # 聪明钱门控 (Smart Gate)
+        sm_gate = pd.Series(1.0, index=traditional_score.index)
+        # 协同攻击：奖励 1.25x
+        sm_gate = sm_gate.mask(smart_attack > 0.5, 1.25)
+        # 顶背离：惩罚 0.6x (股价涨但主力卖)
         is_bull_trap = (base_score > 0.2) & (sm_div < -0.2)
         sm_gate = sm_gate.mask(is_bull_trap, 0.6)
-        is_fake_breakout = is_breakout & (sm_div < -0.1)
-        sm_gate = sm_gate.mask(is_fake_breakout, 0.2)
-        is_strong_resonance = (base_score > 0.2) & (sm_div > 0.2)
-        sm_gate = sm_gate.mask(is_strong_resonance, 1.2)
-        vpa_eff = s_sent['vpa_efficiency'].fillna(0)
-        vpa_gain = 1.0 + (np.tanh(vpa_eff / 100.0) * 0.5).clip(0, 0.5)
-        entropy_diff = s_struct['price_entropy'] - s_struct['chip_entropy']
-        entropy_quality = 1.0 / (1.0 + np.exp(-2.0 * (entropy_diff - 0.5)))
-        r2 = s_struct['geom_r2'].fillna(0).clip(0, 1)
-        linearity_gain = 1.0 + np.power(r2, 3) * 0.5
-        raw_final = (base_score * locking_gain * sm_gate * decay_factor * entropy_quality * linearity_gain * vpa_gain)
+        # --- 7. 最终合成与非线性扩张 ---
+        # 状态检查
+        is_golden_pit = s_state.get('golden_pit', pd.Series(0, index=traditional_score.index)) > 0
+        is_breakout = s_state.get('breakout_confirmed', pd.Series(0, index=traditional_score.index)) > 0
+        # 融合计算
+        # Base * Locking * Stability_Addon * Entropy * Smart
+        # Stability Addon: 转化为乘数 1.0 +/- 0.2
+        stab_mult = 1.0 + (stab_kine * 0.2)
+        raw_final = base_score * locking_gain * stab_mult * entropy_penalty * sm_gate
+        # 状态豁免：如果是黄金坑，忽略部分惩罚
+        if is_golden_pit.any():
+            raw_final = raw_final.mask(is_golden_pit & (raw_final < 0), raw_final * 0.5) # 负分减半
+            
+        # 幂律扩张 (Power Law Expansion)
+        # 增强区分度：两端极化
         expanded_final = np.sign(raw_final) * np.power(np.abs(raw_final), 1.5)
+        # 最终 Tanh 约束
         final_fused = np.tanh(expanded_final).astype(np.float32)
+        # --- Debug Output ---
         if _temp_debug_values is not None:
-            _temp_debug_values["融合_动力学"] = {
-                "Cost_Modifier": cost_modifier,
-                "State_GoldenPit": is_golden_pit,
-                "State_Breakout": is_breakout,
-                "Decay_Factor": decay_factor,
-                "Smart_Gate": sm_gate,
+            _temp_debug_values["融合_动力学(V40熵减HAB版)"] = {
+                "Squeeze_Score": squeeze_score,
+                "HAB_Shield": hab_shield,
+                "Dynamic_Trad_Weight": w_trad,
                 "Locking_Gain": locking_gain,
+                "Stab_Kinematics": stab_kine,
+                "Entropy_Penalty": entropy_penalty,
+                "Smart_Gate": sm_gate,
                 "Final_Fused_Score": final_fused
             }
-        if is_golden_pit.sum() > 0:
-            print(f"[探针] 监测到黄金坑状态 (Golden Pit)，已豁免动力学衰减。")
-        if is_fake_breakout.sum() > 0:
-            print(f"[探针] 警报：监测到假突破 (Fake Breakout) —— 突破确立但聪明钱背离，执行熔断。")
-        if (cost_modifier > 1.2).sum() > 0:
-            print(f"[探针] 监测到蓝天模式 (Blue Sky)，获利盘主导，动力学得分已放大。")
+            
+        if (entropy_penalty < 0.6).sum() > 0:
+            print(f"[探针] 结构融合: 监测到 { (entropy_penalty < 0.6).sum() } 个点位存在【伪有序】特征 (价格稳/筹码乱)，已执行熵减惩罚。")
+        if (hab_shield > 0.8).sum() > 0:
+            print(f"[探针] 结构融合: HAB护盾激活。主力高度锁仓，短期结构波动已被平滑。")
+            
         return final_fused
 
     def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
