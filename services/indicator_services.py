@@ -626,12 +626,10 @@ class IndicatorService:
 
     async def _prepare_base_data_and_indicators(self, stock_code: str, config: dict, trade_time: Optional[str] = None, latest_only: bool = False) -> Dict[str, pd.DataFrame]:
         """
-        【V8.9 · 修复KeyError版】
-        为策略准备数据的统一入口，已切换至 FactorDao 获取新版资金与筹码因子。
-        - 核心升级: 替换原有的 AdvancedFundFlow 和 AdvancedChips 调用，转为调用 FactorDao 的 ChipFactor, FundFlowFactor 和 ChipHoldingMatrix。
-        - 字段同步: priority_supp_cols 已更新为新版因子模型的所有字段，确保数据合并时优先保留这些高精度指标。
-        - 统一命名: 所有日线数据列名统一以 `_D` 结尾。
-        - 修复: 在重采样前更新 raw_dfs['D']，解决 KeyError: "Column(s) ['close_D', ...] do not exist"。
+        【V9.0 · 斐波那契因子同步版】
+        为策略准备数据的统一入口，已同步斐波那契时间维度。
+        - 核心升级: 字段清单 priority_supp_cols 已同步为斐波那契周期 [3, 5, 8, 13, 21, 34, 55]。
+        - 废弃清理: 移除了 10d, 20d 等非标周期引用，确保与 FundFlowFactorCalculator 逻辑一致。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -642,7 +640,6 @@ class IndicatorService:
         if not required_tfs:
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
             return {}
-        # 确定需要获取的数据条数
         if latest_only:
             max_lookback = self._get_max_lookback_period(config)
             safety_buffer = 100
@@ -650,7 +647,6 @@ class IndicatorService:
             print(f"    - [闪电模式启动] 策略最大回溯期: {max_lookback}, 安全缓冲: {safety_buffer}, 最终加载: {base_needed_bars} 条记录。")
         else:
             base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 1200)
-        # 确定需要获取的基础时间框架和重采样映射
         base_tfs_to_fetch = set()
         resample_map = {}
         for tf in required_tfs:
@@ -659,15 +655,13 @@ class IndicatorService:
                 resample_map[tf] = 'D'
             else:
                 base_tfs_to_fetch.add(tf)
-        # --- 步骤 1: 并发获取所有原始数据 ---
         tasks = []
-        # OHLCV 数据
         async def _fetch_and_tag_ohlcv_data(tf_to_fetch, trade_time_str, limit):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, limit, trade_time_str)
             return (tf_to_fetch, df)
         for tf in base_tfs_to_fetch:
             current_limit = base_needed_bars
-            if tf.isdigit(): # 分钟线动态扩容
+            if tf.isdigit():
                 try:
                     tf_minutes = int(tf)
                     multiplier = 240 / tf_minutes
@@ -677,20 +671,16 @@ class IndicatorService:
                 except ValueError:
                     pass
             tasks.append(_fetch_and_tag_ohlcv_data(tf, trade_time, current_limit))
-        # 补充数据 (各种高级指标和基本面数据)
         trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
         trade_time_dt_date = trade_time_dt.date() if trade_time_dt else datetime.datetime.now().date()
-        # 1. 传统补充数据 (FundFlow & Chips Legacy)
         async def _fetch_legacy_supplemental_tagged():
             df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, base_needed_bars)
             return ('legacy_supplemental', df)
         tasks.append(_fetch_legacy_supplemental_tagged())
-        # 2. 每日基本面
         async def _fetch_daily_basic_tagged():
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, base_needed_bars)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged())
-        # 3. 资金流 (THS/DC/Tushare)
         async def _fetch_fund_flow_ths_tagged():
             df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('fund_flow_ths', df)
@@ -703,22 +693,18 @@ class IndicatorService:
             df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('fund_flow_tushare', df)
         tasks.append(_fetch_fund_flow_tushare_tagged())
-        # 4. 【替换】新版资金流向因子 (FundFlowFactor)
         async def _fetch_fund_flow_factor_tagged():
             df = await self.factor_dao.get_fund_flow_factor_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('fund_flow_factor', df)
         tasks.append(_fetch_fund_flow_factor_tagged())
-        # 5. 涨跌停数据
         async def _fetch_price_limit_tagged():
             df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, base_needed_bars)
             return ('price_limit', df)
         tasks.append(_fetch_price_limit_tagged())
-        # 8. 【替换】新版筹码因子 (ChipFactor)
         async def _fetch_chip_factor_tagged():
             df = await self.factor_dao.get_chip_factor_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('chip_factor', df)
         tasks.append(_fetch_chip_factor_tagged())
-        # 9. 【新增】筹码持有矩阵 (ChipHoldingMatrix)
         async def _fetch_chip_holding_matrix_tagged():
             df = await self.factor_dao.get_chip_holding_matrix_data(stock_code, trade_time_dt_date, base_needed_bars)
             return ('chip_holding_matrix', df)
@@ -747,7 +733,6 @@ class IndicatorService:
         if 'D' not in raw_dfs:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
-        # --- 步骤 2: 初始化 df_daily_master (OHLCV 日线数据) ---
         df_daily_master = raw_dfs['D'].copy()
         df_daily_master.columns = df_daily_master.columns.str.strip()
         df_daily_master.index = df_daily_master.index.normalize()
@@ -760,22 +745,16 @@ class IndicatorService:
                  rename_ohlcv_map[col] = f"{col}_D"
         if rename_ohlcv_map:
             df_daily_master = df_daily_master.rename(columns=rename_ohlcv_map)
-        if 'close' in df_daily_master.columns and 'close_D' not in df_daily_master.columns:
-             df_daily_master = df_daily_master.rename(columns={'close': 'close_D'})
         ohlcv_core_cols = set()
         for col in df_daily_master.columns:
             if col.endswith('_D'):
                 base_name = col[:-2]
                 if base_name in ohlcv_cols:
                     ohlcv_core_cols.add(col)
-        # --- 步骤 3: 逐个处理并合并补充数据 ---
         all_merged_cols_for_ffill = set()
-        # 定义优先级列：更新为新版因子模型的所有字段
         priority_supp_cols = set([
-            # StockDailyBasic
             'turnover_rate_D', 'turnover_rate_f_D', 'volume_ratio_D', 'pe_ttm_D', 'pb_D',
             'total_market_value_D', 'circ_mv_D',
-            # ChipFactor (新版筹码因子)
             'price_to_weight_avg_ratio_D', 'chip_concentration_ratio_D', 'chip_stability_D', 'profit_pressure_D',
             'profit_ratio_D', 'chip_entropy_D', 'chip_skewness_D', 'chip_kurtosis_D', 'winner_rate_D',
             'win_rate_price_position_D', 'cost_5pct_D', 'cost_15pct_D', 'cost_50pct_D', 'cost_85pct_D', 'cost_95pct_D',
@@ -789,32 +768,27 @@ class IndicatorService:
             'distribution_signal_score_D', 'main_force_activity_index_D', 'net_migration_direction_D',
             'migration_convergence_ratio_D', 'signal_quality_score_D', 'behavior_confirmation_D',
             'pressure_release_index_D', 'support_resistance_ratio_D',
-            # ChipHoldingMatrix (新版筹码持有矩阵)
-            'absorption_energy_D',
-            'distribution_energy_D', 'net_energy_flow_D', 'game_intensity_D', 'breakout_potential_D',
+            'absorption_energy_D', 'distribution_energy_D', 'net_energy_flow_D', 'game_intensity_D', 'breakout_potential_D',
             'energy_concentration_D', 'concentration_comprehensive_D', 'concentration_entropy_D',
             'concentration_peak_D', 'pressure_trapped_D', 'pressure_profit_D', 'support_strength_D',
             'resistance_strength_D', 'convergence_comprehensive_D', 'convergence_migration_D',
             'behavior_accumulation_D', 'behavior_distribution_D', 'behavior_consolidation_D', 'validation_score_D',
-            # FundFlowFactor (新版资金流向因子)
-            'total_net_amount_3d_D', 'total_net_amount_5d_D', 'total_net_amount_13d_D', 'total_net_amount_21d_D',
-            'total_net_amount_34d_D', 'total_net_amount_55d_D',
-            'avg_daily_net_5d_D', 'avg_daily_net_13d_D', 'avg_daily_net_21d_D', 'avg_daily_net_34d_D', 'avg_daily_net_55d_D',
-            'total_volume_5d_D', 'total_volume_13d_D', 'total_volume_21d_D', 'total_volume_34d_D', 'total_volume_55d_D',
-            'net_amount_ratio_D', 'net_amount_ratio_ma5_D', 'net_amount_ratio_ma10_D', 'flow_intensity_D',
+            'total_net_amount_3d_D', 'total_net_amount_5d_D', 'total_net_amount_8d_D', 'total_net_amount_13d_D', 
+            'total_net_amount_21d_D', 'total_net_amount_34d_D', 'total_net_amount_55d_D',
+            'avg_daily_net_8d_D', 'avg_daily_net_13d_D', 'avg_daily_net_21d_D', 'avg_daily_net_34d_D', 'avg_daily_net_55d_D',
+            'total_volume_8d_D', 'total_volume_13d_D', 'total_volume_21d_D', 'total_volume_34d_D', 'total_volume_55d_D',
+            'net_amount_ratio_D', 'net_amount_ratio_ma5_D', 'net_amount_ratio_ma8_D', 'flow_intensity_D',
             'intensity_level_D', 'accumulation_score_D', 'pushing_score_D', 'distribution_score_D', 'shakeout_score_D',
             'pattern_confidence_D', 'outflow_quality_D', 'inflow_persistence_D', 'large_order_anomaly_D',
             'anomaly_intensity_D', 'flow_consistency_D', 'flow_stability_D', 'daily_weekly_sync_D',
-            'daily_monthly_sync_D', 'short_mid_sync_D', 'mid_long_sync_D', 'flow_momentum_5d_D', 'flow_momentum_10d_D',
+            'daily_monthly_sync_D', 'short_mid_sync_D', 'mid_long_sync_D', 'flow_momentum_5d_D', 'flow_momentum_8d_D',
             'flow_acceleration_D', 'uptrend_strength_D', 'downtrend_strength_D', 'price_flow_divergence_D',
             'divergence_strength_D', 'flow_peak_value_D', 'days_since_last_peak_D', 'flow_support_level_D',
-            'flow_resistance_level_D', 'flow_zscore_D', 'flow_percentile_D', 'flow_volatility_10d_D',
-            'flow_volatility_20d_D', 'expected_flow_next_1d_D', 'flow_forecast_confidence_D',
+            'flow_resistance_level_D', 'flow_zscore_D', 'flow_percentile_D', 'flow_volatility_13d_D',
+            'flow_volatility_21d_D', 'expected_flow_next_1d_D', 'flow_forecast_confidence_D',
             'uptrend_continuation_prob_D', 'reversal_prob_D', 'comprehensive_score_D', 'signal_strength_D',
-            # PriceLimit
             'up_limit_D', 'down_limit_D', 'up_limit_pct_D', 'down_limit_pct_D'
         ])
-        # Iterate and merge each processed supplementary DataFrame
         for tag, df_supp_raw in supplemental_dfs.items():
             df_supp_processed = await self._process_supplemental_df(df_supp_raw, tag)
             if df_supp_processed.empty:
@@ -841,15 +815,10 @@ class IndicatorService:
         for col in priority_supp_cols:
             if col not in df_daily_master.columns:
                 df_daily_master[col] = np.nan
-        # --- 4: 统一 ffill 填充 ---
         cols_to_ffill = [col for col in all_merged_cols_for_ffill if col in df_daily_master.columns]
         if cols_to_ffill:
             df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
-        # 将处理完毕的 df_daily_master 更新回 raw_dfs['D']
-        # 这一步至关重要，因为后续的重采样(resample)和指标计算都依赖于 raw_dfs['D'] 中
-        # 已经重命名为 *_D 且包含补充数据的列。
         raw_dfs['D'] = df_daily_master
-        # --- 6: 重采样周/月线数据 ---
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
@@ -879,7 +848,6 @@ class IndicatorService:
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
                         raw_dfs[target_tf] = df_resampled
-        # --- 7: 计算所有时间框架的指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
         async def _calculate_for_tf(tf, df):
@@ -898,8 +866,6 @@ class IndicatorService:
                 tf, df_processed = res
                 if df_processed is not None and not df_processed.empty:
                     processed_dfs[tf] = df_processed
-                else:
-                    print(f"    - 警告: 周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
         return processed_dfs
 
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:

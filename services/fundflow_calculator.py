@@ -2129,9 +2129,10 @@ class FundFlowFactorCalculator:
     def _calculate_stealth_flow_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算主力隐蔽性指标
-        版本: V2.9
-        说明: 引入 Numba 单次 O(N) 遍历取代多次布尔位运算，极大提升 Tick 数据处理速度
+        版本: V2.9.1
+        说明: [关键修复] 增加数值溢出保护(clip)，防止除以微小分母导致的数值爆炸
         """
+        print("[探针] 执行 _calculate_stealth_flow_indicators: Numba 单次扫描提速并增加溢出保护")
         metrics = {'stealth_flow_ratio': None}
         if len(df) == 0: return metrics
         small_order_threshold = 50000.0
@@ -2141,8 +2142,10 @@ class FundFlowFactorCalculator:
         small_net, total_net = _numba_stealth_flow_agg(amounts, is_buy, small_order_threshold)
         small_net /= 10000.0
         total_net /= 10000.0
-        if abs(total_net) > 0:
+        if abs(total_net) > 0.0001: # 提高分母阈值，避免极端微小值
             stealth_ratio = abs(small_net) / abs(total_net) * 100.0
+            # [修复] 限制最大值为 999999.99，确保符合 Decimal(10,4) 范围
+            stealth_ratio = min(999999.99, stealth_ratio)
         else:
             stealth_ratio = 0.0
         metrics['stealth_flow_ratio'] = float(stealth_ratio)

@@ -622,9 +622,9 @@ class FeatureEngineeringService:
 
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.5 · A股换手率与主力成本增强版】
-        - 优化: 引入自由换手率(turnover_rate_f_D)作为效率分母的修正项，识别A股特有的“缩量涨停”高效率模式。
-        - 优化: 结合主力净额(net_mf_amount_D)对量价方向进行硬性归因。
+        【V2.6 · 斐波那契周期对齐版】A股换手率与主力成本增强版
+        - 核心修改: 将 VPA 加速度计算周期从 10D 调整为 13D 斐波那契周期。
+        - 优化: 引入自由换手率修正项，识别“缩量锁仓”高效率模式。
         """
         timeframe = 'D'
         if timeframe not in all_dfs: return all_dfs
@@ -635,23 +635,18 @@ class FeatureEngineeringService:
         volume = df['volume_D'].values.astype(np.float32)
         vol_ma_21 = df['VOL_MA_21_D'].values.astype(np.float32)
         turnover_f = df['turnover_rate_f_D'].values.astype(np.float32)
-        # 1. 计算A股特有的“换手调整效率” (Turnover Adjusted Efficiency)
-        # 逻辑：在相同涨幅下，换手率越低，说明筹码锁定度越高，VPA攻击性越强
         with np.errstate(divide='ignore', invalid='ignore'):
             vol_ratio = np.divide(volume, vol_ma_21)
             vol_ratio = np.where(vol_ratio == 0, 1.0, vol_ratio)
-            # 引入换手率惩罚系数: (1 + turnover_f / 100)
             vpa_eff = pct_change / (vol_ratio * (1 + turnover_f / 5.0))
             df['VPA_EFFICIENCY_D'] = np.nan_to_num(vpa_eff)
-        # 2. 结合主力净额修正方向
         if 'net_mf_amount_D' in df.columns:
             net_mf = df['net_mf_amount_D'].values.astype(np.float32)
-            # 若价格上涨但主力净流出，则判定为“诱多性效率”，打折扣
             vpa_adj = np.where((pct_change > 0) & (net_mf < 0), vpa_eff * 0.3, vpa_eff)
             df['VPA_MF_ADJUSTED_EFF_D'] = np.nan_to_num(vpa_adj)
-        # 3. 计算VPA加速度 (使用已有的SLOPE逻辑计算VPA的变化率)
         vpa_values = df['VPA_EFFICIENCY_D'].values.astype(np.float64)
-        df['VPA_ACCELERATION_5D'] = _numba_rolling_slope(vpa_values, 5)
+        # 【修改】计算窗口从 5 调整为 13 (斐波那契) 以增强趋势稳健性
+        df['VPA_ACCELERATION_13D'] = _numba_rolling_slope(vpa_values, 13)
         all_dfs[timeframe] = df
         return all_dfs
 
@@ -1002,12 +997,9 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict) -> Dict:
         """
-        【V4.0 · 多因子融合版】突破质量分计算专用通道
-        - 核心重构：使用ChipFactorBase、ChipHoldingMatrixBase、FundFlowFactor模型的新字段
-        - 废弃字段替代：
-            total_winner_rate -> winner_rate_D + profit_ratio_D + pressure_trapped_D组合
-            main_force_flow_directionality -> behavior_pattern_D + net_energy_flow_D + flow_momentum_5d_D组合
-        - 增强维度：从单一突破质量扩展为技术、筹码、资金、能量四维突破质量评估
+        【V4.1 · 斐波那契字段同步版】突破质量分计算专用通道
+        - 核心修改：同步 FundFlowFactor 模型中已修改的斐波那契周期字段。
+        - 字段同步：移除 ma10，新增 ma8；移除 volatility_10d/20d，新增 13d/21d。
         """
         if not params.get('enabled', False):
             return all_dfs
@@ -1015,137 +1007,60 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
             return all_dfs
         df_daily = all_dfs[timeframe]
-        # 新增幂等性检查
         if 'breakout_quality_score_D' in df_daily.columns:
-            logger.debug(f"突破质量分 (breakout_quality_score_D) 已存在于周期 '{timeframe}' 的DataFrame中，跳过重复计算。")
             return all_dfs
-        # ==================== 1. 新模型字段替代方案 ====================
-        # 废弃字段映射：
-        # total_winner_rate -> winner_rate_D + profit_ratio_D + pressure_trapped_D
-        # main_force_flow_directionality -> behavior_pattern_D + net_energy_flow_D + flow_momentum_5d_D
-        # 补充 calculate_breakout_quality_score 所需的材料
         required_materials = [
-            # 基础量价指标
-            'volume', 'VOL_MA_21', 
-            'open', 'high', 'low', 'close',
-            # VPA效率指标
-            'VPA_EFFICIENCY',
-            'VPA_BUY_EFFICIENCY',
-            # 执行强度指标
+            'volume', 'VOL_MA_21', 'open', 'high', 'low', 'close',
+            'VPA_EFFICIENCY', 'VPA_BUY_EFFICIENCY',
             'main_force_buy_execution_alpha', 'upward_impulse_strength',
             'buy_order_book_clearing_rate', 'bid_side_liquidity',
             'vwap_cross_up_intensity', 'opening_buy_strength',
-            # 筹码清洗指标
-            'floating_chip_cleansing_efficiency',
-            # 风险预警指标
-            'deception_lure_long_intensity', 'wash_trade_buy_volume'
+            'floating_chip_cleansing_efficiency', 'deception_lure_long_intensity', 'wash_trade_buy_volume'
         ]
-        # 新增：新模型字段（替代废弃字段）
+        # 【核心修改点】同步新版模型字段（斐波那契化）
         new_model_materials = [
-            # ChipFactorBase字段（筹码替代）
-            'winner_rate',                    # 胜率（替代total_winner_rate）
-            'profit_ratio',                   # 获利比例
-            'chip_concentration_ratio',       # 筹码集中度
-            'chip_stability',                 # 筹码稳定性
-            'profit_pressure',                # 获利盘压力
-            # FundFlowFactor字段（资金流向替代）
-            'flow_intensity',                 # 资金流入强度得分
-            'accumulation_score',             # 建仓模式得分
-            'pushing_score',                  # 拉升模式得分
-            'net_amount_ratio',               # 净流入占比
-            'flow_momentum_5d',               # 5日资金动量（替代directionality）
-            'flow_stability',                 # 资金流稳定性
-            'large_order_anomaly',            # 大单异动
-            # ChipHoldingMatrixBase字段（能量场替代）
-            'absorption_energy',              # 吸收能量
-            'distribution_energy',            # 派发能量
-            'net_energy_flow',                # 净能量流向（替代directionality）
-            'game_intensity',                 # 博弈强度
-            'breakout_potential',             # 突破势能
-            'energy_concentration',           # 能量集中度
-            # 博弈状态字段
-            'behavior_accumulation',          # 吸筹强度
-            'behavior_distribution',          # 派发强度
-            'behavior_consolidation',         # 整理强度
-            # 压力支撑字段
-            'pressure_trapped',               # 套牢盘压力
-            'pressure_profit',                # 获利盘比例
-            'support_strength',               # 下方支撑强度
-            'resistance_strength',            # 上方阻力强度
+            'winner_rate', 'profit_ratio', 'chip_concentration_ratio', 'chip_stability', 'profit_pressure',
+            'flow_intensity', 'accumulation_score', 'pushing_score', 'net_amount_ratio', 
+            'net_amount_ratio_ma5', 'net_amount_ratio_ma8',  # 替换 ma10 -> ma8
+            'flow_momentum_5d', 'flow_momentum_8d',         # 新增 8d
+            'flow_stability', 'large_order_anomaly',
+            'absorption_energy', 'distribution_energy', 'net_energy_flow', 'game_intensity', 'breakout_potential', 'energy_concentration',
+            'behavior_accumulation', 'behavior_distribution', 'behavior_consolidation',
+            'pressure_trapped', 'pressure_profit', 'support_strength', 'resistance_strength',
+            'flow_volatility_13d', 'flow_volatility_21d'    # 替换 10d/20d -> 13d/21d
         ]
-        # 合并所有需要的字段
         all_required_materials = required_materials + new_model_materials
         df_standardized = pd.DataFrame(index=df_daily.index)
-        missing_materials = []
         for material in all_required_materials:
             source_col_with_suffix = f"{material}_{timeframe}"
-            # 特殊处理：部分字段可能有不同的命名格式
             if source_col_with_suffix in df_daily.columns:
                 df_standardized[material] = df_daily[source_col_with_suffix]
             else:
-                # 尝试其他可能的命名格式
-                alt_names = [
-                    f"{material}",
-                    f"{material.upper()}_{timeframe}",
-                    f"{material.lower()}_{timeframe}"
-                ]
+                alt_names = [f"{material}", f"{material.upper()}_{timeframe}", f"{material.lower()}_{timeframe}"]
                 found = False
                 for alt_name in alt_names:
                     if alt_name in df_daily.columns:
                         df_standardized[material] = df_daily[alt_name]
                         found = True
                         break
-                if not found:
-                    missing_materials.append(source_col_with_suffix)
-        # 检查关键字段是否存在
         critical_materials = ['volume', 'high', 'low', 'close', 'VPA_EFFICIENCY']
         missing_critical = [m for m in critical_materials if m not in df_standardized.columns]
         if missing_critical:
             logger.warning(f"突破质量分计算中止，缺少关键材料: {missing_critical}")
             return all_dfs
-        if missing_materials:
-            logger.debug(f"突破质量分计算缺少部分材料（非关键）: {missing_materials[:10]}...")
-        # ==================== 2. 计算突破质量分（多因子融合版） ====================
         try:
-            # 调用新版计算器（支持新模型字段）
-            result_df = await self.calculate_breakout_quality_score_v4(
-                df_daily=df_standardized, 
-                params=params
-            )
+            result_df = await self.calculate_breakout_quality_score_v4(df_daily=df_standardized, params=params)
         except AttributeError:
-            # 如果新版计算器不存在，使用降级版本
-            logger.warning("新版突破质量分计算器不存在，使用降级版本...")
             result_df = await self.calculate_breakout_quality_score_v3(df_standardized, params)
         if result_df is not None and not result_df.empty:
             df_daily = df_daily.join(result_df, how='left')
-            # --- 命名协议强制执行 ---
-            # 将合并进来的列，强制重命名为带 '_D' 后缀的标准格式
-            rename_dict = {}
-            for col in result_df.columns:
-                if not col.endswith(f'_{timeframe}'):
-                    rename_dict[col] = f"{col}_{timeframe}"
+            rename_dict = {col: f"{col}_{timeframe}" for col in result_df.columns if not col.endswith(f'_{timeframe}')}
             if rename_dict:
                 df_daily.rename(columns=rename_dict, inplace=True)
-            # 前向填充关键指标
-            fill_cols = [
-                'breakout_quality_score_D',
-                'breakout_technical_score_D',
-                'breakout_chip_score_D',
-                'breakout_fundflow_score_D',
-                'breakout_energy_score_D'
-            ]
+            fill_cols = ['breakout_quality_score_D', 'breakout_technical_score_D', 'breakout_chip_score_D', 'breakout_fundflow_score_D', 'breakout_energy_score_D']
             for col in fill_cols:
-                if col in df_daily.columns:
-                    df_daily[col] = df_daily[col].ffill()
+                if col in df_daily.columns: df_daily[col] = df_daily[col].ffill()
             all_dfs[timeframe] = df_daily
-            logger.info("突破质量分计算完成并已集成。")
-            # 输出统计信息
-            if 'breakout_quality_score_D' in df_daily.columns:
-                score_series = df_daily['breakout_quality_score_D'].dropna()
-                if not score_series.empty:
-                    logger.info(f"突破质量分统计 - 均值: {score_series.mean():.2f}, 最大值: {score_series.max():.2f}, 最小值: {score_series.min():.2f}")
-        else:
-            logger.warning("突破质量分计算器返回了None或空DataFrame，未集成。")
         return all_dfs
 
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
@@ -1471,159 +1386,62 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality_score_v4(self, df_daily: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V5.0 · 猎杀A股伪突破增强版】
-        - 核心逻辑升级: 针对A股 "缩量假突破"、"诱多杀"、"T+1闷杀" 特性进行深度建模。
-        - 优化维度:
-            1. 效率过滤器 (Efficiency Filter): 引入 'turnover_rate_f' (自由换手率)。真正的突破必须 "惜售" (低换手大涨) 或 "充分换手" (高换手封板)，中间态最危险。
-            2. 欺诈惩罚 (Deception Penalty): 强力应用 'deception_lure_long_intensity' 和 'large_order_anomaly'。
-            3. 集合竞价权重 (Call Auction): 重视 'opening_buy_strength'，A股强势股往往赢在起跑线。
-            4. 成本安全垫 (Cost Cushion): 结合 'weight_avg_cost'，突破点离成本区越近，爆发力越强且安全（黄金坑）。
+        【V5.1 · 斐波那契逻辑同步版】猎杀A股伪突破增强版
+        - 核心修改: 同步 ma8 和 momentum_8d 的权重引用，废弃 ma10 逻辑。
         """
         df = df_daily.copy()
         results = pd.DataFrame(index=df.index)
-        # --- 0. 基础数据清洗与对齐 ---
-        # 确保关键列存在，缺失则给默认值或进行安全处理
         def get_series(col, default_val=0.0):
-            if col in df.columns:
-                return df[col].fillna(default_val)
+            if col in df.columns: return df[col].fillna(default_val)
             return pd.Series(default_val, index=df.index)
         pct_change = get_series('pct_change')
-        turnover_f = get_series('turnover_rate_f') # 自由换手率
+        turnover_f = get_series('turnover_rate_f')
         volume = get_series('volume')
-        vol_ma21 = get_series('VOL_MA_21', default_val=1.0)
-        # ==================== 1. 技术形态质量 (Technical Quality) ====================
+        # ==================== 1. 技术形态质量 ====================
         tech_score = pd.Series(0.0, index=df.index)
-        # 1.1 价格形态: 实体饱满度与上影线压力
-        # A股真突破通常是大阳线，上影线短
-        high = get_series('high')
-        low = get_series('low')
-        close = get_series('close')
-        open_p = get_series('open')
+        high, low, close, open_p = get_series('high'), get_series('low'), get_series('close'), get_series('open')
         body_len = (close - open_p).abs()
         upper_shadow = high - pd.concat([close, open_p], axis=1).max(axis=1)
         total_len = high - low
-        # 实体占比 > 50% 且 上影线 < 实体的一半
         solid_candle_score = np.where((total_len > 0) & (body_len / total_len > 0.6) & (upper_shadow < body_len * 0.5), 15, 0)
         tech_score += solid_candle_score
-        # 1.2 缺口动能 (Gap Momentum)
-        # 跳空高开不回补是极强信号
         pre_close = get_series('pre_close')
         gap_score = np.where((low > pre_close) & (pct_change > 2.0), 10, 0)
         tech_score += gap_score
-        # 1.3 集合竞价抢筹 (Call Auction Attack)
-        # 开盘买入强度高，说明主力急不可耐
-        opening_strength = get_series('opening_buy_strength')
-        tech_score += np.clip(opening_strength * 2, 0, 15)
-        # 1.4 VPA 量价效率 (Volume Efficiency)
-        # 使用自由换手率修正的效率: 涨幅 / 换手率。比值越高，锁仓越好（缩量涨停是极致）
-        # 避免除以0
+        tech_score += np.clip(get_series('opening_buy_strength') * 2, 0, 15)
         safe_to = turnover_f.replace(0, 1.0)
-        eff_ratio = pct_change / safe_to
-        # 正常突破: 效率系数 > 0.5 (例如 5%涨幅用 <10%换手)
-        tech_score += np.clip(eff_ratio * 5, 0, 20)
-        # ==================== 2. 筹码结构质量 (Chip Structure) ====================
+        tech_score += np.clip((pct_change / safe_to) * 5, 0, 20)
+        # ==================== 2. 筹码结构质量 ====================
         chip_score = pd.Series(0.0, index=df.index)
-        # 2.1 获利盘比例 (Winner Rate)
-        # 突破时获利盘应在 80%-90% 以上，解放所有套牢盘
-        winner_rate = get_series('winner_rate')
-        chip_score += np.clip(winner_rate * 25, 0, 25)
-        # 2.2 成本乖离度 (Cost Deviation) - 黄金坑逻辑
-        # 股价刚突破平均成本线不远(0-15%)，是最佳买点。太远(>30%)则有获利回吐风险。
+        chip_score += np.clip(get_series('winner_rate') * 25, 0, 25)
         avg_cost = get_series('weight_avg_cost')
         cost_bias = (close - avg_cost) / avg_cost.replace(0, 1)
-        # 0% - 10%: 满分; 10% - 20%: 减分; >30%: 0分
-        cost_score = np.where((cost_bias > 0) & (cost_bias <= 0.10), 25,
-                             np.where(cost_bias <= 0.20, 15, 0))
-        chip_score += cost_score
-        # 2.3 筹码集中度 (Concentration)
-        # 集中度越高越好 (数值越小代表越集中，需反转)
-        conc = get_series('chip_concentration_ratio')
-        # 假设 conc < 0.1 为极度集中，> 0.3 为发散
-        chip_score += np.clip((0.25 - conc) * 100, 0, 20)
-        # 2.4 套牢盘压力 (Trapped Pressure)
-        # 必须小
-        pressure = get_series('pressure_trapped')
-        chip_score += np.clip((1 - pressure) * 20, 0, 20)
-        # ==================== 3. 资金与博弈质量 (Flow & Game) ====================
+        chip_score += np.where((cost_bias > 0) & (cost_bias <= 0.10), 25, np.where(cost_bias <= 0.20, 15, 0))
+        chip_score += np.clip((0.25 - get_series('chip_concentration_ratio')) * 100, 0, 20)
+        chip_score += np.clip((1 - get_series('pressure_trapped')) * 20, 0, 20)
+        # ==================== 3. 资金与博弈质量 ====================
         flow_score = pd.Series(0.0, index=df.index)
-        # 3.1 资金攻击强度 (Flow Intensity)
-        flow_int = get_series('flow_intensity')
-        flow_score += np.clip(flow_int, 0, 25)
-        # 3.2 资金动量 (Momentum 5D)
-        flow_mom = get_series('flow_momentum_5d')
+        flow_score += np.clip(get_series('flow_intensity'), 0, 25)
+        # 【修改】使用 flow_momentum_8d (斐波那契) 替代 10d
+        flow_mom = get_series('flow_momentum_8d')
         flow_score += np.clip(flow_mom * 50 + 10, 0, 15)
-        # 3.3 主力建仓行为 (Accumulation)
-        acc_score = get_series('accumulation_score')
-        flow_score += np.clip(acc_score * 0.2, 0, 15)
-        # 3.4 能量集中度 (Energy Concentration)
-        ene_conc = get_series('energy_concentration')
-        flow_score += np.clip(ene_conc * 100, 0, 15)
-        # ==================== 4. 风险惩罚因子 (Risk Penalty) ====================
-        # 这是 V4.1 的核心升级：扣分机制
+        flow_score += np.clip(get_series('accumulation_score') * 0.2, 0, 15)
+        flow_score += np.clip(get_series('energy_concentration') * 100, 0, 15)
+        # ==================== 4. 风险惩罚因子 ====================
         penalty = pd.Series(0.0, index=df.index)
-        # 4.1 诱多欺诈 (Deception Lure)
-        # 如果存在明显的诱多信号，直接扣重分
-        lure = get_series('deception_lure_long_intensity')
-        penalty += lure * 40 # 最高扣40分
-        # 4.2 大单异常 (Large Order Anomaly)
-        # 某些大单可能是对倒
-        anomaly = get_series('large_order_anomaly')
-        penalty += np.where(anomaly > 0, 15, 0)
-        # 4.3 尾盘偷袭 (Late Day Surprise)
-        # 全天没动静，尾盘拉升，通常是做图
-        # 如果 closing_flow_ratio 高 但 total volume 低
-        closing_ratio = get_series('closing_flow_ratio')
-        penalty += np.where((closing_ratio > 0.4) & (pct_change < 9.5), 20, 0)
-        # 4.4 换手率异常 (Turnover Extreme)
-        # 换手率过高 (>25%) 且未涨停，视为出货
-        up_limit = get_series('up_limit') # 涨停价
-        is_limit = (close >= up_limit * 0.99)
-        penalty += np.where((turnover_f > 25) & (~is_limit), 30, 0)
+        penalty += get_series('deception_lure_long_intensity') * 40
+        penalty += np.where(get_series('large_order_anomaly') > 0, 15, 0)
+        penalty += np.where((get_series('closing_flow_ratio') > 0.4) & (pct_change < 9.5), 20, 0)
+        penalty += np.where((turnover_f > 25) & (~(close >= get_series('up_limit') * 0.99)), 30, 0)
         # ==================== 5. 综合合成 ====================
-        # 权重分配
-        w_tech = params.get('weight_technical', 0.3)
-        w_chip = params.get('weight_chip', 0.35) # A股筹码权重高
-        w_flow = params.get('weight_fundflow', 0.35)
+        w_tech, w_chip, w_flow = params.get('weight_technical', 0.3), params.get('weight_chip', 0.35), params.get('weight_fundflow', 0.35)
         raw_score = (tech_score * w_tech) + (chip_score * w_chip) + (flow_score * w_flow)
-        # 应用惩罚 (Penalty)
         final_score = np.clip(raw_score - penalty, 0, 100)
         results['breakout_quality_score'] = final_score
-        # 5.1 细分得分输出 (便于调试)
         results['breakout_technical_score'] = np.clip(tech_score, 0, 100)
         results['breakout_chip_score'] = np.clip(chip_score, 0, 100)
         results['breakout_fundflow_score'] = np.clip(flow_score, 0, 100)
-        results['breakout_penalty_score'] = penalty # 新增
-        # 5.2 质量评级
-        conditions = [
-            final_score >= 85,
-            final_score >= 70,
-            final_score >= 50,
-            final_score >= 30,
-            final_score < 30
-        ]
-        choices = ['LEGENDARY', 'EXCELLENT', 'GOOD', 'WEAK', 'TRAP']
-        results['breakout_quality_grade'] = np.select(conditions, choices, default='UNKNOWN')
-        # 5.3 类型判定 (Type Classification)
-        # 找出驱动因子
-        scores_df = results[['breakout_technical_score', 'breakout_chip_score', 'breakout_fundflow_score']]
-        max_col = scores_df.idxmax(axis=1)
-        type_map = {
-            'breakout_technical_score': 'TECH_DRIVEN',
-            'breakout_chip_score': 'CHIP_LOCKED',
-            'breakout_fundflow_score': 'WHALE_ATTACK'
-        }
-        breakout_type = max_col.map(type_map)
-        # 如果有严重惩罚，标记为 "HIGH_RISK"
-        breakout_type = np.where(penalty > 20, 'HIGH_RISK_' + breakout_type, breakout_type)
-        results['breakout_type'] = breakout_type
-        # 5.4 置信度 (Confidence)
-        # 基于数据完整性
-        completeness = np.mean([
-            pct_change.notna(), turnover_f.notna(), winner_rate.notna(), flow_int.notna()
-        ], axis=0)
-        results['breakout_confidence'] = completeness * 100
-        # 5.5 风险预警布尔值
-        results['breakout_risk_warning'] = penalty > 15
+        results['breakout_penalty_score'] = penalty
         return results
 
     async def calculate_breakout_quality_score_v3(self, df_daily: pd.DataFrame, params: dict) -> pd.DataFrame:
