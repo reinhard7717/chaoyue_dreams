@@ -40,7 +40,7 @@ class CalculateMainForceRallyIntent:
         【V49.0】数据映射重构：解决底层特征断层Bug，进行等效物理场替换。
         1. 废弃不存在的 control_solidity_index_D，替换为清单中的 consolidation_chip_stability_D (整固期筹码稳定性)。
         2. 同步更新控盘坚实度的13日动力学前缀。
-        3. 废弃不存在的 VOLATILITY_INSTABILITY_INDEX_21d_D，替换为清单中的 flow_volatility_20d_D (20日资金流波动率)。
+        3. 废弃不存在的 VOLATILITY_INSTABILITY_INDEX_21d_D，替换为清单中的 flow_volatility_21d_D (20日资金流波动率)。
         """
         return {
             'close': 'close_D',
@@ -76,7 +76,7 @@ class CalculateMainForceRallyIntent:
             'trapped_pressure': 'pressure_trapped_D',
             'dist_score': 'distribution_score_D',
             'intraday_dist': 'intraday_distribution_confidence_D',
-            'instability': 'flow_volatility_20d_D',
+            'instability': 'flow_volatility_21d_D',
             'pressure_release': 'pressure_release_index_D',
             'shakeout_score': 'shakeout_score_D',
             'chip_divergence': 'chip_divergence_ratio_D',

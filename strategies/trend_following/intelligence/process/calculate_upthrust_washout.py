@@ -102,7 +102,7 @@ class CalculateUpthrustWashoutRelationship:
         slope_p = self.helper._get_safe_series(df, 'SLOPE_3_close_D', np.nan, method_name=method_name)
         jerk_p = self.helper._get_safe_series(df, 'JERK_3_close_D', np.nan, method_name=method_name)
         atr_14 = self.helper._get_safe_series(df, 'ATR_14_D', np.nan, method_name=method_name)
-        vol_f_20 = self.helper._get_safe_series(df, 'flow_volatility_20d_D', np.nan, method_name=method_name)
+        vol_f_20 = self.helper._get_safe_series(df, 'flow_volatility_21d_D', np.nan, method_name=method_name)
         c_mean = self.helper._get_safe_series(df, 'chip_mean_D', np.nan, method_name=method_name)
         peak_mig = self.helper._get_safe_series(df, 'peak_migration_speed_5d_D', np.nan, method_name=method_name)
         conv_mig = self.helper._get_safe_series(df, 'convergence_migration_D', np.nan, method_name=method_name)
