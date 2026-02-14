@@ -162,11 +162,8 @@ class CalculateMainForceRallyIntent:
 
     def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V41.0】A股交叉耦合场推力模型 - 相位对齐版 
-        核心改进：
-        1. 引入交叉耦合：动力学因子现在直接干预宏观底座的方向，而非简单的缩放。
-        2. 射流能量损耗：根据资金流一致性计算能量耗散熵，对无效射流进行惩罚。
-        3. 相位对齐：个股推力与板块 Beta 场进行相位乘法，增强龙头识别度。
+        【V41.1】A股交叉耦合场推力模型 - 稳健极值约束版
+        1. 修复微观射流计算中的除零膨胀效应，对 tick_intensity 增加 np.clip 张量硬约束。
         """
         sm_net_buy = raw['sm_net_buy'].values
         sm_synergy = raw['sm_synergy'].values
@@ -212,7 +209,7 @@ class CalculateMainForceRallyIntent:
         acc_confidence_multiplier = 1.0 + np.maximum(0.0, acc_conf_norm)
         macro_momentum = norm_macro_base * purity_multiplier * acc_confidence_multiplier * (1.0 + coupling_field * 0.5)
         persistence_factor = np.tanh(flow_persistence / 120.0)
-        tick_intensity = tick_large_net / (np.abs(effective_net_buy) + 1e-9)
+        tick_intensity = np.clip(tick_large_net / (np.abs(effective_net_buy) + 1e-9), -50.0, 50.0)
         detonation_boost = 1.0 + np.tanh(np.maximum(0, tick_abnormal_vol - 1.0))
         energy_dissipation = 1.0 - np.clip(flow_consistency, 0.0, 0.9)
         micro_jet_raw = (intra_accel * tick_intensity * (pushing_score / 100.0) * mf_activity * persistence_factor * detonation_boost) / (1.0 + energy_dissipation)
@@ -236,7 +233,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-THRUST-V41.0] 交叉耦合与相位对齐探针 @ {ts}",
+                    f"\n[PROBE-THRUST-V41.1] 交叉耦合与相位对齐探针 @ {ts}",
                     f"  |- 耦合场 (Coupling Field):",
                     f"     Macro Momentum: {macro_momentum[i]:.4f} | Coupling Field: {coupling_field[i]:.4f}",
                     f"     Phase Alignment: {phase_alignment[i]:.2f} | Acc Conf Mult: {acc_confidence_multiplier[i]:.4f}",
@@ -364,14 +361,9 @@ class CalculateMainForceRallyIntent:
 
     def _calc_drag_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V36.0】维度C：非线性临界阻力模型 (Stampede Blackhole Resistance) - 六步全息交叉版
-        核心逻辑：
-        1. 军械库引入：合并派发能量与高频资金背离特征，精准评估真实抛压质地。
-        2. 动力学去噪：通过13日派发分值的Slope/Accel/Jerk构建动量传导，应用Tanh阻尼过滤零基陷阱噪音。
-        3. HAB存量意识：组合21日与55日资金净额构建蓄水池，为偶然的微观流出提供最高90%的拖拽免疫；为长期流出施加额外惩罚。
-        4. 原生映射：废弃clip，套牢盘使用Exp-Tanh进行无限拉伸，派发特征使用Sigmoid平滑过渡临界跃迁。
-        5. 交叉耦合：主动倾泻核(质量×能量×动力学) 与 环境粘滞核(不稳定×效率衰减×Beta逆风) 发生场间乘法共振。
-        6. 雪崩增益：核心阻力中枢一旦超越阈值，引发二次幂雪崩指数膨胀，模拟A股流动性衰竭与连环踩踏。
+        【V36.1】维度C：非线性临界阻力模型 - 量纲校准版
+        1. 修复 turnover_rate 百分比未归一化引发的指数雪崩问题，规范为 [0, 1] 区间计算。
+        2. 为核心阻力池增加溢出硬顶约束。
         """
         profit_pressure = raw['profit_pressure'].values
         trapped_pressure = raw['trapped_pressure'].values
@@ -420,9 +412,9 @@ class CalculateMainForceRallyIntent:
         norm_shakeout = 1.0 / (1.0 + np.exp(-0.05 * (shakeout_score - 50.0)))
         relief_valve = 1.0 + norm_release * 1.5 + norm_shakeout * 1.0
         hf_hidden_div = np.maximum(0.0, hf_flow_div / 50.0)
-        turnover_drag = np.expm1(np.maximum(0.0, turnover_rate - 0.05) * 10.0) * 0.5
+        turnover_drag = np.expm1(np.maximum(0.0, (turnover_rate / 100.0) - 0.05) * 10.0) * 0.5
         core_drag_raw = ((coupled_gravity + coupled_active_dump) * coupled_viscosity * hab_drag_penalty) / relief_valve
-        core_drag_shielded = core_drag_raw * (1.0 - hab_immunity) + turnover_drag + hf_hidden_div
+        core_drag_shielded = np.clip(core_drag_raw * (1.0 - hab_immunity) + turnover_drag + hf_hidden_div, 0.0, 20.0)
         avalanche_threshold = 1.5
         avalanche_gain = 1.0 + (np.maximum(0.0, core_drag_shielded - avalanche_threshold) ** 2) * 2.5
         final_drag = core_drag_shielded * avalanche_gain
@@ -433,7 +425,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-DRAG-V36.0] 踩踏黑洞共振全息审计(六步交叉版) @ {ts}",
+                    f"\n[PROBE-DRAG-V36.1] 踩踏黑洞共振全息审计(六步交叉版) @ {ts}",
                     f"  |- 动力学抗噪传导 (Kinematic Denoising):",
                     f"     Raw Kine (S+A+J): {raw_dist_kine[i]:.4f} | Damping: {dist_damping[i]:.4f}",
                     f"     Effective Kine: {effective_dist_kine[i]:.4f} -> Kine Multiplier: x{kine_multiplier[i]:.4f}",
@@ -461,14 +453,10 @@ class CalculateMainForceRallyIntent:
 
     def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V38.0】张量合成 - 全息奇点共振与A股生态博弈模型 (多维动力学交叉耦合版)
-        核心逻辑：
-        1. 高维弹药：融入均线压缩率(ma_compression)与换手率稳定性(turnover_stability)。
-        2. 全息动力学与抗噪：组合资金动力学与推力评分动力学，双重阻尼(Damping)完美过滤微波动噪音，破解“零基陷阱”。
-        3. HAB存量底座：21日与55日资金蓄水池不仅免疫拖拽，更化作奇点爆发的底仓燃料。
-        4. 原生拓扑映射：Sigmoid处理换手稳定性，Tanh处理均线压缩，Exp-Tanh拉升T+1溢价。
-        5. 黄金坑轧空涡流：高博弈烈度遭遇黄金坑时，有效阻力反转为轧空势能。
-        6. 奇点共振增益(Singularity Gain)：当全息共振指数(HRI)跨越临界，且均线被极度压缩时，触发大爆炸非线性跃迁。
+        【V38.1】张量合成 - 全息奇点共振与防爆边界处理
+        1. 归一化 reversal_prob 为 [0,1]，修复因乘数越界导致的巨型负阻力 Bug。
+        2. 约束 squeeze_transition 的 np.exp 指数输入项，阻断计算图蔓延 NaN。
+        3. 约束 HRI_Excess 指数极值，彻底封杀 numpy 底层溢出漏洞。
         """
         sm_net_buy = raw['sm_net_buy'].values
         pushing_score = raw['pushing_score'].values
@@ -511,18 +499,20 @@ class CalculateMainForceRallyIntent:
         base_tensor = thrust * structure * (1.0 + gap_momentum) * eco_premium * kinematic_burst * (1.0 + norm_breakout_pot) * (1.0 + norm_turnover_stab * 0.5)
         norm_lock_ratio = 1.0 / (1.0 + np.exp(-0.1 * (lock_ratio - 50.0)))
         raw_effective_drag = drag * (1.0 - np.maximum(0.0, np.minimum(hab_immunity, 0.90)))
-        squeeze_transition = 1.0 / (1.0 + np.exp(-2.0 * (base_tensor - 1.5 * raw_effective_drag)))
+        exp_arg = np.clip(-2.0 * (base_tensor - 1.5 * raw_effective_drag), -50.0, 50.0)
+        squeeze_transition = 1.0 / (1.0 + np.exp(exp_arg))
         norm_game_intensity = 1.0 / (1.0 + np.exp(-0.1 * (game_intensity - 50.0)))
         trap_reversal_factor = 1.0 + (golden_pit * 2.0)
         norm_energy = 1.0 / (1.0 + np.exp(-0.05 * (energy_conc - 50.0)))
         squeeze_bonus = squeeze_transition * raw_effective_drag * emotional_extreme * norm_game_intensity * kinematic_burst * trap_reversal_factor * norm_energy
-        final_drag = (raw_effective_drag * raw_effective_drag) * (1.0 - squeeze_transition) * (1.0 - reversal_prob) * (1.0 - norm_lock_ratio * 0.5)
+        norm_reversal_prob = np.clip(reversal_prob / 100.0, 0.0, 1.0)
+        final_drag = (raw_effective_drag * raw_effective_drag) * (1.0 - squeeze_transition) * (1.0 - norm_reversal_prob) * (1.0 - norm_lock_ratio * 0.5)
         raw_intent = (base_tensor / (1.0 + final_drag)) + squeeze_bonus
         t1_multiplier = np.exp(np.tanh((t1_premium - 50.0) / 20.0))
         norm_compression = np.tanh(np.maximum(0.0, ma_compression) / 50.0)
         hri = (base_tensor * (1.0 + squeeze_bonus)) / (1.0 + final_drag)
         hri_threshold = 3.0
-        hri_excess = np.maximum(0.0, hri - hri_threshold)
+        hri_excess = np.clip(np.maximum(0.0, hri - hri_threshold), 0.0, 10.0)
         singularity_gain = 1.0 + np.expm1(hri_excess * t1_multiplier * (1.0 + norm_compression + hab_fuel))
         final_intent = raw_intent * singularity_gain
         if self._is_probe_enabled():
@@ -532,7 +522,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-SYNTHESIS-V38.0] 张量奇点共振全息探针(高维耦合爆破版) @ {ts}",
+                    f"\n[PROBE-SYNTHESIS-V38.1] 张量奇点共振全息探针(高维耦合爆破防溢出版) @ {ts}",
                     f"  |- 多维动力学与抗噪 (Multi-Kinematics):",
                     f"     SM Kine: {k_sm[i]:.4f} | Push Kine: {k_push[i]:.4f} | Damping: {kine_damping[i]:.4f}",
                     f"     Kinematic Burst Multiplier: x{kinematic_burst[i]:.4f}",

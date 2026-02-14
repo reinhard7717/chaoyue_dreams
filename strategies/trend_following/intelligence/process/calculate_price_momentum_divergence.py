@@ -648,7 +648,7 @@ class CalculatePriceMomentumDivergence:
         flow_hab_sum = df['tick_level_chip_flow_D'].rolling(window=21).sum().fillna(0)
         flow_hab_zscore = (df['tick_level_chip_flow_D'] - (flow_hab_sum / 21)) / (df['tick_level_chip_flow_D'].rolling(window=21).std().clip(lower=1e-9))
         # 2. 资金流波动率 HAB 稳定性
-        flow_vol_stb = 1 - self.helper._normalize_series(df['flow_volatility_10d_D'], df_index, ascending=True)
+        flow_vol_stb = 1 - self.helper._normalize_series(df['flow_volatility_13d_D'], df_index, ascending=True)
         # 3. 潮汐得分融合：动力学变率(40%) + HAB水位Z值(40%) + 波动率稳定(20%)
         tide_score = (chip_flow_kin.abs() * 0.4 + flow_hab_zscore.abs().clip(0, 1) * 0.4 + flow_vol_stb * 0.2)
         print(f"  [探针-LiquidityTideHAB] 21D筹码流累积: {flow_hab_sum.mean():.2f} | 潮汐Z值均值: {flow_hab_zscore.mean():.4f}")
