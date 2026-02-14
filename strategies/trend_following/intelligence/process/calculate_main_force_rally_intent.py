@@ -354,8 +354,8 @@ class CalculateMainForceRallyIntent:
 
     def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, final):
         """
-        【V33.0】探针终极升级：全息共振、HAB存量与动力学突变透视
-        不再只是输出结果，而是通过“反向推演”展示每一个关键物理量对最终意图的贡献。
+        【V33.1】探针终极升级：修复动力学因子引用错误，全息共振、HAB存量与动力学突变透视
+        不再只是输出结果，而是通过“反向推演”展示每一个关键物理量对最终意图的贡献。修复了13日加速度特征键名引用导致的KeyError。
         """
         if not self.probe_dates: return
         target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
@@ -364,21 +364,16 @@ class CalculateMainForceRallyIntent:
         if len(locs) == 0: locs = [-1]
         for i in locs:
             ts = idx[i]
-            # --- 关键节点重新计算用于回显 ---
-            # 动力学与能量阻尼
             net_buy = raw['sm_net_buy'].values[i]
             energy_damping = np.tanh(np.abs(net_buy) / 10000000.0) * np.clip(raw['energy_conc'].values[i] / 100.0, 0.0, 1.0)
-            k_burst = 1.0 + max(0.0, (np.tanh(raw['sm_slope_13'].values[i]) * 0.3 + np.tanh(raw['sm_acc_13'].values[i]) * 0.3 + np.tanh(raw['sm_jerk_13'].values[i]) * 0.4) * energy_damping)
-            # HAB 免疫力
+            k_burst = 1.0 + max(0.0, (np.tanh(raw['sm_slope_13'].values[i]) * 0.3 + np.tanh(raw['sm_accel_13'].values[i]) * 0.3 + np.tanh(raw['sm_jerk_13'].values[i]) * 0.4) * energy_damping)
             comb_inv = (raw['flow_21d'].values[i] * 0.6) + (raw['flow_55d'].values[i] * 0.4)
             hab_imm = np.clip(1.0 - (1.0 / (1.0 + np.exp(comb_inv / 50000000.0))), 0.0, 0.9)
-            # 阻力相变
             eff_drag = drag[i] * (1.0 - hab_imm)
-            # 共振增益
             hri = (thrust[i] * structure[i] * (1.0 + raw['gap_momentum'].values[i]) * (1.0 + (raw['is_leader'].values[i]*0.5)) * k_burst) / (1.0 + eff_drag)
             res_gain = 1.0 + np.expm1(np.clip(hri - 3.0, 0.0, 2.5) * 1.5)
             report = [
-                f"\n=== [PROBE V33.0] CalculateMainForceRallyIntent Holographic Resonance Audit @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V33.1] CalculateMainForceRallyIntent Holographic Resonance Audit @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【A. Kinematics (动力学)】 Burst: x{k_burst:.4f} | Damping: {energy_damping:.4f} | Jerk: {raw['sm_jerk_13'].values[i]:.2f}",
                 f"【B. HAB (存量意识)】 21d/55d Inv: {raw['flow_21d'].values[i]:.0f}/{raw['flow_55d'].values[i]:.0f} | Immunity: {hab_imm*100:.1f}%",
                 f"【C. Ecosystem (生态)】 Leader: {raw['is_leader'].values[i]} | LockRatio: {raw['lock_ratio'].values[i]:.2f}% | Attack: {raw['coordinated_attack'].values[i]}",
