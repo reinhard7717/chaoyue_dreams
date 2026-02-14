@@ -588,7 +588,7 @@ class CalculateMainForceRallyIntent:
         return get_param_value(self.debug_params.get('enabled'), False) and \
                get_param_value(self.debug_params.get('should_probe'), False)
 
-def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, final):
+    def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, final):
         """
         【V33.3 · 探针终极升级 - 全链路溯源版】
         新增“【0. Raw Data (原始数据透视)】”模块，直接打印底层传入的核心原始特征值，
