@@ -179,6 +179,98 @@ def _numba_autocorr1(arr: np.ndarray):
     for i in range(n - 1): cov += (arr[i] - mean_val) * (arr[i+1] - mean_val)
     return cov / (var_val * (n / (n-1))) if n > 1 else 0.0
 
+@njit(cache=True, fastmath=True)
+def _numba_linregress(y: np.ndarray):
+    """Numba优化的极速线性回归(提取斜率与R方)"""
+    n = len(y)
+    if n < 2: return 0.0, 0.0
+    sum_x = 0.0; sum_y = 0.0; sum_xy = 0.0; sum_xx = 0.0; sum_yy = 0.0
+    for i in range(n):
+        sum_x += i
+        sum_y += y[i]
+        sum_xy += i * y[i]
+        sum_xx += i * i
+        sum_yy += y[i] * y[i]
+    mean_x = sum_x / n
+    mean_y = sum_y / n
+    ss_x = sum_xx - n * mean_x * mean_x
+    ss_y = sum_yy - n * mean_y * mean_y
+    ss_xy = sum_xy - n * mean_x * mean_y
+    if ss_x == 0: return 0.0, 0.0
+    slope = ss_xy / ss_x
+    if ss_y == 0: return slope, 0.0
+    r = ss_xy / np.sqrt(ss_x * ss_y)
+    return slope, r * r
+
+@njit(cache=True, fastmath=True)
+def _numba_pearson_corr(x: np.ndarray, y: np.ndarray):
+    """Numba优化的皮尔逊相关系数计算"""
+    n = len(x)
+    if n < 2 or n != len(y): return 0.0
+    sum_x = 0.0; sum_y = 0.0
+    for i in range(n):
+        sum_x += x[i]
+        sum_y += y[i]
+    mean_x = sum_x / n
+    mean_y = sum_y / n
+    ss_x = 0.0; ss_y = 0.0; ss_xy = 0.0
+    for i in range(n):
+        dx = x[i] - mean_x
+        dy = y[i] - mean_y
+        ss_x += dx * dx
+        ss_y += dy * dy
+        ss_xy += dx * dy
+    if ss_x == 0.0 or ss_y == 0.0: return 0.0
+    return ss_xy / np.sqrt(ss_x * ss_y)
+
+@njit(cache=True, fastmath=True)
+def _numba_closing_flow_agg(times: np.ndarray, amounts: np.ndarray, is_buy: np.ndarray):
+    """Numba优化的尾盘资金单次遍历聚合器，消除内存碎片"""
+    time_1430 = 52200000000000
+    time_1457 = 53820000000000
+    c_net = 0.0; a_net = 0.0; total_net = 0.0; total_turnover = 0.0
+    n = len(times)
+    for i in range(n):
+        amt = amounts[i]
+        total_turnover += amt
+        ns_in_day = times[i] % 86400000000000
+        signed_amt = amt if is_buy[i] else -amt
+        total_net += signed_amt
+        if ns_in_day >= time_1430:
+            c_net += signed_amt
+            if ns_in_day >= time_1457:
+                a_net += signed_amt
+    return c_net, a_net, total_net, total_turnover
+
+@njit(cache=True, fastmath=True)
+def _numba_morning_afternoon_agg(hours: np.ndarray, amounts: np.ndarray, is_buy: np.ndarray):
+    """Numba优化的时段资金单次遍历聚合器"""
+    morning_net = 0.0
+    afternoon_net = 0.0
+    n = len(hours)
+    for i in range(n):
+        signed_amt = amounts[i] if is_buy[i] else -amounts[i]
+        h = hours[i]
+        if h < 12:
+            morning_net += signed_amt
+        elif h >= 13:
+            afternoon_net += signed_amt
+    return morning_net, afternoon_net
+
+@njit(cache=True, fastmath=True)
+def _numba_stealth_flow_agg(amounts: np.ndarray, is_buy: np.ndarray, threshold: float):
+    """Numba优化的隐蔽大/小单拆解单次聚合器"""
+    small_net = 0.0
+    total_net = 0.0
+    n = len(amounts)
+    for i in range(n):
+        amt = amounts[i]
+        signed_amt = amt if is_buy[i] else -amt
+        total_net += signed_amt
+        if amt < threshold:
+            small_net += signed_amt
+    return small_net, total_net
+
 @dataclass
 class CalculationContext:
     """
@@ -925,37 +1017,25 @@ class FundFlowFactorCalculator:
 
     def _calculate_vector_resonance(self, s1: np.ndarray, s2: np.ndarray, check_energy: bool = False) -> float:
         """
-        [内部方法] 向量共振计算
-        新增: check_energy (能量协同检查)
+        向量共振计算
+        版本: V2.8
+        说明: 使用 Numba 优化的皮尔逊相关系数替代 np.corrcoef 降低小数组开销
         """
+        print("[探针] 执行 _calculate_vector_resonance: Numba 皮尔逊相关性")
         if len(s1) < 2 or len(s2) < 2: return 50.0
-        # 标准差作为幅度基准
         std1 = np.std(s1) + 1e-6
         std2 = np.std(s2) + 1e-6
         slope1 = (s1[-1] - s1[0]) / std1
         slope2 = (s2[-1] - s2[0]) / std2
-        # 1. 方向一致性
         dir_score = np.tanh(slope1 * slope2)
-        # 2. 形态相关性
-        try:
-            corr = np.corrcoef(s1, s2)[0, 1]
-            if np.isnan(corr): corr = 0.0
-        except:
-            corr = 0.0
-        # 基础分
+        corr = _numba_pearson_corr(s1, s2)
         base_score = 50.0
         if dir_score > 0:
             final_score = base_score + 25 * dir_score + 25 * max(0, corr)
         else:
             final_score = base_score - 20 * abs(dir_score)
-        # [关键修复] 能量协同惩罚
-        # 如果两条线虽然方向一致，但是都在"躺平" (斜率绝对值很小)，不应给高分
-        # 只有在主升浪/主跌浪中，才能给 100
         if check_energy and final_score > 60:
-            # 计算平均趋势力度
             avg_magnitude = (abs(slope1) + abs(slope2)) / 2.0
-            # 映射: magnitude=0 -> penalty=0.5, magnitude=1 -> penalty=1.0
-            # 使用 sigmoid 
             energy_factor = 0.5 + 0.5 * np.tanh(avg_magnitude)
             final_score *= energy_factor
         return float(np.clip(final_score, 0.0, 100.0))
@@ -963,32 +1043,18 @@ class FundFlowFactorCalculator:
     def _calculate_sync_score(self, series1: List[float], series2: List[float]) -> float:
         """
         计算两个序列的同步度得分
-        版本: V1.2
-        说明: 
-        1. 移除np.corrcoef，改用基于向量点积的皮尔逊相关系数公式，减少矩阵计算开销。
-        2. 保持方向一致性的向量化计算。
+        版本: V2.8
+        说明: 使用 Numba 相关系数函数替代原有的 Numpy 复杂运算
         """
+        print("[探针] 执行 _calculate_sync_score: Numba 同步度分析")
         s1 = np.array(series1, dtype=np.float64)
         s2 = np.array(series2, dtype=np.float64)
         n = len(s1)
         if n != len(s2) or n < 2:
             return 50.0
-        # 优化相关性计算：手写Pearson公式避免构建矩阵
-        # r = sum((x - mx)(y - my)) / sqrt(sum((x-mx)^2) * sum((y-my)^2))
-        s1_mean = np.mean(s1)
-        s2_mean = np.mean(s2)
-        s1_c = s1 - s1_mean
-        s2_c = s2 - s2_mean
-        numerator = np.dot(s1_c, s2_c)
-        denominator = np.sqrt(np.dot(s1_c, s1_c) * np.dot(s2_c, s2_c))
-        if denominator == 0:
-            correlation = 0.0
-        else:
-            correlation = numerator / denominator
-        # 方向一致性 (向量化)
+        correlation = _numba_pearson_corr(s1, s2)
         diff1 = np.diff(s1)
         diff2 = np.diff(s2)
-        # 使用符号函数比较，避免除零
         dir_match = np.sign(diff1) == np.sign(diff2)
         direction_score = (np.sum(dir_match) / len(diff1) * 100) if len(diff1) > 0 else 50.0
         sync_score = (correlation * 100 * 0.6 + direction_score * 0.4)
@@ -1083,90 +1149,45 @@ class FundFlowFactorCalculator:
 
     def _calculate_complex_trend_strength(self) -> Tuple[float, float]:
         """
-        [内部方法] 计算复合趋势强度
-        逻辑：
-        1. 下跌强度 = 线性度(R2) * 斜率 + 恐慌因子(Volume Panic) + 阴跌因子(Low Vol Consistency)
-        2. 上涨强度 = 线性度(R2) * 斜率 * 量能健康度(Volume Support)
+        计算复合趋势强度
+        版本: V2.8
+        说明: 彻底移除 scipy.stats.linregress 和 np.corrcoef，引入 Numba 引擎进行极速回归和相关性分析
         """
-        # 取最近10天数据
+        print("[探针] 执行 _calculate_complex_trend_strength: Numba 回归与相关性分析")
         if len(self.net_amount_array) < 10: return 0.0, 0.0
         y = self.net_amount_array[-10:]
         vol = self.volume_array[-10:]
-        x = np.arange(len(y))
-        # 1. 线性回归 (Linear Regression)
-        slope, intercept, r_value, p_value, std_err = linregress(x, y)
-        r_sq = r_value ** 2
-        # 归一化斜率 (相对强度)
-        # 用区间极差做分母归一化
+        slope, r_sq = _numba_linregress(y)
         y_range = np.max(y) - np.min(y) + 1e-6
-        norm_slope = slope * 10 / y_range # 10天累计变动占比
+        norm_slope = slope * 10 / y_range
         strength = abs(norm_slope) * r_sq * 100.0
         if slope > 0:
-            # --- 上涨强度修正 ---
-            # 检查成交量趋势：上涨需要放量 (Volume Expansion)
-            # 计算 Volume 与 Price(Flow) 的相关性
-            vol_corr = np.corrcoef(vol, y)[0, 1]
-            if np.isnan(vol_corr): vol_corr = 0
-            # 量价配合系数: 正相关好，负相关(缩量上涨)打折
-            # 范围 [0.5, 1.5]
+            vol_corr = _numba_pearson_corr(vol, y)
             vol_factor = 1.0 + 0.5 * vol_corr
             final_up = min(100.0, strength * vol_factor)
             return float(final_up), 0.0
         else:
-            # --- 下跌强度修正 (Downtrend Deepening) ---
-            # 模式A: 恐慌暴跌 (Panic Crash)
-            # 特征: 跌幅大(norm_slope大) + 放量(vol trend > 0)
-            # 模式B: 阴跌 (Yin Die)
-            # 特征: 跌幅稳(r_sq高) + 缩量(vol trend < 0) + 波动率低
-            # 计算成交量趋势 slope
-            v_slope, _, _, _, _ = linregress(x, vol)
+            v_slope, _ = _numba_linregress(vol)
             avg_vol = np.mean(vol) + 1e-6
             norm_v_slope = v_slope * 10 / avg_vol
-            # 基础强度
             down_score = strength
             if norm_v_slope > 0.2: 
-                # 放量下跌 -> 恐慌盘涌出 -> 强度加成
                 down_score *= 1.3 
             elif r_sq > 0.8 and abs(norm_v_slope) < 0.2:
-                # 缩量且R2极高 -> 阴跌 -> 强度加成 (因为很难止跌)
                 down_score *= 1.2
             return 0.0, float(min(100.0, down_score))
 
     def _calculate_trend_strength(self) -> Tuple[float, float]:
         """
         计算趋势强度
-        版本: V1.2
-        说明: 
-        1. 移除np.polyfit，使用最小二乘法代数公式直接计算斜率和R方。
-        2. 相比SVD分解，代数法在小样本下速度提升显著。
+        版本: V2.8
+        说明: 使用 Numba 线性回归替代原有的 NumPy 手动代数运算，提升小数组执行效率
         """
+        print("[探针] 执行 _calculate_trend_strength: 接入 Numba 线性回归")
         if len(self.net_amount_series) < 10:
             return 0.0, 0.0
         y = np.array(self.net_amount_series[-10:], dtype=np.float64)
-        n = len(y)
-        x = np.arange(n, dtype=np.float64)
-        # 最小二乘法直接计算
-        # Slope = (N*Σxy - ΣxΣy) / (N*Σx^2 - (Σx)^2)
-        sum_x = np.sum(x)
-        sum_y = np.sum(y)
-        sum_xy = np.dot(x, y)
-        sum_xx = np.dot(x, x)
-        denominator = n * sum_xx - sum_x * sum_x
-        if denominator == 0:
-            return 0.0, 0.0
-        slope = (n * sum_xy - sum_x * sum_y) / denominator
-        # 计算R^2
-        # R^2 = (Σ(yi - ŷi)^2) / Σ(yi - y_bar)^2 的补数，或者直接算相关系数平方
-        # 使用皮尔逊相关系数平方更快
-        y_mean = sum_y / n
-        x_mean = sum_x / n
-        numerator_r = np.dot(x - x_mean, y - y_mean)
-        denom_r = np.sqrt(np.dot(x - x_mean, x - x_mean) * np.dot(y - y_mean, y - y_mean))
-        if denom_r == 0:
-            r_sq = 0.0
-        else:
-            r_sq = (numerator_r / denom_r) ** 2
-        # 上升趋势强度
+        slope, r_sq = _numba_linregress(y)
         strength = min(100.0, r_sq * 100.0)
         if slope > 0:
             return strength, 0.0
@@ -1868,38 +1889,22 @@ class FundFlowFactorCalculator:
 
     def _calculate_closing_flow_features(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        [修复] 尾盘强度计算
-        修复点：
-        1. 降低强度系数 (4000 -> 800)。
-           原系数 4000 意味着尾盘净流占全天 2.5% 即满分，导致指标饱和。
-           现系数 800 意味着需要达到 12.5% 才满分，拉开区分度。
+        尾盘强度计算
+        版本: V2.9
+        说明: 引入 Numba 单次遍历聚合，消除原有的高开销布尔掩码与中间数组分配
         """
+        print("[探针] 执行 _calculate_closing_flow_features: Numba 单次遍历内存优化")
         metrics = {'closing_flow_ratio': None, 'closing_flow_intensity': None}
         times = df['trade_time'].values.astype('int64') 
         amounts = df['amount'].values
         types = df['type'].values
         if len(times) == 0: return metrics
-        # 定义时间阈值 (北京时间)
-        time_1430 = 52200000000000
-        time_1457 = 53820000000000
-        ns_in_day = (times % 86400000000000)
-        mask_closing = ns_in_day >= time_1430
-        mask_auction = ns_in_day >= time_1457
-        if not np.any(mask_closing):
+        is_buy = (types == 'B')
+        c_net_total, a_net_auction, t_net_raw, total_turnover = _numba_closing_flow_agg(times, amounts, is_buy)
+        if total_turnover <= 0:
             metrics['closing_flow_ratio'] = 0.0
             metrics['closing_flow_intensity'] = 0.0
             return metrics
-        buy_mask = (types == 'B')
-        sell_mask = (types == 'S')
-        total_turnover = np.sum(amounts)
-        t_net_raw = np.sum(amounts[buy_mask]) - np.sum(amounts[sell_mask])
-        c_buy = np.sum(amounts[mask_closing & buy_mask])
-        c_sell = np.sum(amounts[mask_closing & sell_mask])
-        c_net_total = c_buy - c_sell
-        a_buy = np.sum(amounts[mask_auction & buy_mask])
-        a_sell = np.sum(amounts[mask_auction & sell_mask])
-        a_net_auction = a_buy - a_sell
-        # [指标A] 尾盘资金占比
         min_significant_flow = total_turnover * 0.005
         denominator = max(abs(t_net_raw), min_significant_flow)
         if denominator > 0:
@@ -1907,16 +1912,10 @@ class FundFlowFactorCalculator:
             metrics['closing_flow_ratio'] = float(min(1000.0, raw_ratio))
         else:
             metrics['closing_flow_ratio'] = 0.0
-        # [指标B] 尾盘强度 - 关键修复
-        if total_turnover > 0:
-            urgency_alpha = 3.0
-            weighted_flow = abs(c_net_total) + (abs(a_net_auction) * urgency_alpha)
-            # [修改] 系数由 4000.0 降为 800.0
-            # 物理意义：(加权尾盘净流 / 全天成交) > 12.5% 时达到 100分
-            intensity_score = min(100.0, (weighted_flow / total_turnover) * 800.0)
-            metrics['closing_flow_intensity'] = float(intensity_score)
-        else:
-            metrics['closing_flow_intensity'] = 0.0
+        urgency_alpha = 3.0
+        weighted_flow = abs(c_net_total) + (abs(a_net_auction) * urgency_alpha)
+        intensity_score = min(100.0, (weighted_flow / total_turnover) * 800.0)
+        metrics['closing_flow_intensity'] = float(intensity_score)
         return metrics
 
     def _calculate_flow_cluster_features(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -2127,28 +2126,22 @@ class FundFlowFactorCalculator:
     def _calculate_time_period_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算资金时段分布
-        v1.4: 依赖上游的时间标准化，确保 morning/afternoon 掩码正确。
+        版本: V2.9
+        说明: 使用 Numba 取代 Numpy 切片掩码聚合，消除中间内存碎片
         """
-        metrics = {}
+        print("[探针] 执行 _calculate_time_period_distribution: Numba 内存连续聚合")
+        metrics = {'morning_flow_ratio': None, 'afternoon_flow_ratio': None}
         times = df['trade_time'].values
-        if len(times) == 0:
-            metrics['morning_flow_ratio'] = None
-            metrics['afternoon_flow_ratio'] = None
-            return metrics
-        # 计算小时数 (基于北京时间 Naive)
+        if len(times) == 0: return metrics
         dates = times.astype('datetime64[D]')
         hours = (times - dates).astype('timedelta64[h]').astype(int)
-        # 掩码 (北京时间 12:00 前为上午，13:00 后为下午)
-        morning_mask = hours < 12
-        afternoon_mask = hours >= 13
         amounts = df['amount'].values
         types = df['type'].values
-        signed_amounts = np.where(types == 'B', amounts, -amounts)
-        # 计算净流入
-        morning_net = np.sum(signed_amounts[morning_mask]) / 10000.0
-        afternoon_net = np.sum(signed_amounts[afternoon_mask]) / 10000.0
+        is_buy = (types == 'B')
+        morning_net, afternoon_net = _numba_morning_afternoon_agg(hours, amounts, is_buy)
+        morning_net /= 10000.0
+        afternoon_net /= 10000.0
         total_abs_net = abs(morning_net) + abs(afternoon_net)
-        # 使用绝对值占比，反映资金活跃时段
         if total_abs_net > 0:
             morning_ratio = abs(morning_net) / total_abs_net * 100.0
             afternoon_ratio = abs(afternoon_net) / total_abs_net * 100.0
@@ -2162,24 +2155,19 @@ class FundFlowFactorCalculator:
     def _calculate_stealth_flow_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         计算主力隐蔽性指标
-        版本: V1.1
-        说明: 使用NumPy Masking。
+        版本: V2.9
+        说明: 引入 Numba 单次 O(N) 遍历取代多次布尔位运算，极大提升 Tick 数据处理速度
         """
-        metrics = {}
+        print("[探针] 执行 _calculate_stealth_flow_indicators: Numba 单次扫描提速")
+        metrics = {'stealth_flow_ratio': None}
+        if len(df) == 0: return metrics
         small_order_threshold = 50000.0
         amounts = df['amount'].values
         types = df['type'].values
-        is_small = amounts < small_order_threshold
-        buy_mask = types == 'B'
-        sell_mask = types == 'S'
-        # 小单净流入
-        small_buy_val = np.sum(amounts[buy_mask & is_small])
-        small_sell_val = np.sum(amounts[sell_mask & is_small])
-        small_net = (small_buy_val - small_sell_val) / 10000.0
-        # 总净流入
-        total_buy = np.sum(amounts[buy_mask])
-        total_sell = np.sum(amounts[sell_mask])
-        total_net = (total_buy - total_sell) / 10000.0
+        is_buy = (types == 'B')
+        small_net, total_net = _numba_stealth_flow_agg(amounts, is_buy, small_order_threshold)
+        small_net /= 10000.0
+        total_net /= 10000.0
         if abs(total_net) > 0:
             stealth_ratio = abs(small_net) / abs(total_net) * 100.0
         else:
