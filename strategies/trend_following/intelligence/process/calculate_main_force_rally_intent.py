@@ -168,8 +168,9 @@ class CalculateMainForceRallyIntent:
 
     def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V42.1】A股交叉耦合场推力模型 - 万元量纲校准版
-        修复了由于净额数据单位为"万元"，导致除以千万级底数后被阻尼函数(tanh)误杀归零的量纲错位Bug。
+        【V42.2】A股交叉耦合场推力模型 - 乘数湮灭修复版
+        修复 purity_multiplier 因底层买入占比(buy_elg_rate)为负数时，
+        np.tanh 导致乘数归零，从而将原本负向的主力推力(Thrust)强行抹平为 0.0000 的致命逻辑漏洞。
         """
         mf_net_buy = raw['mf_net_buy'].values
         hm_synergy = raw['hm_synergy'].values
@@ -204,7 +205,7 @@ class CalculateMainForceRallyIntent:
         synergy_multiplier = 1.0 + np.maximum(0.0, hm_synergy / 100.0)
         macro_base = effective_net_buy * synergy_multiplier
         
-        # 量纲修复：1000.0 代表 1000万元(一千万)，10000.0 代表 10000万元(一亿)
+        # 量纲修复：1000.0 代表 1000万元(一千万)
         norm_macro_base = np.sign(macro_base) * np.log1p(np.abs(macro_base) / 1000.0)
         macro_damping = np.tanh(np.abs(effective_net_buy) / 10000.0)
         tick_damping = np.tanh(np.abs(tick_large_net) / 5000.0)
@@ -216,7 +217,9 @@ class CalculateMainForceRallyIntent:
         coupling_field = np.tanh(macro_kinematics + tick_kinematics + push_kinematics)
         kinematic_multiplier = 1.0 + np.maximum(0.0, coupling_field)
         
-        purity_multiplier = 1.0 + (np.tanh(buy_elg_rate * 5.0))
+        # 核心修复：实施 np.maximum 绝对拦截！买入占比不佳时乘数保底为1.0，绝不允许反向吞噬推力能量
+        purity_multiplier = 1.0 + np.maximum(0.0, np.tanh(buy_elg_rate / 20.0))
+        
         acc_conf_norm = (intra_acc_conf - 50.0) / 50.0
         acc_confidence_multiplier = 1.0 + np.maximum(0.0, acc_conf_norm)
         
@@ -251,7 +254,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-THRUST-V42.1] 交叉耦合与相位对齐探针(量纲校准版) @ {ts}",
+                    f"\n[PROBE-THRUST-V42.2] 交叉耦合与相位对齐探针(乘数湮灭修复版) @ {ts}",
                     f"  |- 耦合场 (Coupling Field):",
                     f"     Macro Momentum: {macro_momentum[i]:.4f} | Coupling Field: {coupling_field[i]:.4f}",
                     f"     Phase Alignment: {phase_alignment[i]:.2f} | Acc Conf Mult: {acc_confidence_multiplier[i]:.4f}",
