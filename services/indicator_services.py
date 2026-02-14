@@ -539,7 +539,7 @@ class IndicatorService:
                 df_daily['THEME_HOTNESS_SCORE_D'] = 0.0
         smart_money_params = self._find_params_recursively(config, 'smart_money_params')
         if smart_money_params and smart_money_params.get('enabled', False):
-            smart_money_signals_df = await self.context_service.prepare_smart_money_signals(stock_code, start_date, end_date, smart_money_params)
+            smart_money_signals_df = None # await self.context_service.prepare_smart_money_signals(stock_code, start_date, end_date, smart_money_params)
             if not smart_money_signals_df.empty:
                 smart_money_signals_df.index = pd.to_datetime(smart_money_signals_df.index, utc=True)
                 df_daily = df_daily.merge(smart_money_signals_df, left_index=True, right_index=True, how='left')
