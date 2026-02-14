@@ -68,14 +68,17 @@ class CalculateMainForceControlRelationship:
         """
         method_name = "calculate_main_force_control_relationship"
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
+        
         # --- 0. 调试探针初始化 ---
         # _temp_debug_values 是全链路的“黑匣子”，所有子方法都会向其中写入关键中间变量
         _temp_debug_values = {} 
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
+        
         if probe_ts:
             print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V40.0.0 (熵减矢量版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+
         # --- 1. 物理层 (Physics Layer) ---
         # 职责：原料质检与状态挂载
         # V40升级：严苛模式，拒绝缺失关键物理量
@@ -83,36 +86,45 @@ class CalculateMainForceControlRelationship:
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
                 print(f"[熔断] {method_name}: 关键军械库信号缺失，策略强制终止。")
                 return pd.Series(0.0, index=df.index, dtype=np.float32)
+
         # 获取全量上下文 (Context)，此处已包含 HAB 存量、双熵(Entropy) 和 矢量合成预处理
         control_context = self._get_raw_control_signals(df, method_name, _temp_debug_values, probe_ts)
+
         # --- 2. 组件层 (Component Layer) ---
         # 职责：独立维度的深度计算
+        
         # 2.1 [传统控盘] (Traditional): 时空动力学与混沌博弈
         scores_traditional = self._calculate_traditional_control_score_components(
             control_context, df.index, _temp_debug_values
         )
         if scores_traditional.isnull().all():
              return pd.Series(0.0, index=df.index, dtype=np.float32)
+
         # 2.2 [成本优势] (Cost Advantage): 熵减动力学与 HAB 护盾
         scores_cost_advantage = self._calculate_main_force_cost_advantage_score(
             control_context, df.index, _temp_debug_values
         )
+
         # 2.3 [净活动力] (Net Activity): 矢量合成与惯性阻尼
         scores_net_activity = self._calculate_main_force_net_activity_score(
             control_context, df.index, config, method_name, _temp_debug_values
         )
+
         # --- 3. 转换层 (Translation Layer) ---
         # 职责：将各维度的原始分转换统一量纲，准备进行融合
         # V40: 采用内联归一化逻辑，此处主要提取标准化后的流向与意图分供下游使用
         norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down = \
             self._normalize_components(df, control_context, scores_traditional, config, method_name, _temp_debug_values)
+
         # --- 4. 合成层 (Synthesis Layer) ---
         # 职责：结构融合与杠杆放大
+        
         # 4.1 [结构融合] (Fusion): 将 传统分、结构分 与 成本分 进行熵减融合
         # V40: 引入双熵博弈 (Price Entropy vs Chip Entropy)
         fused_control_score = self._fuse_control_scores(
             norm_traditional, norm_structural, control_context, _temp_debug_values
         )
+
         # 4.2 [风控杠杆] (Leverage): 计算当前状态允许放大的倍数 (0.0 ~ 12.0)
         # V40: 引入 HAB 风险记忆与动力学预警
         control_leverage = self._calculate_control_leverage_model(
@@ -128,6 +140,7 @@ class CalculateMainForceControlRelationship:
             context=control_context, 
             _temp_debug_values=_temp_debug_values
         )
+
         # --- 5. 决策层 (Decision Layer) ---
         # 职责：输出最终信号
         # 核心公式：最终得分 = 矢量净活动力(动力) * 熵减风控杠杆(结构)
@@ -135,9 +148,12 @@ class CalculateMainForceControlRelationship:
         # - 动力 (Activity) 是物理做功的基础。
         # - 杠杆 (Leverage) 是由 熵(Entropy) 和 结构(Structure) 决定的放大器。
         # - 高混乱度 (High Entropy) 会导致 Leverage -> 0，从而熔断 Activity。
+        
         raw_final_score = scores_net_activity * control_leverage
+        
         # 极值剪裁：限制在 [-1, 1] 区间
         final_control_score = raw_final_score.clip(-1, 1).astype(np.float32)
+
         # --- 6. 调试输出与收尾 ---
         _temp_debug_values["最终结果"] = {
             "Net_Activity (Vector)": scores_net_activity,
@@ -146,6 +162,7 @@ class CalculateMainForceControlRelationship:
             "Cost_Advantage": scores_cost_advantage,
             "Final_Score": final_control_score
         }
+
         # 如果探针激活，执行全链路打印
         if probe_ts:
             self._calculate_main_force_control_relationship_debug_output(
