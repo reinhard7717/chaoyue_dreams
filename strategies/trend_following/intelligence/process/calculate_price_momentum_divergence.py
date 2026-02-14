@@ -363,6 +363,7 @@ class CalculatePriceMomentumDivergence:
         print(f"  [探针-STConsistency] 周期一致性均值: {resonance_score.mean():.4f} | 冲突惩罚比例均值: {conflict_penalty.mean():.4f} | 价量相干均值: {pv_coherence_node.mean():.4f}")
         debug_v = {"node_resonance": resonance_score, "node_conflict_penalty": conflict_penalty, "node_pv_coherence": pv_coherence_node, "node_order": order_node, "final_st_consistency": st_consistency_score}
         return st_consistency_score.astype(np.float32), debug_v
+
     def _calculate_divergence_quality_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_div: pd.Series) -> Tuple[pd.Series, Dict]:
         """V3.11.0 · 背离质量增强模型：集成 HAB 缩量成熟度与时空一致性验证 (全探针暴露)"""
         q_w = pmd_params['quality_weights']
