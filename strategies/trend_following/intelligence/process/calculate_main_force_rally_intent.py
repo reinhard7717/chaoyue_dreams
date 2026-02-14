@@ -141,7 +141,7 @@ class CalculateMainForceRallyIntent:
         if count < 5:
             print(f"[PROBE-FATAL] 数据行数不足5行，当前行数: {count}，直接阻断。")
             return pd.Series(0.0, index=idx)
-        print(f"[PROBE-INFO] 开始执行全息推力计算(含HAB与Kinematics)，处理条目数: {count}")
+        print(f"[PROBE-INFO] CalculateMainForceRallyIntent 开始执行全息推力计算(含HAB与Kinematics)，处理条目数: {count}")
         self._probe_cache_raw = raw
         self._probe_cache_idx = idx
         thrust = self._calc_thrust_component(raw, idx)
@@ -251,12 +251,12 @@ class CalculateMainForceRallyIntent:
 
     def _calc_structure_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V31.0】维度B：晶格相变结构场 (Lattice Phase Transition Structure) - 物理场交叉耦合版
+        【V31.1】维度B：晶格相变结构场 (Lattice Phase Transition Structure) - 物理场交叉耦合版 (Bug修复)
         核心逻辑：
-        1. 继承V30.0的全套非线性映射与雪崩增益架构。
-        2. 【内部逻辑重构 1】熵稳动态平衡：引入 entropy_penalty，高稳态下对洗盘导致的筹码熵增进行宽容，防误杀。
-        3. 【内部逻辑重构 2】弹性压缩度交叉张量：耦合均线张力(Tension)与筹码收敛度(Convergence)。
-        4. 【内部逻辑重构 3】动力学耦合放大：将弹性压缩度作为杠杆，直接放大斜率、加速度与控盘动量，实现“压簧爆发”效应。
+        1. 修复 V31.0 中遗漏的 inertia_bonus (惯性底仓加成) 定义，恢复完整的晶格基建张量。
+        2. 保留完整的熵稳动态平衡机制 (Entropy-Stability Dynamic Balance)。
+        3. 保留弹性压缩度交叉张量 (Elastic Compression Tensor)。
+        4. 保留动力学动量耦合放大 (Kinematic Momentum Amplification) 与非线性雪崩增益。
         """
         cost_avg = raw['cost_avg'].values
         close = raw['close'].values
@@ -302,6 +302,7 @@ class CalculateMainForceRallyIntent:
         norm_acc = 1.0 / (1.0 + np.exp(-0.05 * (accumulation_score - 50.0)))
         acc_factor = 1.0 + norm_acc
         static_lattice_energy = lattice_orderliness * peak_efficiency * cost_rbf * control_factor * acc_factor
+        inertia_bonus = 1.0 + np.maximum(0.0, (hab_structure - 0.6) * 1.5)
         hab_pool = flow_21d * 0.618 + flow_55d * 0.382
         hab_immunity = 1.0 - (1.0 / (1.0 + np.exp(hab_pool / 50000000.0)))
         hab_immunity = np.maximum(0.0, np.minimum(hab_immunity, 0.85))
@@ -335,7 +336,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-STRUCTURE-V31.0] 晶格相变全息审计(物理场交叉耦合版) @ {ts}",
+                    f"\n[PROBE-STRUCTURE-V31.1] 晶格相变全息审计(物理场交叉耦合修复版) @ {ts}",
                     f"  |- 熵稳平衡机制 (Entropy-Stability):",
                     f"     Raw Entropy: {entropy_raw[i]:.4f} | Stability: {stability_raw[i]:.4f}",
                     f"     Entropy Penalty: {entropy_penalty[i]:.4f} -> Lattice Orderliness: {lattice_orderliness[i]:.4f}",
@@ -345,8 +346,9 @@ class CalculateMainForceRallyIntent:
                     f"  |- 动量耦合放大 (Kinematic Amplification):",
                     f"     Raw Kine Vector: {kine_vector[i]:.4f} | Amplifier (1 + Elastic*2): {(1.0 + elastic_compression[i]*2.0):.4f}",
                     f"     -> Evolution Kinematics: {evolution_kinematics[i]:.4f}",
-                    f"  |- 历史存量防守 (HAB Immunity):",
+                    f"  |- 历史存量防守与惯性 (HAB Defense & Inertia):",
                     f"     HAB Pool: {hab_pool[i]:.0f} -> Immunity Cushion: {hab_immunity[i]*100:.2f}%",
+                    f"     HAB Structure Ratio: {hab_structure[i]:.4f} -> Inertia Bonus: x{inertia_bonus[i]:.4f}",
                     f"  |- 共振与雪崩增益 (Resonance & Avalanche):",
                     f"     SRI Index: {sri[i]:.6f} -> Excitation Gain: x{excitation_gain[i]:.4f}",
                     f"     Resonance Core: {resonance_core[i]:.4f} | Avalanche Multiplier: x{avalanche_gain[i]:.4f}",
