@@ -195,6 +195,7 @@ class CalculateMainForceControlRelationship:
         1. 严格映射《最终军械库清单.txt》，移除不存在的列引用。
         2. 引入 Tick级数据、聪明钱数据、熵数据。
         3. 动力学预处理：计算 Tick流与资金流的加速度。
+        4. [新增] 填充全链路调试探针的源头数据。
         """
         # --- 1. Market (基础行情) ---
         market_raw = {
@@ -246,7 +247,9 @@ class CalculateMainForceControlRelationship:
             "avg_cost": df['weight_avg_cost_D'].astype(np.float32), # 均价
             # 形态
             "r2": df['GEOM_REG_R2_D'].astype(np.float32),
-            "bias_55": df['BIAS_55_D'].astype(np.float32)
+            "bias_55": df['BIAS_55_D'].astype(np.float32),
+            # 辅助
+            "ma_coherence": df['MA_COHERENCE_RESONANCE_D'].astype(np.float32)
         }
         # --- 4. Sentiment & State (情绪与状态) ---
         sentiment_state = {
@@ -259,13 +262,29 @@ class CalculateMainForceControlRelationship:
             "t0_buy_conf": df['intraday_accumulation_confidence_D'].astype(np.float32),
             "t0_sell_conf": df['intraday_distribution_confidence_D'].astype(np.float32),
             "industry_rank": df['industry_strength_rank_D'].astype(np.float32),
+            "reversal_prob": df['reversal_prob_D'].astype(np.float32),
+            "divergence_strength": df['divergence_strength_D'].astype(np.float32),
+            "turnover": df['turnover_rate_D'].astype(np.float32)
         }
         # --- 5. EMA System ---
         ema_system = {
             "ema_13": df['EMA_13_D'].astype(np.float32),
             "ema_55": df['EMA_55_D'].astype(np.float32),
         }
-        # --- 探针输出 ---
+        
+        # --- 探针输出与数据快照 ---
+        # 将原始数据填入黑匣子，供 debug_output 调用
+        if _temp_debug_values is not None:
+            _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {
+                "Close": market_raw['close'],
+                "Tick_Lg_Net": funds_raw['tick_lg_net'],
+                "Smart_Net_Buy": funds_raw['smart_net_buy'],
+                "Chip_Entropy": structure_raw['chip_entropy'],
+                "Price_Entropy": structure_raw['price_entropy'],
+                "Flow_Consistency": funds_raw['flow_consistency'],
+                "HAB_Net_MF_21": funds_raw['hab_net_mf_21']
+            }
+
         if probe_ts:
             snap_tick = funds_raw['tick_lg_net'].loc[probe_ts] if probe_ts in funds_raw['tick_lg_net'].index else np.nan
             snap_smart = funds_raw['smart_net_buy'].loc[probe_ts] if probe_ts in funds_raw['smart_net_buy'].index else np.nan
@@ -273,6 +292,7 @@ class CalculateMainForceControlRelationship:
             print(f"      - Tick大单净额: {snap_tick:,.0f}")
             print(f"      - SmartMoney净买: {snap_smart:,.0f}")
             print(f"      - 复合HAB_21存量计算完成")
+
         return {
             "market": market_raw,
             "funds": funds_raw,
@@ -1084,14 +1104,17 @@ class CalculateMainForceControlRelationship:
         1. Bipolar Tanh Scaling: 用于传统得分和结构得分，处理极端离群值，保留 0 轴敏感度。
         2. Inline MTF Structure: 内部实现多周期筹码稳定性斜率加权，判定控盘沉淀。
         3. Intent Sigmoid Mapping: 对意图信心分执行逻辑回归映射，强化强信号，压制弱噪音。
+        4. 修复：从 funds 中正确获取 flow_consistency。
         """
         s_struct = context['structure']
         s_sent = context['sentiment']
-        df_index = df.index
+        f_funds = context['funds'] # 获取资金上下文
+        
         # --- 1. 传统控盘分归一化 (Bipolar -1 to 1) ---
         # 逻辑：传统分包含乖离张力，分布较广。使用 Tanh(x/std) 保持中心敏感。
         std_trad = scores_traditional.std() if scores_traditional.std() > 0 else 1.0
         norm_traditional = np.tanh(scores_traditional / (std_trad * 1.5))
+
         # --- 2. 结构控盘分 MTF 计算 (Kinetic MTF Structure) ---
         # 逻辑：不依赖 helper，直接计算 chip_stability 的多周期斜率共振。
         stability = s_struct['chip_stability']
@@ -1103,25 +1126,32 @@ class CalculateMainForceControlRelationship:
         mtf_struct_raw = slope_5 * 0.5 + slope_13 * 0.3 + slope_21 * 0.2
         # 将变化率转化为 [-1, 1] 的控盘强度。0.01 的日均变化即为极强信号。
         norm_structural = np.tanh(mtf_struct_raw * 100.0)
+
         # --- 3. 辅助指标归一化 (Unipolar 0 to 1) ---
         # 流量一致性: 原始 0-100 -> [0, 1]
-        norm_flow = (s_sent['flow_consistency'] / 100.0).clip(0, 1)
+        # [修复] 修正引用路径，从 context['funds'] 中获取
+        flow_consistency = f_funds.get('flow_consistency', pd.Series(50, index=df.index)).fillna(50)
+        norm_flow = (flow_consistency / 100.0).clip(0, 1)
+
         # 意图信心分 (Sigmoid 强化): 0.5 为中性，强化两极
         def _intent_sigmoid(s: pd.Series):
             return 1.0 / (1.0 + np.exp(-10.0 * (s - 0.5)))
         norm_t0_buy = _intent_sigmoid(s_sent['t0_buy_conf'])
         norm_t0_sell = _intent_sigmoid(s_sent['t0_sell_conf'])
+
         # 脉冲强度 (Min-Max 缩放): 0.0-1.0
         norm_vwap_up = s_sent['pushing_score'].clip(0, 1)
         norm_vwap_down = s_sent['shakeout_score'].clip(0, 1)
+
         # --- 4. 转换层探针捕获 ---
         if _temp_debug_values is not None:
             _temp_debug_values["归一化处理"] = {
                 "traditional_norm": norm_traditional,
                 "structural_mtf_norm": norm_structural,
-                "flow_consistency": norm_flow,
+                "flow_consistency_norm": norm_flow,
                 "t0_buy_boost": norm_t0_buy
             }
+            
         print(f"[探针] 组件归一化自研逻辑执行完成。结构斜率均值: {mtf_struct_raw.mean():.6f}")
         return norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down
 
