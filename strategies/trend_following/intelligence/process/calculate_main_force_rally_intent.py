@@ -37,20 +37,21 @@ class CalculateMainForceRallyIntent:
 
     def _get_required_column_map(self) -> Dict[str, str]:
         """
-        【V49.0】数据映射重构：解决底层特征断层Bug，进行等效物理场替换。
-        1. 废弃不存在的 control_solidity_index_D，替换为清单中的 consolidation_chip_stability_D (整固期筹码稳定性)。
-        2. 同步更新控盘坚实度的13日动力学前缀。
-        3. 废弃不存在的 VOLATILITY_INSTABILITY_INDEX_21d_D，替换为清单中的 flow_volatility_21d_D (20日资金流波动率)。
+        【V50.0】数据映射重构：剔除聪明钱依赖版
+        1. 废弃所有 SMART_MONEY_* 相关指标。
+        2. 采用 net_mf_amount_D (主力净额) 替代聪明钱净买入。
+        3. 采用 HM_COORDINATED_ATTACK_D (高阶协同攻击) 替代聪明钱协同。
+        4. 采用 trend_confirmation_score_D (趋势确认评分) 替代聪明钱协同攻击。
         """
         return {
             'close': 'close_D',
             'cost_avg': 'cost_50pct_D',
-            'sm_net_buy': 'SMART_MONEY_HM_NET_BUY_D',
+            'mf_net_buy': 'net_mf_amount_D',
             'hab_inventory': 'total_net_amount_21d_D',
-            'sm_slope_13': 'SLOPE_13_SMART_MONEY_HM_NET_BUY_D',
-            'sm_accel_13': 'ACCEL_13_SMART_MONEY_HM_NET_BUY_D',
-            'sm_jerk_13': 'JERK_13_SMART_MONEY_HM_NET_BUY_D',
-            'sm_synergy': 'SMART_MONEY_SYNERGY_BUY_D',
+            'mf_slope_13': 'SLOPE_13_net_mf_amount_D',
+            'mf_accel_13': 'ACCEL_13_net_mf_amount_D',
+            'mf_jerk_13': 'JERK_13_net_mf_amount_D',
+            'hm_synergy': 'HM_COORDINATED_ATTACK_D',
             'pushing_score': 'pushing_score_D',
             'market_sentiment': 'market_sentiment_score_D',
             'tick_large_net': 'tick_large_order_net_D',
@@ -89,7 +90,7 @@ class CalculateMainForceRallyIntent:
             'is_leader': 'STATE_MARKET_LEADER_D',
             'theme_hotness': 'THEME_HOTNESS_SCORE_D',
             'lock_ratio': 'high_position_lock_ratio_90_D',
-            'coordinated_attack': 'SMART_MONEY_HM_COORDINATED_ATTACK_D',
+            'trend_confirm': 'trend_confirmation_score_D',
             'flow_21d': 'total_net_amount_21d_D',
             'flow_55d': 'total_net_amount_55d_D',
             'buy_elg_rate': 'buy_elg_amount_rate_D',
@@ -167,11 +168,12 @@ class CalculateMainForceRallyIntent:
 
     def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V41.1】A股交叉耦合场推力模型 - 稳健极值约束版
-        1. 修复微观射流计算中的除零膨胀效应，对 tick_intensity 增加 np.clip 张量硬约束。
+        【V42.0】A股交叉耦合场推力模型 - 泛主力资金重构版
+        1. 移除对 SMART_MONEY 数据的硬依赖，改用全市场主力净额 (net_mf_amount_D) 构建基础推力。
+        2. 修复原有的量纲错位：改用乘数因子代替将协同评分直接加到金额中。
         """
-        sm_net_buy = raw['sm_net_buy'].values
-        sm_synergy = raw['sm_synergy'].values
+        mf_net_buy = raw['mf_net_buy'].values
+        hm_synergy = raw['hm_synergy'].values
         flow_21d = raw['flow_21d'].values
         flow_55d = raw['flow_55d'].values
         tick_large_net = raw['tick_large_net'].values
@@ -180,9 +182,9 @@ class CalculateMainForceRallyIntent:
         pushing_score = raw['pushing_score'].values
         sentiment = raw['market_sentiment'].values
         mf_activity = raw['mf_activity'].values
-        k_slope = raw['sm_slope_13'].values
-        k_accel = raw['sm_accel_13'].values
-        k_jerk = raw['sm_jerk_13'].values
+        k_slope = raw['mf_slope_13'].values
+        k_accel = raw['mf_accel_13'].values
+        k_jerk = raw['mf_jerk_13'].values
         buy_elg_rate = raw['buy_elg_rate'].values
         flow_consistency = raw['flow_consistency'].values
         flow_persistence = raw['flow_persistence'].values
@@ -197,9 +199,10 @@ class CalculateMainForceRallyIntent:
         push_accel = raw['pushing_accel_13'].values
         push_jerk = raw['pushing_jerk_13'].values
         hab_total_pool = (flow_21d * 0.6) + (flow_55d * 0.4)
-        hab_cushion = np.where((sm_net_buy < 0) & (hab_total_pool > 0), np.clip(hab_total_pool / (np.abs(sm_net_buy) + 1e-9), 0.0, 1.0) * np.abs(sm_net_buy) * 0.8, 0.0)
-        effective_net_buy = sm_net_buy + hab_cushion
-        macro_base = effective_net_buy + (sm_synergy * 1.5)
+        hab_cushion = np.where((mf_net_buy < 0) & (hab_total_pool > 0), np.clip(hab_total_pool / (np.abs(mf_net_buy) + 1e-9), 0.0, 1.0) * np.abs(mf_net_buy) * 0.8, 0.0)
+        effective_net_buy = mf_net_buy + hab_cushion
+        synergy_multiplier = 1.0 + np.maximum(0.0, hm_synergy / 100.0)
+        macro_base = effective_net_buy * synergy_multiplier
         norm_macro_base = np.sign(macro_base) * np.log1p(np.abs(macro_base) / 1000000.0)
         macro_damping = np.tanh(np.abs(effective_net_buy) / 10000000.0)
         tick_damping = np.tanh(np.abs(tick_large_net) / 5000000.0)
@@ -238,7 +241,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-THRUST-V41.1] 交叉耦合与相位对齐探针 @ {ts}",
+                    f"\n[PROBE-THRUST-V42.0] 交叉耦合与相位对齐探针(剔除SM版) @ {ts}",
                     f"  |- 耦合场 (Coupling Field):",
                     f"     Macro Momentum: {macro_momentum[i]:.4f} | Coupling Field: {coupling_field[i]:.4f}",
                     f"     Phase Alignment: {phase_alignment[i]:.2f} | Acc Conf Mult: {acc_confidence_multiplier[i]:.4f}",
@@ -478,15 +481,15 @@ class CalculateMainForceRallyIntent:
 
     def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V38.2 · 张量合成】
-        全息奇点共振与防溢出最终版：对所有非线性边界实施 np.clip 硬约束，终结数学异常传导网络。
+        【V38.4 · 张量合成】
+        泛主力资金适配版：接入趋势确认评分代替原SMART_MONEY特征，更新阻尼逻辑。
         """
-        sm_net_buy = raw['sm_net_buy'].values
+        mf_net_buy = raw['mf_net_buy'].values
         pushing_score = raw['pushing_score'].values
         energy_conc = raw['energy_conc'].values
-        sm_slope_13 = raw['sm_slope_13'].values
-        sm_accel_13 = raw['sm_accel_13'].values
-        sm_jerk_13 = raw['sm_jerk_13'].values
+        mf_slope_13 = raw['mf_slope_13'].values
+        mf_accel_13 = raw['mf_accel_13'].values
+        mf_jerk_13 = raw['mf_jerk_13'].values
         push_slope_13 = raw['pushing_slope_13'].values
         push_accel_13 = raw['pushing_accel_13'].values
         push_jerk_13 = raw['pushing_jerk_13'].values
@@ -497,7 +500,7 @@ class CalculateMainForceRallyIntent:
         gap_momentum = raw['gap_momentum'].values
         reversal_prob = raw['reversal_prob'].values
         lock_ratio = raw['lock_ratio'].values
-        coordinated_attack = raw['coordinated_attack'].values
+        trend_confirm = raw['trend_confirm'].values
         emotional_extreme = raw['emotional_extreme'].values
         game_intensity = raw['game_intensity'].values
         golden_pit = raw['golden_pit'].values
@@ -507,51 +510,38 @@ class CalculateMainForceRallyIntent:
         breakout_pot = raw['breakout_pot'].values
         ma_compression = raw['ma_compression'].values
         turnover_stability = raw['turnover_stability'].values
-        
         norm_push = 1.0 / (1.0 + np.exp(np.clip(-0.1 * (pushing_score - 50.0), -50.0, 50.0)))
-        kine_damping = np.tanh(np.abs(sm_net_buy) / 10000000.0) * norm_push
-        k_sm = np.tanh(sm_slope_13) * 0.3 + np.tanh(sm_accel_13) * 0.3 + np.tanh(sm_jerk_13) * 0.4
+        kine_damping = np.tanh(np.abs(mf_net_buy) / 10000000.0) * norm_push
+        k_mf = np.tanh(mf_slope_13) * 0.3 + np.tanh(mf_accel_13) * 0.3 + np.tanh(mf_jerk_13) * 0.4
         k_push = np.tanh(push_slope_13) * 0.3 + np.tanh(push_accel_13) * 0.3 + np.tanh(push_jerk_13) * 0.4
-        kinematic_burst = 1.0 + np.maximum(0.0, (k_sm + k_push * 0.5) * kine_damping)
-        
+        kinematic_burst = 1.0 + np.maximum(0.0, (k_mf + k_push * 0.5) * kine_damping)
         combined_inventory = (flow_21d * 0.618) + (flow_55d * 0.382)
         hab_immunity = 1.0 - (1.0 / (1.0 + np.exp(np.clip(combined_inventory / 50000000.0, -50.0, 50.0))))
         hab_fuel = np.maximum(0.0, np.tanh(combined_inventory / 100000000.0))
-        
         norm_theme = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (theme_hotness - 50.0), -50.0, 50.0)))
         norm_breakout_pot = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (breakout_pot - 50.0), -50.0, 50.0)))
         norm_turnover_stab = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (turnover_stability - 50.0), -50.0, 50.0)))
-        
-        eco_premium = 1.0 + (is_leader * 0.8) + (hm_top_tier * 0.6) + (breakout_conf * 0.4) + (norm_theme * 0.3) + coordinated_attack * 0.5
+        eco_premium = 1.0 + (is_leader * 0.8) + (hm_top_tier * 0.6) + (breakout_conf * 0.4) + (norm_theme * 0.3) + (trend_confirm / 100.0) * 0.5
         base_tensor = thrust * structure * (1.0 + gap_momentum) * eco_premium * kinematic_burst * (1.0 + norm_breakout_pot) * (1.0 + norm_turnover_stab * 0.5)
-        
         norm_lock_ratio = 1.0 / (1.0 + np.exp(np.clip(-0.1 * (lock_ratio - 50.0), -50.0, 50.0)))
         raw_effective_drag = drag * (1.0 - np.maximum(0.0, np.minimum(hab_immunity, 0.90)))
         exp_arg = np.clip(-2.0 * (base_tensor - 1.5 * raw_effective_drag), -50.0, 50.0)
         squeeze_transition = 1.0 / (1.0 + np.exp(exp_arg))
-        
         norm_game_intensity = 1.0 / (1.0 + np.exp(np.clip(-0.1 * (game_intensity - 50.0), -50.0, 50.0)))
         trap_reversal_factor = 1.0 + (golden_pit * 2.0)
         norm_energy = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (energy_conc - 50.0), -50.0, 50.0)))
         squeeze_bonus = squeeze_transition * raw_effective_drag * emotional_extreme * norm_game_intensity * kinematic_burst * trap_reversal_factor * norm_energy
-        
         norm_reversal_prob = np.clip(reversal_prob / 100.0, 0.0, 1.0)
         final_drag = (raw_effective_drag * raw_effective_drag) * (1.0 - squeeze_transition) * (1.0 - norm_reversal_prob) * (1.0 - norm_lock_ratio * 0.5)
-        
         raw_intent = (base_tensor / (1.0 + final_drag)) + squeeze_bonus
-        
         t1_multiplier = np.exp(np.clip(np.tanh((t1_premium - 50.0) / 20.0), -2.0, 2.0))
         norm_compression = np.tanh(np.maximum(0.0, ma_compression) / 50.0)
-        
         hri = (base_tensor * (1.0 + squeeze_bonus)) / (1.0 + final_drag)
         hri_threshold = 3.0
         hri_excess = np.clip(np.maximum(0.0, hri - hri_threshold), 0.0, 10.0)
-        
         exponent_gain = np.clip(hri_excess * t1_multiplier * (1.0 + norm_compression + hab_fuel), 0.0, 20.0)
         singularity_gain = 1.0 + np.expm1(exponent_gain)
-        
         final_intent = np.nan_to_num(raw_intent * singularity_gain, nan=0.0, posinf=100.0, neginf=0.0)
-        
         if self._is_probe_enabled():
             target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
             current_dates = idx.tz_localize(None).normalize()
@@ -559,9 +549,9 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-SYNTHESIS-V38.2] 张量奇点共振全息探针(高维耦合爆破防溢出版) @ {ts}",
+                    f"\n[PROBE-SYNTHESIS-V38.4] 张量奇点共振全息探针(剔除SM版) @ {ts}",
                     f"  |- 多维动力学与抗噪 (Multi-Kinematics):",
-                    f"     SM Kine: {k_sm[i]:.4f} | Push Kine: {k_push[i]:.4f} | Damping: {kine_damping[i]:.4f}",
+                    f"     MF Kine: {k_mf[i]:.4f} | Push Kine: {k_push[i]:.4f} | Damping: {kine_damping[i]:.4f}",
                     f"     Kinematic Burst Multiplier: x{kinematic_burst[i]:.4f}",
                     f"  |- 生态溢价与锁仓 (Ecosystem & Lock-in):",
                     f"     Leader: {is_leader[i]:.0f} | HM Top Tier: {hm_top_tier[i]:.0f} | Breakout Conf: {breakout_conf[i]:.0f}",
@@ -590,9 +580,8 @@ class CalculateMainForceRallyIntent:
 
     def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, final):
         """
-        【V33.3 · 探针终极升级 - 全链路溯源版】
-        新增“【0. Raw Data (原始数据透视)】”模块，直接打印底层传入的核心原始特征值，
-        彻底解决“数据源异常 vs 模型计算异常”的归因难题，实现全息白盒监控。
+        【V33.4 · 探针终极升级 - 泛主力审计版】
+        探针变量透传同步更新，完全剥离所有 SMART_MONEY_* 指标。
         """
         if not self.probe_dates: return
         target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
@@ -602,25 +591,25 @@ class CalculateMainForceRallyIntent:
         for i in locs:
             if i == -1: continue
             ts = idx[i]
-            net_buy = raw['sm_net_buy'].values[i]
+            net_buy = raw['mf_net_buy'].values[i]
             energy_damping = np.tanh(np.abs(net_buy) / 10000000.0) * np.clip(raw['energy_conc'].values[i] / 100.0, 0.0, 1.0)
-            k_burst = 1.0 + max(0.0, (np.tanh(raw['sm_slope_13'].values[i]) * 0.3 + np.tanh(raw['sm_accel_13'].values[i]) * 0.3 + np.tanh(raw['sm_jerk_13'].values[i]) * 0.4) * energy_damping)
+            k_burst = 1.0 + max(0.0, (np.tanh(raw['mf_slope_13'].values[i]) * 0.3 + np.tanh(raw['mf_accel_13'].values[i]) * 0.3 + np.tanh(raw['mf_jerk_13'].values[i]) * 0.4) * energy_damping)
             comb_inv = (raw['flow_21d'].values[i] * 0.6) + (raw['flow_55d'].values[i] * 0.4)
             hab_imm = np.clip(1.0 - (1.0 / (1.0 + np.exp(np.clip(comb_inv / 50000000.0, -50.0, 50.0)))), 0.0, 0.9)
             eff_drag = drag[i] * (1.0 - hab_imm)
             hri = (thrust[i] * structure[i] * (1.0 + raw['gap_momentum'].values[i]) * (1.0 + (raw['is_leader'].values[i]*0.5)) * k_burst) / (1.0 + eff_drag)
             res_gain = 1.0 + np.expm1(np.clip(hri - 3.0, 0.0, 2.5) * 1.5)
             report = [
-                f"\n=== [PROBE V33.3] CalculateMainForceRallyIntent Full-Chain Audit @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V33.4] CalculateMainForceRallyIntent Full-Chain Audit @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【0. Raw Data (底层核心原始数据)】",
-                f"   [Thrust] SM_NetBuy: {raw['sm_net_buy'].values[i]:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | Flow_21d: {raw['flow_21d'].values[i]:.2f} | Flow_55d: {raw['flow_55d'].values[i]:.2f}",
+                f"   [Thrust] MF_NetBuy: {raw['mf_net_buy'].values[i]:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | Flow_21d: {raw['flow_21d'].values[i]:.2f} | Flow_55d: {raw['flow_55d'].values[i]:.2f}",
                 f"   [Struct] Close: {raw['close'].values[i]:.2f} | Cost_Avg: {raw['cost_avg'].values[i]:.2f} | Chip_Entropy: {raw['chip_entropy'].values[i]:.4f} | Control_Solidity: {raw['control_solidity'].values[i]:.4f}",
                 f"   [Drag]   Profit_Pres: {raw['profit_pressure'].values[i]:.4f} | Trapped_Pres: {raw['trapped_pressure'].values[i]:.4f} | Dist_Score: {raw['dist_score'].values[i]:.4f} | Turnover: {raw['turnover'].values[i]:.4f}",
                 f"   [Eco]    Market_Sentiment: {raw['market_sentiment'].values[i]:.4f} | Is_Leader: {raw['is_leader'].values[i]:.1f} | Reversal_Prob: {raw['reversal_prob'].values[i]:.4f}",
                 f"---------------------------------------------------------------",
-                f"【A. Kinematics (动力学)】 Burst: x{k_burst:.4f} | Damping: {energy_damping:.4f} | Jerk: {raw['sm_jerk_13'].values[i]:.2f}",
+                f"【A. Kinematics (动力学)】 Burst: x{k_burst:.4f} | Damping: {energy_damping:.4f} | Jerk: {raw['mf_jerk_13'].values[i]:.2f}",
                 f"【B. HAB (存量意识)】 21d/55d Inv: {raw['flow_21d'].values[i]:.0f}/{raw['flow_55d'].values[i]:.0f} | Immunity: {hab_imm*100:.1f}%",
-                f"【C. Ecosystem (生态)】 Leader: {raw['is_leader'].values[i]} | LockRatio: {raw['lock_ratio'].values[i]:.2f}% | Attack: {raw['coordinated_attack'].values[i]}",
+                f"【C. Ecosystem (生态)】 Leader: {raw['is_leader'].values[i]} | LockRatio: {raw['lock_ratio'].values[i]:.2f}% | Trend Confirm: {raw['trend_confirm'].values[i]:.2f}",
                 f"【D. Resonance (共振)】 HRI: {hri:.4f} (Threshold: 3.0) -> Resonance Multiplier: x{res_gain:.4f}",
                 f"【E. Synthesis (合成)】 Thrust: {thrust[i]:.4f} | Structure: {structure[i]:.4f} | EffectiveDrag: {eff_drag:.4f}",
                 f"【F. Result (最终)】 Raw Intent: {raw_intent[i]:.4f} | Final Normalized Score: {final[i]:.4f}",
@@ -628,7 +617,6 @@ class CalculateMainForceRallyIntent:
             ]
             self._probe_cache.extend(report)
             for line in report: print(line)
-
 
 
 
