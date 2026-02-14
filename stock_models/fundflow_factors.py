@@ -37,44 +37,89 @@ class FundFlowFactorBase(models.Model):
         verbose_name='5日累计净流入(万元)', null=True, blank=True,
         help_text='过去5日累计资金净流入额'
     )
-    total_net_amount_10d = models.DecimalField(
+    total_net_amount_13d = models.DecimalField(
         max_digits=20, decimal_places=2,
-        verbose_name='10日累计净流入(万元)', null=True, blank=True,
-        help_text='过去10日累计资金净流入额'
+        verbose_name='13日累计净流入(万元)', null=True, blank=True,
+        help_text='过去13日累计资金净流入额'
     )
-    total_net_amount_20d = models.DecimalField(
+    total_net_amount_21d = models.DecimalField(
         max_digits=20, decimal_places=2,
-        verbose_name='20日累计净流入(万元)', null=True, blank=True,
-        help_text='过去20日累计资金净流入额'
+        verbose_name='21日累计净流入(万元)', null=True, blank=True,
+        help_text='过去21日累计资金净流入额'
+    )
+    total_net_amount_34d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='34日累计净流入(万元)', null=True, blank=True,
+        help_text='过去34日累计资金净流入额'
+    )
+    total_net_amount_55d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='55日累计净流入(万元)', null=True, blank=True,
+        help_text='过去55日累计资金净流入额'
     )
     
     # 1.2 日均净流入
+    avg_daily_net_3d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='3日均净流入(万元)', null=True, blank=True,
+        help_text='过去3日平均每日净流入额'
+    )
     avg_daily_net_5d = models.DecimalField(
         max_digits=20, decimal_places=2,
         verbose_name='5日均净流入(万元)', null=True, blank=True,
         help_text='过去5日平均每日净流入额'
     )
-    avg_daily_net_10d = models.DecimalField(
+    avg_daily_net_13d = models.DecimalField(
         max_digits=20, decimal_places=2,
-        verbose_name='10日均净流入(万元)', null=True, blank=True,
-        help_text='过去10日平均每日净流入额'
+        verbose_name='13日均净流入(万元)', null=True, blank=True,
+        help_text='过去13日平均每日净流入额'
     )
-    avg_daily_net_20d = models.DecimalField(
+    avg_daily_net_21d = models.DecimalField(
         max_digits=20, decimal_places=2,
-        verbose_name='20日均净流入(万元)', null=True, blank=True,
-        help_text='过去20日平均每日净流入额'
+        verbose_name='21日均净流入(万元)', null=True, blank=True,
+        help_text='过去21日平均每日净流入额'
+    )
+    avg_daily_net_34d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='34日均净流入(万元)', null=True, blank=True,
+        help_text='过去34日平均每日净流入额'
+    )
+    avg_daily_net_55d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='55日均净流入(万元)', null=True, blank=True,
+        help_text='过去55日平均每日净流入额'
     )
     
     # 1.3 累计成交量（辅助指标）
+    total_volume_3d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='3日累计成交量(万手)', null=True, blank=True,
+        help_text='过去3日累计成交量'
+    )
     total_volume_5d = models.DecimalField(
         max_digits=20, decimal_places=2,
         verbose_name='5日累计成交量(万手)', null=True, blank=True,
         help_text='过去5日累计成交量'
     )
-    total_volume_10d = models.DecimalField(
+    total_volume_13d = models.DecimalField(
         max_digits=20, decimal_places=2,
-        verbose_name='10日累计成交量(万手)', null=True, blank=True,
-        help_text='过去10日累计成交量'
+        verbose_name='13日累计成交量(万手)', null=True, blank=True,
+        help_text='过去13日累计成交量'
+    )
+    total_volume_21d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='21日累计成交量(万手)', null=True, blank=True,
+        help_text='过去21日累计成交量'
+    )
+    total_volume_34d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='34日累计成交量(万手)', null=True, blank=True,
+        help_text='过去34日累计成交量'
+    )
+    total_volume_55d = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        verbose_name='55日累计成交量(万手)', null=True, blank=True,
+        help_text='过去55日累计成交量'
     )
     
     # ==================== 2. 相对强度指标 ====================

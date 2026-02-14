@@ -797,8 +797,10 @@ class IndicatorService:
             'resistance_strength_D', 'convergence_comprehensive_D', 'convergence_migration_D',
             'behavior_accumulation_D', 'behavior_distribution_D', 'behavior_consolidation_D', 'validation_score_D',
             # FundFlowFactor (新版资金流向因子)
-            'total_net_amount_3d_D', 'total_net_amount_5d_D', 'total_net_amount_10d_D', 'total_net_amount_20d_D',
-            'avg_daily_net_5d_D', 'avg_daily_net_10d_D', 'avg_daily_net_20d_D', 'total_volume_5d_D', 'total_volume_10d_D',
+            'total_net_amount_3d_D', 'total_net_amount_5d_D', 'total_net_amount_13d_D', 'total_net_amount_21d_D',
+            'total_net_amount_34d_D', 'total_net_amount_55d_D',
+            'avg_daily_net_5d_D', 'avg_daily_net_13d_D', 'avg_daily_net_21d_D', 'avg_daily_net_34d_D', 'avg_daily_net_55d_D',
+            'total_volume_5d_D', 'total_volume_13d_D', 'total_volume_21d_D', 'total_volume_34d_D', 'total_volume_55d_D',
             'net_amount_ratio_D', 'net_amount_ratio_ma5_D', 'net_amount_ratio_ma10_D', 'flow_intensity_D',
             'intensity_level_D', 'accumulation_score_D', 'pushing_score_D', 'distribution_score_D', 'shakeout_score_D',
             'pattern_confidence_D', 'outflow_quality_D', 'inflow_persistence_D', 'large_order_anomaly_D',

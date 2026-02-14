@@ -544,10 +544,14 @@ def get_fundflow_factors_batch(stock_codes: List[str], trade_date: date) -> Dict
         for factor in queryset:
             result[factor.stock.stock_code] = {
                 # 绝对量级指标
+                
                 'total_net_amount_5d': float(factor.total_net_amount_5d) if factor.total_net_amount_5d else None,
-                'total_net_amount_10d': float(factor.total_net_amount_10d) if factor.total_net_amount_10d else None,
+                'total_net_amount_13d': float(factor.total_net_amount_13d) if factor.total_net_amount_13d else None,
                 'avg_daily_net_5d': float(factor.avg_daily_net_5d) if factor.avg_daily_net_5d else None,
-                'avg_daily_net_10d': float(factor.avg_daily_net_10d) if factor.avg_daily_net_10d else None,
+                'avg_daily_net_13d': float(factor.avg_daily_net_13d) if factor.avg_daily_net_13d else None,
+                'avg_daily_net_21d': float(factor.avg_daily_net_21d) if factor.avg_daily_net_21d else None,
+                'avg_daily_net_34d': float(factor.avg_daily_net_34d) if factor.avg_daily_net_34d else None,
+                'avg_daily_net_55d': float(factor.avg_daily_net_55d) if factor.avg_daily_net_55d else None,
                 # 相对强度指标
                 'net_amount_ratio': float(factor.net_amount_ratio) if factor.net_amount_ratio else None,
                 'net_amount_ratio_ma5': float(factor.net_amount_ratio_ma5) if factor.net_amount_ratio_ma5 else None,

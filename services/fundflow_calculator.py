@@ -167,8 +167,8 @@ class FundFlowFactorCalculator:
         net_arr = self.net_amount_array
         vol_arr = self.volume_array
         n = len(net_arr)
-        # 3日、5日、10日、20日累计净流入
-        windows = [3, 5, 10, 20]
+        # 3日、5日、13日、21日、累计净流入
+        windows = [3, 5, 13, 21, 34, 55]
         for window in windows:
             if n >= window:
                 # np.sum 效率高于 sum()
@@ -180,7 +180,7 @@ class FundFlowFactorCalculator:
                 metrics[f'avg_daily_net_{window}d'] = None
         # 累计成交量
         n_vol = len(vol_arr)
-        for window in [5, 10]:
+        for window in [3, 5, 13, 21, 34, 55]:
             if n_vol >= window:
                 # 转换为万手 (/100)
                 total_vol = np.sum(vol_arr[-window:]) / 100.0
