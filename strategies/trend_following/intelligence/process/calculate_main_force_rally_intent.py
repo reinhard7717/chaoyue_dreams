@@ -138,9 +138,8 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.3 · 全息张量计算执行器】
-        零膨胀噪音雪崩修复版：引入 robust_mad 机制。彻底封杀在死寂市场中，由于 MAD 退化至 1e-9 级别，
-        导致张量合成阶段产生的千万分之一级别浮点噪音被放大为 99% 的致命假阳性 Bug。
+        【V38.8 · 全息张量计算执行器】
+        修复 neginf 归零谬误，确保负向极值（砸盘意图）能够正确传导到 Z-Score 评估。
         """
         self._probe_cache = []
         raw = self._load_data(df)
@@ -156,10 +155,12 @@ class CalculateMainForceRallyIntent:
         structure = self._calc_structure_component(raw, idx)
         drag = self._calc_drag_component(raw, idx)
         raw_intent = self._calc_tensor_synthesis(thrust, structure, drag, raw, idx)
-        raw_intent_clean = np.nan_to_num(raw_intent, nan=0.0, posinf=100.0, neginf=0.0)
+        
+        # 核心修复：neginf 必须映射为极负数(-1000.0)，严禁映射为 0.0 导致砸盘意图被掩盖
+        raw_intent_clean = np.nan_to_num(raw_intent, nan=0.0, posinf=1000.0, neginf=-1000.0)
+        
         med = np.median(raw_intent_clean)
         mad = np.median(np.abs(raw_intent_clean - med))
-        # 核心修复：建立动态 MAD 硬底（0.05的物理刻度），防止极小浮点噪音引发的 Z-Score 爆炸
         robust_mad = np.maximum(mad, 0.05)
         print(f"[PROBE-STAT] Raw Intent | Median: {med:.4f} | Raw MAD: {mad:.8f} | Robust MAD: {robust_mad:.4f}")
         z_scores = (raw_intent_clean - med) / (robust_mad * 3.0)
@@ -456,10 +457,10 @@ class CalculateMainForceRallyIntent:
 
     def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V38.7 · 张量合成】
-        定向张量耦合版 (Directional Tensor Coupling)：
-        当主力推力向下(负向)时，坚实的阵地结构与生态优势应表现为“摩擦阻力”(除法缓冲跌势)，
-        而不是荒谬地去倍增负向推力(乘法加剧跌势)。这是算法符合真实物理模型的终极拼图。
+        【V38.8 · 张量合成】
+        重力加速度定向耦合版 (Gravity Acceleration Effect)：
+        推力为正：抛压作分母，压制上升。
+        推力为负：抛压作乘数，放大恐慌！
         """
         mf_net_buy = raw['mf_net_buy'].values
         pushing_score = raw['pushing_score'].values
@@ -487,6 +488,7 @@ class CalculateMainForceRallyIntent:
         breakout_pot = raw['breakout_pot'].values
         ma_compression = raw['ma_compression'].values
         turnover_stability = raw['turnover_stability'].values
+        
         norm_push = 1.0 / (1.0 + np.exp(np.clip(-0.1 * (pushing_score - 50.0), -50.0, 50.0)))
         kine_damping = np.tanh(np.abs(mf_net_buy) / 10000.0) * norm_push
         k_mf = np.tanh(mf_slope_13) * 0.3 + np.tanh(mf_accel_13) * 0.3 + np.tanh(mf_jerk_13) * 0.4
@@ -500,9 +502,6 @@ class CalculateMainForceRallyIntent:
         norm_turnover_stab = 1.0 / (1.0 + np.exp(np.clip(-0.05 * (turnover_stability - 50.0), -50.0, 50.0)))
         eco_premium = 1.0 + (is_leader * 0.8) + (hm_top_tier * 0.6) + (breakout_conf * 0.4) + (norm_theme * 0.3) + (trend_confirm / 100.0) * 0.5
         
-        # 核心物理修复：定向张量耦合
-        # 推力向上(>=0): 优质结构与生态起乘数放大作用。
-        # 推力向下(<0): 优质结构与生态起缓冲除数作用，避免反常理地放大跌势。
         eff_structure = np.where(thrust >= 0, structure, 1.0 / np.clip(structure, 0.01, 100.0))
         eff_eco_premium = np.where(thrust >= 0, eco_premium, 1.0 / np.clip(eco_premium, 0.01, 100.0))
         eff_gap_mom = np.where(thrust >= 0, 1.0 + gap_momentum, 1.0 / np.clip(1.0 + gap_momentum, 0.01, 10.0))
@@ -521,15 +520,31 @@ class CalculateMainForceRallyIntent:
         squeeze_bonus = squeeze_transition * raw_effective_drag * emotional_extreme * norm_game_intensity * kinematic_burst * trap_reversal_factor * norm_energy
         norm_reversal_prob = np.clip(reversal_prob / 100.0, 0.0, 1.0)
         final_drag = (raw_effective_drag * raw_effective_drag) * (1.0 - squeeze_transition) * (1.0 - norm_reversal_prob) * (1.0 - norm_lock_ratio * 0.5)
-        raw_intent = (base_tensor / (1.0 + final_drag)) + squeeze_bonus
+        
+        # 核心物理修复：重力加速度效应！
+        raw_intent = np.where(
+            base_tensor >= 0,
+            (base_tensor / (1.0 + final_drag)) + squeeze_bonus,
+            base_tensor * (1.0 + np.sqrt(np.maximum(0.0, final_drag))) # 跌落时，抛压是加速器
+        )
+        
         t1_multiplier = np.exp(np.clip(np.tanh((t1_premium - 50.0) / 20.0), -2.0, 2.0))
         norm_compression = np.tanh(np.maximum(0.0, ma_compression) / 50.0)
-        hri = (base_tensor * (1.0 + squeeze_bonus)) / (1.0 + final_drag)
+        
+        hri = np.where(
+            base_tensor >= 0,
+            (base_tensor * (1.0 + squeeze_bonus)) / (1.0 + final_drag),
+            base_tensor * (1.0 + np.sqrt(np.maximum(0.0, final_drag)))
+        )
+        
         hri_threshold = 3.0
         hri_excess = np.clip(np.maximum(0.0, hri - hri_threshold), 0.0, 10.0)
         exponent_gain = np.clip(hri_excess * t1_multiplier * (1.0 + norm_compression + hab_fuel), 0.0, 20.0)
         singularity_gain = 1.0 + np.expm1(exponent_gain)
-        final_intent = np.nan_to_num(raw_intent * singularity_gain, nan=0.0, posinf=100.0, neginf=0.0)
+        
+        # 同步修复合成层截断
+        final_intent = np.nan_to_num(raw_intent * singularity_gain, nan=0.0, posinf=1000.0, neginf=-1000.0)
+        
         if self._is_probe_enabled():
             target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
             current_dates = idx.tz_localize(None).normalize()
@@ -537,7 +552,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-SYNTHESIS-V38.7] 张量奇点共振全息探针(定向耦合版) @ {ts}",
+                    f"\n[PROBE-SYNTHESIS-V38.8] 张量奇点共振全息探针(重力加速度版) @ {ts}",
                     f"  |- 多维动力学与抗噪 (Multi-Kinematics):",
                     f"     [Raw Config] MFNetBuy:{mf_net_buy[i]:.2f}, PushingScore:{pushing_score[i]:.2f}",
                     f"     MF Kine: {k_mf[i]:.4f} | Push Kine: {k_push[i]:.4f} | Damping: {kine_damping[i]:.4f} -> Burst: x{kinematic_burst[i]:.4f}",
@@ -557,6 +572,7 @@ class CalculateMainForceRallyIntent:
                     f"     T+1 Premium Multiplier: x{t1_multiplier[i]:.4f} | MA Compression Tanh: {norm_compression[i]:.4f}",
                     f"     HAB Base Fuel: {hab_fuel[i]:.4f} -> Singularity Multiplier: x{singularity_gain[i]:.4f}",
                     f"  |- 终极意图张量 (Final Intent Tensor):",
+                    f"     Base Tensor: {base_tensor[i]:.4f} | Gravity Accel Enabled: {'YES' if base_tensor[i] < 0 else 'NO'}",
                     f"     Raw Intent: {raw_intent[i]:.4f} -> FINAL SYNTHESIS: {final_intent[i]:.4f}\n"
                 ]
                 self._probe_cache.extend(probe_log)
@@ -565,8 +581,7 @@ class CalculateMainForceRallyIntent:
 
     def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, final):
         """
-        【V33.6 · 探针终极升级 - 数据透传巅峰版】
-        最完整的底层数据镜像，覆盖所有物理域的输入。
+        【V33.8 · 探针终极升级 - 重力加速度标定版】
         """
         if not self.probe_dates: return
         target_dates = pd.to_datetime(self.probe_dates).tz_localize(None).normalize()
@@ -582,10 +597,9 @@ class CalculateMainForceRallyIntent:
             comb_inv = (raw['flow_21d'].values[i] * 0.6) + (raw['flow_55d'].values[i] * 0.4)
             hab_imm = np.clip(1.0 - (1.0 / (1.0 + np.exp(np.clip(comb_inv / 50000.0, -50.0, 50.0)))), 0.0, 0.9)
             eff_drag = drag[i] * (1.0 - hab_imm)
-            hri = (thrust[i] * structure[i] * (1.0 + raw['gap_momentum'].values[i]) * (1.0 + (raw['is_leader'].values[i]*0.5)) * k_burst) / (1.0 + eff_drag)
-            res_gain = 1.0 + np.expm1(np.clip(hri - 3.0, 0.0, 2.5) * 1.5)
+            
             report = [
-                f"\n=== [PROBE V33.6] CalculateMainForceRallyIntent Full-Chain Audit @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V33.8] CalculateMainForceRallyIntent Full-Chain Audit @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【0. Raw Data Overview (全局底层核心数据快照)】",
                 f"   [Thrust] MF_NetBuy: {raw['mf_net_buy'].values[i]:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | Flow_21d: {raw['flow_21d'].values[i]:.2f} | Flow_55d: {raw['flow_55d'].values[i]:.2f}",
                 f"   [Struct] Close: {raw['close'].values[i]:.2f} | Cost_Avg: {raw['cost_avg'].values[i]:.2f} | Chip_Entropy: {raw['chip_entropy'].values[i]:.4f} | Control_Solidity: {raw['control_solidity'].values[i]:.4f}",
@@ -595,7 +609,6 @@ class CalculateMainForceRallyIntent:
                 f"【A. Kinematics (动力学)】 Burst: x{k_burst:.4f} | Damping: {energy_damping:.4f} | Jerk: {raw['mf_jerk_13'].values[i]:.2f}",
                 f"【B. HAB (存量意识)】 21d/55d Inv: {raw['flow_21d'].values[i]:.0f}/{raw['flow_55d'].values[i]:.0f} | Immunity: {hab_imm*100:.1f}%",
                 f"【C. Ecosystem (生态)】 Leader: {raw['is_leader'].values[i]} | LockRatio: {raw['lock_ratio'].values[i]:.2f}% | Trend Confirm: {raw['trend_confirm'].values[i]:.2f}",
-                f"【D. Resonance (共振)】 HRI: {hri:.4f} (Threshold: 3.0) -> Resonance Multiplier: x{res_gain:.4f}",
                 f"【E. Synthesis (合成)】 Thrust: {thrust[i]:.4f} | Structure: {structure[i]:.4f} | EffectiveDrag: {eff_drag:.4f}",
                 f"【F. Result (最终)】 Raw Intent: {raw_intent[i]:.4f} | Final Normalized Score: {final[i]:.4f}",
                 f"===============================================================\n"
