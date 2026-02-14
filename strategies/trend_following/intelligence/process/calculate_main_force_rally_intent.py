@@ -135,8 +135,9 @@ class CalculateMainForceRallyIntent:
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.2 · 全息张量计算执行器】
-        全局 NaN 清洗版：引入 np.nan_to_num 彻底阻断底层的异常样本导致中位数计算瘫痪的致命问题。
+        【V38.3 · 全息张量计算执行器】
+        零膨胀噪音雪崩修复版：引入 robust_mad 机制。彻底封杀在死寂市场中，由于 MAD 退化至 1e-9 级别，
+        导致张量合成阶段产生的千万分之一级别浮点噪音被放大为 99% 的致命假阳性 Bug。
         """
         self._probe_cache = []
         raw = self._load_data(df)
@@ -146,29 +147,22 @@ class CalculateMainForceRallyIntent:
             print(f"[PROBE-FATAL] 数据行数不足5行，当前行数: {count}，直接阻断。")
             return pd.Series(0.0, index=idx)
         print(f"[PROBE-INFO] CalculateMainForceRallyIntent 开始执行全息推力计算(含HAB与Kinematics)，处理条目数: {count}")
-        
         self._probe_cache_raw = raw
         self._probe_cache_idx = idx
-        
         thrust = self._calc_thrust_component(raw, idx)
         structure = self._calc_structure_component(raw, idx)
         drag = self._calc_drag_component(raw, idx)
         raw_intent = self._calc_tensor_synthesis(thrust, structure, drag, raw, idx)
-        
-        # 核心防爆盾：清除一切底层的 NaN 和 Inf 蔓延，确保整体标度(Median)不受单体妖股影响
         raw_intent_clean = np.nan_to_num(raw_intent, nan=0.0, posinf=100.0, neginf=0.0)
-        
         med = np.median(raw_intent_clean)
-        mad = np.median(np.abs(raw_intent_clean - med)) + 1e-9
-        
-        print(f"[PROBE-STAT] Raw Intent | Median: {med:.4f} | MAD: {mad:.4f}")
-        
-        z_scores = (raw_intent_clean - med) / (mad * 3.0)
+        mad = np.median(np.abs(raw_intent_clean - med))
+        # 核心修复：建立动态 MAD 硬底（0.05的物理刻度），防止极小浮点噪音引发的 Z-Score 爆炸
+        robust_mad = np.maximum(mad, 0.05)
+        print(f"[PROBE-STAT] Raw Intent | Median: {med:.4f} | Raw MAD: {mad:.8f} | Robust MAD: {robust_mad:.4f}")
+        z_scores = (raw_intent_clean - med) / (robust_mad * 3.0)
         final_scores = 1.0 / (1.0 + np.exp(np.clip(-z_scores, -50.0, 50.0)))
-        
         if self._is_probe_enabled():
             self._generate_probe_report(idx, raw, thrust, structure, drag, raw_intent_clean, final_scores)
-            
         return pd.Series(final_scores, index=idx, dtype=np.float32)
 
     def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
