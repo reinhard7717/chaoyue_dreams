@@ -1,5 +1,5 @@
 # 文件: strategies/trend_following/intelligence/process/calculate_main_force_rally_intent.py
-# 版本: V15.0 · 全息推力-阻力张量版
+# 版本: V15.0 · 全息推力-阻力张量版 已升级pro
 # 说明: 引入“推力-阻力”物理模型，深度集成VPA效率与控盘坚实度，废弃线性加权，采用张量乘积合成。全链路暴露中间变量。
 import pandas as pd
 import numpy as np
@@ -190,7 +190,6 @@ class CalculateMainForceRallyIntent:
         breakout_factor = 1.0 + np.clip(breakout_conf / 100.0, 0.0, 1.0)
         micro_boost = 1.0 + np.maximum(0.0, intraday_support * 2.0)
         sentiment_bonus = np.where((base_kinetic > 0) & (market_sentiment < 0.4), 1.0 + (0.4 - market_sentiment) * 1.5, 1.0)
-        
         # 计算线性推力 (作为基准)
         linear_thrust = base_kinetic * kinematic_factor * (engine_load * ignition_boost) * initial_impulse * purity_factor * conviction_factor * closing_factor * breakout_factor * micro_boost * sentiment_bonus
 
@@ -206,17 +205,14 @@ class CalculateMainForceRallyIntent:
         norm_pushing = np.clip(pushing_score / 100.0, 0.0, 1.0)
         norm_purity = (flow_directionality + 1.0) * 0.5
         norm_ignition = np.tanh(abnormal_vol) # 0 ~ 1
-        
         # CRI = 几何平均或乘积。这里使用加权乘积强调“短板效应” (只要有一个不行，整体就不行)
         cri = norm_slope * norm_pushing * norm_purity * norm_ignition
-        
         # 激发函数：Sigmoid 变体
         # 当 CRI > 0.15 (经验阈值，意味着各项指标均值 > 0.6) 时，开始非线性放大
         # 放大倍数最大限制为 2.0 倍 (即总推力翻倍)
         # tanh((x - threshold) * sharp)
         # threshold=0.15, sharpness=5.0
         excitation_gain = 1.0 + np.maximum(0.0, np.tanh((cri - 0.15) * 5.0)) * 1.0 
-        
         return linear_thrust * excitation_gain
 
     def _calc_structure_component(self, winner_rate: np.ndarray, control_solidity: np.ndarray, chip_entropy: np.ndarray, chip_stability: np.ndarray, peak_conc: np.ndarray, accumulation_score: np.ndarray, cost_avg: np.ndarray, close: np.ndarray, trend_alignment: np.ndarray, hab_structure: np.ndarray, conc_slope: np.ndarray, winner_accel: np.ndarray, platform_quality: np.ndarray, foundation_strength: np.ndarray) -> np.ndarray:
@@ -250,7 +246,6 @@ class CalculateMainForceRallyIntent:
         platform_factor = 1.0 + norm_platform * 0.5
         norm_foundation = np.clip(foundation_strength / 100.0, 0.0, 1.0)
         foundation_factor = 1.0 + norm_foundation * 0.3
-        
         linear_structure = static_score * inertia_bonus * evolution_factor * platform_factor * foundation_factor
 
         # --- 2. Diamond Resonance Excitation (金刚石共振激发) ---
@@ -264,15 +259,12 @@ class CalculateMainForceRallyIntent:
         norm_stability = safe_stability
         # norm_platform 已计算
         norm_hab = np.clip(hab_structure, 0.0, 1.0)
-        
         # SRI 计算：采用乘积逻辑，强调无短板
         sri = norm_entropy_inv * norm_stability * norm_platform * norm_hab
-        
         # 激发函数
         # Threshold = 0.25 (意味着四项均值约为 0.7，即 0.7^4 ≈ 0.24)
         # 只有当 SRI > 0.25 时，开始显著放大，最大放大 2.0 倍
         excitation_gain = 1.0 + np.maximum(0.0, np.tanh((sri - 0.25) * 3.0)) * 1.0
-        
         return linear_structure * excitation_gain
 
     def _calc_drag_component(self, vpa_efficiency: np.ndarray, profit_pressure: np.ndarray, turnover_rate: np.ndarray, trapped_pressure: np.ndarray, dist_score: np.ndarray, intraday_dist: np.ndarray, instability: np.ndarray, hab_inventory: np.ndarray, pressure_release: np.ndarray, shakeout_score: np.ndarray, chip_divergence: np.ndarray, dist_slope: np.ndarray, dist_accel: np.ndarray, dist_jerk: np.ndarray) -> np.ndarray:
