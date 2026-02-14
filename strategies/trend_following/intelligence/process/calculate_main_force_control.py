@@ -1,5 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_main_force_control.py
-# 【V1.0.0 · 主力控盘关系计算器】 计算“主力控盘”的专属关系分数。  已完成
+# 【V1.0.0 · 主力控盘关系计算器】 计算“主力控盘”的专属关系分数。  已完成pro
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
