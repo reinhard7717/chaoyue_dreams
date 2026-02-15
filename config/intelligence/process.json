@@ -1329,57 +1329,41 @@
             "max_context_bonus_factor": 0.5
         },
         "covert_accumulation_params": {
-            "description": "【V2.12 · 微观订单流与结构共振版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。引入更多微观订单流和市场结构信号，新增微观订单流共振机制，提供更全面和协同的隐蔽吸筹判断。",
-            "fibonacci_windows": [5, 8, 13, 21, 34, 55],
-            "fusion_weights": {"market_context": 0.3, "covert_action": 0.5, "chip_optimization": 0.2},
-            "market_context_weights": {
-                "sentiment_extreme": 0.1, "vol_compression": 0.15, "rounding_bottom": 0.2,
-                "golden_pit": 0.15, "arc_curvature": 0.1, "is_consolidating": 0.15,
-                "structural_tension": 0.15
+            "description": "【V6.0 · 量子相空间纠缠坍缩版配置】完全重构隐蔽吸筹。采用波动真空、微观潜行、筹码熵减、日内非对称、恐慌衰竭五大高维张量构建引力场。基于几何张量积非线性折叠，严格透传NaN暴露底层数据断层。",
+            "dimension_weights": {
+                "volatility_vacuum": 0.20,
+                "micro_stealth": 0.25,
+                "chip_negentropy": 0.20,
+                "intraday_asymmetry": 0.20,
+                "panic_exhaustion": 0.15
             },
-            "derivative_weights": {"slope": 0.5, "accel": 0.3, "jerk": 0.2},
-            "covert_action_weights": {
-                "stealth_flow_jerk": 0.15,
-                "inst_buy_accel": 0.1,
-                "stealth_flow_slope": 0.15,
-                "afternoon_bias": 0.1,
-                "closing_intensity": 0.1,
-                "flow_consistency": 0.1,
-                "mf_efficiency": 0.1,
-                "accumulation_signal": 0.1,
-                "inst_net_buy": 0.1
+            "volatility_vacuum_components": {
+                "BBW_21_2.0_D_inverted": 0.4,
+                "TURNOVER_STABILITY_INDEX_D": 0.3,
+                "PRICE_ENTROPY_D_inverted": 0.3
             },
-            "chip_optimization_weights": {
-                "chip_stability": 0.25, "long_term_ratio": 0.25, "cost_ma_proximity": 0.25,
-                "chip_concentration": 0.25
+            "micro_stealth_components": {
+                "stealth_flow_ratio_D": 0.4,
+                "tick_clustering_index_D": 0.3,
+                "hidden_accumulation_intensity_D": 0.3
             },
-            "new_raw_signals_weights": {
-                "comment": "V2.11新引入的原始信号的权重配置。",
-                "ask_side_liquidity_inverted": 0.03,
-                "mf_level5_buy_ofi": 0.05,
-                "mf_buy_execution_alpha": 0.05,
-                "upper_shadow_selling_pressure_inverted": 0.03,
-                "smart_money_inst_net_buy": 0.05,
-                "microstructure_efficiency": 0.03
+            "chip_negentropy_components": {
+                "chip_concentration_ratio_D": 0.4,
+                "chip_stability_D": 0.3,
+                "chip_entropy_D_inverted": 0.3
             },
-            "new_raw_signals_weights_v2": {
-                "comment": "V2.12新引入的原始信号的权重配置。",
-                "buy_flow_efficiency": 0.05,
-                "sell_flow_efficiency_inverted": 0.03,
-                "main_force_vwap_up_guidance": 0.05,
-                "observed_large_order_size_avg_inverted": 0.03
+            "intraday_asymmetry_components": {
+                "intraday_support_intent_D": 0.4,
+                "intraday_accumulation_confidence_D": 0.3,
+                "afternoon_flow_ratio_D": 0.3
             },
-            "main_force_accumulation_resonance_weight": 0.1,
-            "covert_order_flow_resonance_weight": 0.08,
-            "price_weakness_slope_window": 5,
-            "low_volatility_bbw_window": 21,
-            "neutral_range_threshold": 0.1,
-            "cumulative_flow_windows": [55],
-            "cumulative_flow_weights": {"55": 1.0},
-            "cumulative_acc_windows": [55],
-            "cumulative_acc_weights": {"55": 1.0},
-            "daily_mf_flow_weight": 0.4,
-            "cumulative_mf_flow_weight": 0.6
+            "panic_exhaustion_components": {
+                "market_sentiment_score_D_inverted": 0.4,
+                "pressure_trapped_D": 0.3,
+                "loser_loss_margin_avg_D": 0.3
+            },
+            "tensor_folding_power": 1.5,
+            "probe_enabled": true
         },
         "main_force_urgency_params": {
             "description": "【V1.0 · 深度博弈版】主力紧迫度计算的权重配置。",
