@@ -388,7 +388,7 @@
                 "relationship_type": "custom",
                 "scoring_mode": "unipolar",
                 "efficiency_baseline": 0.15,
-                "description": "【V4.3 · MTF协同性增强版】对底层的 `split_order_accumulation_intensity_D` 原始指标进行场景化归一，生成[0,1]区间的拆单吸筹强度分。引入“效率基准线”实现赏罚分明，并集成共振、背离、拐点（RDI）分析，新增多时间框架协同性考量。",
+                "description": "【V5.1.0 · 微观动力学与高频特征透视版】完全摒弃缺失的资金流代理指标，直连380项基底军械库数据。采用“物理相空间：拆单动能与筹码势垒”重构模型。引入 Tick 聚类、高频流偏度/峰度刻画高频算法单拆分特征；引入日内筹码熵与收敛率刻画吸筹势垒。拆除所有防御性填充（fillna），强制数据断层透传，并结合全息探针矩阵实现黑盒破局。",
                 "split_order_accumulation_params": {
                     "dynamic_efficiency_baseline_params": {
                         "base_baseline": 0.15,
@@ -396,112 +396,38 @@
                         "volatility_impact": 0.05,
                         "consolidation_impact": 0.05
                     },
-                    "preliminary_score_params": {
-                        "price_suppression_weights": {
-                            "price_trend_negative": 0.3,
-                            "is_consolidating": 0.3,
-                            "consolidation_duration": 0.2,
-                            "upward_purity_inverted": 0.2
-                        },
-                        "strategic_context_weights": {
-                            "stability": 0.4,
-                            "deception_lure_long_inverted": 0.3,
-                            "deception_lure_short": 0.3
-                        },
-                        "fusion_weights": {
-                            "mtf_intensity": 0.4,
-                            "price_suppression": 0.3,
-                            "strategic_context": 0.3
-                        },
-                        "momentum_weight": 0.3
+                    "kinetic_energy_weights": {
+                        "tick_clustering": 0.25,
+                        "high_freq_skewness": 0.25,
+                        "high_freq_kurtosis": 0.2,
+                        "stealth_flow_ratio": 0.15,
+                        "trade_size_shrinkage": 0.15
+                    },
+                    "potential_barrier_weights": {
+                        "chip_convergence": 0.3,
+                        "intraday_entropy_inverted": 0.3,
+                        "ma_compression": 0.2,
+                        "behavior_accumulation": 0.2
                     },
                     "holographic_validation_params": {
                         "state_fusion_weights": {
-                            "flow": 0.4,
-                            "structure": 0.3,
-                            "potential": 0.3
+                            "kinetic_energy": 0.4,
+                            "potential_barrier": 0.4,
+                            "vpa_efficiency": 0.2
                         },
                         "trend_fusion_weights": {
-                            "flow_trend": 0.4,
-                            "structure_trend": 0.3,
-                            "potential_trend": 0.3
-                        },
-                        "overall_fusion_weights": {
-                            "state": 0.6,
-                            "trend": 0.4
+                            "ke_slope": 0.5,
+                            "pb_slope": 0.5
                         }
-                    },
-                    "data_flow_composite_weights": {
-                        "daily_mf_net_flow": 0.2,
-                        "mf_net_flow_5d_avg": 0.15,
-                        "mf_net_flow_13d_avg": 0.15,
-                        "daily_hidden_acc_intensity": 0.1,
-                        "hidden_acc_5d_avg": 0.1,
-                        "hidden_acc_13d_avg": 0.1,
-                        "smart_money_net_buy": 0.1,
-                        "conviction_flow": 0.1
-                    },
-                    "data_structure_composite_weights": {
-                        "daily_chip_health": 0.25,
-                        "chip_health_5d_avg": 0.15,
-                        "chip_health_13d_avg": 0.15,
-                        "daily_structural_potential": 0.15,
-                        "structural_potential_5d_avg": 0.1,
-                        "structural_potential_13d_avg": 0.1,
-                        "control_solidity": 0.1
-                    },
-                    "data_potential_composite_weights": {
-                        "ma_potential_orderliness": 0.4,
-                        "structural_potential": 0.3,
-                        "trend_vitality": 0.3
-                    },
-                    "data_sentiment_composite_weights": {
-                        "daily_theme_hotness": 0.5,
-                        "theme_hotness_5d_avg": 0.3,
-                        "theme_hotness_13d_avg": 0.2
                     },
                     "mtf_slope_accel_weights": {
-                        "description": "多时间框架斜率和加速度的融合权重，包含5日、13日、21日周期。",
-                        "slope_periods": {"5": 0.3, "13": 0.4, "21": 0.3},
-                        "accel_periods": {"5": 0.5, "13": 0.5}
+                        "slope_periods": {"5": 0.4, "13": 0.3, "21": 0.3},
+                        "accel_periods": {"5": 0.6, "13": 0.4}
                     },
                     "rdi_params": {
-                        "description": "共振 (Resonance)、背离 (Divergence) 和拐点 (Inflection) 信号的参数。",
-                        "resonance_reward_factor": 0.1,
-                        "divergence_penalty_factor": 0.15,
-                        "inflection_reward_factor": 0.05,
-                        "cohesion_reward_factor": 0.1,
-                        "flow_resonance_weights": {
-                            "flow_slope_5": 0.4,
-                            "flow_slope_13": 0.3,
-                            "flow_slope_21": 0.3
-                        },
-                        "structure_resonance_weights": {
-                            "structure_slope_5": 0.4,
-                            "structure_slope_13": 0.3,
-                            "structure_slope_21": 0.3
-                        },
-                        "potential_resonance_weights": {
-                            "potential_slope_5": 0.4,
-                            "potential_slope_13": 0.3,
-                            "potential_slope_21": 0.3
-                        },
-                        "overall_resonance_weights": {
-                            "price_slope_5": 0.25,
-                            "flow_outcome": 0.25,
-                            "structure_outcome": 0.25,
-                            "potential_outcome": 0.25
-                        }
-                    },
-                    "mtf_cohesion_base_signals": [
-                        "close_D",
-                        "main_force_net_flow_calibrated_D",
-                        "hidden_accumulation_intensity_D",
-                        "chip_health_score_D",
-                        "VOLATILITY_INSTABILITY_INDEX_21d_D"
-                    ],
-                    "mtf_cohesion_weights": {
-                        "cohesion_score": 1.0
+                        "resonance_reward_factor": 0.15,
+                        "divergence_penalty_factor": 0.2,
+                        "inflection_reward_factor": 0.1
                     }
                 }
             },

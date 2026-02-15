@@ -242,296 +242,411 @@ class CalculatePriceMomentumDivergence:
         return final_score.astype(np.float32)
 
     def _calculate_kinematic_tensors(self, df: pd.DataFrame, df_index: pd.Index, base_col: str, pmd_params: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, Dict]:
-        """【V6.1 · HAB强化与专属归一化3D张量引擎】严格执行7步推演：引入HAB历史缓冲记忆、定制Tanh鲁棒归一化、追加非线性增益、优化MTF聚合，并维持无空行与全探针暴露原则。"""
+        """【v2.0.0_Refined · 7步推演HAB张量引擎】融合软阈值门控、HAB历史存量意识与非对称重力增益，执行高维动力学淬炼。"""
         fib = pmd_params.get('fib_periods', [5, 13, 21, 34])
         deadzone = pmd_params.get('kinematic_soft_deadzone', 1e-5)
         gravity = pmd_params.get('asymmetric_gravity_factor', 1.5)
         mtf_w = pmd_params.get('mtf_decay_weights', {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
         hab_window = pmd_params.get('hab_window', 21)
+        gamma = pmd_params.get('nonlinear_gamma', 1.3)
+        epsilon = 1e-9
         all_v, all_a, all_j = {}, {}, {}
         probe_data = {}
-        print(f"  [探针-3DTensor-V6.1] 开始淬炼三维特征张量(HAB+非线性+专属归一化): {base_col}...")
-        hab_series = df[base_col].rolling(window=hab_window, min_periods=1).sum()
-        hab_context = df[base_col] / (hab_series.abs() + 1e-9)
-        print(f"    -> [节点] HAB上下文乘数极值: [{hab_context.min():.5f}, {hab_context.max():.5f}], NaN数量: {hab_context.isna().sum()}")
-        def custom_robust_norm(series: pd.Series) -> pd.Series:
-            s_mean = series.rolling(window=55, min_periods=1).mean()
-            s_std = series.rolling(window=55, min_periods=1).std().replace(0, 1e-9)
-            z_score = (series - s_mean) / s_std
-            return np.tanh(z_score * 0.5)
-        def nonlinear_gain(x: pd.Series, gamma: float = 1.2) -> pd.Series:
-            return np.sign(x) * (x.abs() ** gamma)
+        # 第三步：HAB 历史累积记忆系统 - 计算相对冲击强度
+        hab_mean = df[base_col].rolling(window=hab_window, min_periods=1).mean().abs()
+        hab_impact_multiplier = (df[base_col].abs() / (hab_mean + epsilon)).clip(upper=3.0)
+        # 第四步：定义专属 Robust-Tanh 归一化逻辑
+        def _custom_robust_norm(series: pd.Series) -> pd.Series:
+            m = series.rolling(window=55, min_periods=1).median()
+            s = (series - m).abs().rolling(window=55, min_periods=1).median() * 1.4826
+            z = (series - m) / (s + epsilon)
+            return np.tanh(z * 0.5)
+        # 第五步：非线性增益函数
+        def _nonlinear_gain(x: pd.Series, g: float = 1.3) -> pd.Series:
+            return np.sign(x) * (x.abs() ** g)
         for p in fib:
-            s_raw = df[f'SLOPE_{p}_{base_col}']
-            a_raw = df[f'ACCEL_{p}_{base_col}']
-            j_raw = df[f'JERK_{p}_{base_col}']
-            print(f"    -> [原料] {p}日 V极值:[{s_raw.min():.5f}, {s_raw.max():.5f}] | A极值:[{a_raw.min():.5f}, {a_raw.max():.5f}] | J极值:[{j_raw.min():.5f}, {j_raw.max():.5f}]")
-            s_soft = np.sign(s_raw) * np.maximum(s_raw.abs() - deadzone, 0.0)
-            a_soft = np.sign(a_raw) * np.maximum(a_raw.abs() - deadzone, 0.0)
-            j_soft = np.sign(j_raw) * np.maximum(j_raw.abs() - deadzone, 0.0)
-            a_asym = np.where(a_soft < 0, a_soft * gravity, a_soft)
-            j_asym = np.where(j_soft < 0, j_soft * gravity, j_soft)
-            s_adj = pd.Series(s_soft, index=df_index) * (1.0 + hab_context.abs() * 0.2)
-            a_adj = pd.Series(a_asym, index=df_index) * (1.0 + hab_context.abs() * 0.2)
-            j_adj = pd.Series(j_asym, index=df_index) * (1.0 + hab_context.abs() * 0.2)
-            s_norm = custom_robust_norm(s_adj)
-            a_norm = custom_robust_norm(a_adj)
-            j_norm = custom_robust_norm(j_adj)
-            all_v[str(p)] = nonlinear_gain(s_norm)
-            all_a[str(p)] = nonlinear_gain(a_norm)
-            all_j[str(p)] = nonlinear_gain(j_norm)
-        def robust_weighted_sum(components: Dict[str, pd.Series], weights: Dict[str, float], idx: pd.Index) -> pd.Series:
-            fused = pd.Series(0.0, index=idx, dtype=np.float32)
-            tot_w = 0.0
+            # 第二步：获取预置微积分列并应用软阈值门控（零基陷阱修复）
+            v_raw = df[f'SLOPE_{p}_{base_col}'].fillna(0)
+            a_raw = df[f'ACCEL_{p}_{base_col}'].fillna(0)
+            j_raw = df[f'JERK_{p}_{base_col}'].fillna(0)
+            v_gate = np.sign(v_raw) * np.maximum(v_raw.abs() - deadzone, 0.0)
+            a_gate = np.sign(a_raw) * np.maximum(a_raw.abs() - deadzone, 0.0)
+            j_gate = np.sign(j_raw) * np.maximum(j_raw.abs() - deadzone, 0.0)
+            # 第六步：引入非对称重力因子（向下加速度强化）
+            a_asym = np.where(a_gate < 0, a_gate * gravity, a_gate)
+            j_asym = np.where(j_gate < 0, j_gate * gravity, j_gate)
+            # 第七步：HAB 存量意识融合与归一化
+            v_hab = pd.Series(v_gate, index=df_index) * hab_impact_multiplier
+            a_hab = pd.Series(a_asym, index=df_index) * hab_impact_multiplier
+            j_hab = pd.Series(j_asym, index=df_index) * hab_impact_multiplier
+            all_v[str(p)] = _nonlinear_gain(_custom_robust_norm(v_hab), g=gamma)
+            all_a[str(p)] = _nonlinear_gain(_custom_robust_norm(a_hab), g=gamma)
+            all_j[str(p)] = _nonlinear_gain(_custom_robust_norm(j_hab), g=gamma)
+        # 多时间框架加权聚合
+        def _mtf_weighted_sum(components: Dict[str, pd.Series], weights: Dict[str, float]) -> pd.Series:
+            fused = pd.Series(0.0, index=df_index, dtype=np.float32)
+            tw = 0.0
             for k, s in components.items():
-                if k in weights:
-                    w = weights[k]
-                    fused += s * w
-                    tot_w += w
-            return fused / max(tot_w, 1e-9)
-        fused_v = robust_weighted_sum(all_v, mtf_w, df_index)
-        fused_a = robust_weighted_sum(all_a, mtf_w, df_index)
-        fused_j = robust_weighted_sum(all_j, mtf_w, df_index)
+                w = weights.get(k, 0.0)
+                fused += s * w
+                tw += w
+            return fused / max(tw, epsilon)
+        fused_v = _mtf_weighted_sum(all_v, mtf_w)
+        fused_a = _mtf_weighted_sum(all_a, mtf_w)
+        fused_j = _mtf_weighted_sum(all_j, mtf_w)
         probe_data.update({'V': fused_v, 'A': fused_a, 'J': fused_j})
-        print(f"  [探针-3DTensor-V6.1] {base_col} 张量淬炼完成。V均值:{fused_v.mean():.5f}, A均值:{fused_a.mean():.5f}, J均值:{fused_j.mean():.5f}, NaN总数(V,A,J):({fused_v.isna().sum()},{fused_a.isna().sum()},{fused_j.isna().sum()})")
         return fused_v, fused_a, fused_j, probe_data
 
     def _calculate_phase_space_divergence(self, df: pd.DataFrame, df_index: pd.Index, v_p: pd.Series, a_p: pd.Series, j_p: pd.Series, v_m: pd.Series, a_m: pd.Series, j_m: pd.Series, pmd_params: Dict) -> pd.Series:
-        """【V6.2 · 7步推演HAB相空间张量模型】引入惯性质量、防零基偏置、点积HAB累积、专属动态Tanh归一化及非线性增益，执行高维张量点积投影。"""
-        print(f"  [探针-PhaseSpace3D-V6.2] 启动融合质量与HAB的高维张量角散度计算...")
+        """【v2.0.0_Refined · 7步推演HAB相空间背离引擎】引入3D张量场能权重、自适应模长门控与HAB交互势能，深度识别相位失步。"""
         vw = pmd_params['phase_space_params'].get('velocity_weight', 0.5)
         aw = pmd_params['phase_space_params'].get('acceleration_weight', 0.3)
         jw = pmd_params['phase_space_params'].get('jerk_weight', 0.2)
         sens = pmd_params['phase_space_params'].get('angular_sensitivity', 1.5)
-        epsilon = 1e-6
-        mass_p = df['chip_stability_D'].fillna(0.5).clip(lower=0.1, upper=1.0)
-        mass_m = df['turnover_rate_D'].fillna(0.05).clip(lower=0.01, upper=0.5)
-        print(f"    -> [节点] 价格惯性质量(筹码稳定)均值: {mass_p.mean():.6f} | 动量动能质量(换手率)均值: {mass_m.mean():.6f}")
-        v_p_eff, a_p_eff, j_p_eff = v_p * vw * mass_p, a_p * aw * mass_p, j_p * jw * mass_p
-        v_m_eff, a_m_eff, j_m_eff = v_m * vw * mass_m, a_m * aw * mass_m, j_m * jw * mass_m
-        dot_product = (v_p_eff * v_m_eff) + (a_p_eff * a_m_eff) + (j_p_eff * j_m_eff)
-        mag_p_sq = (v_p_eff**2 + a_p_eff**2 + j_p_eff**2)
-        mag_m_sq = (v_m_eff**2 + a_m_eff**2 + j_m_eff**2)
+        hab_window = pmd_params.get('phase_hab_window', 21)
+        gamma = pmd_params.get('divergence_gamma', 1.5)
+        epsilon = 1e-9
+        # 第一步：引入新增维度 - 场能权重（价量效率与博弈烈度）
+        vpa_eff = df['VPA_EFFICIENCY_D'].fillna(0.5).clip(0.1, 1.0)
+        game_int = df['game_intensity_D'].fillna(50.0) / 100.0
+        field_energy = (vpa_eff * 0.6 + game_int * 0.4).rolling(window=5, min_periods=1).mean()
+        # 第二步：解决“零基陷阱” - 构建权重向量并应用自适应模长门控
+        mass_p = df['chip_stability_D'].fillna(0.5).clip(0.1, 1.0)
+        mass_m = df['turnover_rate_D'].fillna(0.05).clip(0.01, 0.5)
+        vp_eff, ap_eff, jp_eff = v_p * vw * mass_p * field_energy, a_p * aw * mass_p * field_energy, j_p * jw * mass_p * field_energy
+        vm_eff, am_eff, jm_eff = v_m * vw * mass_m * field_energy, a_m * aw * mass_m * field_energy, j_m * jw * mass_m * field_energy
+        mag_p_sq = vp_eff**2 + ap_eff**2 + jp_eff**2
+        mag_m_sq = vm_eff**2 + am_eff**2 + jm_eff**2
+        # 应用 Tanh 模长压缩，滤除微小噪声波动
+        soft_gate_p = np.tanh(np.sqrt(mag_p_sq) / (pmd_params.get('kinematic_soft_deadzone', 1e-5) * 10))
+        soft_gate_m = np.tanh(np.sqrt(mag_m_sq) / (pmd_params.get('kinematic_soft_deadzone', 1e-5) * 10))
+        # 第三步：HAB 系统 - 计算点积交互势能与历史存量
+        dot_product = (vp_eff * vm_eff) + (ap_eff * am_eff) + (jp_eff * jm_eff)
         mag_product = np.sqrt(mag_p_sq * mag_m_sq) + epsilon
-        hab_window = pmd_params.get('phase_hab_window', 5)
         hab_dot = dot_product.rolling(window=hab_window, min_periods=1).mean()
         hab_mag = mag_product.rolling(window=hab_window, min_periods=1).mean()
-        cos_theta_hab = hab_dot / hab_mag
-        print(f"    -> [节点] HAB点积均值: {hab_dot.mean():.6f} | HAB模长乘积均值: {hab_mag.mean():.6f} | HAB Cos(Theta) 均值: {cos_theta_hab.mean():.6f}")
-        raw_divergence = 1.0 - cos_theta_hab
-        def custom_phase_norm(series: pd.Series) -> pd.Series:
+        # 第四步：专属归一化 - 计算 HAB 相位余弦相似度并映射至背离度
+        cos_theta_hab = (dot_product / mag_product).clip(-1.0, 1.0)
+        # 第五、六、七步：逻辑优化 - 引入非线性增益与方向锁存
+        raw_divergence = (1.0 - cos_theta_hab) * soft_gate_p * soft_gate_m
+        # 计算价格趋势方向，用于为背离赋符号（正分为顶背离风险，负分为底背离机会）
+        price_direction = np.sign(v_p.rolling(window=3, min_periods=1).mean())
+        # 非线性幂律增益应用
+        fused_divergence = price_direction * (raw_divergence ** gamma) * sens
+        # 第七步：最终平滑与鲁棒性处理
+        def _final_robust_norm(series: pd.Series) -> pd.Series:
             roll_mean = series.rolling(window=34, min_periods=1).mean()
-            roll_std = series.rolling(window=34, min_periods=1).std().replace(0, 1e-9)
-            z_score = (series - roll_mean) / roll_std
-            return np.tanh(z_score * 0.8)
-        norm_divergence = custom_phase_norm(raw_divergence)
-        print(f"    -> [节点] 专属归一化背离均值: {norm_divergence.mean():.6f}, 极值: [{norm_divergence.min():.6f}, {norm_divergence.max():.6f}]")
-        directional_divergence = norm_divergence * np.sign(v_p.rolling(window=3, min_periods=1).mean())
-        def nonlinear_gain(x: pd.Series, gamma: float = 1.5) -> pd.Series:
-            return np.sign(x) * (x.abs() ** gamma)
-        final_phase_divergence = nonlinear_gain(directional_divergence) * sens
-        print(f"  [探针-PhaseSpace3D-V6.2] HAB张量角散度计算完成。带符号非线性散度均值: {final_phase_divergence.mean():.6f}, NaN统计: {final_phase_divergence.isna().sum()}")
-        return final_phase_divergence.astype(np.float32)
+            roll_std = series.rolling(window=34, min_periods=1).std().replace(0, epsilon)
+            return np.tanh((series - roll_mean) / (roll_std * 1.5))
+        return _final_robust_norm(fused_divergence).astype(np.float32)
 
     def _calculate_phase_space_pv_anomaly(self, df: pd.DataFrame, df_index: pd.Index, p_v: pd.Series, p_a: pd.Series, p_j: pd.Series, v_v: pd.Series, v_a: pd.Series, v_j: pd.Series, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
-        """【V6.3 · 7步推演HAB量价相空间异常模型】升维至3D张量对撞，注入微观逐笔异常特征、HAB记忆、专属无界归一化与非线性增益，深度识别放量滞涨与无量空涨。"""
-        print(f"  [探针-PVSync3D-V6.3] 启动3D相空间量价异动评估...")
+        """【v2.0.0_Refined · 7步推演HAB量价相空间异常模型】引入微观异动比例与HAB潮汐存量，通过3D张量对撞识别价量相位背离。"""
         vw = pmd_params.get('phase_space_params', {}).get('velocity_weight', 0.5)
         aw = pmd_params.get('phase_space_params', {}).get('acceleration_weight', 0.3)
         jw = pmd_params.get('phase_space_params', {}).get('jerk_weight', 0.2)
-        epsilon = 1e-6
-        v_p_eff, a_p_eff, j_p_eff = p_v * vw, p_a * aw, p_j * jw
-        v_v_eff, a_v_eff, j_v_eff = v_v * vw, v_a * aw, v_j * jw
-        dot_pv = (v_p_eff * v_v_eff) + (a_p_eff * a_v_eff) + (j_p_eff * j_v_eff)
-        mag_p_sq = (v_p_eff**2 + a_p_eff**2 + j_p_eff**2)
-        mag_v_sq = (v_v_eff**2 + a_v_eff**2 + j_v_eff**2)
-        mag_product = np.sqrt(mag_p_sq * mag_v_sq) + epsilon
-        hab_window = pmd_params.get('phase_hab_window', 5)
-        hab_dot = dot_pv.rolling(window=hab_window, min_periods=1).mean()
-        hab_mag = mag_product.rolling(window=hab_window, min_periods=1).mean()
-        cos_theta_pv = hab_dot / hab_mag
-        print(f"    -> [节点] HAB量价点积均值: {hab_dot.mean():.6f} | HAB模长乘积均值: {hab_mag.mean():.6f} | HAB Cos(Theta) 均值: {cos_theta_pv.mean():.6f}")
-        pv_angular_divergence = 1.0 - cos_theta_pv
-        def custom_robust_norm(series: pd.Series) -> pd.Series:
-            s_mean = series.rolling(window=34, min_periods=1).mean()
-            s_std = series.rolling(window=34, min_periods=1).std().replace(0, 1e-9)
-            z_score = (series - s_mean) / s_std
-            return np.tanh(z_score * 0.8)
-        vpa_eff_raw = df['VPA_EFFICIENCY_D']
-        tick_abnormal_raw = df['tick_abnormal_volume_ratio_D']
-        print(f"    -> [原料] VPA_EFFICIENCY_D 均值: {vpa_eff_raw.mean():.6f}, 极值: [{vpa_eff_raw.min():.6f}, {vpa_eff_raw.max():.6f}], NaN统计: {vpa_eff_raw.isna().sum()}")
-        print(f"    -> [原料] tick_abnormal_volume_ratio_D 均值: {tick_abnormal_raw.mean():.6f}, 极值: [{tick_abnormal_raw.min():.6f}, {tick_abnormal_raw.max():.6f}], NaN统计: {tick_abnormal_raw.isna().sum()}")
-        vpa_eff_norm = custom_robust_norm(vpa_eff_raw)
-        tick_abnormal_norm = custom_robust_norm(tick_abnormal_raw)
-        inefficiency_multiplier = 1.0 - vpa_eff_norm.abs()
-        raw_anomaly = pv_angular_divergence * inefficiency_multiplier * (1.0 + tick_abnormal_norm * 0.5)
-        def nonlinear_gain(x: pd.Series, gamma: float = 1.2) -> pd.Series:
-            return np.sign(x) * (x.abs() ** gamma)
-        final_anomaly = nonlinear_gain(raw_anomaly)
-        print(f"  [探针-PVSync3D-V6.3] 3D量价异动评估完成。无界非线性异常得分均值: {final_anomaly.mean():.6f}, 极值: [{final_anomaly.min():.6f}, {final_anomaly.max():.6f}], NaN统计: {final_anomaly.isna().sum()}")
-        debug_sync = {"pv_angular_divergence": pv_angular_divergence, "vpa_eff_norm": vpa_eff_norm, "tick_abnormal_norm": tick_abnormal_norm, "final_pv_anomaly": final_anomaly}
+        hab_window = pmd_params.get('phase_hab_window', 21)
+        gamma = pmd_params.get('anomaly_gamma', 1.4)
+        epsilon = 1e-9
+        # 第一步：引入新增维度 - 注入微观与质量数据
+        vpa_eff = df['VPA_EFFICIENCY_D'].fillna(0.5)
+        tick_anomaly = df['tick_abnormal_volume_ratio_D'].fillna(0)
+        turnover_f = df['turnover_rate_f_D'].fillna(0)
+        # 第二、三步：建立 HAB 系统与零基阈值处理
+        vol_hab_mean = df['volume_D'].rolling(window=hab_window, min_periods=1).mean().abs()
+        vol_impact_ratio = (df['volume_D'].abs() / (vol_hab_mean + epsilon)).clip(upper=5.0)
+        # 构建专属归一化与门控函数
+        def _custom_pv_norm(series: pd.Series, gate: float = 1e-5) -> pd.Series:
+            gated = np.sign(series) * np.maximum(series.abs() - gate, 0.0)
+            return np.tanh(gated / (series.std() + epsilon))
+        # 第四、五步：3D张量对撞逻辑优化与非线性增益
+        vp_eff, ap_eff, jp_eff = _custom_pv_norm(p_v) * vw, _custom_pv_norm(p_a) * aw, _custom_pv_norm(p_j) * jw
+        vv_eff, av_eff, jv_eff = _custom_pv_norm(v_v) * vw, _custom_pv_norm(v_a) * aw, _custom_pv_norm(v_j) * jw
+        # 计算价量矢量的点积（衡量同向性）与模长
+        dot_pv = (vp_eff * vv_eff) + (ap_eff * av_eff) + (jp_eff * jv_eff)
+        mag_p = np.sqrt(vp_eff**2 + ap_eff**2 + jp_eff**2) + epsilon
+        mag_v = np.sqrt(vv_eff**2 + av_eff**2 + jv_eff**2) + epsilon
+        # 计算相位夹角余弦，1 - cos 代表异动程度（相位越不一致，异动越大）
+        cos_theta_pv = (dot_pv / (mag_p * mag_v)).clip(-1.0, 1.0)
+        pv_phase_divergence = 1.0 - cos_theta_pv
+        # 第六步：引入质量算子进行逻辑对冲（如：低效率下的高相位差代表真实的异常）
+        inefficiency_weight = 1.0 - vpa_eff.clip(0, 1)
+        raw_anomaly = pv_phase_divergence * inefficiency_weight * (1.0 + tick_anomaly) * vol_impact_ratio
+        # 第七步：最终非线性增益与符号锁存
+        # 异动通常取正值代表异常程度，符号由价格斜率决定，识别是“上行异常”还是“下行异常”
+        price_sign = np.sign(p_v.rolling(window=3, min_periods=1).mean())
+        final_anomaly = price_sign * (raw_anomaly ** gamma)
+        # 构建探针数据
+        debug_sync = {
+            "pv_phase_divergence": pv_phase_divergence,
+            "vol_impact_ratio": vol_impact_ratio,
+            "vpa_inefficiency": inefficiency_weight,
+            "final_pv_anomaly": final_anomaly
+        }
         return final_anomaly.astype(np.float32), debug_sync
 
     def _calculate_volume_confirmation_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_divergence_score: pd.Series, method_name: str) -> Tuple[pd.Series, Dict]:
-        """【V6.4 · 7步推演HAB量能确认张量模型】接入3D量能张量冲击、HAB能量平衡缓冲、专属Tanh归一化及非线性增益，彻底剥离数值截断与防错掩码。"""
-        print(f"  [探针-VolConf-V6.4] 启动 HAB 量能确认评估...")
-        weights = pmd_params.get('vol_conf_weights', {"energy_balance": 0.4, "kinematic_impact": 0.3, "micro_anomaly": 0.2, "stability": 0.1})
+        """【v2.0.0_Refined · 7步推演HAB量能确认张量模型】集成蔡金流场、自由换手冲击与3D量能张量，深度验证背离真实性。"""
+        weights = pmd_params.get('vol_conf_weights', {"energy_balance": 0.35, "kinematic_impact": 0.25, "money_flow": 0.2, "micro_anomaly": 0.1, "stability": 0.1})
         hab_window = pmd_params.get('vol_hab_window', 21)
+        gamma = pmd_params.get('vol_gain_gamma', 1.5)
         epsilon = 1e-9
-        abs_raw = df['absorption_energy_D']
-        dist_raw = df['distribution_energy_D']
-        abs_hab = abs_raw.rolling(window=hab_window, min_periods=1).sum()
-        dist_hab = dist_raw.rolling(window=hab_window, min_periods=1).sum()
-        abs_intensity = abs_raw / ((abs_hab / hab_window) + epsilon)
-        dist_intensity = dist_raw / ((dist_hab / hab_window) + epsilon)
+        def _custom_robust_norm(series: pd.Series) -> pd.Series:
+            median = series.rolling(window=55, min_periods=1).median()
+            std = series.rolling(window=55, min_periods=1).std().replace(0, epsilon)
+            return np.tanh((series - median) / (std * 1.2))
+        def _nonlinear_gain(x: pd.Series, g: float = 1.5) -> pd.Series:
+            return np.sign(x) * (x.abs() ** g)
+        # 第三步：HAB 系统 - 计算能量平衡冲击
+        abs_raw, dist_raw = df['absorption_energy_D'].fillna(0), df['distribution_energy_D'].fillna(0)
+        abs_hab = abs_raw.rolling(window=hab_window, min_periods=1).mean()
+        dist_hab = dist_raw.rolling(window=hab_window, min_periods=1).mean()
+        abs_impact = abs_raw / (abs_hab + epsilon)
+        dist_impact = dist_raw / (dist_hab + epsilon)
         energy_balance = pd.Series(0.0, index=df_index, dtype=np.float32)
-        mask_pos = base_divergence_score > 0
-        mask_neg = base_divergence_score < 0
-        energy_balance[mask_pos] = dist_intensity[mask_pos] * 0.7 + (dist_hab[mask_pos] / (abs_hab[mask_pos] + epsilon)) * 0.3
-        energy_balance[mask_neg] = abs_intensity[mask_neg] * 0.7 + (abs_hab[mask_neg] / (dist_hab[mask_neg] + epsilon)) * 0.3
-        print(f"    -> [节点] 能量平衡 HAB 提取完成。极值: [{energy_balance.min():.6f}, {energy_balance.max():.6f}], NaN: {energy_balance.isna().sum()}")
+        mask_pos = base_divergence_score > 0 # 顶背离风险确认：寻找卖盘冲击
+        mask_neg = base_divergence_score < 0 # 底背离机会确认：寻找买盘吸收
+        energy_balance[mask_pos] = _custom_robust_norm(dist_impact[mask_pos] - abs_impact[mask_pos])
+        energy_balance[mask_neg] = _custom_robust_norm(abs_impact[mask_neg] - dist_impact[mask_neg])
+        # 第二步：MTF 3D 量能张量冲击
         v_vol, a_vol, j_vol, _ = self._calculate_kinematic_tensors(df, df_index, 'volume_D', pmd_params)
-        vol_impact = (v_vol * 0.5 + a_vol * 0.3 + j_vol * 0.2).abs()
-        print(f"    -> [节点] 3D 量能张量冲击力提取完成。均值: {vol_impact.mean():.6f}, NaN: {vol_impact.isna().sum()}")
-        def custom_robust_norm(series: pd.Series, window: int = 34, factor: float = 0.8) -> pd.Series:
-            roll_mean = series.rolling(window=window, min_periods=1).mean()
-            roll_std = series.rolling(window=window, min_periods=1).std().replace(0, epsilon)
-            z_score = (series - roll_mean) / roll_std
-            return np.tanh(z_score * factor)
-        micro_anomaly_norm = custom_robust_norm(df['tick_abnormal_volume_ratio_D'])
-        stability_norm = custom_robust_norm(df['TURNOVER_STABILITY_INDEX_D'])
-        eb_norm = custom_robust_norm(energy_balance, factor=0.5)
-        raw_vol_conf = (eb_norm.abs() * weights["energy_balance"] + vol_impact * weights["kinematic_impact"] + micro_anomaly_norm.abs() * weights["micro_anomaly"] + stability_norm.abs() * weights["stability"])
-        def nonlinear_gain(x: pd.Series, gamma: float = 1.2) -> pd.Series:
-            return np.sign(x) * (x.abs() ** gamma)
-        final_vol_conf = nonlinear_gain(raw_vol_conf) * np.sign(base_divergence_score)
-        print(f"  [探针-VolConf-V6.4] 量能确认计算完成。非线性最终得分均值: {final_vol_conf.mean():.6f}, 极值: [{final_vol_conf.min():.6f}, {final_vol_conf.max():.6f}], NaN统计: {final_vol_conf.isna().sum()}")
-        debug_v = {"node_energy_hab_norm": eb_norm, "node_vol_impact": vol_impact, "final_volume_confirmation": final_vol_conf}
+        vol_kinematic = _custom_robust_norm(v_vol * 0.5 + a_vol * 0.3 + j_vol * 0.2)
+        # 第一步：引入新增维度 - 资金流场确认 (CMF + NetMF)
+        cmf_score = _custom_robust_norm(df['CMF_21_D'].fillna(0))
+        v_mf, a_mf, j_mf, _ = self._calculate_kinematic_tensors(df, df_index, 'net_mf_amount_D', pmd_params)
+        mf_kinematic = _custom_robust_norm(v_mf * 0.5 + a_mf * 0.3 + j_mf * 0.2)
+        # 第六步：逻辑优化 - 资金流场需根据背离方向对冲
+        money_flow_conf = pd.Series(0.0, index=df_index)
+        money_flow_conf[mask_pos] = _custom_robust_norm((-cmf_score) + (-mf_kinematic)) # 顶背离：需资金流出
+        money_flow_conf[mask_neg] = _custom_robust_norm(cmf_score + mf_kinematic) # 底背离：需资金流入
+        # 微观与稳定性因子
+        micro_anomaly = _custom_robust_norm(df['tick_abnormal_volume_ratio_D'].fillna(0))
+        stability = 1.0 - _custom_robust_norm(df['TURNOVER_STABILITY_INDEX_D'].fillna(0)).abs()
+        # 第七步：多维场能融合
+        raw_vol_conf = (
+            energy_balance * weights["energy_balance"] +
+            vol_kinematic.abs() * weights["kinematic_impact"] +
+            money_flow_conf * weights["money_flow"] +
+            micro_anomaly * weights["micro_anomaly"] +
+            stability * weights["stability"]
+        )
+        final_vol_conf = _nonlinear_gain(raw_vol_conf, g=gamma) * np.sign(base_divergence_score)
+        debug_v = {
+            "node_energy_balance": energy_balance,
+            "node_vol_kinematic": vol_kinematic,
+            "node_money_flow_conf": money_flow_conf,
+            "final_volume_confirmation": final_vol_conf
+        }
         return final_vol_conf.astype(np.float32), debug_v
 
     def _calculate_main_force_confirmation_score(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict, base_div: pd.Series, method_name: str) -> Tuple[pd.Series, Dict]:
-        """【V6.5 · 7步推演HAB主力相空间确认引擎】接入3D资金张量冲击、HAB历史记忆对冲、专属Tanh归一化及非线性增益，彻底剥离防错掩码。"""
-        print(f"  [探针-MFConfirm-V6.5] 启动主力动向全维度确认评估...")
-        c_w = pmd_params.get('mf_cohesion_weights', {"HM_COORDINATED_ATTACK_D": 0.3, "SMART_MONEY_SYNERGY_BUY_D": 0.3, "main_force_activity_index_D": 0.2, "chip_flow_intensity_D": 0.2})
+        """【v2.0.0_Refined · 7步推演HAB主力相空间确认引擎】集成机构净买入张量、日内吸筹置信度与HAB存量对冲，深度锁定主力真实意图。"""
+        c_w = pmd_params.get('mf_cohesion_weights', {"HM_COORDINATED_ATTACK_D": 0.2, "SMART_MONEY_SYNERGY_BUY_D": 0.2, "SMART_MONEY_INST_NET_BUY_D": 0.2, "main_force_activity_index_D": 0.15, "intraday_accumulation_confidence_D": 0.15, "chip_flow_intensity_D": 0.1})
+        hab_window = pmd_params.get('mf_hab_window', 34)
+        gamma = pmd_params.get('mf_gain_gamma', 1.4)
         epsilon = 1e-9
-        def custom_robust_norm(series: pd.Series, factor: float = 0.8) -> pd.Series:
-            roll_mean = series.rolling(window=34, min_periods=1).mean()
-            roll_std = series.rolling(window=34, min_periods=1).std().replace(0, epsilon)
-            z_score = (series - roll_mean) / roll_std
-            return np.tanh(z_score * factor)
-        hm_attack = custom_robust_norm(df['HM_COORDINATED_ATTACK_D'])
-        sm_synergy = custom_robust_norm(df['SMART_MONEY_SYNERGY_BUY_D'])
-        mf_activity = custom_robust_norm(df['main_force_activity_index_D'])
-        chip_flow = custom_robust_norm(df['chip_flow_intensity_D'])
-        mfc_node = (hm_attack * c_w.get('HM_COORDINATED_ATTACK_D', 0.3) + sm_synergy * c_w.get('SMART_MONEY_SYNERGY_BUY_D', 0.3) + mf_activity * c_w.get('main_force_activity_index_D', 0.2) + chip_flow * c_w.get('chip_flow_intensity_D', 0.2))
-        print(f"    -> [节点] 主力协同矩阵提取完成。均值: {mfc_node.mean():.6f}, NaN: {mfc_node.isna().sum()}")
+        def _custom_mf_norm(series: pd.Series) -> pd.Series:
+            roll_m = series.rolling(window=55, min_periods=1).median()
+            roll_s = (series - roll_m).abs().rolling(window=55, min_periods=1).median() * 1.4826
+            return np.tanh((series - roll_m) / (roll_s + epsilon))
+        def _nonlinear_exp_gain(x: pd.Series, g: float = 1.4) -> pd.Series:
+            return np.sign(x) * (np.exp(x.abs()) - 1.0) * g
+        # 第三步：HAB 系统 - 资金流存量意识与冲击强度
+        mf_net_raw = df['net_mf_amount_D'].fillna(0)
+        mf_hab_stock = mf_net_raw.rolling(window=hab_window, min_periods=1).mean().abs()
+        mf_impact_ratio = (mf_net_raw.abs() / (mf_hab_stock + epsilon)).clip(upper=4.0)
+        # 第一步：引入新增维度 - 机构净买入与日内吸筹置信度
+        inst_net = _custom_mf_norm(df['SMART_MONEY_INST_NET_BUY_D'].fillna(0))
+        intra_acc = _custom_mf_norm(df['intraday_accumulation_confidence_D'].fillna(50.0))
+        # 第二步：MTF 3D 主力资金张量冲击 (Slope/Accel/Jerk)
         v_mf, a_mf, j_mf, _ = self._calculate_kinematic_tensors(df, df_index, 'net_mf_amount_D', pmd_params)
-        fk_node = (v_mf * 0.5 + a_mf * 0.3 + j_mf * 0.2)
-        print(f"    -> [节点] 3D 资金张量冲击力提取完成。均值: {fk_node.mean():.6f}, NaN: {fk_node.isna().sum()}")
-        acc_mf_21d = df['net_mf_amount_D'].rolling(window=21, min_periods=1).sum()
-        today_mf = df['net_mf_amount_D']
-        mf_resilience_ratio = today_mf.abs() / (acc_mf_21d.abs() + epsilon)
-        mf_dampener_series = pd.Series(np.where((acc_mf_21d > 0) & (today_mf < 0) & (mf_resilience_ratio < 0.1), pmd_params.get('intent_dampening_factor', 0.25), 1.0), index=df_index)
-        print(f"    -> [节点] HAB资金韧性系数极值: [{mf_dampener_series.min():.6f}, {mf_dampener_series.max():.6f}]")
+        mf_kinematic = _custom_mf_norm(v_mf * 0.5 + a_mf * 0.3 + j_mf * 0.2)
+        # 第六步：逻辑优化 - 构建主力协同核心矩阵
+        hm_attack = _custom_mf_norm(df['HM_COORDINATED_ATTACK_D'].fillna(0))
+        sm_synergy = _custom_mf_norm(df['SMART_MONEY_SYNERGY_BUY_D'].fillna(0))
+        mf_activity = _custom_mf_norm(df['main_force_activity_index_D'].fillna(50.0))
+        chip_flow = _custom_mf_norm(df['chip_flow_intensity_D'].fillna(0))
+        cohesion_matrix = (
+            hm_attack * c_w["HM_COORDINATED_ATTACK_D"] +
+            sm_synergy * c_w["SMART_MONEY_SYNERGY_BUY_D"] +
+            inst_net * c_w["SMART_MONEY_INST_NET_BUY_D"] +
+            mf_activity * c_w["main_force_activity_index_D"] +
+            intra_acc * c_w["intraday_accumulation_confidence_D"] +
+            chip_flow * c_w["chip_flow_intensity_D"]
+        )
+        # 意图对冲逻辑：根据背离方向锁定吸筹或派发信号
         bull_intent = self._calculate_covert_accumulation_score(df, df_index, {}, pmd_params, method_name)
         bear_intent = self._calculate_distribution_intent_score(df, df_index, {}, pmd_params, method_name)
-        itv_raw = pd.Series(0.0, index=df_index, dtype=np.float32)
-        mask_pos = base_div > 0
-        mask_neg = base_div < 0
-        itv_raw[mask_pos] = bear_intent[mask_pos]
-        itv_raw[mask_neg] = bull_intent[mask_neg]
-        itv_node = itv_raw * mf_dampener_series
-        chip_stb = custom_robust_norm(df['chip_stability_D'], factor=0.5).abs()
-        raw_mf_conf = (mfc_node * 0.3 + fk_node * 0.4 + itv_node * 0.3) * chip_stb
-        def nonlinear_gain(x: pd.Series, gamma: float = 1.2) -> pd.Series:
-            return np.sign(x) * (x.abs() ** gamma)
-        final_mf_conf = nonlinear_gain(raw_mf_conf) * np.sign(base_div)
-        print(f"  [探针-MFConfirm-V6.5] 主力全息确认计算完成。非线性最终得分均值: {final_mf_conf.mean():.6f}, 极值: [{final_mf_conf.min():.6f}, {final_mf_conf.max():.6f}], NaN统计: {final_mf_conf.isna().sum()}")
-        debug_v = {"node_mf_cohesion": mfc_node, "node_mf_kinematics": fk_node, "node_mf_intent_hab_fixed": itv_node, "final_mf_confirmation": final_mf_conf}
+        intent_node = pd.Series(0.0, index=df_index)
+        mask_pos = base_div > 0 # 顶背离：需验证主力派发强度
+        mask_neg = base_div < 0 # 底背离：需验证主力吸筹强度
+        intent_node[mask_pos] = bear_intent[mask_pos]
+        intent_node[mask_neg] = bull_intent[mask_neg]
+        # 第七步：多维场能融合与非线性增益
+        # 融合公式：(协同矩阵 + 张量冲击 + 意图节点) * HAB冲击比率
+        raw_mf_conf = (cohesion_matrix * 0.4 + mf_kinematic * 0.3 + intent_node * 0.3) * mf_impact_ratio
+        final_mf_conf = _nonlinear_exp_gain(raw_mf_conf, g=gamma) * np.sign(base_div)
+        debug_v = {
+            "node_cohesion_matrix": cohesion_matrix,
+            "node_mf_kinematic": mf_kinematic,
+            "node_intent_hab": intent_node,
+            "final_mf_confirmation": final_mf_conf
+        }
         return final_mf_conf.astype(np.float32), debug_v
 
     def _calculate_spatio_temporal_consistency_score(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict, method_name: str) -> Tuple[pd.Series, Dict]:
-        """【V6.6 · 7步推演HAB时空一致性张量模型】融合筹码熵、3D张量相干性、HAB历史记忆、定制Tanh归一化及非线性冲突惩罚，全面暴晒底层异常。"""
-        print(f"  [探针-STConsistency-V6.6] 启动时空一致性全息校验...")
-        weights = pmd_params.get('consistency_weights', {'phase_coherence': 0.4, 'pv_coherence': 0.3, 'system_order': 0.3})
-        penalty_exp = pmd_params.get('conflict_penalty_exponent', 2.5)
+        """【V7.1.0_Refined · 7步推演HAB时空一致性全息张量模型】融合日周长短周期同步与多维均线共振，精准挂载软阈值提取价量流多期3D微积分，结合HAB冲击对冲与定制双极映射，并施加指数级冲突惩罚重构高维时空有序度。"""
+        print(f"  [探针-STConsistencyHAB-V7.1.0] 启动时空一致性全息校验...")
+        fib = pmd_params.get('fib_periods', [5, 13, 21, 34])
+        mtf_w = pmd_params.get('mtf_decay_weights', {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
+        weights = pmd_params.get('consistency_weights', {'phase_resonance': 0.35, 'flow_coherence': 0.35, 'entropy_order': 0.3})
+        penalty_exp = pmd_params.get('conflict_penalty_exponent', 3.0)
         hab_window = pmd_params.get('consistency_hab_window', 13)
+        deadzone = pmd_params.get('kinematic_soft_deadzone', 1e-5)
         epsilon = 1e-9
-        def custom_robust_norm(series: pd.Series, factor: float = 0.8) -> pd.Series:
+        def custom_robust_norm(series: pd.Series, mode: str = 'bipolar', sensitivity: float = 0.8) -> pd.Series:
             roll_mean = series.rolling(window=34, min_periods=1).mean()
             roll_std = series.rolling(window=34, min_periods=1).std().replace(0, epsilon)
             z_score = (series - roll_mean) / roll_std
-            return np.tanh(z_score * factor)
-        v_p, a_p, j_p, _ = self._calculate_kinematic_tensors(df, df_index, 'close_D', pmd_params)
-        v_m, a_m, j_m, _ = self._calculate_kinematic_tensors(df, df_index, 'MACDh_13_34_8_D', pmd_params)
-        v_v, a_v, j_v, _ = self._calculate_kinematic_tensors(df, df_index, 'volume_D', pmd_params)
-        dot_pm = (v_p * v_m) + (a_p * a_m) + (j_p * j_m)
-        mag_p = np.sqrt(v_p**2 + a_p**2 + j_p**2)
-        mag_m = np.sqrt(v_m**2 + a_m**2 + j_m**2)
-        cos_theta_pm = dot_pm / (mag_p * mag_m + epsilon)
-        hab_phase_coherence = cos_theta_pm.rolling(window=hab_window, min_periods=1).mean()
-        phase_coherence_node = (1.0 + hab_phase_coherence) * 0.5
-        print(f"    -> [节点] 3D HAB相位相干性提取完成。均值: {phase_coherence_node.mean():.6f}, NaN: {phase_coherence_node.isna().sum()}")
-        pv_diff = a_v - a_p
-        hab_pv_diff = pv_diff.rolling(window=hab_window, min_periods=1).mean()
-        pv_coherence_node = custom_robust_norm(hab_pv_diff).abs()
-        print(f"    -> [节点] HAB价量张量相干性提取完成。均值: {pv_coherence_node.mean():.6f}, NaN: {pv_coherence_node.isna().sum()}")
-        price_entropy = df['PRICE_ENTROPY_D']
-        chip_entropy = df['chip_entropy_D']
-        system_entropy = (price_entropy + chip_entropy) * 0.5
-        hab_system_entropy = system_entropy.rolling(window=hab_window, min_periods=1).mean()
-        order_node = 1.0 - custom_robust_norm(hab_system_entropy).abs()
-        print(f"    -> [节点] HAB系统多维有序度(负熵)提取完成。均值: {order_node.mean():.6f}, NaN: {order_node.isna().sum()}")
-        resonance_score = phase_coherence_node
-        conflict_penalty = resonance_score ** penalty_exp
-        raw_consistency = (phase_coherence_node * weights.get('phase_coherence', 0.4) + pv_coherence_node * weights.get('pv_coherence', 0.3) + order_node * weights.get('system_order', 0.3)) * conflict_penalty
-        def nonlinear_gain(x: pd.Series, gamma: float = 1.2) -> pd.Series:
+            if mode == 'bipolar':
+                return np.tanh(z_score * sensitivity)
+            else:
+                return 1.0 / (1.0 + np.exp(-z_score * sensitivity))
+        def extract_kinematic_polarity(base_col: str) -> pd.Series:
+            fused_polarity = pd.Series(0.0, index=df_index, dtype=np.float32)
+            tw = 0.0
+            for p in fib:
+                w = mtf_w.get(str(p), 0.0)
+                if w == 0: continue
+                v = df[f'SLOPE_{p}_{base_col}'].fillna(0)
+                a = df[f'ACCEL_{p}_{base_col}'].fillna(0)
+                j = df[f'JERK_{p}_{base_col}'].fillna(0)
+                v_soft = np.sign(v) * np.maximum(v.abs() - deadzone, 0.0)
+                a_soft = np.sign(a) * np.maximum(a.abs() - deadzone, 0.0)
+                j_soft = np.sign(j) * np.maximum(j.abs() - deadzone, 0.0)
+                p_kin = np.sign(v_soft) * 0.5 + np.sign(a_soft) * 0.3 + np.sign(j_soft) * 0.2
+                fused_polarity += p_kin * w
+                tw += w
+            if tw > 0:
+                fused_polarity = fused_polarity / tw
+            return fused_polarity.clip(-1.0, 1.0)
+        ma_coherence = custom_robust_norm(df['MA_COHERENCE_RESONANCE_D'].fillna(50.0), 'unipolar')
+        short_mid_sync = custom_robust_norm(df['short_mid_sync_D'].fillna(50.0), 'unipolar')
+        daily_weekly_sync = custom_robust_norm(df['daily_weekly_sync_D'].fillna(50.0), 'unipolar')
+        sync_composite = (ma_coherence * 0.4 + short_mid_sync * 0.3 + daily_weekly_sync * 0.3)
+        hab_sync = sync_composite.rolling(window=hab_window, min_periods=1).mean()
+        sync_impact = (sync_composite / (hab_sync + epsilon)).clip(upper=3.0)
+        kin_p_polar = extract_kinematic_polarity('close_D')
+        kin_v_polar = extract_kinematic_polarity('volume_D')
+        pv_coherence = (kin_p_polar * kin_v_polar)
+        phase_resonance = pv_coherence * sync_impact * sync_composite
+        print(f"    -> [节点] 相位共振场(价量极性与多期同步)提取完成。均值: {phase_resonance.mean():.6f}")
+        flow_cons = custom_robust_norm(df['flow_consistency_D'].fillna(50.0), 'unipolar')
+        pf_div = custom_robust_norm(df['price_flow_divergence_D'].fillna(0.0), 'unipolar')
+        kin_f_polar = extract_kinematic_polarity('net_mf_amount_D')
+        pf_tensor_coherence = (kin_p_polar * kin_f_polar)
+        hab_pf_coherence = pf_tensor_coherence.rolling(window=hab_window, min_periods=1).mean()
+        flow_coherence = ((hab_pf_coherence * 0.6 + flow_cons * 0.4) * (1.0 - pf_div)).clip(-1.0, 1.0)
+        print(f"    -> [节点] 资金相干场(价流极性与资金一致性)提取完成。均值: {flow_coherence.mean():.6f}")
+        chip_ent = df['chip_entropy_D'].fillna(1.0)
+        price_ent = df['PRICE_ENTROPY_D'].fillna(1.0)
+        frac_dim = df['PRICE_FRACTAL_DIM_D'].fillna(1.5)
+        composite_entropy = (custom_robust_norm(chip_ent, 'unipolar') * 0.4 + custom_robust_norm(price_ent, 'unipolar') * 0.4 + custom_robust_norm(frac_dim, 'unipolar') * 0.2)
+        hab_entropy = composite_entropy.rolling(window=hab_window, min_periods=1).mean()
+        entropy_order = 1.0 - hab_entropy
+        print(f"    -> [节点] 系统熵场(价筹高维秩序度)提取完成。均值: {entropy_order.mean():.6f}")
+        polar_matrix = pd.concat([np.sign(phase_resonance), np.sign(flow_coherence)], axis=1)
+        conflict_intensity = polar_matrix.mean(axis=1).abs()
+        conflict_penalty = conflict_intensity.pow(penalty_exp)
+        raw_consistency = (phase_resonance * weights.get('phase_resonance', 0.35) + flow_coherence * weights.get('flow_coherence', 0.35) + entropy_order * weights.get('entropy_order', 0.3))
+        penalized_consistency = raw_consistency * conflict_penalty
+        def nonlinear_gain(x: pd.Series, gamma: float = 1.3) -> pd.Series:
             return np.sign(x) * (x.abs() ** gamma)
-        final_consistency = nonlinear_gain(raw_consistency)
-        print(f"  [探针-STConsistency-V6.6] 时空一致性校验完成。非线性最终得分均值: {final_consistency.mean():.6f}, 极值: [{final_consistency.min():.6f}, {final_consistency.max():.6f}], NaN统计: {final_consistency.isna().sum()}")
-        debug_v = {"node_phase_coherence": phase_coherence_node, "node_pv_coherence": pv_coherence_node, "node_order": order_node, "node_conflict_penalty": conflict_penalty, "final_st_consistency": final_consistency}
-        return final_consistency.astype(np.float32), debug_v
+        final_st_consistency = nonlinear_gain(penalized_consistency).clip(-1.0, 1.0)
+        print(f"  [探针-STConsistencyHAB-V7.1.0] 时空一致性全息校验完成。非线性得分均值: {final_st_consistency.mean():.6f}, 极值: [{final_st_consistency.min():.6f}, {final_st_consistency.max():.6f}], NaN统计: {final_st_consistency.isna().sum()}")
+        debug_v = {"node_phase_resonance": phase_resonance, "node_flow_coherence": flow_coherence, "node_entropy_order": entropy_order, "node_conflict_penalty": conflict_penalty, "final_st_consistency": final_st_consistency}
+        return final_st_consistency.astype(np.float32), debug_v
 
     def _calculate_divergence_quality_score(self, df: pd.DataFrame, df_index: pd.Index, raw_data: Dict, pmd_params: Dict, base_div: pd.Series) -> Tuple[pd.Series, Dict]:
-        """【V6.7 · 7步推演HAB背离质量张量模型】全息融合张量动力学衰竭、HAB结构张力与筹码有序度，定制Tanh归一化，引入非线性质量增益，彻底暴晒数据缺陷。"""
-        print(f"  [探针-Quality-V6.7] 启动背离质量高维评估...")
-        q_w = pmd_params.get('quality_weights', {"structural_tension": 0.2, "kinematic_exhaustion": 0.25, "chip_order": 0.15, "volume_ripeness": 0.2, "st_consistency": 0.2})
+        """【v7.2.0_Refined · 7步推演HAB背离质量张量模型】全息融合原生背离置信度、3D张量衰竭、HAB结构张力与量能萎缩干涸度，挂载软阈值门控提取多期微积分，采用MAD中位数鲁棒归一化与幂律增益，严厉暴晒劣质假背离。"""
+        print(f"  [探针-Quality-V7.2.0_Refined] 启动背离质量高维评估...")
+        q_w = pmd_params.get('quality_weights', {"structural_tension": 0.15, "kinematic_exhaustion": 0.20, "chip_order": 0.15, "volume_ripeness": 0.10, "signal_confidence": 0.25, "st_consistency": 0.15})
         hab_window = pmd_params.get('quality_hab_window', 21)
+        deadzone = pmd_params.get('kinematic_soft_deadzone', 1e-5)
+        fib_periods = pmd_params.get('fib_periods', [5, 13, 21, 34])
+        mtf_w = pmd_params.get('mtf_decay_weights', {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
+        gamma = pmd_params.get('quality_gamma', 1.4)
         epsilon = 1e-9
-        def custom_robust_norm(series: pd.Series, factor: float = 0.8) -> pd.Series:
-            roll_mean = series.rolling(window=34, min_periods=1).mean()
-            roll_std = series.rolling(window=34, min_periods=1).std().replace(0, epsilon)
-            z_score = (series - roll_mean) / roll_std
-            return np.tanh(z_score * factor)
-        tension_raw = df['MA_POTENTIAL_TENSION_INDEX_D']
-        rubber_raw = df['MA_RUBBER_BAND_EXTENSION_D'].abs()
-        hab_tension = tension_raw.rolling(window=hab_window, min_periods=1).mean()
-        hab_rubber = rubber_raw.rolling(window=hab_window, min_periods=1).mean()
-        tension_node = (custom_robust_norm(hab_tension) * 0.6 + custom_robust_norm(hab_rubber) * 0.4).abs()
+        def custom_robust_norm(series: pd.Series, mode: str = 'unipolar', sensitivity: float = 0.8) -> pd.Series:
+            roll_median = series.rolling(window=34, min_periods=1).median()
+            roll_mad = (series - roll_median).abs().rolling(window=34, min_periods=1).median() * 1.4826 + epsilon
+            z_score = (series - roll_median) / roll_mad
+            if mode == 'bipolar':
+                return np.tanh(z_score * sensitivity)
+            else:
+                return 1.0 / (1.0 + np.exp(-z_score * sensitivity))
+        def extract_quality_kinematics(base_col: str) -> pd.Series:
+            fused_kin = pd.Series(0.0, index=df_index, dtype=np.float32)
+            tw = 0.0
+            for p in fib_periods:
+                w = mtf_w.get(str(p), 0.0)
+                if w == 0: continue
+                v = df.get(f'SLOPE_{p}_{base_col}', pd.Series(0.0, index=df_index)).fillna(0)
+                a = df.get(f'ACCEL_{p}_{base_col}', pd.Series(0.0, index=df_index)).fillna(0)
+                j = df.get(f'JERK_{p}_{base_col}', pd.Series(0.0, index=df_index)).fillna(0)
+                v_soft = np.sign(v) * np.maximum(v.abs() - deadzone, 0.0)
+                a_soft = np.sign(a) * np.maximum(a.abs() - deadzone, 0.0)
+                j_soft = np.sign(j) * np.maximum(j.abs() - deadzone, 0.0)
+                p_kin = v_soft * 0.5 + a_soft * 0.3 + j_soft * 0.2
+                fused_kin += p_kin * w
+                tw += w
+            if tw > 0:
+                fused_kin = fused_kin / tw
+            return fused_kin
+        tension_raw = df['MA_POTENTIAL_TENSION_INDEX_D'].fillna(0)
+        rubber_raw = df['MA_RUBBER_BAND_EXTENSION_D'].fillna(0).abs()
+        profit_pressure = df['profit_pressure_D'].fillna(0)
+        hab_tension = tension_raw.abs().rolling(window=hab_window, min_periods=1).mean()
+        tension_impact = (tension_raw.abs() / (hab_tension + epsilon)).clip(upper=3.0)
+        tension_composite = (custom_robust_norm(tension_raw.abs(), 'unipolar') * 0.4 + custom_robust_norm(rubber_raw, 'unipolar') * 0.3 + custom_robust_norm(profit_pressure, 'unipolar') * 0.3) * tension_impact
+        tension_node = custom_robust_norm(tension_composite, 'unipolar')
         print(f"    -> [节点] HAB结构张力提取完成。均值: {tension_node.mean():.6f}, NaN: {tension_node.isna().sum()}")
         v_p, a_p, j_p, _ = self._calculate_kinematic_tensors(df, df_index, 'close_D', pmd_params)
         v_m, a_m, j_m, _ = self._calculate_kinematic_tensors(df, df_index, 'MACDh_13_34_8_D', pmd_params)
         kinematic_diff = (a_m - a_p).abs() * 0.6 + (j_m - j_p).abs() * 0.4
-        hab_kinematic_diff = kinematic_diff.rolling(window=hab_window, min_periods=1).mean()
-        kinematic_node = custom_robust_norm(hab_kinematic_diff).abs()
+        hab_kin_diff = kinematic_diff.rolling(window=hab_window, min_periods=1).mean()
+        kin_impact = (kinematic_diff / (hab_kin_diff + epsilon)).clip(upper=3.0)
+        kinematic_node = custom_robust_norm(kinematic_diff * kin_impact, 'unipolar')
         print(f"    -> [节点] HAB动力学衰竭张量提取完成。均值: {kinematic_node.mean():.6f}, NaN: {kinematic_node.isna().sum()}")
-        chip_conv = df['chip_convergence_ratio_D']
-        chip_ent_inv = 1.0 - df['chip_entropy_D']
+        chip_conv = df['chip_convergence_ratio_D'].fillna(0)
+        chip_ent_inv = 1.0 - df['chip_entropy_D'].fillna(1.0)
+        chip_rsi_div = df['chip_rsi_divergence_D'].fillna(0).abs()
         hab_chip_conv = chip_conv.rolling(window=hab_window, min_periods=1).mean()
-        hab_chip_ent_inv = chip_ent_inv.rolling(window=hab_window, min_periods=1).mean()
-        chip_node = (custom_robust_norm(hab_chip_conv) * 0.6 + custom_robust_norm(hab_chip_ent_inv) * 0.4).abs()
-        print(f"    -> [节点] HAB筹码有序度提取完成。均值: {chip_node.mean():.6f}, NaN: {chip_node.isna().sum()}")
-        vol_rolling_mean = df['volume_D'].rolling(window=hab_window, min_periods=1).mean()
-        ripeness_node = 1.0 - custom_robust_norm(vol_rolling_mean).abs()
-        print(f"    -> [节点] HAB量能成熟度(萎缩度)提取完成。均值: {ripeness_node.mean():.6f}, NaN: {ripeness_node.isna().sum()}")
+        chip_impact = (chip_conv / (hab_chip_conv + epsilon)).clip(upper=3.0)
+        chip_node = custom_robust_norm(chip_conv * chip_impact, 'unipolar') * 0.4 + custom_robust_norm(chip_ent_inv, 'unipolar') * 0.3 + custom_robust_norm(chip_rsi_div, 'unipolar') * 0.3
+        print(f"    -> [节点] HAB筹码秩序度提取完成。均值: {chip_node.mean():.6f}, NaN: {chip_node.isna().sum()}")
+        turnover_f = df['turnover_rate_f_D'].fillna(df['turnover_rate_D'].fillna(0.01))
+        hab_turnover = turnover_f.rolling(window=hab_window, min_periods=1).mean()
+        shrinkage_impact = np.maximum(hab_turnover - turnover_f, 0.0) / (hab_turnover + epsilon)
+        ripeness_node = custom_robust_norm(shrinkage_impact, 'unipolar')
+        print(f"    -> [节点] HAB量能成熟缓冲度(干涸度)提取完成。均值: {ripeness_node.mean():.6f}, NaN: {ripeness_node.isna().sum()}")
+        div_str = df['divergence_strength_D'].fillna(0).abs()
+        sig_qual = df['signal_quality_score_D'].fillna(50.0)
+        pat_conf = df['pattern_confidence_D'].fillna(50.0)
+        hab_div_str = div_str.rolling(window=hab_window, min_periods=1).mean()
+        div_impact = (div_str / (hab_div_str + epsilon)).clip(upper=3.0)
+        div_kin = extract_quality_kinematics('divergence_strength_D').abs()
+        confidence_node = custom_robust_norm(div_str * div_impact, 'unipolar') * 0.4 + custom_robust_norm(sig_qual, 'unipolar') * 0.2 + custom_robust_norm(pat_conf, 'unipolar') * 0.2 + custom_robust_norm(div_kin, 'unipolar') * 0.2
+        print(f"    -> [节点] 军械库原生置信度与3D质量提取完成。均值: {confidence_node.mean():.6f}, NaN: {confidence_node.isna().sum()}")
         st_consistency, _ = self._calculate_spatio_temporal_consistency_score(df, df_index, pmd_params, "QualityConsistency")
-        st_consistency_norm = custom_robust_norm(st_consistency).abs()
-        raw_quality = (tension_node * q_w.get('structural_tension', 0.2) + kinematic_node * q_w.get('kinematic_exhaustion', 0.25) + chip_node * q_w.get('chip_order', 0.15) + ripeness_node * q_w.get('volume_ripeness', 0.2) + st_consistency_norm * q_w.get('st_consistency', 0.2))
-        def nonlinear_gain(x: pd.Series, gamma: float = 1.2) -> pd.Series:
-            return np.sign(x) * (x.abs() ** gamma)
-        final_quality = nonlinear_gain(raw_quality)
-        print(f"  [探针-Quality-V6.7] 质量背离矩阵计算完成。非线性最终得分均值: {final_quality.mean():.6f}, 极值: [{final_quality.min():.6f}, {final_quality.max():.6f}], NaN统计: {final_quality.isna().sum()}")
-        debug_v = {"node_tension": tension_node, "node_kinematic_exhaustion": kinematic_node, "node_chip_order": chip_node, "node_volume_ripeness": ripeness_node, "node_st_consistency": st_consistency_norm, "final_quality_score": final_quality}
+        st_consistency_node = custom_robust_norm(st_consistency.abs(), 'unipolar')
+        print(f"    -> [节点] ST时空一致性映射完成。均值: {st_consistency_node.mean():.6f}, NaN: {st_consistency_node.isna().sum()}")
+        raw_quality = (tension_node * q_w.get('structural_tension', 0.15) + kinematic_node * q_w.get('kinematic_exhaustion', 0.20) + chip_node * q_w.get('chip_order', 0.15) + ripeness_node * q_w.get('volume_ripeness', 0.10) + confidence_node * q_w.get('signal_confidence', 0.25) + st_consistency_node * q_w.get('st_consistency', 0.15))
+        def power_law_gain(x: pd.Series, g: float = 1.4) -> pd.Series:
+            return np.sign(x) * (x.abs() ** g)
+        final_quality = power_law_gain(raw_quality, g=gamma).clip(0.0, 1.0)
+        print(f"  [探针-Quality-V7.2.0_Refined] 质量背离矩阵计算完成。非线性最终得分均值: {final_quality.mean():.6f}, 极值: [{final_quality.min():.6f}, {final_quality.max():.6f}], NaN统计: {final_quality.isna().sum()}")
+        debug_v = {"node_tension": tension_node, "node_kinematic_exhaustion": kinematic_node, "node_chip_order": chip_node, "node_volume_ripeness": ripeness_node, "node_confidence": confidence_node, "node_st_consistency": st_consistency_node, "final_quality_score": final_quality}
         return final_quality.astype(np.float32), debug_v
 
     def _calculate_context_modulator(self, df: pd.DataFrame, df_index: pd.Index, pmd_params: Dict) -> Tuple[pd.Series, Dict]:
