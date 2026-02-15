@@ -896,14 +896,12 @@
                 "task_type": "base",
                 "diagnosis_mode": "direct_confirmation",
                 "scoring_mode": "bipolar",
-                "description": "【V4.6 · 深度情境、动态权重、动态指数、RDI及聪明钱、题材热度、微观结构、散户恐慌增强版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透（含聪明钱、日内VWAP偏离）、背离品质量化、情境调节（含题材热度、散户恐慌）、显式交互项和多级别RDI（共振、背离、拐点）七大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。",
+                "description": "【V5.0.0 · 终极相空间背离物理引擎版】诊断价格趋势与动量趋势的双极性背离(正分顶背离，负分底背离)。彻底解决0-100量纲坍塌灾难。挂载高阶运动学、HAB历史存量提取、环境感知极化与底层反身性免疫，在异常背离点执行动态Gamma极化。",
                 "price_momentum_divergence_params": {
-                    "description": "【V5.0 · 相空间动力学重构版】移除防御性截断，引入二维相空间角散度计算，并注入军械库原生背离与迁移指标。",
                     "phase_space_params": {
                         "velocity_weight": 0.6,
                         "acceleration_weight": 0.4,
-                        "angular_sensitivity": 1.5,
-                        "min_vector_magnitude": 1e-5
+                        "angular_sensitivity": 1.5
                     },
                     "arsenal_native_divergence_weights": {
                         "percent_change_divergence_D": 0.3,
@@ -912,25 +910,13 @@
                         "pressure_release_index_D": 0.1,
                         "inflow_persistence_D": 0.1
                     },
-                    "price_components_weights": {
-                        "close_D": 0.5,
-                        "CLOSING_STRENGTH_D": 0.3,
-                        "VPA_EFFICIENCY_D": 0.2
-                    },
-                    "momentum_components_weights": {
-                        "MACDh_13_34_8_D": 0.4,
-                        "RSI_13_D": 0.3,
-                        "chip_rsi_divergence_D": 0.3
-                    },
-                    "fib_periods": [5, 13, 21, 34],
-                    "kinematic_deadzone": 1e-6,
-                    "final_fusion_exponent": 1.5,
                     "dqwm_weights": {
                         "momentum_quality": 0.25,
                         "market_tension": 0.25,
                         "stability": 0.25,
                         "chip_potential": 0.25
-                    }
+                    },
+                    "final_fusion_exponent": 1.5
                 }
             },
             {
