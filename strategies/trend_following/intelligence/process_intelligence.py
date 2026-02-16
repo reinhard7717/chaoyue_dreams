@@ -385,6 +385,10 @@ class ProcessIntelligence:
             return {}
 
     def _diagnose_meta_relationship_internal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V7.0.0 · 关系诊断分发器 (解耦幽灵依赖版)】
+        完全移除所有硬编码的 SCORE_ 旧版公理调用，彻底切断对 SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT 的无效传参。
+        """
         signal_name = config.get('name')
         df_index = df.index
         meta_score = pd.Series(dtype=np.float32)
@@ -445,12 +449,10 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_STORM_EYE_CALM':
             meta_score = self.calculate_storm_eye_calm_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_WASH_OUT_REBOUND':
-            offensive_absorption_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 0.0)
-            meta_score = self._calculate_process_wash_out_rebound(df, offensive_absorption_intent, config)
+            meta_score = self._calculate_process_wash_out_rebound(df, config)
         elif signal_name == 'PROCESS_META_COVERT_ACCUMULATION':
             meta_score = self.calculate_process_covert_accumulation_processor.calculate(df, config)
         elif signal_name == 'PROCESS_META_POWER_TRANSFER':
-            # [新增] 显式调用新的权力交接计算逻辑
             meta_score = self._calculate_power_transfer(df, config)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
@@ -1149,29 +1151,38 @@ class ProcessIntelligence:
             relationship_score = np.sign(force_vector_sum) * magnitude
         return (np.sign(relationship_score) * (np.abs(relationship_score) ** 1.5)).clip(-1, 1).fillna(0.0).astype(np.float32)
 
-    def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series, config: Dict) -> pd.Series:
+    def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0.0 · 虚假派发与承接反包探针版】
-        识别主力利用极度洗盘环境后进行强力反抽的技术战术。
+        【V7.0.0 · 洗盘反包非线性动力学版】
+        彻底删除冗余的原子信号依赖参数。应用HAB冲击系统和微积分门限重构反包共振。
         """
-        method_name="_calculate_process_wash_out_rebound"
-        required_signals=['shakeout_score_D','intraday_distribution_confidence_D','intraday_trough_filling_degree_D','intraday_resistance_test_count_D','closing_flow_intensity_D','short_term_chip_ratio_D']
-        self._validate_required_signals(df,required_signals,method_name)
-        df_index=df.index
-        shakeout=self._get_safe_series(df,'shakeout_score_D',method_name=method_name)
-        fake_dist=self._get_safe_series(df,'intraday_distribution_confidence_D',method_name=method_name)
-        trough_fill=self._get_safe_series(df,'intraday_trough_filling_degree_D',method_name=method_name)
-        resist_test=self._get_safe_series(df,'intraday_resistance_test_count_D',method_name=method_name)
-        closing_intensity=self._get_safe_series(df,'closing_flow_intensity_D',method_name=method_name)
-        short_chip=self._get_safe_series(df,'short_term_chip_ratio_D',method_name=method_name)
-        washout_context=shakeout*fake_dist
-        rebound_intent=np.sqrt(trough_fill.abs()*(resist_test/10.0).clip(upper=1.0))
-        chip_penalty=1.0-np.clip(short_chip,0,0.5)
-        raw_score=washout_context*rebound_intent*closing_intensity*chip_penalty
-        final_score=np.tanh(raw_score*2.0).clip(0,1).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'shakeout_score_D':shakeout,'intraday_distribution_confidence_D':fake_dist,'intraday_trough_filling_degree_D':trough_fill,'intraday_resistance_test_count_D':resist_test,'closing_flow_intensity_D':closing_intensity,'short_term_chip_ratio_D':short_chip},calc_nodes={'washout_context':washout_context,'rebound_intent':rebound_intent,'chip_penalty':chip_penalty,'raw_score':raw_score},final_result=final_score)
+        method_name = "_calculate_process_wash_out_rebound"
+        required_signals = [
+            'shakeout_score_D', 'intraday_distribution_confidence_D',
+            'pressure_trapped_D', 'CLOSING_STRENGTH_D', 
+            'intraday_trough_filling_degree_D', 'stealth_flow_ratio_D',
+            'absorption_energy_D', 'SLOPE_13_shakeout_score_D', 'ACCEL_13_shakeout_score_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
+        df_index = df.index
+        shakeout = self._get_safe_series(df, 'shakeout_score_D', method_name=method_name)
+        dist_conf = self._get_safe_series(df, 'intraday_distribution_confidence_D', method_name=method_name)
+        panic = self._get_safe_series(df, 'pressure_trapped_D', method_name=method_name)
+        closing = self._get_safe_series(df, 'CLOSING_STRENGTH_D', method_name=method_name)
+        trough_fill = self._get_safe_series(df, 'intraday_trough_filling_degree_D', method_name=method_name)
+        stealth = self._get_safe_series(df, 'stealth_flow_ratio_D', method_name=method_name)
+        absorption = self._get_safe_series(df, 'absorption_energy_D', method_name=method_name)
+        kinematics_shakeout = self._get_kinematic_tensor(df, 'shakeout_score_D', 13, method_name)
+        shakeout_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(shakeout, 21)))
+        dist_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(dist_conf, 13)))
+        panic_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(panic, 21)))
+        washout_env = (shakeout_shock * dist_shock * panic_shock) * (1.0 + stealth)
+        rebound_intent = trough_fill.clip(lower=0) * absorption.clip(lower=0)
+        rebound_shock = np.tanh(self._apply_hab_shock(rebound_intent, 13)).clip(lower=0)
+        raw_score = washout_env * (rebound_shock ** 1.5) * closing
+        final_score = np.tanh(raw_score * 2.0 * (1.0 + kinematics_shakeout.clip(lower=0))).clip(0, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'shakeout_score_D': shakeout, 'intraday_distribution_confidence_D': dist_conf, 'pressure_trapped_D': panic}, calc_nodes={'kinematics_shakeout': kinematics_shakeout, 'washout_env': washout_env, 'rebound_shock': rebound_shock, 'raw_score': raw_score}, final_result=final_score)
         return final_score
-
 
 
 
