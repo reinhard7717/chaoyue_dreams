@@ -235,30 +235,52 @@ class ProcessIntelligence:
 
     def _extract_and_validate_config_signals(self, df: pd.DataFrame, config: Dict, method_name: str) -> bool:
         """
-        【V1.0 · 新增】蓝图审查官。解析诊断配置，提取所有信号依赖，并进行统一校验。
-        - 核心职责: 作为配置驱动逻辑的安全阀，确保“情报蓝图”中的所有“原料”都真实存在。
+        【V5.0.0 · 蓝图审查官 (幽灵拦截与映射防线版)】
+        针对旧版 JSON 配置文件中残留的已淘汰信号名，
+        在进行严格数据约束检查前，执行自适应热映射重定向。
+        同时为已实现硬编码军械库直连的引擎开启白名单豁免，切断外部配置滞后污染。
         """
+        signal_name = config.get('name', '')
+        
+        # 1. 遗留配置热映射 (Ghost Interception & Remapping)
+        legacy_remap = {
+            'breakout_confidence_D': 'breakout_quality_score_D',
+            'closing_strength_index_D': 'CLOSING_STRENGTH_D',
+            'trend_confirmation_score_D': 'uptrend_strength_D',
+            'consolidation_quality_grade_D': 'consolidation_quality_score_D'
+        }
+        
         required_signals = []
-        # 提取元关系分析中的信号
-        if config.get('signal_A'):
-            required_signals.append(config['signal_A'])
-        if config.get('signal_B'):
-            required_signals.append(config['signal_B'])
-        # 提取赢家信念中的特殊信号
-        if config.get('antidote_signal'):
-            required_signals.append(config['antidote_signal'])
-        # 提取信号衰减分析中的信号
-        if config.get('source_signal'):
-            required_signals.append(config['source_signal'])
-        # 提取领域反转分析中的公理信号
+        for key in ['signal_A', 'signal_B', 'antidote_signal', 'source_signal']:
+            if config.get(key):
+                mapped_val = legacy_remap.get(config[key], config[key])
+                config[key] = mapped_val
+                required_signals.append(mapped_val)
+                
         if config.get('axioms'):
-            for axiom_config in config.get('axioms', []):
-                if axiom_config.get('name'):
-                    required_signals.append(axiom_config['name'])
-        # 如果没有需要校验的信号，则直接通过
+            for axiom in config['axioms']:
+                if axiom.get('name'):
+                    mapped_val = legacy_remap.get(axiom['name'], axiom['name'])
+                    axiom['name'] = mapped_val
+                    required_signals.append(mapped_val)
+
+        # 2. 硬编码引擎豁免 (Blueprint Exemption)
+        # 这些引擎内部已经完全硬编码了所需的所有底层 L2 特征，
+        # 不再依赖 config 中的 signal_A/B，因此豁免外部 JSON 配置的前置审查。
+        exempt_signals = {
+            'PROCESS_META_POWER_TRANSFER', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION',
+            'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_ACCUMULATION_INFLECTION',
+            'PROCESS_META_BREAKOUT_ACCELERATION', 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT',
+            'PROCESS_META_LOSER_CAPITULATION', 'PROCESS_META_PROFIT_VS_FLOW',
+            'PROCESS_META_STOCK_SECTOR_SYNC', 'PROCESS_META_HOT_SECTOR_COOLING'
+        }
+        if signal_name in exempt_signals:
+            return True
+
+        # 3. 严格契约验证 (Strict Validation for remaining dynamic configs)
         if not required_signals:
             return True
-        # 调用通用的校验器进行检查
+            
         return self._validate_required_signals(df, required_signals, method_name)
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
@@ -311,16 +333,13 @@ class ProcessIntelligence:
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 蓝图审查增强版】元分析调度中心
-        - 核心升级: 增加对 'PROCESS_META_POWER_TRANSFER' 的特殊处理，豁免其配置信号校验，
-                      因为该信号已升级为内置硬编码依赖 L2 底层数据，不再依赖配置文件中的 signal_A/B。
+        【V5.0.0 · 防御性元分析调度版】
+        内聚豁免校验逻辑已全部下沉至蓝图审查官，外层逻辑回归极致简洁。
         """
         signal_name = config.get('name', '未知信号')
-        # [升级] 豁免 PROCESS_META_POWER_TRANSFER 的配置校验，防止因旧配置导致启动失败
-        if signal_name != 'PROCESS_META_POWER_TRANSFER':
-            # “蓝图审查”协议，校验配置文件中声明的所有信号
-            if not self._extract_and_validate_config_signals(df, config, f"_run_meta_analysis (for {signal_name})"):
-                return {}
+        if not self._extract_and_validate_config_signals(df, config, f"_run_meta_analysis (for {signal_name})"):
+            return {}
+            
         diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
         if diagnosis_type == 'meta_relationship':
             return self._diagnose_meta_relationship(df, config)
@@ -336,15 +355,13 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 校验协议对齐版】元关系诊断分发器。
-        - 核心修复: 修正了校验拦截逻辑，确保其与 `_run_meta_analysis` 保持一致，
-                      对内置硬编码 L2 依赖的 'PROCESS_META_POWER_TRANSFER' 信号予以校验豁免。
+        【V5.0.0 · 防御性关系诊断分发器】
+        同步在关系分发器层将校验权统一归置于 _extract_and_validate_config_signals。
         """
         signal_name = config.get('name', '未知信号')
-        # 对内置硬编码 L2 数据依赖的信号实施校验豁免，防止 Blueprint Inspector 误报
-        if signal_name != 'PROCESS_META_POWER_TRANSFER':
-            if not self._extract_and_validate_config_signals(df, config, f"_diagnose_meta_relationship (for {signal_name})"):
-                return {}
+        if not self._extract_and_validate_config_signals(df, config, f"_diagnose_meta_relationship (for {signal_name})"):
+            return {}
+            
         diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
         if diagnosis_type == 'meta_relationship':
             return self._diagnose_meta_relationship_internal(df, config)
