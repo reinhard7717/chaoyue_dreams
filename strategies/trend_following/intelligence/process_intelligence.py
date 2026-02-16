@@ -235,36 +235,19 @@ class ProcessIntelligence:
 
     def _extract_and_validate_config_signals(self, df: pd.DataFrame, config: Dict, method_name: str) -> bool:
         """
-        【V6.0.0 · 蓝图审查官 (幽灵拦截与映射防线版)】
+        【V6.1.0 · 蓝图审查官 (领域神谕白名单版)】
         针对旧版 JSON 配置文件中残留的已淘汰信号名，
         在进行严格数据约束检查前，执行自适应热映射重定向。
-        同时为已实现硬编码军械库直连的引擎开启白名单豁免，切断外部配置滞后污染。
+        同时为已实现硬编码军械库直连的引擎，以及具有自适应豁免逻辑的 domain_reversal，
+        开启白名单豁免，彻底切断外部配置滞后及跨层时序错位导致的“原子信号不存在”误杀。
         """
         signal_name = config.get('name', '')
-        
-        # 1. 遗留配置热映射 (Ghost Interception & Remapping)
-        legacy_remap = {
-            'breakout_quality_score_D': 'breakout_quality_score_D',
-            'closing_strength_index_D': 'CLOSING_STRENGTH_D',
-            'trend_confirmation_score_D': 'uptrend_strength_D',
-            'consolidation_quality_grade_D': 'consolidation_quality_score_D'
-        }
-        
-        required_signals = []
-        for key in ['signal_A', 'signal_B', 'antidote_signal', 'source_signal']:
-            if config.get(key):
-                mapped_val = legacy_remap.get(config[key], config[key])
-                config[key] = mapped_val
-                required_signals.append(mapped_val)
-                
-        if config.get('axioms'):
-            for axiom in config.get('axioms', []):
-                if axiom.get('name'):
-                    mapped_val = legacy_remap.get(axiom['name'], axiom['name'])
-                    axiom['name'] = mapped_val
-                    required_signals.append(mapped_val)
+        diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
+        # 1. 领域反转与硬编码引擎豁免 (Blueprint Exemption)
+        # 领域反转依赖的是顶层跨引擎计算的原子信号，并且其内部已具备容错，必须在此豁免。
+        if diagnosis_type == 'domain_reversal':
+            return True
 
-        # 2. 硬编码引擎豁免 (Blueprint Exemption)
         exempt_signals = {
             'PROCESS_META_POWER_TRANSFER', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION',
             'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_ACCUMULATION_INFLECTION',
@@ -274,8 +257,36 @@ class ProcessIntelligence:
         }
         if signal_name in exempt_signals:
             return True
+            
+        # 2. 遗留配置热映射 (Ghost Interception & Remapping)
+        legacy_remap = {
+            'breakout_confidence_D': 'breakout_quality_score_D',
+            'closing_strength_index_D': 'CLOSING_STRENGTH_D',
+            'trend_confirmation_score_D': 'uptrend_strength_D',
+            'consolidation_quality_grade_D': 'consolidation_quality_score_D'
+        }
+        required_signals = []
+        for key in ['signal_A', 'signal_B', 'antidote_signal', 'source_signal']:
+            if config.get(key):
+                mapped_val = legacy_remap.get(config[key], config[key])
+                config[key] = mapped_val
+                required_signals.append(mapped_val)
+
+        # 映射 axioms 中的过时配置
+        if config.get('axioms'):
+            for axiom in config.get('axioms', []):
+                if axiom.get('name'):
+                    mapped_val = legacy_remap.get(axiom['name'], axiom['name'])
+                    axiom['name'] = mapped_val
+                    required_signals.append(mapped_val)
 
         # 3. 严格契约验证 (Strict Validation for remaining dynamic configs)
+        # 过滤掉高维跨层推演信号 (SCORE_, PROCESS_, FUSION_)，仅对 L2 物理原材进行强拦截
+        required_signals = [
+            sig for sig in required_signals 
+            if not (sig.startswith('SCORE_') or sig.startswith('PROCESS_') or sig.startswith('FUSION_'))
+        ]
+
         if not required_signals:
             return True
             
@@ -645,61 +656,75 @@ class ProcessIntelligence:
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 神谕调度版】通用领域反转诊断调度中心
-        - 核心升级: 剥离旧的、有缺陷的计算逻辑，转变为一个纯粹的“调度中心”。
-        - 核心职责: 1. 计算各领域的“领域健康度(bipolar_domain_health)”。
-                      2. 将健康度数据呈送给新建的 `_judge_domain_reversal` 方法进行最终审判。
+        【V3.1.0 · 领域反转全息诊断引擎】
+        摒弃孤立公理强校验，通过自适应加权机制执行柔性降级，引入公理群矩阵共振。
         """
         domain_name = config.get('domain_name')
         axiom_configs = config.get('axioms', [])
         output_bottom_name = config.get('output_bottom_reversal_name')
         output_top_name = config.get('output_top_reversal_name')
         if not domain_name or not axiom_configs or not output_bottom_name or not output_top_name:
-            print(f"        -> [领域反转诊断] 警告: 配置不完整，跳过领域 '{domain_name}' 的反转诊断。")
             return {}
+            
         df_index = df.index
         domain_health_components = []
         total_weight = 0.0
+        # 1. 动态加权矩阵坍缩
         for axiom_config in axiom_configs:
             axiom_name = axiom_config.get('name')
             axiom_weight = axiom_config.get('weight', 0.0)
-            # 增加对公理信号是否存在的防御性检查
+            
+            # 柔性跳过未加载或计算失败的高阶公理信号，阻止系统雪崩
             if axiom_name not in self.strategy.atomic_states:
-                print(f"    -> [过程情报警告] 领域 '{domain_name}' 依赖的公理信号 '{axiom_name}' 不存在，跳过此公理。")
                 continue
+                
             axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=df_index))
             domain_health_components.append(axiom_score * axiom_weight)
-            total_weight += abs(axiom_weight) # 使用绝对值权重总和，以正确处理负权重
+            total_weight += abs(axiom_weight)
+            
         if total_weight == 0:
-            print(f"        -> [领域反转诊断] 警告: 领域 '{domain_name}' 的公理权重总和为0，无法计算健康度。")
             return {}
-        # 计算该领域的双极性健康度
-        bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1)
-        # 将健康度呈送给新的“神谕审判”方法进行最终裁决
-        return self._judge_domain_reversal(bipolar_domain_health, config)
+            
+        # 2. 领域基础健康度 (Bipolar: -1 to 1)
+        bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1).astype(np.float32)
+        # 将结果递交至审判庭
+        return self._judge_domain_reversal(bipolar_domain_health, config, df)
 
-    def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict) -> Dict[str, pd.Series]:
+    def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 神谕审判生产版】领域反转信号的核心审判庭
-        - 核心模型: 创立基于“情境感知”的“神谕审判”模型，取代旧的、情境盲目的归一化逻辑。
-        - 底部反转神谕: `底部反转分 = 健康度正向变化量 × (1 - 昨日健康度)`
-        - 顶部反转神谕: `顶部反转分 = 健康度负向变化量(取绝对值) × (1 + 昨日健康度)`
+        【V3.1.0 · 神谕审判庭 (HAB冲击与Power Law共振版)】
+        捕捉领域健康度的突发剧烈偏转，结合历史极值上下文施加非线性引爆。
         """
         domain_name = config.get('domain_name', '未知领域')
         output_bottom_name = config.get('output_bottom_reversal_name')
         output_top_name = config.get('output_top_reversal_name')
-        # 计算核心变量
+        df_index = df.index
+        # 1. 微积分位移与HAB存量冲击
         health_yesterday = bipolar_domain_health.shift(1).fillna(0)
         health_change = bipolar_domain_health.diff(1).fillna(0)
-        # 底部反转神谕
-        bottom_context_factor = (1 - health_yesterday).clip(0, 2) # 情境调节器：昨日越差，反转越有价值
-        bottom_reversal_raw = health_change.clip(lower=0) * bottom_context_factor
-        bottom_reversal_score = bottom_reversal_raw.clip(0, 1) # 直接裁剪，其值已具意义
-        # 顶部反转神谕
-        top_context_factor = (1 + health_yesterday).clip(0, 2) # 情境调节器：昨日越好，反转越危险
-        top_reversal_raw = health_change.clip(upper=0).abs() * top_context_factor
-        top_reversal_score = top_reversal_raw.clip(0, 1) # 直接裁剪
-        # [删除] 移除所有“究极探针”调试代码
+        # 利用HAB系统评估健康度突变的绝对震撼力
+        shock = self._apply_hab_shock(health_change, window=13)
+        # 2. 底部反转神谕 (由死地而后生)
+        # 情境调节器：昨日越深陷泥潭(-1)，今日的触底反击越具爆发力 (最大为2.0)
+        bottom_context = (1.0 - health_yesterday).clip(0, 2.0)
+        bottom_shock = shock.clip(lower=0)
+        # Power Law非线性增益，奖励极端突变
+        bottom_reversal_raw = (bottom_shock * bottom_context) ** 1.5
+        bottom_reversal_score = np.tanh(bottom_reversal_raw).clip(0, 1)
+        # 3. 顶部反转神谕 (盛极必衰)
+        # 情境调节器：昨日越处于巅峰(+1)，今日的断头铡刀越危险 (最大为2.0)
+        top_context = (1.0 + health_yesterday).clip(0, 2.0)
+        top_shock = shock.clip(upper=0).abs()
+        top_reversal_raw = (top_shock * top_context) ** 1.5
+        top_reversal_score = np.tanh(top_reversal_raw).clip(0, 1)
+        # 4. 全息探针追猎
+        self._probe_variables(
+            method_name=f"_judge_domain_reversal ({domain_name})", 
+            df_index=df_index, 
+            raw_inputs={'bipolar_domain_health': bipolar_domain_health}, 
+            calc_nodes={'health_change': health_change, 'shock': shock, 'bottom_context': bottom_context, 'top_context': top_context}, 
+            final_result=bottom_reversal_score
+        )
         return {
             output_bottom_name: bottom_reversal_score.astype(np.float32),
             output_top_name: top_reversal_score.astype(np.float32)
@@ -808,7 +833,6 @@ class ProcessIntelligence:
         结合 HAB 存量冲击系统与 Power Law 指数增强构建非线性突破张量矩阵。
         """
         method_name = "_calculate_breakout_acceleration"
-        
         # 已剔除 breakout_confidence_D，全面对齐军械库清单特征
         required_signals = [
             'breakout_quality_score_D', 'industry_strength_rank_D', 'net_mf_amount_D', 
@@ -817,7 +841,6 @@ class ProcessIntelligence:
         ]
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        
         # 1. 基础矩阵数据挂载
         breakout = self._get_safe_series(df, 'breakout_quality_score_D', method_name=method_name)
         industry = self._get_safe_series(df, 'industry_strength_rank_D', method_name=method_name)
@@ -825,25 +848,19 @@ class ProcessIntelligence:
         consistency = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
         abnormal_vol = self._get_safe_series(df, 'tick_abnormal_volume_ratio_D', method_name=method_name)
         uptrend = self._get_safe_series(df, 'uptrend_strength_D', method_name=method_name)
-        
         # 2. 运动学微积分张量提取 (内置防零基陷阱门限)
         kinematics_brk = self._get_kinematic_tensor(df, 'breakout_quality_score_D', 13, method_name)
         kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 13, method_name)
-        
         # 3. HAB 存量冲击测算与非线性 Power Law 引爆
         mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
         mf_power = np.sign(mf_shock) * (np.abs(mf_shock) ** 1.5)
-        
         ind_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(industry, 55)))
         abnorm_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(abnormal_vol, 21)))
-        
         # 4. 张量聚合与催化共振
         base_tensor = breakout * ind_norm * (1.0 + mf_power.clip(lower=0))
         catalyst = (consistency * abnorm_norm * uptrend) ** 1.5
-        
         raw_score = base_tensor * catalyst * (1.0 + kinematics_brk.clip(lower=0) + kinematics_mf.clip(lower=0))
         final_score = np.tanh(raw_score).clip(0, 1).astype(np.float32)
-        
         # 5. 全息探针数据注入
         self._probe_variables(
             method_name=method_name, 
@@ -852,7 +869,6 @@ class ProcessIntelligence:
             calc_nodes={'kinematics_brk': kinematics_brk, 'mf_power': mf_power, 'catalyst': catalyst, 'raw_score': raw_score}, 
             final_result=final_score
         )
-        
         return final_score
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
