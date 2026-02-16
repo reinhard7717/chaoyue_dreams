@@ -896,27 +896,24 @@
                 "task_type": "base",
                 "diagnosis_mode": "direct_confirmation",
                 "scoring_mode": "bipolar",
-                "description": "【V5.0.0 · 终极相空间背离物理引擎版】诊断价格趋势与动量趋势的双极性背离(正分顶背离，负分底背离)。彻底解决0-100量纲坍塌灾难。挂载高阶运动学、HAB历史存量提取、环境感知极化与底层反身性免疫，在异常背离点执行动态Gamma极化。",
+                "description": "【V15.0.0 · 相空间流形背离引擎】诊断价格趋势位移与动能张量的多维非线性背离。集成几何回归斜率、能量熵增与运动学加速度校验，实施动态Gamma极化。正分代表顶背离预警，负分代表底背离机会。",
                 "price_momentum_divergence_params": {
-                    "phase_space_params": {
-                        "velocity_weight": 0.6,
-                        "acceleration_weight": 0.4,
-                        "angular_sensitivity": 1.5
+                    "kinematic_weights": {
+                        "price_velocity_decay": 0.4,
+                        "momentum_acceleration_climax": 0.3,
+                        "velocity_phase_mismatch": 0.3
                     },
-                    "arsenal_native_divergence_weights": {
-                        "percent_change_divergence_D": 0.3,
-                        "divergence_strength_D": 0.3,
-                        "net_migration_direction_D": 0.2,
-                        "pressure_release_index_D": 0.1,
-                        "inflow_persistence_D": 0.1
+                    "energy_structure_weights": {
+                        "vpa_efficiency_hollowness": 0.5,
+                        "price_entropy_inflation": 0.5
                     },
-                    "dqwm_weights": {
-                        "momentum_quality": 0.25,
-                        "market_tension": 0.25,
-                        "stability": 0.25,
-                        "chip_potential": 0.25
+                    "geometric_validation_weights": {
+                        "geom_slope_divergence": 0.6,
+                        "r2_confidence_gating": 0.4
                     },
-                    "final_fusion_exponent": 1.5
+                    "sentiment_polarization_factor": 1.2,
+                    "tensor_folding_power": 1.8,
+                    "probe_enabled": true
                 }
             },
             {

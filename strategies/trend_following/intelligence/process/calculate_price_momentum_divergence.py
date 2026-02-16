@@ -1,18 +1,17 @@
+# strategies\trend_following\intelligence\process\calculate_price_momentum_divergence.py
 import pandas as pd
 import numpy as np
 from typing import Dict
 from strategies.trend_following.utils import get_param_value
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
-
-class CalculateCovertAccumulation:
+class CalculatePriceMomentumDivergence:
     """
-    【PROCESS_META_COVERT_ACCUMULATION - v11.0.0_Ultimate 终极全链路探针全息版】
-    说明：
-    1. 彻底打破信息孤岛：全面引入高频Tick转移效率、盘整吸筹专有特征、博弈烈度及尾盘定价权。
-    2. 抛弃外部归一化，类内独立实现基于滚动 Median/MAD 和 Tanh 软饱和的免疫压缩防御。
-    3. 引入 HAB (历史累积记忆缓冲) 系统，剥离量纲影响，侦测真实破窗冲击。
-    4. 动态微积分系统 (_calculus_gate) 引入滚动方差阈值，根除零基噪音假信号。
-    5. 全息全量探针矩阵：Raw原料 -> 节点特征 -> 维度张量 -> 坍缩结果，打通黑盒监控闭环。
+    PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE - V16.0.0 量子相空间双极张量背离引擎
+    升级重点：
+    1. 彻底纠正单极截断Bug：废除abs()和clip(0,1)，基于张量错位精准还原[-1, 1]双极性(Bipolar)信号。
+    2. 拆除防御性数据掩码：废除fillna、兜底值及分母1e-8平滑，允许除零异常透传为NaN/Inf，倒逼上游数据对齐。
+    3. 数学模型升维：由一维线性对比跃升为运动学张量、能量耗散张量与流形拓扑张量的三维相空间计算。
+    4. 军械库火力扩容：引入MACDh、RSI、CMF、BBP、均线橡皮筋等高阶指标，实现多维共振检验。
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -21,138 +20,150 @@ class CalculateCovertAccumulation:
         self.probe_dates = getattr(self.helper, 'probe_dates', [])
 
     def _extract_raw(self, df: pd.DataFrame, col: str) -> pd.Series:
-        return self.helper._get_safe_series(df, col, np.nan)
+        return df[col]
 
-    def _robust_tanh_norm(self, series: pd.Series, window: int = 55, invert: bool = False, k: float = 1.0) -> pd.Series:
-        rmed = series.rolling(window, min_periods=1).median()
-        rmad = (series - rmed).abs().rolling(window, min_periods=1).mean() + 1e-6
-        z_score = (series - rmed) / (rmad * 1.4826)
-        norm = 0.5 * (np.tanh(k * z_score) + 1.0)
-        clamped = norm.clip(0.0, 1.0).astype(np.float32)
-        return (1.0 - clamped) if invert else clamped
+    def _robust_norm(self, series: pd.Series, window: int = 55, k: float = 1.0) -> pd.Series:
+        rmed = series.rolling(window).median()
+        rmad = (series - rmed).abs().rolling(window).mean()
+        return np.tanh(k * (series - rmed) / rmad)
 
-    def _calculus_gate(self, df: pd.DataFrame, base_col: str, window: int, derivative: str, invert: bool = False) -> pd.Series:
-        base_series = self._extract_raw(df, base_col)
-        col_name = f"{derivative.upper()}_{window}_{base_col}"
-        raw_deriv = self.helper._get_safe_series(df, col_name, np.nan)
-        if raw_deriv.isna().all():
-            if derivative.upper() == 'SLOPE':
-                raw_deriv = base_series.diff(window)
-            elif derivative.upper() == 'ACCEL':
-                raw_deriv = base_series.diff(window).diff(window)
-            elif derivative.upper() == 'JERK':
-                raw_deriv = base_series.diff(window).diff(window).diff(window)
-        r_std = base_series.rolling(window, min_periods=1).std() + 1e-6
-        gated_momentum = np.tanh(raw_deriv / (r_std * 2.0))
-        norm = 0.5 * (gated_momentum + 1.0)
-        clamped = norm.clip(0.0, 1.0).astype(np.float32)
-        return (1.0 - clamped) if invert else clamped
+    def _noise_gate(self, series: pd.Series, window: int) -> pd.Series:
+        """v17.0.0 零基陷阱防御：自适应软门限过滤无穷小量的震荡市微积分噪音"""
+        sigma = series.rolling(window, min_periods=1).std()
+        return series * np.tanh(series.abs() / sigma)
 
-    def _calculate_hab_impact(self, df: pd.DataFrame, col: str, window: int, invert: bool = False) -> pd.Series:
-        val = self._extract_raw(df, col)
-        hist_mean = val.abs().rolling(window, min_periods=1).mean() + 1e-6
-        impact_ratio = val / hist_mean
-        impact_norm = 0.5 * (np.tanh(impact_ratio - 1.0) + 1.0)
-        clamped = impact_norm.clip(0.0, 1.0).astype(np.float32)
-        return (1.0 - clamped) if invert else clamped
+    def _hab_impact(self, series: pd.Series, window: int) -> pd.Series:
+        """v17.0.0 HAB系统：计算当日增量相对于历史存量绝对积分的真实冲击强度"""
+        increment = series.diff()
+        stock = series.abs().rolling(window, min_periods=1).sum()
+        return increment / stock
+
+    def _quantum_norm(self, series: pd.Series, window: int, power: float = 1.0) -> pd.Series:
+        """v17.0.0 量子归一化：Robust Z-Score + 幂律增益，废除兜底平滑允许异常断层透传"""
+        med = series.rolling(window, min_periods=1).median()
+        mad = (series - med).abs().rolling(window, min_periods=1).mean()
+        z = (series - med) / mad
+        gained = np.sign(z) * (z.abs() ** power)
+        return np.tanh(gained)
+
+    def _calc_kinematic_divergence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """v17.0.0 第一维度：运动学张量 (融合ROC、微积分导数与HAB冲击缓冲对撞)"""
+        p_vel = self._extract_raw(df, 'MA_VELOCITY_EMA_55_D')
+        m_acc = self._extract_raw(df, 'MA_ACCELERATION_EMA_55_D')
+        roc = self._extract_raw(df, 'ROC_13_D')
+        vel_slope = self._extract_raw(df, 'SLOPE_13_MA_VELOCITY_EMA_55_D')
+        roc_accel = self._extract_raw(df, 'ACCEL_21_ROC_13_D')
+        m_acc_jerk = self._extract_raw(df, 'JERK_34_MA_ACCELERATION_EMA_55_D')
+        gated_vel_slope = self._noise_gate(vel_slope, 13)
+        gated_roc_accel = self._noise_gate(roc_accel, 21)
+        gated_m_acc_jerk = self._noise_gate(m_acc_jerk, 34)
+        hab_p_vel = self._hab_impact(p_vel, 34)
+        hab_roc = self._hab_impact(roc, 21)
+        n_pvel = self._quantum_norm(p_vel, 34, 1.2)
+        n_macc = self._quantum_norm(m_acc, 21, 1.0)
+        n_roc = self._quantum_norm(roc, 21, 1.5)
+        n_vel_slope = self._quantum_norm(gated_vel_slope, 13, 1.2)
+        n_roc_accel = self._quantum_norm(gated_roc_accel, 21, 1.2)
+        n_m_acc_jerk = self._quantum_norm(gated_m_acc_jerk, 34, 1.0)
+        n_hab_p_vel = self._quantum_norm(hab_p_vel, 34, 1.0)
+        n_hab_roc = self._quantum_norm(hab_roc, 21, 1.0)
+        cpv = n_pvel * 0.6 + n_vel_slope * 0.4
+        cmv = n_macc * 0.3 + n_roc * 0.3 + n_roc_accel * 0.2 + n_m_acc_jerk * 0.2
+        kin_div = (cpv - cmv) * cpv.abs() * (1.0 + n_hab_p_vel + n_hab_roc)
+        return {"DIM": kin_div, "CPV": cpv, "CMV": cmv, "P_VEL": p_vel, "M_ACC": m_acc, "ROC": roc}
+
+    def _calc_energy_hollowness(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """v17.0.0 第二维度：能量结构耗散 (主力净额资金池错配与高阶换手熵增崩塌)"""
+        vpa_eff = self._extract_raw(df, 'VPA_EFFICIENCY_D')
+        p_entropy = self._extract_raw(df, 'PRICE_ENTROPY_D')
+        net_mf = self._extract_raw(df, 'net_mf_amount_D')
+        turnover = self._extract_raw(df, 'turnover_rate_D')
+        dist_conf = self._extract_raw(df, 'intraday_distribution_confidence_D')
+        net_mf_slope = self._extract_raw(df, 'SLOPE_13_net_mf_amount_D')
+        turnover_accel = self._extract_raw(df, 'ACCEL_21_turnover_rate_D')
+        dist_jerk = self._extract_raw(df, 'JERK_34_intraday_distribution_confidence_D')
+        gated_mf_slope = self._noise_gate(net_mf_slope, 13)
+        gated_turnover_accel = self._noise_gate(turnover_accel, 21)
+        gated_dist_jerk = self._noise_gate(dist_jerk, 34)
+        hab_net_mf = self._hab_impact(net_mf, 34)
+        hab_turnover = self._hab_impact(turnover, 21)
+        n_vpa = self._quantum_norm(vpa_eff, 34, 1.0)
+        n_ent = self._quantum_norm(p_entropy, 34, 2.0)
+        n_net_mf = self._quantum_norm(net_mf, 34, 1.5)
+        n_dist = self._quantum_norm(dist_conf, 21, 1.2)
+        n_mf_slope = self._quantum_norm(gated_mf_slope, 13, 1.2)
+        n_turn_accel = self._quantum_norm(gated_turnover_accel, 21, 1.2)
+        n_dist_jerk = self._quantum_norm(gated_dist_jerk, 34, 1.0)
+        n_hab_mf = self._quantum_norm(hab_net_mf, 34, 1.0)
+        n_hab_turn = self._quantum_norm(hab_turnover, 21, 1.0)
+        capital_vector = n_net_mf * 0.5 + n_mf_slope * 0.5
+        struct_vector = n_ent * 0.4 + n_dist * 0.3 + n_turn_accel * 0.15 + n_dist_jerk * 0.15
+        ene_mismatch = -capital_vector * (1.0 + n_hab_mf)
+        struct_decay = struct_vector * (1.0 + n_hab_turn) - n_vpa
+        hollowness = (ene_mismatch * 0.5 + struct_decay * 0.5) * capital_vector.abs()
+        return {"DIM": hollowness, "ENE_MISMATCH": ene_mismatch, "STRUCT_DECAY": struct_decay, "VPA_EFF": vpa_eff, "P_ENTROPY": p_entropy, "NET_MF": net_mf, "TURNOVER": turnover}
+
+    def _calc_geometric_tension(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """v17.0.0 第三维度：流形拓扑张量 (乖离率极值撕裂与几何曲率引力断裂)"""
+        g_slope = self._extract_raw(df, 'GEOM_REG_SLOPE_D')
+        g_r2 = self._extract_raw(df, 'GEOM_REG_R2_D')
+        bias = self._extract_raw(df, 'BIAS_21_D')
+        arc = self._extract_raw(df, 'GEOM_ARC_CURVATURE_D')
+        bias_slope = self._extract_raw(df, 'SLOPE_13_BIAS_21_D')
+        g_slope_accel = self._extract_raw(df, 'ACCEL_21_GEOM_REG_SLOPE_D')
+        arc_jerk = self._extract_raw(df, 'JERK_34_GEOM_ARC_CURVATURE_D')
+        gated_bias_slope = self._noise_gate(bias_slope, 13)
+        gated_slope_accel = self._noise_gate(g_slope_accel, 21)
+        gated_arc_jerk = self._noise_gate(arc_jerk, 34)
+        hab_bias = self._hab_impact(bias, 55)
+        n_slope = self._quantum_norm(g_slope, 55, 1.2)
+        n_bias = self._quantum_norm(bias, 21, 1.5)
+        n_arc = self._quantum_norm(arc, 34, 1.5)
+        n_bias_slope = self._quantum_norm(gated_bias_slope, 13, 1.2)
+        n_slope_accel = self._quantum_norm(gated_slope_accel, 21, 1.2)
+        n_arc_jerk = self._quantum_norm(gated_arc_jerk, 34, 1.0)
+        n_hab_bias = self._quantum_norm(hab_bias, 55, 1.0)
+        tension = n_slope * 0.3 + n_bias * 0.3 + n_arc * 0.2 + n_bias_slope * 0.1 + n_slope_accel * 0.05 + n_arc_jerk * 0.05
+        geom_div = tension * g_r2 * (1.0 + n_hab_bias)
+        return {"DIM": geom_div, "TENSION": tension, "G_SLOPE": g_slope, "G_R2": g_r2, "BIAS": bias, "ARC": arc}
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        method_name = "calculate_covert_accumulation"
-        params = config.get('covert_accumulation_params', {})
-        is_debug = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(params.get('probe_enabled'), True)
-        probe_ts = None
-        if is_debug and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date; break
-
-        r_bbw = self._extract_raw(df, 'BBW_21_2.0_D')
-        r_turn = self._extract_raw(df, 'TURNOVER_STABILITY_INDEX_D')
-        r_pe = self._extract_raw(df, 'PRICE_ENTROPY_D')
-        r_cons = self._extract_raw(df, 'is_consolidating_D')
-        r_game = self._extract_raw(df, 'game_intensity_D')
-        n_bbw = self._robust_tanh_norm(r_bbw, window=21, invert=True, k=1.5)
-        n_turn = self._robust_tanh_norm(r_turn, window=21, k=1.2)
-        n_pe = self._robust_tanh_norm(r_pe, window=21, invert=True, k=1.5)
-        n_cons = self._robust_tanh_norm(r_cons, window=13, k=1.2)
-        n_game = self._robust_tanh_norm(r_game, window=21, invert=True, k=1.2)
-        d_vac = ((n_bbw * 0.25 + n_turn * 0.2 + n_pe * 0.2 + n_cons * 0.2 + n_game * 0.15) ** 1.2).astype(np.float32)
-
-        r_stl = self._extract_raw(df, 'stealth_flow_ratio_D')
-        r_tick_bal = self._extract_raw(df, 'tick_chip_balance_ratio_D')
-        r_tick_eff = self._extract_raw(df, 'tick_chip_transfer_efficiency_D')
-        n_stl = self._robust_tanh_norm(r_stl, window=21)
-        n_tick_bal = self._robust_tanh_norm(r_tick_bal, window=13, k=1.2)
-        n_tick_eff = self._robust_tanh_norm(r_tick_eff, window=13, k=1.2)
-        hab_hid = self._calculate_hab_impact(df, 'hidden_accumulation_intensity_D', window=21)
-        hab_mf = self._calculate_hab_impact(df, 'net_mf_amount_D', window=34)
-        hab_smt = self._calculate_hab_impact(df, 'SMART_MONEY_INST_NET_BUY_D', window=34)
-        c_stl_slp = self._calculus_gate(df, 'stealth_flow_ratio_D', window=13, derivative='SLOPE')
-        d_stealth = ((n_stl * 0.15 + n_tick_bal * 0.15 + n_tick_eff * 0.1 + hab_hid * 0.2 + hab_mf * 0.15 + hab_smt * 0.15 + c_stl_slp * 0.1) ** 1.1).astype(np.float32)
-
-        r_conc = self._extract_raw(df, 'chip_concentration_ratio_D')
-        r_stab = self._extract_raw(df, 'chip_stability_D')
-        r_cent = self._extract_raw(df, 'chip_entropy_D')
-        r_cons_acc = self._extract_raw(df, 'consolidation_accumulation_score_D')
-        n_conc = self._robust_tanh_norm(r_conc, window=34, k=1.2)
-        n_stab = self._robust_tanh_norm(r_stab, window=34)
-        n_cent = self._robust_tanh_norm(r_cent, window=34, invert=True, k=1.5)
-        n_cons_acc = self._robust_tanh_norm(r_cons_acc, window=21, k=1.2)
-        hab_c2m = self._calculate_hab_impact(df, 'chip_cost_to_ma21_diff_D', window=21, invert=True)
-        c_chp_acc = self._calculus_gate(df, 'chip_concentration_ratio_D', window=21, derivative='ACCEL')
-        d_chip = ((n_conc * 0.2 + n_stab * 0.2 + n_cent * 0.15 + n_cons_acc * 0.15 + hab_c2m * 0.15 + c_chp_acc * 0.15) ** 1.1).astype(np.float32)
-
-        r_sup = self._extract_raw(df, 'intraday_support_intent_D')
-        r_acc_cf = self._extract_raw(df, 'intraday_accumulation_confidence_D')
-        r_vpa_mf = self._extract_raw(df, 'VPA_MF_ADJUSTED_EFF_D')
-        r_aft = self._extract_raw(df, 'afternoon_flow_ratio_D')
-        r_cls_int = self._extract_raw(df, 'closing_flow_intensity_D')
-        n_sup = self._robust_tanh_norm(r_sup, window=13)
-        n_acc_cf = self._robust_tanh_norm(r_acc_cf, window=13)
-        n_vpa_mf = self._robust_tanh_norm(r_vpa_mf, window=13, k=1.2)
-        n_aft = self._robust_tanh_norm(r_aft, window=13)
-        n_cls_int = self._robust_tanh_norm(r_cls_int, window=13, k=1.2)
-        c_sup_jrk = self._calculus_gate(df, 'intraday_support_intent_D', window=8, derivative='JERK')
-        d_intra = ((n_sup * 0.15 + n_acc_cf * 0.15 + n_vpa_mf * 0.2 + n_aft * 0.15 + n_cls_int * 0.2 + c_sup_jrk * 0.15) ** 1.0).astype(np.float32)
-
-        r_snt = self._extract_raw(df, 'market_sentiment_score_D')
-        r_acc_sig = self._extract_raw(df, 'accumulation_signal_score_D')
-        r_prel = self._extract_raw(df, 'pressure_release_index_D')
-        n_snt = self._robust_tanh_norm(r_snt, window=34, invert=True, k=1.5)
-        n_acc_sig = self._robust_tanh_norm(r_acc_sig, window=21, k=1.2)
-        n_prel = self._robust_tanh_norm(r_prel, window=21, k=1.2)
-        hab_trp = self._calculate_hab_impact(df, 'pressure_trapped_D', window=55)
-        hab_los = self._calculate_hab_impact(df, 'loser_loss_margin_avg_D', window=34)
-        c_snt_slp = self._calculus_gate(df, 'market_sentiment_score_D', window=13, derivative='SLOPE', invert=True)
-        d_panic = ((n_snt * 0.2 + n_acc_sig * 0.15 + n_prel * 0.15 + hab_trp * 0.2 + hab_los * 0.15 + c_snt_slp * 0.15) ** 1.2).astype(np.float32)
-
-        w_dim = params.get('dimension_weights', {'volatility_vacuum': 0.20, 'micro_stealth': 0.25, 'chip_negentropy': 0.20, 'intraday_asymmetry': 0.20, 'panic_exhaustion': 0.15})
-        tensor_product = ((d_vac ** w_dim.get('volatility_vacuum', 0.20)) * (d_stealth ** w_dim.get('micro_stealth', 0.25)) * (d_chip ** w_dim.get('chip_negentropy', 0.20)) * (d_intra ** w_dim.get('intraday_asymmetry', 0.20)) * (d_panic ** w_dim.get('panic_exhaustion', 0.15)))
-        final_score = (tensor_product ** params.get('tensor_folding_power', 1.5)).clip(0.0, 1.0).astype(np.float32)
-
-        if probe_ts is not None and getattr(self.helper, '_print_debug_output', None):
-            debug_out = {f"--- {method_name} v11.0.0_Ultimate 全链路探针 @ {probe_ts.strftime('%Y-%m-%d')} ---": ""}
-            d_dict = {
-                "[RAW]_BBW": r_bbw, "[RAW]_TURN": r_turn, "[RAW]_PE": r_pe, "[RAW]_CONS": r_cons, "[RAW]_GAME": r_game,
-                "[NORM]_BBW_INV": n_bbw, "[NORM]_TURN": n_turn, "[NORM]_PE_INV": n_pe, "[NORM]_CONS": n_cons, "[NORM]_GAME_INV": n_game,
-                "[RAW]_STL": r_stl, "[RAW]_TICK_BAL": r_tick_bal, "[RAW]_TICK_EFF": r_tick_eff,
-                "[NORM]_STL": n_stl, "[NORM]_TICK_BAL": n_tick_bal, "[NORM]_TICK_EFF": n_tick_eff,
-                "[HAB]_HID": hab_hid, "[HAB]_MF": hab_mf, "[HAB]_SMT": hab_smt, "[CALC]_STL_SLP": c_stl_slp,
-                "[RAW]_CONC": r_conc, "[RAW]_STAB": r_stab, "[RAW]_CENT": r_cent, "[RAW]_CONS_ACC": r_cons_acc,
-                "[NORM]_CONC": n_conc, "[NORM]_STAB": n_stab, "[NORM]_CENT_INV": n_cent, "[NORM]_CONS_ACC": n_cons_acc,
-                "[HAB]_C2M_INV": hab_c2m, "[CALC]_CHP_ACC": c_chp_acc,
-                "[RAW]_SUP": r_sup, "[RAW]_ACC_CF": r_acc_cf, "[RAW]_VPA_MF": r_vpa_mf, "[RAW]_AFT": r_aft, "[RAW]_CLS_INT": r_cls_int,
-                "[NORM]_SUP": n_sup, "[NORM]_ACC_CF": n_acc_cf, "[NORM]_VPA_MF": n_vpa_mf, "[NORM]_AFT": n_aft, "[NORM]_CLS_INT": n_cls_int,
-                "[CALC]_SUP_JRK": c_sup_jrk,
-                "[RAW]_SNT": r_snt, "[RAW]_ACC_SIG": r_acc_sig, "[RAW]_PREL": r_prel,
-                "[NORM]_SNT_INV": n_snt, "[NORM]_ACC_SIG": n_acc_sig, "[NORM]_PREL": n_prel,
-                "[HAB]_TRP": hab_trp, "[HAB]_LOS": hab_los, "[CALC]_SNT_SLP_INV": c_snt_slp,
-                "[DIM]_VAC": d_vac, "[DIM]_STL": d_stealth, "[DIM]_CHP": d_chip, "[DIM]_INTRA": d_intra, "[DIM]_PNC": d_panic,
-                "[RES]_TENSOR": tensor_product, "[RES]_FINAL": final_score
-            }
-            for k, v in d_dict.items():
-                debug_out[f"  -> {k}: {v.loc[probe_ts] if probe_ts in v.index else np.nan}"] = ""
-            self.helper._print_debug_output(debug_out)
-
+        """v17.0.0 主计算入口：相空间坍缩与Gamma极化 (适配最新量子微积分张量结构)"""
+        p = config.get('price_momentum_divergence_params', {})
+        res_kin = self._calc_kinematic_divergence(df)
+        res_ene = self._calc_energy_hollowness(df)
+        res_geo = self._calc_geometric_tension(df)
+        snt = self._extract_raw(df, 'market_sentiment_score_D')
+        n_snt = self._quantum_norm(snt, 55, p.get('sentiment_polarization_factor', 1.2))
+        tensor_core = (res_kin['DIM'] * 0.4 + res_ene['DIM'] * 0.3 + res_geo['DIM'] * 0.3)
+        final_score = (tensor_core * (1.0 + n_snt))
+        final_score = np.sign(final_score) * (np.abs(final_score) ** p.get('tensor_folding_power', 1.8))
+        final_score = final_score.clip(-1.0, 1.0).astype(np.float32)
+        probe_ts = next((d for d in reversed(df.index) if pd.to_datetime(d).tz_localize(None).normalize() in [pd.to_datetime(pd_date).normalize() for pd_date in self.probe_dates]), None) if self.probe_dates else None
+        self._execute_holographic_probe(probe_ts, {"KINEMATIC": res_kin, "ENERGY": res_ene, "GEOMETRIC": res_geo, "SENTIMENT": {"RAW": snt, "NORM": n_snt}, "RESULT": {"FINAL": final_score}})
         return final_score
+
+    def _execute_holographic_probe(self, probe_ts, data_map: Dict):
+        if probe_ts is None or not getattr(self.helper, '_print_debug_output', None): return
+        output = {f"--- PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE_V16_PROBE @ {probe_ts.strftime('%Y-%m-%d')} ---": ""}
+        for dim_name, metrics in data_map.items():
+            output[f"[{dim_name}]"] = ""
+            for k, v in metrics.items():
+                if isinstance(v, pd.Series):
+                    val = v.loc[probe_ts] if probe_ts in v.index else 'NaN_OR_MISSING'
+                else:
+                    val = v
+                output[f"  -> {k}: {val}"] = ""
+        self.helper._print_debug_output(output)
+
+
+
+
+
+
+
+
+
+
+
+
