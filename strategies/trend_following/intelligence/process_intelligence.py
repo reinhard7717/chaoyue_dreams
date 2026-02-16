@@ -70,130 +70,122 @@ class ProcessIntelligence:
             else:
                 print(key)
 
-    def _get_safe_series(self, df: pd.DataFrame, col_name: str, default_value: float = 0.0, method_name: str = "") -> pd.Series:
+    def _probe_variables(self, method_name: str, df_index: pd.Index, raw_inputs: Dict[str, pd.Series], calc_nodes: Dict[str, pd.Series], final_result: pd.Series):
         """
-        安全地从DataFrame中获取Series，如果列不存在或值为NaN，则填充默认值。
-        V11.0: 针对特定信号，当其值为NaN时，提供更具业务含义的默认值（例如0.5表示中性），
-               以适配normalize_score和normalize_to_bipolar的归一化逻辑。
-               neutral_nan_defaults 字典已提取到配置中。
+        【V2.0.0 · 全息探针诊断】
+        统一管理调试探针，直接暴露所有原料、计算节点和结果的值，拒绝掩盖。
         """
-        # 从配置中获取 neutral_nan_defaults 字典
-        # 假设 self 是 Strategy 实例，或者 self.strategy 是 Strategy 实例
-        # get_params_block 函数需要一个 strategy_instance 参数
-        # 如果 _get_safe_series 是 Strategy 类的方法，那么 self 就是 strategy_instance
-        # 如果 _get_safe_series 是一个辅助类的方法，且该辅助类持有 Strategy 实例的引用 self.strategy
-        # 那么这里应该传入 self.strategy
-        # 根据上下文，_calculate_main_force_rally_intent 是 Strategy 类的方法，它调用 self._get_safe_series
-        # 所以 _get_safe_series 也是 Strategy 类的方法，可以直接传入 self
-        process_params = get_params_block(self, 'process_intelligence_params', {})
-        neutral_nan_defaults = process_params.get('neutral_nan_defaults', {})
-        # 检查是否为需要特殊默认值的信号
-        current_default_value = neutral_nan_defaults.get(col_name, default_value)
+        is_debug=get_param_value(self.debug_params.get('enabled'),False) and get_param_value(self.debug_params.get('should_probe'),False)
+        if not is_debug or not self.probe_dates:
+            return
+        probe_dates_dt=[pd.to_datetime(d).tz_localize(None).normalize() for d in self.probe_dates]
+        for date in reversed(df_index):
+            if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+                debug_output={f"--- {method_name} 全息探针 @ {date.strftime('%Y-%m-%d')} ---": ""}
+                debug_output["[原料数据]"]=""
+                for k,v in raw_inputs.items():
+                    val=v.loc[date] if date in v.index else np.nan
+                    debug_output[f"  -> {k}: {val:.4f}" if isinstance(val,(float,np.float32,np.float64)) else f"  -> {k}: {val}"]=""
+                debug_output["[计算节点]"]=""
+                for k,v in calc_nodes.items():
+                    val=v.loc[date] if date in v.index else np.nan
+                    debug_output[f"  -> {k}: {val:.4f}" if isinstance(val,(float,np.float32,np.float64)) else f"  -> {k}: {val}"]=""
+                final_val=final_result.loc[date] if date in final_result.index else np.nan
+                debug_output["[最终结果]"]=f"  -> OUTPUT: {final_val:.4f}"
+                self._print_debug_output(debug_output)
+                break
+
+    def _get_safe_series(self, df: pd.DataFrame, col_name: str, default_value: float = np.nan, method_name: str = "") -> pd.Series:
+        """
+        【V12.0.0 · 零防御暴露版】
+        移除原本默认的 fillna 操作，直接返回原始 Series。如果列完全不存在，则强制抛出异常以暴露数据层断层问题。
+        """
         if col_name not in df.columns:
-            # print(f"  [警告] {method_name}: 列 '{col_name}' 不存在，使用默认值 {current_default_value}")
-            return pd.Series(current_default_value, index=df.index, dtype=np.float32)
-        series = df[col_name].astype(np.float32)
-        # 填充NaN值
-        return series.fillna(current_default_value)
+            raise ValueError(f"[{method_name}] 致命数据断层: 缺失必需特征列 '{col_name}'，拒绝进行防御性静默填充。")
+        return df[col_name].astype(np.float32)
 
     def _get_mtf_slope_accel_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights_config: Dict, df_index: pd.Index, method_name: str, ascending: bool = True, bipolar: bool = False) -> pd.Series:
-        """
-        【V1.1 · 统一归一化调用版】计算多时间框架斜率和加速度的融合分数。
-        - 核心修正: 统一调用 `_normalize_series` 进行归一化，利用其多时间框架加权能力。
-        """
-        slope_periods_weights = get_param_value(mtf_weights_config.get('slope_periods'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
-        accel_periods_weights = get_param_value(mtf_weights_config.get('accel_periods'), {"5": 0.6, "13": 0.4})
-        all_scores_components = []
-        total_combined_weight = 0.0
-        # 处理斜率
-        for period_str, weight in slope_periods_weights.items():
-            period = int(period_str)
-            slope_col = f'SLOPE_{period}_{base_signal_name}'
-            slope_raw = self._get_safe_series(df, slope_col, np.nan, method_name=method_name)
-            if slope_raw.isnull().all():
-                continue
-            # 使用 _normalize_series 进行归一化，它会处理多时间框架的加权
-            norm_score = self._normalize_series(slope_raw, df_index, bipolar=bipolar, ascending=ascending)
-            all_scores_components.append(norm_score * weight)
-            total_combined_weight += weight
-        # 处理加速度
-        for period_str, weight in accel_periods_weights.items():
-            period = int(period_str)
-            accel_col = f'ACCEL_{period}_{base_signal_name}'
-            accel_raw = self._get_safe_series(df, accel_col, np.nan, method_name=method_name)
-            if accel_raw.isnull().all():
-                continue
-            # 使用 _normalize_series 进行归一化
-            norm_score = self._normalize_series(accel_raw, df_index, bipolar=bipolar, ascending=ascending)
-            all_scores_components.append(norm_score * weight)
-            total_combined_weight += weight
-        if not all_scores_components or total_combined_weight == 0:
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
-        fused_score = sum(all_scores_components) / total_combined_weight
-        return fused_score.clip(0, 1) if not bipolar else fused_score.clip(-1, 1)
+        """【V4.0.0 · MTF动态张量版】取代统一归一化，为多时间框架斜率和加速度提供定制的物理张量映射。"""
+        slope_periods_weights=get_param_value(mtf_weights_config.get('slope_periods'),{"5":0.4,"13":0.3,"21":0.2,"34":0.1})
+        accel_periods_weights=get_param_value(mtf_weights_config.get('accel_periods'),{"5":0.6,"13":0.4})
+        all_scores_components=[]
+        total_combined_weight=0.0
+        def _process_kinematic(col_name:str,weight:float,period:int):
+            if col_name not in df.columns:
+                return 0.0,0.0
+            raw_series=df[col_name].astype(np.float32)
+            if raw_series.isnull().all():
+                return 0.0,0.0
+            gated=np.where(np.abs(raw_series)<1e-4,0.0,raw_series)
+            hab_window=max(21,period*2)
+            shock=self._apply_hab_shock(pd.Series(gated,index=df_index),window=hab_window)
+            norm_score=np.tanh(shock)
+            if not ascending:
+                norm_score=-norm_score
+            if not bipolar:
+                norm_score=0.5*(1.0+norm_score)
+            return norm_score*weight,weight
+        for period_str,weight in slope_periods_weights.items():
+            period=int(period_str)
+            score,w=_process_kinematic(f'SLOPE_{period}_{base_signal_name}',weight,period)
+            all_scores_components.append(score)
+            total_combined_weight+=w
+        for period_str,weight in accel_periods_weights.items():
+            period=int(period_str)
+            score,w=_process_kinematic(f'ACCEL_{period}_{base_signal_name}',weight,period)
+            all_scores_components.append(score)
+            total_combined_weight+=w
+        if not all_scores_components or total_combined_weight==0:
+            return pd.Series(0.0,index=df_index,dtype=np.float32)
+        fused_score=sum(all_scores_components)/total_combined_weight
+        return fused_score.clip(-1,1).astype(np.float32) if bipolar else fused_score.clip(0,1).astype(np.float32)
 
     def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
-        """
-        【V1.2 · 修复Rolling.std()的axis参数错误】计算多时间框架信号的协同性分数。
-        此方法将对多个基础信号计算其MTF斜率和加速度融合分数，然后评估这些融合分数之间的离散度，
-        离散度越低（即越协同），分数越高。
-        参数:
-            df (pd.DataFrame): 包含所有原始数据的DataFrame。
-            base_signal_names (List[str]): 基础信号名称列表，例如 ['close_D', 'volume_D']。
-            mtf_weights_config (Dict): 包含 'slope_periods' 和 'accel_periods' 权重的配置字典。
-            df_index (pd.Index): DataFrame的索引。
-            method_name (str): 调用此方法的名称，用于日志输出。
-        返回:
-            pd.Series: 融合后的MTF协同性分数。
-        """
-        all_fused_mtf_scores = {}
+        """【V4.0.0 · 逆向张量协同探针版】直接基于多维信号动能矩阵计算标准差，利用逆向Tanh将横向极度离散映射为微观协同。"""
+        all_fused_mtf_scores={}
         for base_signal_name in base_signal_names:
-            # 调用已有的 _get_mtf_slope_accel_score 来获取每个信号的融合MTF分数
-            # Cohesion score should be unipolar, so bipolar=False
-            fused_score = self._get_mtf_slope_accel_score(df, base_signal_name, mtf_weights_config, df_index, method_name, ascending=True, bipolar=False)
-            all_fused_mtf_scores[base_signal_name] = fused_score
+            fused_score=self._get_mtf_slope_accel_score(df,base_signal_name,mtf_weights_config,df_index,method_name,ascending=True,bipolar=False)
+            all_fused_mtf_scores[base_signal_name]=fused_score
         if not all_fused_mtf_scores:
-            return pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 将所有融合分数转换为DataFrame
-        fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
-        # 直接计算每个时间点上（axis=1）不同信号之间的标准差
-        # 然后对这个标准差进行滚动平均，以平滑协同性度量
-        min_periods_std = max(1, int(self.meta_window * 0.5))
-        # 计算每个时间点上，不同信号之间的标准差
-        instant_std = fused_scores_df.std(axis=1)
-        # 对这个标准差进行滚动平均，以获得更平滑的协同性度量
-        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean()
-        # 将标准差转换为协同性分数：标准差越小，分数越高
-        # 确保 smoothed_std 不为0，避免除以零。填充NaN为均值，避免极端值
-        smoothed_std_safe = smoothed_std.replace(0, np.nan).fillna(smoothed_std.mean())
-        cohesion_score = self._normalize_series(smoothed_std_safe, df_index, ascending=False) # 标准差越小，分数越高
-        return cohesion_score.clip(0, 1)
+            return pd.Series(0.0,index=df_index,dtype=np.float32)
+        fused_scores_df=pd.DataFrame(all_fused_mtf_scores,index=df_index)
+        min_periods_std=max(1,int(self.meta_window*0.5))
+        instant_std=fused_scores_df.std(axis=1).fillna(0.0)
+        smoothed_std=instant_std.rolling(window=self.meta_window,min_periods=min_periods_std).mean().fillna(0.0)
+        std_shock=self._apply_hab_shock(smoothed_std,window=34)
+        cohesion_score=0.5*(1.0-np.tanh(std_shock))
+        return cohesion_score.clip(0,1).astype(np.float32)
 
-    def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False, ascending: bool = True) -> pd.Series:
-        """
-        【V1.1 · 统一归一化引擎】
-        - 核心职责: 为类内部提供一个统一的、基于多时间框架自适应归一化的方法。
-        - 核心逻辑: 根据 bipolar 参数，调用 get_adaptive_mtf_normalized_score (单极) 或
-                     get_adaptive_mtf_normalized_bipolar_score (双极) 进行归一化。
-        """
-        # 获取MTF权重配置
-        p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
-        actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        if bipolar:
-            return get_adaptive_mtf_normalized_bipolar_score(
-                series=series,
-                target_index=target_index,
-                tf_weights=actual_mtf_weights,
-                sensitivity=self.bipolar_sensitivity
-            )
-        else:
-            return get_adaptive_mtf_normalized_score(
-                series=series,
-                target_index=target_index,
-                ascending=ascending,
-                tf_weights=actual_mtf_weights
-            )
+    def _get_mtf_slope_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights: Dict, df_index: pd.Index, method_name: str, bipolar: bool = True) -> pd.Series:
+        """【V4.0.0 · 纯斜率非线性动能版】专供单一维度斜率融合。依据局部 HAB 冲击和 Tanh 非线性压缩。"""
+        fused_score=pd.Series(0.0,index=df_index,dtype=np.float32)
+        total_weight=0.0
+        for period_str,weight in mtf_weights.items():
+            try:
+                period=int(period_str)
+            except ValueError:
+                continue
+            col_name=f'SLOPE_{period}_{base_signal_name}'
+            if col_name not in df.columns:
+                continue
+            raw_series=df[col_name].astype(np.float32)
+            if raw_series.isnull().all():
+                continue
+            gated=np.where(np.abs(raw_series)<1e-4,0.0,raw_series)
+            hab_window=max(21,period*2)
+            shock=self._apply_hab_shock(pd.Series(gated,index=df_index),window=hab_window)
+            score=np.tanh(shock)
+            if not bipolar:
+                score=0.5*(1.0+score)
+            fused_score+=score*weight
+            total_weight+=weight
+        if total_weight>0:
+            fused_score=fused_score/total_weight
+        return fused_score.clip(-1,1).astype(np.float32) if bipolar else fused_score.clip(0,1).astype(np.float32)
+
+    def _normalize_series(self, *args, **kwargs):
+        """【V4.0.0 · 核心禁令】统一归一化引擎已彻底废除。禁止调用此方法，各逻辑节点必须内置领域特化的非线性张力映射。"""
+        raise NotImplementedError("致命错误：_normalize_series() 已被废弃，请使用局部 HAB 与 Tanh 映射。")
 
     def _get_atomic_score(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> pd.Series:
         """
@@ -212,16 +204,12 @@ class ProcessIntelligence:
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
         """
-        【V1.0 · 新增】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
-        - 核心职责: 作为“投料前校验”的安全阀，确保所有计算都有可靠的数据基础。
+        【V2.0.0 · 严格契约校验】
+        内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。如果缺失，直接抛出异常而非静默跳过。
         """
-        missing_signals = []
-        for signal in required_signals:
-            if signal not in df.columns and signal not in self.strategy.atomic_states:
-                missing_signals.append(signal)
+        missing_signals=[signal for signal in required_signals if signal not in df.columns and signal not in self.strategy.atomic_states]
         if missing_signals:
-            print(f"    -> [过程情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
-            return False
+            raise ValueError(f"[{method_name}] 启动失败：严重数据断层，缺失核心信号 {missing_signals}。")
         return True
 
     def _extract_and_validate_config_signals(self, df: pd.DataFrame, config: Dict, method_name: str) -> bool:
@@ -251,27 +239,6 @@ class ProcessIntelligence:
             return True
         # 调用通用的校验器进行检查
         return self._validate_required_signals(df, required_signals, method_name)
-
-    def _get_mtf_slope_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights: Dict, df_index: pd.Index, method_name: str, bipolar: bool = True) -> pd.Series:
-        """
-        【V1.1 · 健壮周期解析版】计算多时间框架斜率的融合分数。
-        - 核心修复: 增加对 `mtf_weights` 键的类型检查，确保只有数字周期才被用于构建信号名称。
-        """
-        fused_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        total_weight = 0.0
-        for period_str, weight in mtf_weights.items():
-            try:
-                period = int(period_str)
-            except ValueError:
-                continue
-            slope_col = f'SLOPE_{period}_{base_signal_name}'
-            slope_raw = self._get_safe_series(df, slope_col, np.nan, method_name=method_name)
-            if slope_raw.isnull().all():
-                continue
-            score = self._normalize_series(slope_raw, df_index, bipolar=bipolar)
-            fused_score += score * weight
-            total_weight += weight
-        return (fused_score / total_weight) if total_weight > 0 else pd.Series(0.0, index=df_index, dtype=np.float32)
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
@@ -370,71 +337,6 @@ class ProcessIntelligence:
             print(f"    -> [过程情报警告] 未知的元分析诊断类型: '{diagnosis_type}'，跳过信号 '{config.get('name')}' 的计算。")
             return {}
 
-    def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V4.2 · 军械库镜像对冲版】计算"主力-散户"权力交接评分。
-        - 核心逻辑: 严格基于军械库 L2 逐单统计数据构建“资金剪刀差”模型。
-        - 信号映射:
-          1. 主力流: (buy_elg + buy_lg) - (sell_elg + sell_lg) [Source 1 & 3]
-          2. 散户流: (buy_md + buy_sm) - (sell_md + sell_sm) [Source 2 & 3]
-          3. 结构增强: 结合 chip_concentration_ratio_D [Source 2] 与 turnover_rate_D [Source 3]。
-        """
-        method_name = "_calculate_power_transfer"
-        # 声明军械库 L2 核心依赖信号
-        required_signals = [
-            'buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D', 'sell_lg_amount_D',
-            'buy_md_amount_D', 'sell_md_amount_D', 'buy_sm_amount_D', 'sell_sm_amount_D',
-            'amount_D', 'chip_concentration_ratio_D', 'chip_stability_D', 'turnover_rate_D',
-            'main_force_activity_index_D', 'downtrend_strength_D'
-        ]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        # 1. 提取 L2 资金流分项 (买入端 Source 1/2, 卖出端 Source 3)
-        buy_elg = self._get_safe_series(df, 'buy_elg_amount_D', 0.0, method_name)
-        sell_elg = self._get_safe_series(df, 'sell_elg_amount_D', 0.0, method_name)
-        buy_lg = self._get_safe_series(df, 'buy_lg_amount_D', 0.0, method_name)
-        sell_lg = self._get_safe_series(df, 'sell_lg_amount_D', 0.0, method_name)
-        buy_md = self._get_safe_series(df, 'buy_md_amount_D', 0.0, method_name)
-        sell_md = self._get_safe_series(df, 'sell_md_amount_D', 0.0, method_name)
-        buy_sm = self._get_safe_series(df, 'buy_sm_amount_D', 0.0, method_name)
-        sell_sm = self._get_safe_series(df, 'sell_sm_amount_D', 0.0, method_name)
-        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name).replace(0, 1.0)
-        # 2. 提取结构与行为因子
-        chip_conc = self._get_safe_series(df, 'chip_concentration_ratio_D', 0.0, method_name)
-        chip_stab = self._get_safe_series(df, 'chip_stability_D', 0.5, method_name)
-        turnover = self._get_safe_series(df, 'turnover_rate_D', 0.0, method_name)
-        mf_activity = self._get_safe_series(df, 'main_force_activity_index_D', 50.0, method_name)
-        downtrend = self._get_safe_series(df, 'downtrend_strength_D', 0.0, method_name)
-        # 3. 计算对冲博弈差 (Mirror Hedging Spread)
-        # 主力净额 vs 散户净额
-        main_force_net = (buy_elg - sell_elg) + (buy_lg - sell_lg)
-        retail_net = (buy_md - sell_md) + (buy_sm - sell_sm)
-        # 权力转移系数：主力抢筹且散户割肉时最高
-        fund_game_spread = (main_force_net - retail_net) / amount
-        # 4. 计算筹码穿透增益 (Chip Penetration Gain)
-        conc_diff = chip_conc.diff().fillna(0)
-        # 换手率越高，集中度变化的信号置信度越高
-        turnover_weight = turnover.clip(0, 0.2) * 5.0 
-        chip_penetration = conc_diff * chip_stab * (1 + turnover_weight)
-        # 5. 综合评分合成
-        # 权重配比：资金对冲 50% + 筹码穿透 30% + 活跃度因子 20%
-        score_raw = (
-            (fund_game_spread * 5.0).clip(-1, 1) * 0.5 +
-            (chip_penetration * 20.0).clip(-1, 1) * 0.3 +
-            ((mf_activity / 100.0) * 2 - 1).clip(-1, 1) * 0.2
-        )
-        # 6. 下跌趋势折价过滤
-        # 在极强下跌趋势中，由于市场惯性，单纯资金流入的有效性需打折
-        trend_discount = pd.Series(1.0, index=df_index)
-        trend_discount = trend_discount.mask(downtrend > 0.8, 0.6)
-        final_score = (score_raw * trend_discount).clip(-1, 1)
-        # 7. 调试状态反馈
-        if hasattr(self.strategy, 'atomic_states'):
-            self.strategy.atomic_states["_DEBUG_power_transfer_spread"] = fund_game_spread
-            self.strategy.atomic_states["_DEBUG_power_transfer_penetration"] = chip_penetration
-        return final_score.astype(np.float32)
-
     def _diagnose_meta_relationship_internal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         signal_name = config.get('name')
         df_index = df.index
@@ -518,190 +420,188 @@ class ProcessIntelligence:
         return {signal_name: meta_score}
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
-        """
-        【V2.6 · 参数名修正版】分裂型元关系诊断器
-        - 核心升级: 增加对 `enable_probe` 配置项的检查，实现探针输出的可配置化管理。
-        """
-        states = {}
-        output_names = config.get('output_names', {})
-        opportunity_signal_name = output_names.get('opportunity')
-        risk_signal_name = output_names.get('risk')
+        """【V4.0.0 · 裂变张量重构版】摒弃统包归一化，在分裂关系内部直接构建专属的动量和位移 HAB 存量冲击矩阵。"""
+        states={}
+        output_names=config.get('output_names',{})
+        opportunity_signal_name=output_names.get('opportunity')
+        risk_signal_name=output_names.get('risk')
         if not opportunity_signal_name or not risk_signal_name:
-            print(f"        -> [分裂元分析] 警告: 缺少 'output_names' 配置，无法进行信号分裂。")
             return {}
-        relationship_score = self._calculate_price_efficiency_relationship(df, config)
+        relationship_score=self._calculate_price_efficiency_relationship(df,config)
         if relationship_score.empty:
             return {}
-        relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
-        relationship_momentum = relationship_displacement.diff(1).fillna(0)
-        bipolar_displacement_strength = self._normalize_series(relationship_displacement, df.index, bipolar=True)
-        bipolar_momentum_strength = self._normalize_series(relationship_momentum, df.index, bipolar=True)
-        displacement_weight = self.meta_score_weights[0]
-        momentum_weight = self.meta_score_weights[1]
-        meta_score = (bipolar_displacement_strength * displacement_weight + bipolar_momentum_strength * momentum_weight)
-        meta_score = meta_score.clip(-1, 1)
-        opportunity_part = meta_score.clip(lower=0)
-        states[opportunity_signal_name] = opportunity_part.astype(np.float32)
-        risk_part = meta_score.clip(upper=0).abs()
-        states[risk_signal_name] = risk_part.astype(np.float32)
+        df_index=df.index
+        relationship_displacement=relationship_score.diff(self.meta_window).fillna(0)
+        relationship_momentum=relationship_displacement.diff(1).fillna(0)
+        bipolar_displacement=np.tanh(self._apply_hab_shock(relationship_displacement,window=self.meta_window*2))
+        bipolar_momentum=np.tanh(self._apply_hab_shock(relationship_momentum,window=13))
+        displacement_weight=self.meta_score_weights[0]
+        momentum_weight=self.meta_score_weights[1]
+        meta_score=(bipolar_displacement*displacement_weight+bipolar_momentum*momentum_weight)
+        meta_score=np.sign(meta_score)*(np.abs(meta_score)**1.5)
+        meta_score=meta_score.clip(-1,1)
+        states[opportunity_signal_name]=meta_score.clip(lower=0).astype(np.float32)
+        states[risk_signal_name]=meta_score.clip(upper=0).abs().astype(np.float32)
         return states
+
+    def _apply_hab_shock(self, series: pd.Series, window: int = 21) -> pd.Series:
+        """【V2.0.0 · HAB存量冲击系统】将绝对数值转化为相对历史存量的冲击度(Z-Score)"""
+        roll_mean = series.rolling(window=window, min_periods=1).mean()
+        roll_std = series.rolling(window=window, min_periods=1).std().replace(0, 1e-5).fillna(1e-5)
+        return ((series - roll_mean) / roll_std).astype(np.float32)
+
+    def _get_kinematic_tensor(self, df: pd.DataFrame, base_col: str, period: int = 13, method_name: str = "") -> pd.Series:
+        """【V2.0.0 · 运动学张力处理器】提取导数并利用死区门限与tanh滤除无穷小噪音"""
+        slope = self._get_safe_series(df, f'SLOPE_{period}_{base_col}', 0.0, method_name)
+        accel = self._get_safe_series(df, f'ACCEL_{period}_{base_col}', 0.0, method_name)
+        raw_tensor = slope + accel * 0.5
+        gated_tensor = np.where(np.abs(raw_tensor) < 1e-4, 0.0, raw_tensor)
+        return np.tanh(gated_tensor * 20.0).astype(np.float32)
+
+    def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V5.0.0 · 权力交接动能透视版】
+        计算"主力-散户"微观权力交接评分。
+        """
+        method_name="_calculate_power_transfer"
+        required_signals=['net_mf_amount_D','amount_D','tick_large_order_net_D','tick_chip_transfer_efficiency_D','flow_efficiency_D','intraday_cost_center_migration_D','downtrend_strength_D','chip_concentration_ratio_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        net_mf=self._get_safe_series(df,'net_mf_amount_D',method_name=method_name)
+        amount=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan)
+        tick_large_net=self._get_safe_series(df,'tick_large_order_net_D',method_name=method_name)
+        transfer_efficiency=self._get_safe_series(df,'tick_chip_transfer_efficiency_D',method_name=method_name)
+        flow_efficiency=self._get_safe_series(df,'flow_efficiency_D',method_name=method_name)
+        cost_migration=self._get_safe_series(df,'intraday_cost_center_migration_D',method_name=method_name)
+        downtrend=self._get_safe_series(df,'downtrend_strength_D',method_name=method_name)
+        chip_conc=self._get_safe_series(df,'chip_concentration_ratio_D',method_name=method_name)
+        mf_ratio=net_mf/amount
+        tick_ratio=tick_large_net/amount
+        base_power=(mf_ratio*0.6+tick_ratio*0.4)*10.0
+        power_tanh=np.tanh(base_power)
+        efficiency_multiplier=1.0+(transfer_efficiency+flow_efficiency)/2.0
+        chip_penetration=chip_conc.diff()*efficiency_multiplier
+        raw_score=power_tanh*(1.0+chip_penetration.abs())
+        trend_discount=pd.Series(1.0,index=df_index).mask(downtrend>0.8,0.6)
+        final_score=(raw_score*trend_discount).clip(-1,1).astype(np.float32)
+        if hasattr(self.strategy,'atomic_states'):
+            self.strategy.atomic_states["PROCESS_DEBUG_power_transfer_spread"]=power_tanh
+            self.strategy.atomic_states["PROCESS_DEBUG_power_transfer_penetration"]=chip_penetration
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':net_mf,'amount_D':amount,'tick_large_order_net_D':tick_large_net,'tick_chip_transfer_efficiency_D':transfer_efficiency,'flow_efficiency_D':flow_efficiency},calc_nodes={'mf_ratio':mf_ratio,'tick_ratio':tick_ratio,'base_power':base_power,'power_tanh':power_tanh,'efficiency_multiplier':efficiency_multiplier,'chip_penetration':chip_penetration,'raw_score':raw_score,'trend_discount':trend_discount},final_result=final_score)
+        return final_score
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.3 · 军械库直连版】计算“价格与散户投降”的专属瞬时关系分。
-        - 信号来源:
-            1. 基础背离: `pressure_trapped_D` [Source 3] (由Config驱动)
-            2. 放大器: `INTRADAY_SUPPORT_INTENT_D` [Source 1] (日内承接意图)
+        【V2.0.0 · 散户投降背离探针版】
+        计算价格与散户割肉的微观博弈关系。
         """
         method_name = "_calculate_price_vs_capitulation_relationship"
-        # 辅助信号: 日内承接意图 [Source 1]
-        support_signal = 'INTRADAY_SUPPORT_INTENT_D'
-        if support_signal not in df.columns:
-             # 如果缺承接信号，仅返回基础分
-             return self._calculate_instantaneous_relationship(df, config).clip(-1, 1)
+        required_signals = [
+            'pressure_trapped_D', 'INTRADAY_SUPPORT_INTENT_D', 
+            'intraday_low_lock_ratio_D', 'chip_entropy_D',
+            'SLOPE_13_pressure_trapped_D', 'ACCEL_13_pressure_trapped_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        # 计算基础背离分数
-        base_divergence_score = self._calculate_instantaneous_relationship(df, config)
-        # 引入主动承接作为真实性放大器
-        active_buying_support = self._get_safe_series(df, support_signal, 0.0, method_name=method_name)
-        active_buying_norm = self._normalize_series(active_buying_support, df_index, bipolar=False)
-        authenticity_amplifier = 1 + active_buying_norm
-        final_score = (base_divergence_score * authenticity_amplifier).clip(-1, 1)
+        pressure = self._get_safe_series(df, 'pressure_trapped_D', method_name=method_name)
+        support = self._get_safe_series(df, 'INTRADAY_SUPPORT_INTENT_D', method_name=method_name)
+        low_lock = self._get_safe_series(df, 'intraday_low_lock_ratio_D', method_name=method_name)
+        entropy = self._get_safe_series(df, 'chip_entropy_D', method_name=method_name)
+        kinematics_p = self._get_kinematic_tensor(df, 'pressure_trapped_D', 13, method_name)
+        panic_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(pressure, 21)))
+        support_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(support, 34)))
+        absorption_resonance = support_norm * (1.0 + low_lock.clip(lower=0)) * (1.0 - np.tanh(entropy / 10.0))
+        base_divergence = self._calculate_instantaneous_relationship(df, config)
+        raw_score = base_divergence * panic_shock * absorption_resonance * (1.0 + kinematics_p.clip(lower=0))
+        final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
+        final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'pressure_trapped_D': pressure, 'INTRADAY_SUPPORT_INTENT_D': support}, calc_nodes={'kinematics_p': kinematics_p, 'panic_shock': panic_shock, 'absorption_resonance': absorption_resonance}, final_result=final_score)
         return final_score
 
     def _calculate_price_efficiency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.3 · 军械库直连版】计算“价格效率”的专属瞬时关系分。
-        - 信号来源:
-            1. 效率: `VPA_EFFICIENCY_D` [Source 1] (Config驱动)
-            2. 信念(品质): `net_mf_amount_D` [Source 3] (主力净额)
-            3. 噪音(惩罚): `shakeout_score_D` [Source 3] (洗盘/震仓评分)
+        【V2.0.0 · 价格效率博弈探针版】
+        结合多时间框架效率、主力净额以及换手效率计算定价动能。
         """
         method_name = "_calculate_price_efficiency_relationship"
-        # 军械库信号映射
-        conviction_signal = 'net_mf_amount_D'
-        wash_signal = 'shakeout_score_D'
-        required_signals = [conviction_signal, wash_signal]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        required_signals = [
+            'VPA_EFFICIENCY_D', 'net_mf_amount_D', 'shakeout_score_D', 
+            'tick_chip_transfer_efficiency_D', 'high_freq_flow_skewness_D',
+            'SLOPE_13_VPA_EFFICIENCY_D', 'ACCEL_13_VPA_EFFICIENCY_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        # 计算基础共识分数
-        base_consensus_score = self._calculate_instantaneous_relationship(df, config)
-        # 引入品质因子
-        main_force_conviction = self._get_safe_series(df, conviction_signal, 0.0, method_name=method_name)
-        wash_trade_intensity = self._get_safe_series(df, wash_signal, 0.0, method_name=method_name)
-        # 归一化：主力净额为双极
-        conviction_norm = self._normalize_series(main_force_conviction, df_index, bipolar=True)
-        # 洗盘评分为单极
-        wash_trade_norm = self._normalize_series(wash_trade_intensity, df_index, bipolar=False)
-        # 资金越正向，洗盘越少，效率越“纯”
-        quality_factor = (conviction_norm.clip(lower=0) * (1 - wash_trade_norm)).clip(0, 1)
-        final_score = (base_consensus_score * quality_factor).clip(-1, 1)
+        eff = self._get_safe_series(df, 'VPA_EFFICIENCY_D', method_name=method_name)
+        net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
+        shakeout = self._get_safe_series(df, 'shakeout_score_D', method_name=method_name)
+        transfer_eff = self._get_safe_series(df, 'tick_chip_transfer_efficiency_D', method_name=method_name)
+        flow_skew = self._get_safe_series(df, 'high_freq_flow_skewness_D', method_name=method_name)
+        kinematics_eff = self._get_kinematic_tensor(df, 'VPA_EFFICIENCY_D', 13, method_name)
+        eff_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(eff, 34)))
+        mf_conviction = np.tanh(self._apply_hab_shock(net_mf, 55))
+        shakeout_penalty = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(shakeout, 21)))
+        synergy = eff_shock * mf_conviction * (1.0 + transfer_eff) * (1.0 + kinematics_eff) * (1.0 + np.tanh(flow_skew).clip(lower=0))
+        final_score = (synergy * (1.0 - shakeout_penalty ** 1.5)).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'VPA_EFFICIENCY_D': eff, 'net_mf_amount_D': net_mf}, calc_nodes={'kinematics_eff': kinematics_eff, 'eff_shock': eff_shock, 'mf_conviction': mf_conviction, 'synergy': synergy}, final_result=final_score)
         return final_score
 
     def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.3 · 军械库直连版】计算“博弈背离”的专属瞬时关系分。
-        - 信号来源:
-            1. 背离: `game_intensity_D` [Source 2] (Config驱动)
-            2. 战场重心: `weight_avg_cost_D` [Source 4] (加权平均成本)
+        【V2.0.0 · 博弈背离深度探针版】
+        结合筹码熵、均价成本、高频胜率与游戏激烈度构筑全息张量。
         """
         method_name = "_calculate_pd_divergence_relationship"
-        cost_signal = 'weight_avg_cost_D' 
-        if cost_signal not in df.columns:
-            return self._calculate_instantaneous_relationship(df, config).clip(-1, 1)
-        # 计算基础背离分数
-        base_divergence_score = self._calculate_instantaneous_relationship(df, config)
-        # 引入战场纵深因子
-        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name=method_name)
-        mf_cost = self._get_safe_series(df, cost_signal, 0.0, method_name=method_name)
-        mf_cost_safe = mf_cost.replace(0, np.nan) 
-        # 价格 > 平均成本，多头占优，信号放大
-        battlefield_context_factor = (1 + (close_price - mf_cost_safe) / mf_cost_safe).fillna(1).clip(0, 2)
-        final_score = (base_divergence_score * battlefield_context_factor).clip(-1, 1)
+        required_signals = [
+            'game_intensity_D', 'weight_avg_cost_D', 'close_D', 
+            'intraday_chip_game_index_D', 'chip_divergence_ratio_D', 'winner_rate_D',
+            'SLOPE_13_game_intensity_D', 'ACCEL_13_game_intensity_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
+        df_index = df.index
+        game = self._get_safe_series(df, 'game_intensity_D', method_name=method_name)
+        cost = self._get_safe_series(df, 'weight_avg_cost_D', method_name=method_name).replace(0, np.nan)
+        close_p = self._get_safe_series(df, 'close_D', method_name=method_name)
+        intra_game = self._get_safe_series(df, 'intraday_chip_game_index_D', method_name=method_name)
+        chip_div = self._get_safe_series(df, 'chip_divergence_ratio_D', method_name=method_name)
+        winner = self._get_safe_series(df, 'winner_rate_D', method_name=method_name)
+        kinematics_game = self._get_kinematic_tensor(df, 'game_intensity_D', 13, method_name)
+        game_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(game, 55)))
+        price_adv = np.tanh((close_p - cost) / cost * 10.0)
+        win_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(winner, 21)))
+        base_divergence = self._calculate_instantaneous_relationship(df, config)
+        tensor_resonance = game_shock * price_adv * win_norm * (1.0 + intra_game) * (1.0 + chip_div)
+        final_score = np.tanh(base_divergence * tensor_resonance * (1.0 + kinematics_game.clip(lower=0))).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'game_intensity_D': game, 'weight_avg_cost_D': cost}, calc_nodes={'kinematics_game': kinematics_game, 'game_shock': game_shock, 'price_adv': price_adv, 'tensor_resonance': tensor_resonance}, final_result=final_score)
         return final_score
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
-        """
-        【V1.5 · 信念侵蚀版】信号衰减诊断器
-        - 核心升级: 为“赢家信念衰减”信号分派专属计算引擎，执行全新的“信念侵蚀”逻辑。
-        """
-        method_name = "_diagnose_signal_decay"
-        # --- 调试信息构建 ---
-        is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
-        probe_ts = None
-        if is_debug_enabled_for_method and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
-            for date in reversed(df.index):
-                if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
-                    probe_ts = date
-                    break
-        if probe_ts is None:
-            is_debug_enabled_for_method = False
-        debug_output = {}
-        _temp_debug_values = {} # 临时存储所有中间计算结果的原始值 (无条件收集)
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 正在诊断信号衰减..."] = ""
-        signal_name = config.get('name')
-        if signal_name == 'PROCESS_META_WINNER_CONVICTION_DECAY':
-            # 调用 CalculateWinnerConvictionDecay 处理器
-            decay_score = self.calculate_winner_conviction_decay_processor.calculate(df, config)
-            # --- 统一输出调试信息 ---
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 信号衰减诊断完成，最终分值: {decay_score.loc[probe_ts]:.4f}"] = ""
-                for key, value in debug_output.items():
-                    if value:
-                        print(f"{key}: {value}")
-                    else:
-                        print(key)
-            return {signal_name: decay_score.astype(np.float32)}
-        source_signal_name = config.get('source_signal')
-        source_type = config.get('source_type', 'df')
-        df_index = df.index
+        """【V4.0.0 · 局部方差压迫衰减版】利用本地特征滚动标准差刻画相对衰变严重度，执行非线性激增阻尼。"""
+        method_name="_diagnose_signal_decay"
+        is_debug_enabled=get_param_value(self.debug_params.get('enabled'),False) and get_param_value(self.debug_params.get('should_probe'),False)
+        signal_name=config.get('name')
+        if signal_name=='PROCESS_META_WINNER_CONVICTION_DECAY':
+            decay_score=self.calculate_winner_conviction_decay_processor.calculate(df,config)
+            return {signal_name:decay_score.astype(np.float32)}
+        source_signal_name=config.get('source_signal')
         if not source_signal_name:
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"        -> [衰减分析] 警告: 缺少 'source_signal' 配置。"] = ""
-                self._print_debug_output(debug_output)
             return {}
-        source_series = None
-        if source_type == 'atomic_states':
-            source_series = self.strategy.atomic_states.get(source_signal_name)
+        df_index=df.index
+        if config.get('source_type','df')=='atomic_states':
+            source_series=self.strategy.atomic_states.get(source_signal_name)
         else:
-            source_series = self._get_safe_series(df, source_signal_name, method_name=method_name)
+            if source_signal_name not in df.columns:
+                return {}
+            source_series=df[source_signal_name].astype(np.float32)
         if source_series is None:
-            if is_debug_enabled_for_method and probe_ts:
-                debug_output[f"        -> [衰减分析] 警告: 缺少源信号 '{source_signal_name}'。"] = ""
-                self._print_debug_output(debug_output)
             return {}
-        _temp_debug_values["原始信号值"] = {
-            source_signal_name: source_series
-        }
-        signal_change = source_series.diff(1).fillna(0)
-        decay_magnitude = signal_change.clip(upper=0).abs()
-        decay_score = self._normalize_series(decay_magnitude, df_index, ascending=True)
-        _temp_debug_values["衰减计算"] = {
-            "signal_change": signal_change,
-            "decay_magnitude": decay_magnitude,
-            "decay_score": decay_score
-        }
-        # --- 统一输出调试信息 ---
-        if is_debug_enabled_for_method and probe_ts:
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 原始信号值 ---"] = ""
-            for sig_name, series in _temp_debug_values["原始信号值"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        '{sig_name}': {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: --- 衰减计算 ---"] = ""
-            for key, series in _temp_debug_values["衰减计算"].items():
-                val = series.loc[probe_ts] if probe_ts in series.index else np.nan
-                debug_output[f"        {key}: {val:.4f}"] = ""
-            debug_output[f"  -- [过程情报调试] {method_name} @ {probe_ts.strftime('%Y-%m-%d')}: 信号衰减诊断完成，最终分值: {decay_score.loc[probe_ts]:.4f}"] = ""
-            for key, value in debug_output.items():
-                if value:
-                    print(f"{key}: {value}")
-                else:
-                    print(key)
-        return {signal_name: decay_score.astype(np.float32)}
+        signal_change=source_series.diff(1).fillna(0)
+        decay_magnitude=signal_change.clip(upper=0).abs()
+        local_std=source_series.rolling(window=21,min_periods=1).std().replace(0,1e-5).fillna(1e-5)
+        relative_decay=decay_magnitude/local_std
+        decay_score=np.tanh(relative_decay*1.5).clip(0,1)
+        if is_debug_enabled and self.probe_dates:
+            self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'source':source_series},calc_nodes={'signal_change':signal_change,'relative_decay':relative_decay},final_result=decay_score)
+        return {signal_name:decay_score.astype(np.float32)}
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
@@ -767,697 +667,432 @@ class ProcessIntelligence:
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.1 · 军械库全适配重构版】计算“恐慌洗盘吸筹”的专属信号。
-        - 信号替换:
-          1. 恐慌/痛苦: `pressure_trapped_D` [Source 3]
-          2. 吸收: `absorption_energy_D` [Source 1]
-          3. 结构支撑: `uptrend_strength_D` [Source 3] (代理杠杆)
-          4. 放量: `tick_abnormal_volume_ratio_D` [Source 3] (代理爆发现数)
-          5. 势能: `chip_stability_D` [Source 2] (代理历史势能)
+        【V6.0.0 · 恐慌洗盘共振探针版】
+        计算“恐慌洗盘吸筹”的专属非线性信号。
         """
-        method_name = "_calculate_panic_washout_accumulation"
-        df_index = df.index
-        potential_sig = 'chip_stability_D'
-        historical_potential = self._get_safe_series(df, potential_sig, 0.5, method_name)
-        potential_gate = config.get('historical_potential_gate', 0.0)
-        pain_sig = 'pressure_trapped_D'
-        buy_support_sig = 'INTRADAY_SUPPORT_INTENT_D'
-        absorption_sig = 'absorption_energy_D'
-        conc_sig = 'chip_concentration_ratio_D'
-        cost_adv_sig = 'profit_ratio_D'
-        mf_flow_sig = 'net_mf_amount_D'
-        flow_cred_sig = 'flow_consistency_D'
-        struct_sig = 'uptrend_strength_D'
-        burst_sig = 'tick_abnormal_volume_ratio_D'
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        required_signals = ['close_D', pain_sig, mf_flow_sig, buy_support_sig, conc_sig, cost_adv_sig, struct_sig, flow_cred_sig, burst_sig, absorption_sig]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        mtf_retail_panic = self._get_mtf_slope_accel_score(df, pain_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        panic_score = mtf_retail_panic.rolling(3, min_periods=1).mean()
-        power_transfer_score = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
-        mtf_active_buying_support = self._get_mtf_slope_accel_score(df, buy_support_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        mtf_absorption = self._get_mtf_slope_accel_score(df, absorption_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        absorption_score = (power_transfer_score.clip(lower=0) * 0.5 + mtf_absorption * 0.25 + mtf_active_buying_support * 0.25).clip(0, 1).rolling(3, min_periods=1).mean()
-        mtf_concentration_slope = self._get_mtf_slope_accel_score(df, conc_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_cost_adv_slope = self._get_mtf_slope_accel_score(df, cost_adv_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_mf_net_flow_slope = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        struct_norm = self._normalize_series(self._get_safe_series(df, struct_sig, 0.0, method_name), df_index, ascending=True)
-        repair_score = ((mtf_concentration_slope.clip(lower=0) * 0.4 + mtf_cost_adv_slope.clip(lower=0) * 0.3 + mtf_mf_net_flow_slope.clip(lower=0) * 0.3).clip(0, 1) * 0.5 + struct_norm * 0.5).clip(0, 1)
-        mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_volume_burst = self._get_mtf_slope_accel_score(df, burst_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        is_blitz_washout = (mtf_price_trend < -0.3) & (mtf_volume_burst > 0.5)
-        washout_candidate_mask = is_blitz_washout | ((panic_score > 0.4) & (absorption_score > 0.15))
-        base_score = (panic_score * absorption_score * repair_score).pow(1/3)
-        mf_flow_norm = self._normalize_series(self._get_safe_series(df, mf_flow_sig, 0.0, method_name), df_index, bipolar=True)
-        flow_cred_norm = self._normalize_series(self._get_safe_series(df, flow_cred_sig, 0.0, method_name), df_index, bipolar=False)
-        judged_base_score = (base_score * (1 + repair_score) * (mf_flow_norm.clip(lower=0) * flow_cred_norm)).clip(0, 1)
-        final_score = judged_base_score * (1 - mf_flow_norm.clip(upper=0).abs())
-        potential_gate_mask = historical_potential > potential_gate
-        final_score = final_score.where(washout_candidate_mask & potential_gate_mask, 0.0).fillna(0.0)
-        return final_score.astype(np.float32)
+        method_name="_calculate_panic_washout_accumulation"
+        required_signals=['pressure_trapped_D','intraday_low_lock_ratio_D','absorption_energy_D','intraday_trough_filling_degree_D','high_freq_flow_divergence_D','chip_rsi_divergence_D','chip_stability_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        panic_level=self._get_safe_series(df,'pressure_trapped_D',method_name=method_name)
+        low_lock_ratio=self._get_safe_series(df,'intraday_low_lock_ratio_D',method_name=method_name)
+        absorption=self._get_safe_series(df,'absorption_energy_D',method_name=method_name)
+        trough_filling=self._get_safe_series(df,'intraday_trough_filling_degree_D',method_name=method_name)
+        hff_div=self._get_safe_series(df,'high_freq_flow_divergence_D',method_name=method_name)
+        chip_div=self._get_safe_series(df,'chip_rsi_divergence_D',method_name=method_name)
+        chip_stab=self._get_safe_series(df,'chip_stability_D',method_name=method_name)
+        panic_intensity=np.sqrt(panic_level.abs()*low_lock_ratio.clip(lower=0))
+        absorption_intensity=np.sqrt(absorption.abs()*trough_filling.clip(lower=0))
+        divergence_bonus=1.0+np.clip(hff_div,0,1)+np.clip(chip_div,0,1)
+        base_score=panic_intensity*absorption_intensity*divergence_bonus
+        historical_potential_gate=config.get('historical_potential_gate',0.2)
+        gate_mask=chip_stab>historical_potential_gate
+        final_score=base_score.where(gate_mask,0.0).clip(0,1).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':panic_level,'intraday_low_lock_ratio_D':low_lock_ratio,'absorption_energy_D':absorption,'intraday_trough_filling_degree_D':trough_filling,'high_freq_flow_divergence_D':hff_div,'chip_rsi_divergence_D':chip_div},calc_nodes={'panic_intensity':panic_intensity,'absorption_intensity':absorption_intensity,'divergence_bonus':divergence_bonus,'base_score':base_score,'gate_mask':pd.Series(gate_mask,index=df_index)},final_result=final_score)
+        return final_score
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.12 · 军械库全适配重构版】计算“诡道吸筹”信号。
-        - 信号替换:
-          1. 核心动作(拆单): `stealth_flow_ratio_D` [Source 3] (作为隐蔽强度的物理代理)
-          2. 欺诈指标: `stealth_flow_ratio_D` (复用其多维含义)
-          3. 协同驱动: `chip_flow_intensity_D` [Source 2] (替代原子公理)
-          4. 集中度: `chip_concentration_ratio_D` [Source 2]
+        【V4.0.0 · 诡道偏度背离探针版】
+        利用资金特征与微观偏移计算“诡道吸筹”信号。
         """
-        method_name = "_calculate_deceptive_accumulation"
-        deception_sig = 'stealth_flow_ratio_D'
-        conc_sig = 'chip_concentration_ratio_D'
-        mf_flow_sig = 'net_mf_amount_D'
-        coherent_sig = 'chip_flow_intensity_D'
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        required_signals = [deception_sig, conc_sig, mf_flow_sig, coherent_sig, 'close_D', 'PROCESS_META_POWER_TRANSFER']
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        core_action_raw = self._get_safe_series(df, deception_sig, 0.0, method_name)
-        core_action_score = self._normalize_series(core_action_raw, df_index, bipolar=False)
-        mtf_deception_evidence = self._get_mtf_slope_accel_score(df, deception_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        mtf_price_trend = self._get_mtf_slope_accel_score(df, 'close_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_conc_slope = self._get_mtf_slope_accel_score(df, conc_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        mtf_mf_flow = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        power_transfer = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
-        price_down_strength = mtf_price_trend.clip(upper=0).abs()
-        disguise_score = ((price_down_strength * mtf_mf_flow.clip(lower=0)).pow(0.5) * 0.5 + (price_down_strength * power_transfer.clip(lower=0)).pow(0.5) * 0.5).clip(0, 1)
-        divergence_resonance = (price_down_strength * mtf_conc_slope.clip(lower=0)).pow(0.5)
-        deceptive_context = (divergence_resonance * 0.4 + mtf_deception_evidence * 0.3 + disguise_score * 0.3).clip(0, 1)
-        price_adj = pd.Series(1.0, index=df_index).mask(mtf_price_trend > 0, (1 - mtf_price_trend).clip(0, 1))
-        coherent_drive = self._get_safe_series(df, coherent_sig, 0.0, method_name)
-        coherence_penalty = (1 - self._normalize_series(coherent_drive, df_index, bipolar=True).clip(upper=0).abs()).clip(0, 1)
-        final_score = (core_action_score * deceptive_context * coherence_penalty * price_adj).fillna(0.0)
-        return final_score.clip(0, 1).astype(np.float32)
+        method_name="_calculate_deceptive_accumulation"
+        required_signals=['stealth_flow_ratio_D','tick_clustering_index_D','intraday_price_distribution_skewness_D','high_freq_flow_skewness_D','price_flow_divergence_D','chip_flow_intensity_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        stealth_flow=self._get_safe_series(df,'stealth_flow_ratio_D',method_name=method_name)
+        tick_clustering=self._get_safe_series(df,'tick_clustering_index_D',method_name=method_name)
+        price_skew=self._get_safe_series(df,'intraday_price_distribution_skewness_D',method_name=method_name)
+        flow_skew=self._get_safe_series(df,'high_freq_flow_skewness_D',method_name=method_name)
+        price_flow_div=self._get_safe_series(df,'price_flow_divergence_D',method_name=method_name)
+        flow_intensity=self._get_safe_series(df,'chip_flow_intensity_D',method_name=method_name)
+        skew_divergence=flow_skew-price_skew
+        skew_tension=skew_divergence.clip(lower=0)
+        stealth_strength=stealth_flow*tick_clustering*flow_intensity
+        camouflage_index=np.clip(price_flow_div,0,1)+skew_tension*0.5
+        raw_deception=stealth_strength*camouflage_index
+        final_score=np.tanh(raw_deception).clip(0,1).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'stealth_flow_ratio_D':stealth_flow,'tick_clustering_index_D':tick_clustering,'intraday_price_distribution_skewness_D':price_skew,'high_freq_flow_skewness_D':flow_skew,'price_flow_divergence_D':price_flow_div,'chip_flow_intensity_D':flow_intensity},calc_nodes={'skew_divergence':skew_divergence,'skew_tension':skew_tension,'stealth_strength':stealth_strength,'camouflage_index':camouflage_index,'raw_deception':raw_deception},final_result=final_score)
+        return final_score
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.5 · 军械库适配与信号对齐版】识别多日累积吸筹后，即将由“量变”引发“质变”的拉升拐点。
-        - 核心重构: 
-            1. 信号替换: 废除所有 `SCORE_*` 旧公理信号，直连军械库底层指标 `chip_flow_intensity_D` [Source 2], `flow_consistency_D` [Source 2], `VPA_EFFICIENCY_D` [Source 1]。
-            2. 依赖升级: 将 `PROCESS_META_STEALTH_ACCUMULATION` 升级为基石信号 `PROCESS_META_COVERT_ACCUMULATION`，确保数据链条的完整性与可靠性。
+        【V4.0.0 · 吸筹质变临界探针版】
+        计算多日吸筹结束，面临质变的临界触发拐点。
         """
-        method_name = "_calculate_accumulation_inflection"
-        # 信号映射
-        covert_accum_sig = 'PROCESS_META_COVERT_ACCUMULATION'
-        coherent_sig = 'chip_flow_intensity_D'
-        signature_sig = 'flow_consistency_D'
-        efficiency_sig = 'VPA_EFFICIENCY_D'
-        # 核心信号列表，用于方法启动前的原子级校验
-        required_signals = [
-            covert_accum_sig, 'PROCESS_META_DECEPTIVE_ACCUMULATION',
-            'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
-            'PROCESS_META_POWER_TRANSFER', 'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
-            'PROCESS_META_PD_DIVERGENCE_CONFIRM',
-            coherent_sig, signature_sig, efficiency_sig
-        ]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        accumulation_window = config.get('accumulation_window', 21)
-        # 获取吸筹元信号 (这些信号已在 atomic_states 中就绪)
-        stealth_accum = self._get_atomic_score(df, covert_accum_sig, 0.0)
-        deceptive_accum = self._get_atomic_score(df, 'PROCESS_META_DECEPTIVE_ACCUMULATION', 0.0)
-        panic_washout_accum = self._get_atomic_score(df, 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 0.0)
-        split_order_accum = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
-        power_transfer_accum = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0)
-        # 获取点火意图信号 (含内部元信号与军械库原始信号)
-        rally_intent = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0)
-        divergence_confirm = self._get_atomic_score(df, 'PROCESS_META_PD_DIVERGENCE_CONFIRM', 0.0)
-        # 军械库原始信号归一化，将其从物理量转为 [0, 1] 的概率空间
-        coherent_drive = self._normalize_series(self._get_safe_series(df, coherent_sig, 0.0, method_name), df_index, bipolar=True).clip(lower=0)
-        capital_signature = self._normalize_series(self._get_safe_series(df, signature_sig, 0.0, method_name), df_index, bipolar=False)
-        upward_efficiency = self._normalize_series(self._get_safe_series(df, efficiency_sig, 0.0, method_name), df_index, bipolar=False)
-        # 1. 计算日度吸筹强度 (采用加权几何平均，体现多维共振效应)
-        accumulation_components = {
-            "stealth_accum": stealth_accum,
-            "deceptive_accum": deceptive_accum,
-            "panic_washout_accum": panic_washout_accum,
-            "split_order_accum": split_order_accum,
-            "power_transfer_accum": power_transfer_accum
-        }
-        accumulation_weights = config.get('accumulation_weights', {"stealth_accum": 0.25, "deceptive_accum": 0.25, "panic_washout_accum": 0.2, "split_order_accum": 0.15, "power_transfer_accum": 0.15})
-        daily_accumulation_strength = _robust_geometric_mean(accumulation_components, accumulation_weights, df_index)
-        # 采用指数加权移动平均(ewm)计算势能，引入时间衰减机制
-        potential_energy_raw = daily_accumulation_strength.ewm(span=accumulation_window, adjust=False, min_periods=5).mean()
-        potential_energy_score = self._normalize_series(potential_energy_raw, df_index, bipolar=False)
-        # 2. 计算点火意图分数
-        ignition_components = {
-            "rally_intent": rally_intent.clip(lower=0),
-            "divergence_confirm": divergence_confirm.clip(lower=0),
-            "coherent_drive": coherent_drive,
-            "capital_signature": capital_signature,
-            "upward_efficiency": upward_efficiency
-        }
-        ignition_weights = config.get('ignition_weights', {"rally_intent": 0.3, "divergence_confirm": 0.25, "coherent_drive": 0.2, "capital_signature": 0.15, "upward_efficiency": 0.1})
-        ignition_intent_score = _robust_geometric_mean(ignition_components, ignition_weights, df_index)
-        # 3. 最终分数: 势能与意图的非线性结合，捕捉“爆发临界点”
-        final_score = (potential_energy_score * ignition_intent_score).fillna(0.0)
-        return final_score.clip(0, 1).astype(np.float32)
+        method_name="_calculate_accumulation_inflection"
+        required_signals=['PROCESS_META_COVERT_ACCUMULATION','PROCESS_META_DECEPTIVE_ACCUMULATION','PROCESS_META_PANIC_WASHOUT_ACCUMULATION','PROCESS_META_MAIN_FORCE_RALLY_INTENT','chip_convergence_ratio_D','price_vs_ma_21_ratio_D','flow_acceleration_intraday_D','flow_consistency_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        accumulation_window=config.get('accumulation_window',21)
+        covert_accum=self._get_atomic_score(df,'PROCESS_META_COVERT_ACCUMULATION',0.0)
+        deceptive_accum=self._get_atomic_score(df,'PROCESS_META_DECEPTIVE_ACCUMULATION',0.0)
+        panic_accum=self._get_atomic_score(df,'PROCESS_META_PANIC_WASHOUT_ACCUMULATION',0.0)
+        rally_intent=self._get_atomic_score(df,'PROCESS_META_MAIN_FORCE_RALLY_INTENT',0.0).clip(lower=0)
+        chip_conv=self._get_safe_series(df,'chip_convergence_ratio_D',method_name=method_name)
+        price_ma21=self._get_safe_series(df,'price_vs_ma_21_ratio_D',method_name=method_name)
+        flow_accel=self._get_safe_series(df,'flow_acceleration_intraday_D',method_name=method_name)
+        flow_cons=self._get_safe_series(df,'flow_consistency_D',method_name=method_name)
+        daily_composite=(covert_accum*0.4+deceptive_accum*0.4+panic_accum*0.2)
+        potential_energy=daily_composite.ewm(span=accumulation_window,adjust=False,min_periods=5).mean()
+        structural_criticality=(chip_conv*0.6+np.clip(1.0-np.abs(price_ma21-1.0)*10,0,1)*0.4)
+        dynamic_ignition=flow_accel.clip(lower=0)*flow_cons*rally_intent
+        critical_mass=potential_energy*structural_criticality*dynamic_ignition
+        final_score=(1/(1+np.exp(-10*(critical_mass-0.5)))).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'covert_accum':covert_accum,'deceptive_accum':deceptive_accum,'panic_accum':panic_accum,'rally_intent':rally_intent,'chip_convergence_ratio_D':chip_conv,'price_vs_ma_21_ratio_D':price_ma21,'flow_acceleration_intraday_D':flow_accel,'flow_consistency_D':flow_cons},calc_nodes={'daily_composite':daily_composite,'potential_energy':potential_energy,'structural_criticality':structural_criticality,'dynamic_ignition':dynamic_ignition,'critical_mass':critical_mass},final_result=final_score)
+        return final_score
 
     def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.4 · 军械库直连版】计算“套牢盘投降”信号。
-        - 信号映射:
-          1. 投降(恐慌): `pressure_trapped_D` [Source 3] (套牢压力)
-          2. 承接: `INTRADAY_SUPPORT_INTENT_D` [Source 1]
-          3. 备用吸收: `absorption_energy_D` [Source 1]
+        【V4.0.0 · 绝地反击锚定探针版】
+        计算底部杀跌势能竭力时的“套牢盘投降”确认信号。
         """
-        method_name = "_calculate_loser_capitulation"
-        capitulation_sig = 'pressure_trapped_D'
-        active_buy_sig = 'INTRADAY_SUPPORT_INTENT_D'
-        lower_shadow_sig = 'absorption_energy_D' 
-        required_signals = [
-            'pct_change_D', capitulation_sig, active_buy_sig
-        ]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name)
-        capitulation_flow_raw = self._get_safe_series(df, capitulation_sig, 0.0, method_name)
-        active_buying_raw = self._get_safe_series(df, active_buy_sig, 0.0, method_name)
-        # 优先使用原子信号，若无则使用原始信号替代
-        lower_shadow_absorption = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
-        if lower_shadow_absorption.sum() == 0: 
-             lower_shadow_raw = self._get_safe_series(df, lower_shadow_sig, 0.0, method_name)
-             lower_shadow_absorption = self._normalize_series(lower_shadow_raw, df_index, bipolar=False)
-        context_mask = (pct_change < 0) | (lower_shadow_absorption > 0.5)
-        panic_score = self._normalize_series(capitulation_flow_raw, df_index, bipolar=False)
-        active_buying_norm = self._normalize_series(active_buying_raw, df_index, bipolar=False)
-        absorption_score = pd.concat([active_buying_norm, lower_shadow_absorption], axis=1).max(axis=1)
-        final_score = (panic_score * absorption_score).where(context_mask, 0.0).fillna(0.0)
-        return final_score.astype(np.float32)
+        method_name="_calculate_loser_capitulation"
+        required_signals=['pressure_release_index_D','pressure_trapped_D','intraday_low_lock_ratio_D','absorption_energy_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        pressure_release=self._get_safe_series(df,'pressure_release_index_D',method_name=method_name)
+        pressure_trapped=self._get_safe_series(df,'pressure_trapped_D',method_name=method_name)
+        low_lock=self._get_safe_series(df,'intraday_low_lock_ratio_D',method_name=method_name)
+        absorption=self._get_safe_series(df,'absorption_energy_D',method_name=method_name)
+        panic_extremum=np.sqrt(pressure_release.clip(lower=0)*pressure_trapped.clip(lower=0))
+        absorption_anchor=np.sqrt(low_lock.clip(lower=0)*absorption.clip(lower=0))
+        final_score=(panic_extremum*absorption_anchor).clip(0,1).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_release_index_D':pressure_release,'pressure_trapped_D':pressure_trapped,'intraday_low_lock_ratio_D':low_lock,'absorption_energy_D':absorption},calc_nodes={'panic_extremum':panic_extremum,'absorption_anchor':absorption_anchor},final_result=final_score)
+        return final_score
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.7 · 军械库全适配版】诊断“突破加速抢筹”战术。
-        - 核心修复: 
-            1. 突破证据: `breakout_confidence_D` [Source 1] 替代旧公理。
-            2. 结构证据: `uptrend_strength_D` [Source 3] 替代趋势形态公理。
-            3. 相对强度: `industry_strength_rank_D` [Source 2] 替代相对强度公理。
+        【V2.0.0 · 突破爆发加速度探针版】
+        融入行业强度、资金连续性与异常高频放量，构建非线性突破张量矩阵。
         """
         method_name = "_calculate_breakout_acceleration"
-        mf_flow_sig = 'net_mf_amount_D'
-        cred_sig = 'flow_consistency_D'
-        breakout_sig = 'breakout_confidence_D'
-        trend_sig = 'uptrend_strength_D'
-        rs_sig = 'industry_strength_rank_D'
         required_signals = [
-            breakout_sig, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
-            'PROCESS_META_POWER_TRANSFER', trend_sig, rs_sig,
-            mf_flow_sig, cred_sig
+            'breakout_confidence_D', 'industry_strength_rank_D', 'net_mf_amount_D', 
+            'flow_consistency_D', 'tick_abnormal_volume_ratio_D', 'uptrend_strength_D',
+            'SLOPE_13_breakout_confidence_D', 'ACCEL_13_net_mf_amount_D'
         ]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        relative_strength_raw = self._get_safe_series(df, rs_sig, 0.0, method_name)
-        relative_strength = self._normalize_series(relative_strength_raw, df_index, bipolar=False)
-        rs_amplifier = config.get('relative_strength_amplifier', 0.0)
-        main_force_net_flow = self._get_safe_series(df, mf_flow_sig, 0.0, method_name)
-        flow_credibility = self._get_safe_series(df, cred_sig, 0.0, method_name)
-        main_force_net_flow_norm = self._normalize_series(main_force_net_flow, df_index, bipolar=True)
-        flow_credibility_norm = self._normalize_series(flow_credibility, df_index, bipolar=False)
-        breakout_evidence = self._normalize_series(self._get_safe_series(df, breakout_sig, 0.0, method_name), df_index, bipolar=False)
-        intent_evidence = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0).clip(lower=0)
-        flow_evidence = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0)
-        structure_evidence = self._normalize_series(self._get_safe_series(df, trend_sig, 0.0, method_name), df_index, bipolar=False)
-        mf_flow_validation = main_force_net_flow_norm.clip(lower=0) * flow_credibility_norm
-        weights = {'breakout': 0.3, 'intent': 0.25, 'structure': 0.2, 'flow': 0.15, 'mf_flow_validation': 0.1}
-        resonance_score = (breakout_evidence * weights['breakout'] + intent_evidence * weights['intent'] + structure_evidence * weights['structure'] + flow_evidence * weights['flow'] + mf_flow_validation * weights['mf_flow_validation']).clip(0, 1)
-        breakout_gate_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        breakout_gate_factor = breakout_gate_factor.mask(breakout_evidence < 0.2, breakout_evidence * 0.5)
-        breakout_gate_factor = breakout_gate_factor.mask(breakout_evidence < 0.05, 0.0)
-        resonance_score_gated = resonance_score * breakout_gate_factor
-        rs_modulator_base = (1 + relative_strength * rs_amplifier)
-        mf_flow_modulator = (1 + mf_flow_validation * 0.5)
-        rs_modulator = rs_modulator_base * mf_flow_modulator
-        final_score = (resonance_score_gated * rs_modulator).clip(0, 1).fillna(0.0)
-        return final_score.astype(np.float32)
+        breakout = self._get_safe_series(df, 'breakout_confidence_D', method_name=method_name)
+        industry = self._get_safe_series(df, 'industry_strength_rank_D', method_name=method_name)
+        net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
+        consistency = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
+        abnormal_vol = self._get_safe_series(df, 'tick_abnormal_volume_ratio_D', method_name=method_name)
+        uptrend = self._get_safe_series(df, 'uptrend_strength_D', method_name=method_name)
+        kinematics_brk = self._get_kinematic_tensor(df, 'breakout_confidence_D', 13, method_name)
+        kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 13, method_name)
+        mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
+        mf_power = np.sign(mf_shock) * (np.abs(mf_shock) ** 1.5)
+        ind_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(industry, 55)))
+        abnorm_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(abnormal_vol, 21)))
+        base_tensor = breakout * ind_norm * (1.0 + mf_power.clip(lower=0))
+        catalyst = (consistency * abnorm_norm * uptrend) ** 1.5
+        raw_score = base_tensor * catalyst * (1.0 + kinematics_brk.clip(lower=0) + kinematics_mf.clip(lower=0))
+        final_score = np.tanh(raw_score).clip(0, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'breakout_confidence_D': breakout, 'tick_abnormal_volume_ratio_D': abnormal_vol}, calc_nodes={'kinematics_brk': kinematics_brk, 'mf_power': mf_power, 'catalyst': catalyst, 'raw_score': raw_score}, final_result=final_score)
+        return final_score
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.1 · 军械库全适配版】识别主力从吸筹转向公开强攻的转折信号。
-        - 核心修复: 
-            1. 基石指标: `accumulation_signal_score_D` [Source 1] 替代旧隐蔽吸筹强度。
-            2. 其他信号保持军械库映射: `net_mf_amount_D` [Source 3], `flow_efficiency_D` [Source 2], `tick_large_order_net_D` [Source 3]。
+        【V2.0.0 · 资金流吸筹质变探针版】
+        检测吸筹缓冲池溢出并转化为上攻净流的加速度拐点。
         """
         method_name = "_calculate_fund_flow_accumulation_inflection"
-        acc_sig = 'accumulation_signal_score_D'
-        mf_flow_sig = 'net_mf_amount_D'
-        buy_exhaust_sig = 'flow_efficiency_D'
-        large_pressure_sig = 'tick_large_order_net_D'
-        cred_sig = 'flow_consistency_D'
-        support_sig = 'INTRADAY_SUPPORT_INTENT_D'
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        required_signals = [acc_sig, mf_flow_sig, buy_exhaust_sig, large_pressure_sig, cred_sig, support_sig]
-        for base_sig in [acc_sig, buy_exhaust_sig, large_pressure_sig, mf_flow_sig, support_sig]:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index)
+        required_signals = [
+            'accumulation_signal_score_D', 'net_mf_amount_D', 'flow_efficiency_D', 
+            'tick_large_order_net_D', 'intraday_accumulation_confidence_D',
+            'SLOPE_21_accumulation_signal_score_D', 'ACCEL_21_net_mf_amount_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        flow_credibility_raw = self._get_safe_series(df, cred_sig, 0.0, method_name)
-        flow_credibility_norm = self._normalize_series(flow_credibility_raw, df_index, bipolar=False)
-        mtf_hidden_accumulation = self._get_mtf_slope_accel_score(df, acc_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        mtf_mf_net_flow_slope = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        prelude_score_base = self._normalize_series(mtf_hidden_accumulation.rolling(5).mean(), df_index, bipolar=False)
-        prelude_score = (prelude_score_base * mtf_mf_net_flow_slope.clip(lower=0)).pow(0.5)
-        mtf_buy_efficiency = self._get_mtf_slope_accel_score(df, buy_exhaust_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        buy_resilience = mtf_buy_efficiency 
-        large_order_net = self._get_safe_series(df, large_pressure_sig, 0.0, method_name)
-        large_pressure_raw = -large_order_net 
-        mtf_large_pressure = self._normalize_series(large_pressure_raw, df_index, bipolar=False)
-        mtf_active_buying_support = self._get_mtf_slope_accel_score(df, support_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        pressure_exhaustion_synergy = (mtf_large_pressure * (1 - buy_resilience)).pow(0.5)
-        mtf_main_force_flow_momentum = self._get_mtf_slope_accel_score(df, mf_flow_sig, mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        attack_score = (buy_resilience * 0.2 + mtf_main_force_flow_momentum.clip(lower=0) * 0.25 + (1 - mtf_large_pressure) * 0.2 + flow_credibility_norm * 0.15 + mtf_active_buying_support * 0.2 - pressure_exhaustion_synergy * 0.2).clip(0, 1)
-        final_score = (prelude_score * attack_score).fillna(0.0)
-        return final_score.astype(np.float32)
+        acc_score = self._get_safe_series(df, 'accumulation_signal_score_D', method_name=method_name)
+        net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
+        flow_eff = self._get_safe_series(df, 'flow_efficiency_D', method_name=method_name)
+        large_net = self._get_safe_series(df, 'tick_large_order_net_D', method_name=method_name)
+        intra_acc = self._get_safe_series(df, 'intraday_accumulation_confidence_D', method_name=method_name)
+        kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 21, method_name)
+        kinematics_acc = self._get_kinematic_tensor(df, 'accumulation_signal_score_D', 21, method_name)
+        acc_shock = np.tanh(self._apply_hab_shock(acc_score, 55)).clip(lower=0)
+        mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
+        eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(flow_eff, 21)))
+        large_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(large_net, 21)))
+        base_ignition = acc_shock * eff_norm * large_norm * intra_acc
+        synergy_thrust = base_ignition * (1.0 + mf_shock.clip(lower=0) ** 1.5)
+        raw_score = synergy_thrust * (1.0 + kinematics_acc.clip(lower=0) + kinematics_mf.clip(lower=0))
+        final_score = np.tanh(raw_score * 2.0).clip(0, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'accumulation_signal_score_D': acc_score, 'net_mf_amount_D': net_mf}, calc_nodes={'kinematics_mf': kinematics_mf, 'acc_shock': acc_shock, 'eff_norm': eff_norm, 'synergy_thrust': synergy_thrust}, final_result=final_score)
+        return final_score
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.7 · 军械库全适配版】“利润与流向”专属关系计算引擎。
-        - 核心重构: 废除所有旧 SCORE_* 依赖，直连军械库底层信号。
-        - 信号映射:
-          1. 派发压力: `profit_pressure_D` [Source 3]
-          2. 净流动力: `net_mf_amount_D` [Source 3]
-          3. 获利广度: `profit_ratio_D` [Source 3]
-          4. 派发信心: `intraday_distribution_confidence_D` [Source 2] (替代缺失的原子意图信号)
-          5. 资金一致: `flow_consistency_D` [Source 2]
+        【V2.0.0 · 获利压迫与净流对冲张力版】
+        利用流向与一致性消化获利派发压力的全息非线性张量对抗。
         """
         method_name = "_calculate_profit_vs_flow_relationship"
-        # 定义军械库信号名称
-        pressure_sig = 'profit_pressure_D'
-        drive_sig = 'net_mf_amount_D'
-        profit_ratio_sig = 'profit_ratio_D'
-        dist_confidence_sig = 'intraday_distribution_confidence_D'
-        consistency_sig = 'flow_consistency_D'
-        # 执行严格信号校验
-        required_signals = [pressure_sig, drive_sig, profit_ratio_sig, dist_confidence_sig, consistency_sig]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        required_signals = [
+            'profit_pressure_D', 'net_mf_amount_D', 'profit_ratio_D', 
+            'flow_consistency_D', 'winner_rate_D', 'intraday_distribution_confidence_D',
+            'SLOPE_13_profit_pressure_D', 'ACCEL_13_profit_pressure_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        # 1. 原始数据安全获取与预处理
-        profit_pressure_raw = self._get_safe_series(df, pressure_sig, 0.0, method_name)
-        net_mf_amount_raw = self._get_safe_series(df, drive_sig, 0.0, method_name)
-        profit_ratio_raw = self._get_safe_series(df, profit_ratio_sig, 0.0, method_name)
-        dist_confidence_raw = self._get_safe_series(df, dist_confidence_sig, 0.0, method_name)
-        consistency_raw = self._get_safe_series(df, consistency_sig, 0.0, method_name)
-        # 2. 维度归一化处理
-        # 派发压力、获利比例及派发信心均为单极信号
-        profit_pressure_norm = self._normalize_series(profit_pressure_raw, df_index, bipolar=False)
-        profit_ratio_norm = self._normalize_series(profit_ratio_raw, df_index, bipolar=False)
-        dist_conf_norm = self._normalize_series(dist_confidence_raw, df_index, bipolar=False)
-        # 主力净额为双极信号，资金一致性为单极信号
-        net_mf_norm = self._normalize_series(net_mf_amount_raw, df_index, bipolar=True)
-        consistency_norm = self._normalize_series(consistency_raw, df_index, bipolar=False)
-        # 3. 计算派发压力综合分 (Pressure Score)
-        # 权重分配：获利压力(40%) + 获利广度(30%) + 派发意图/信心(30%)
-        pressure_score = (
-            profit_pressure_norm * 0.4 +
-            profit_ratio_norm * 0.3 +
-            dist_conf_norm * 0.3
-        ).clip(0, 1)
-        # 4. 计算建仓动力综合分 (Drive Score)
-        # 只有当净流为正时，一致性才作为增强因子；若为负，则视为离场驱动
-        drive_score = (net_mf_norm.clip(lower=0) * consistency_norm).clip(0, 1)
-        # 5. 态势对冲计算
-        # 最终分数 = 进场动力 - 离场压力；正值代表建仓占优，负值代表派发占优
-        relationship_score = drive_score - pressure_score
-        final_score = relationship_score.clip(-1, 1)
-        # 调试信息记录
-        if hasattr(self.strategy, 'atomic_states'):
-            self.strategy.atomic_states["_DEBUG_profit_vs_flow_drive"] = drive_score
-            self.strategy.atomic_states["_DEBUG_profit_vs_flow_pressure"] = pressure_score
-        return final_score.astype(np.float32)
+        pressure = self._get_safe_series(df, 'profit_pressure_D', method_name=method_name)
+        net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
+        profit_ratio = self._get_safe_series(df, 'profit_ratio_D', method_name=method_name)
+        cons = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
+        winner = self._get_safe_series(df, 'winner_rate_D', method_name=method_name)
+        dist_conf = self._get_safe_series(df, 'intraday_distribution_confidence_D', method_name=method_name)
+        kinematics_p = self._get_kinematic_tensor(df, 'profit_pressure_D', 13, method_name)
+        pressure_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(pressure, 21)))
+        mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
+        win_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(winner, 55)))
+        pressure_tensor = (pressure_shock * profit_ratio * dist_conf) * (1.0 + kinematics_p.clip(lower=0))
+        support_tensor = (mf_shock.clip(lower=0) * cons) * (1.0 - win_norm * 0.5)
+        raw_score = support_tensor - pressure_tensor * 1.5
+        final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
+        final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'profit_pressure_D': pressure, 'net_mf_amount_D': net_mf, 'profit_ratio_D': profit_ratio}, calc_nodes={'kinematics_p': kinematics_p, 'pressure_shock': pressure_shock, 'mf_shock': mf_shock, 'pressure_tensor': pressure_tensor, 'support_tensor': support_tensor}, final_result=final_score)
+        return final_score
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.6 · 军械库直连版】“个股板块协同共振”专属关系计算引擎
-        - 信号映射:
-          1. 资金: `net_mf_amount_D` [Source 3]
-          2. 信用: `flow_consistency_D` [Source 2]
+        【V2.0.0 · 个股板块协同共振探针版】
+        板块势能与个股微观流动性构成的正交矩阵共振。
         """
         method_name = "_calculate_stock_sector_sync"
-        stock_signal_name = 'pct_change_D'
-        sector_rank_name = 'industry_strength_rank_D'
-        sector_momentum_name = 'SLOPE_5_industry_strength_rank_D'
-        main_force_net_flow_name = 'net_mf_amount_D'
-        flow_credibility_name = 'flow_consistency_D'
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        required_signals = [stock_signal_name, sector_rank_name, sector_momentum_name, main_force_net_flow_name, flow_credibility_name]
-        for base_sig in ['industry_strength_rank_D']:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-                
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        required_signals = [
+            'pct_change_D', 'industry_strength_rank_D', 'net_mf_amount_D', 
+            'flow_consistency_D', 'industry_leader_score_D', 'mid_long_sync_D',
+            'SLOPE_5_industry_strength_rank_D', 'ACCEL_5_industry_strength_rank_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        stock_signal_raw = self._get_safe_series(df, stock_signal_name, 0.0, method_name)
-        main_force_net_flow_raw = self._get_safe_series(df, main_force_net_flow_name, 0.0, method_name)
-        flow_credibility_raw = self._get_safe_series(df, flow_credibility_name, 0.0, method_name)
-        stock_strength_score = self._normalize_series(stock_signal_raw, target_index=df_index, bipolar=True)
-        mtf_sector_rank_score = self._get_mtf_slope_accel_score(df, 'industry_strength_rank_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        mtf_sector_momentum_score = self._get_mtf_slope_accel_score(df, 'industry_strength_rank_D', mtf_slope_accel_weights, df_index, method_name, bipolar=True)
-        main_force_net_flow_norm = self._normalize_series(main_force_net_flow_raw, target_index=df_index, bipolar=True)
-        flow_credibility_norm = self._normalize_series(flow_credibility_raw, target_index=df_index, bipolar=False)
-        # 看涨协同
-        bullish_stock_movement = stock_strength_score.clip(lower=0)
-        sector_strength_context_bullish = mtf_sector_rank_score
-        sector_momentum_context_bullish = mtf_sector_momentum_score.clip(lower=0)
-        bullish_sector_resonance = (sector_strength_context_bullish * sector_momentum_context_bullish).pow(0.5).fillna(0.0)
-        mf_inflow_factor = main_force_net_flow_norm.clip(lower=0) * flow_credibility_norm
-        bullish_amplification_factor = pd.Series(1.0, index=df_index, dtype=np.float32)
-        bullish_amplification_factor = bullish_amplification_factor.mask(sector_momentum_context_bullish > 0.1, 1 + bullish_sector_resonance * mf_inflow_factor)
-        bullish_amplification_factor = bullish_amplification_factor.mask(sector_momentum_context_bullish <= 0.1, 0.0) 
-        final_bullish_score = bullish_stock_movement * bullish_amplification_factor
-        # 看跌协同
-        bearish_stock_movement = stock_strength_score.clip(upper=0).abs()
-        sector_weakness_context_bearish = (1 - mtf_sector_rank_score)
-        sector_negative_momentum_context_bearish = mtf_sector_momentum_score.clip(upper=0).abs()
-        bearish_sector_resonance = (sector_weakness_context_bearish * sector_negative_momentum_context_bearish).pow(0.5).fillna(0.0)
-        bearish_amplification_factor = 1 + bearish_sector_resonance
-        final_bearish_score = bearish_stock_movement * bearish_amplification_factor * -1
-        relationship_score = final_bullish_score + final_bearish_score
-        final_score = relationship_score.clip(-1, 1)
-        return final_score.astype(np.float32)
+        pct = self._get_safe_series(df, 'pct_change_D', method_name=method_name)
+        rank = self._get_safe_series(df, 'industry_strength_rank_D', method_name=method_name)
+        net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
+        cons = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
+        leader = self._get_safe_series(df, 'industry_leader_score_D', method_name=method_name)
+        sync_score = self._get_safe_series(df, 'mid_long_sync_D', method_name=method_name)
+        kinematics_rank = self._get_kinematic_tensor(df, 'industry_strength_rank_D', 5, method_name)
+        stock_shock = np.tanh(self._apply_hab_shock(pct, 13))
+        sector_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(rank, 34)))
+        mf_norm = np.tanh(self._apply_hab_shock(net_mf, 21))
+        cons_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(cons, 21)))
+        sector_tensor = sector_shock * (1.0 + kinematics_rank) * (1.0 + leader)
+        flow_tensor = mf_norm * cons_norm * (1.0 + sync_score)
+        resonance = stock_shock * sector_tensor * np.abs(flow_tensor)
+        final_score = (np.sign(resonance) * (np.abs(resonance) ** 1.5)).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'pct_change_D': pct, 'industry_strength_rank_D': rank}, calc_nodes={'kinematics_rank': kinematics_rank, 'stock_shock': stock_shock, 'sector_shock': sector_shock, 'resonance': resonance}, final_result=final_score)
+        return final_score
 
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4 · 军械库直连版】“热门板块冷却”专属关系计算引擎
-        - 信号映射:
-          1. 资金: `net_mf_amount_D` [Source 3]
+        【V2.0.0 · 热门板块退潮探针版】
+        捕捉高热度动能耗散下的资金连续净流出反转模型。
         """
         method_name = "_calculate_hot_sector_cooling"
-        hotness_signal_name = 'THEME_HOTNESS_SCORE_D'
-        flow_signal_name = 'net_mf_amount_D'
-        required_signals = [hotness_signal_name, flow_signal_name]
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(dtype=np.float32)
+        required_signals = [
+            'THEME_HOTNESS_SCORE_D', 'net_mf_amount_D', 'industry_stagnation_score_D', 'outflow_quality_D',
+            'SLOPE_13_THEME_HOTNESS_SCORE_D', 'ACCEL_13_THEME_HOTNESS_SCORE_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        hotness_signal_raw = self._get_safe_series(df, hotness_signal_name, 0.0, method_name)
-        flow_signal_raw = self._get_safe_series(df, flow_signal_name, 0.0, method_name)
-        hotness_state_score = self._normalize_series(hotness_signal_raw, df_index, bipolar=False)
-        flow_direction_score = self._normalize_series(flow_signal_raw, df_index, bipolar=True)
-        outflow_score = flow_direction_score.clip(upper=0).abs()
-        relationship_score = hotness_state_score * outflow_score
-        final_score = relationship_score.clip(0, 1)
+        hot = self._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', method_name=method_name)
+        net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
+        stagnation = self._get_safe_series(df, 'industry_stagnation_score_D', method_name=method_name)
+        outflow_q = self._get_safe_series(df, 'outflow_quality_D', method_name=method_name)
+        kinematics_hot = self._get_kinematic_tensor(df, 'THEME_HOTNESS_SCORE_D', 13, method_name)
+        hot_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(hot, 21)))
+        mf_shock = np.tanh(self._apply_hab_shock(net_mf, 13))
+        outflow_tensor = np.abs(mf_shock.clip(upper=0)) * (1.0 + outflow_q)
+        stagnation_boost = 1.0 + np.tanh(stagnation * 2.0)
+        cooling_resonance = hot_shock * outflow_tensor * stagnation_boost * (1.0 - kinematics_hot.clip(lower=0))
+        final_score = np.tanh(cooling_resonance ** 1.5).clip(0, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'THEME_HOTNESS_SCORE_D': hot, 'net_mf_amount_D': net_mf}, calc_nodes={'kinematics_hot': kinematics_hot, 'hot_shock': hot_shock, 'outflow_tensor': outflow_tensor, 'cooling_resonance': cooling_resonance}, final_result=final_score)
         return final_score
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.4 · 军械库直连版】计算“价资关系”的专属方法。
-        - 核心逻辑: 依赖 process.json 配置的 `net_mf_amount_D` [Source 3]。
+        【V2.0.0 · 价资协同非线性元分析版】
+        价资双极背离博弈，将绝对动量推演与Z-Tanh映射完全内建。
         """
         method_name = "_calculate_pf_relationship"
-        # 直接调用通用方法，校验逻辑下沉到 _validate_required_signals
-        relationship_score = self._calculate_instantaneous_relationship(df, config)
-        if relationship_score.empty:
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
+        required_signals = [
+            'net_mf_amount_D', 'close_D', 'price_vs_ma_13_ratio_D',
+            'SLOPE_13_net_mf_amount_D', 'ACCEL_13_net_mf_amount_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
+        df_index = df.index
+        net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
+        close_p = self._get_safe_series(df, 'close_D', method_name=method_name)
+        price_ma_ratio = self._get_safe_series(df, 'price_vs_ma_13_ratio_D', method_name=method_name)
+        kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 13, method_name)
+        mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
+        momentum_p = np.tanh((close_p.diff(1).fillna(0)) / close_p.rolling(21).std().replace(0, 1e-5))
+        thrust_f = mf_shock * (1.0 + np.abs(kinematics_mf)) * (1.0 + price_ma_ratio)
+        relationship_score = pd.Series(np.sign(momentum_p + thrust_f) * np.sqrt(np.abs(momentum_p * thrust_f)), index=df_index)
+        meta_score = self._perform_meta_analysis_on_score(relationship_score.fillna(0.0), config, df, df_index)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'net_mf_amount_D': net_mf, 'close_D': close_p}, calc_nodes={'kinematics_mf': kinematics_mf, 'mf_shock': mf_shock, 'relationship_score': relationship_score}, final_result=meta_score)
         return meta_score
 
     def _calculate_pc_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.4 · 军械库直连版】计算“价筹关系”的专属方法。
-        - 核心逻辑: 依赖 process.json 配置的 `peak_concentration_D` [Source 3]。
+        【V2.0.0 · 价筹共振非线性元分析版】
+        剥离历史包袱，用微积分推演筹码群的绝对协同转移推力。
         """
         method_name = "_calculate_pc_relationship"
-        relationship_score = self._calculate_instantaneous_relationship(df, config)
-        if relationship_score.empty:
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
+        required_signals = [
+            'peak_concentration_D', 'close_D', 'chip_convergence_ratio_D',
+            'SLOPE_13_peak_concentration_D', 'ACCEL_13_peak_concentration_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
+        df_index = df.index
+        peak_c = self._get_safe_series(df, 'peak_concentration_D', method_name=method_name)
+        close_p = self._get_safe_series(df, 'close_D', method_name=method_name)
+        convergence = self._get_safe_series(df, 'chip_convergence_ratio_D', method_name=method_name)
+        kinematics_pc = self._get_kinematic_tensor(df, 'peak_concentration_D', 13, method_name)
+        pc_shock = np.tanh(self._apply_hab_shock(peak_c, 34))
+        momentum_p = np.tanh((close_p.diff(1).fillna(0)) / close_p.rolling(21).std().replace(0, 1e-5))
+        thrust_c = pc_shock * (1.0 + np.abs(kinematics_pc)) * (1.0 + convergence)
+        relationship_score = pd.Series(np.sign(momentum_p + thrust_c) * np.sqrt(np.abs(momentum_p * thrust_c)), index=df_index)
+        meta_score = self._perform_meta_analysis_on_score(relationship_score.fillna(0.0), config, df, df_index)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'peak_concentration_D': peak_c, 'close_D': close_p}, calc_nodes={'kinematics_pc': kinematics_pc, 'pc_shock': pc_shock, 'relationship_score': relationship_score}, final_result=meta_score)
         return meta_score
 
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
+        """【V4.0.0 · 元动力学非线性整合版】结合 HAB 冲击测算推演信号位移与动量的绝对极值，执行 Power Law 非线性增益放大。"""
+        signal_name=config.get('name')
+        relationship_displacement=relationship_score.diff(self.meta_window).fillna(0)
+        relationship_momentum=relationship_displacement.diff(1).fillna(0)
+        bipolar_displacement=np.tanh(self._apply_hab_shock(relationship_displacement,window=self.meta_window*2))
+        bipolar_momentum=np.tanh(self._apply_hab_shock(relationship_momentum,window=13))
+        instant_score_normalized=(relationship_score+1.0)/2.0
+        weight_momentum=(1.0-instant_score_normalized).clip(0,1)
+        weight_displacement=1.0-weight_momentum
+        meta_score=(bipolar_displacement*weight_displacement+bipolar_momentum*weight_momentum)
+        meta_score=np.sign(meta_score)*(np.abs(meta_score)**1.2)
+        if config.get('diagnosis_mode','meta_analysis')=='gated_meta_analysis':
+            gate_config=config.get('gate_condition',{})
+            if gate_config.get('type')=='price_vs_ma':
+                ma_period=gate_config.get('ma_period',5)
+                ma_col=f'EMA_{ma_period}_D'
+                if ma_col in df.columns and 'close_D' in df.columns:
+                    gate_is_open=(df['close_D']<df[ma_col]).astype(float)
+                    meta_score=meta_score*gate_is_open
+        scoring_mode=self.score_type_map.get(signal_name,{}).get('scoring_mode','unipolar')
+        if scoring_mode=='unipolar':
+            meta_score=meta_score.clip(lower=0)
+        return meta_score.clip(-1,1).astype(np.float32)
+
+    def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.4 · 参数名修正版】可复用的元分析核心引擎。
-        - 核心升级: 新增 `df` 参数，接收完整的DataFrame。
-        - 核心修复: 修正了“门控元分析”逻辑，使其从 `df` 而非临时的 `relationship_score.to_frame()`
-                      中获取 `close_D` 和均线数据，彻底解决了数据缺失的警告。
+        【V2.0.0 · 资金结构协同战线版】
+        对齐长效结构坚固度与流动资金可信度，防止筹码离散导致的虚假突破。
         """
-        signal_name = config.get('name')
-        relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
-        relationship_momentum = relationship_displacement.diff(1).fillna(0)
-        bipolar_displacement_strength = self._normalize_series(relationship_displacement, df_index, bipolar=True)
-        bipolar_momentum_strength = self._normalize_series(relationship_momentum, df_index, bipolar=True)
-        instant_score_normalized = (relationship_score + 1) / 2
-        weight_momentum = (1 - instant_score_normalized).clip(0, 1)
-        weight_displacement = 1 - weight_momentum
-        meta_score = (bipolar_displacement_strength * weight_displacement + bipolar_momentum_strength * weight_momentum)
-        diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
-        if diagnosis_mode == 'gated_meta_analysis':
-            gate_condition_config = config.get('gate_condition', {})
-            gate_type = gate_condition_config.get('type')
-            gate_is_open = pd.Series(True, index=df_index)
-            if gate_type == 'price_vs_ma':
-                ma_period = gate_condition_config.get('ma_period', 5)
-                ma_series = self._get_safe_series(df, f'EMA_{ma_period}_D', method_name="_perform_meta_analysis_on_score")
-                if ma_series is not None:
-                    close_series = self._get_safe_series(df, 'close_D', method_name="_perform_meta_analysis_on_score")
-                    gate_is_open = close_series < ma_series
-            meta_score = meta_score * gate_is_open.astype(float)
-        signal_meta = self.score_type_map.get(signal_name, {})
-        scoring_mode = signal_meta.get('scoring_mode', 'unipolar')
-        if scoring_mode == 'unipolar':
-            meta_score = meta_score.clip(lower=0)
-        return meta_score.clip(-1, 1).astype(np.float32)
+        method_name = "_calculate_ff_vs_structure_relationship"
+        required_signals = [
+            'uptrend_strength_D', 'flow_consistency_D', 
+            'ma_arrangement_status_D', 'chip_structure_state_D',
+            'SLOPE_13_uptrend_strength_D', 'ACCEL_13_uptrend_strength_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
+        df_index = df.index
+        struct = self._get_safe_series(df, 'uptrend_strength_D', method_name=method_name)
+        cons = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
+        ma_status = self._get_safe_series(df, 'ma_arrangement_status_D', method_name=method_name)
+        chip_struct = self._get_safe_series(df, 'chip_structure_state_D', method_name=method_name)
+        kinematics_struct = self._get_kinematic_tensor(df, 'uptrend_strength_D', 13, method_name)
+        struct_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(struct, 34)))
+        cons_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(cons, 21)))
+        base_divergence = self._calculate_instantaneous_relationship(df, config)
+        amplifier = 1.0 + (struct_shock * cons_norm * (1.0 + ma_status * 0.5 + chip_struct * 0.5) * (1.0 + np.abs(kinematics_struct)))
+        final_score = np.tanh(base_divergence * amplifier).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'uptrend_strength_D': struct, 'flow_consistency_D': cons}, calc_nodes={'kinematics_struct': kinematics_struct, 'struct_shock': struct_shock, 'amplifier': amplifier}, final_result=final_score)
+        return final_score
+
+    def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V2.0.0 · 动能筹码分歧审判版】
+        执行派发审查，如果动能与持仓心态变差且获利极高，立即释放重度惩罚张力。
+        """
+        method_name = "_calculate_dyn_vs_chip_relationship"
+        required_signals = [
+            'ROC_13_D', 'winner_rate_D', 'profit_ratio_D', 'chip_mean_D',
+            'SLOPE_13_ROC_13_D', 'ACCEL_13_ROC_13_D'
+        ]
+        self._validate_required_signals(df, required_signals, method_name)
+        df_index = df.index
+        roc = self._get_safe_series(df, 'ROC_13_D', method_name=method_name)
+        win = self._get_safe_series(df, 'winner_rate_D', method_name=method_name)
+        profit = self._get_safe_series(df, 'profit_ratio_D', method_name=method_name)
+        chip_mean = self._get_safe_series(df, 'chip_mean_D', method_name=method_name)
+        kinematics_roc = self._get_kinematic_tensor(df, 'ROC_13_D', 13, method_name)
+        base_consensus = self._calculate_instantaneous_relationship(df, config)
+        profit_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(profit, 55)))
+        win_shock = np.tanh(self._apply_hab_shock(win, 21))
+        distribution_pressure = 1.0 + (profit_shock * np.abs(kinematics_roc)) * (1.0 + chip_mean.pct_change().fillna(0).abs())
+        final_score = np.where(base_consensus >= 0, base_consensus, base_consensus * distribution_pressure * (1.0 - win_shock * 0.5))
+        final_score = pd.Series(np.sign(final_score) * (np.abs(final_score) ** 1.5), index=df_index)
+        final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'ROC_13_D': roc, 'winner_rate_D': win}, calc_nodes={'kinematics_roc': kinematics_roc, 'profit_shock': profit_shock, 'distribution_pressure': pd.Series(distribution_pressure, index=df_index)}, final_result=final_score)
+        return final_score
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4 · 参数名修正版】计算通用的瞬时关系分数。
-        - 核心升级: 增加对 `enable_probe` 配置项的检查，实现探针输出的可配置化。
+        【V2.0.0 · 瞬时关系共振张量版】
+        重构底层A与B特征张量对冲，支持HAB存量意识与Power Law指数级共振。
         """
-        signal_name = config.get('name')
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
         relationship_type = config.get('relationship_type', 'consensus')
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
-            series = None
             if source_type == 'atomic_states':
-                series = self.strategy.atomic_states.get(signal_name)
-            else:
-                series = self._get_safe_series(df, signal_name, method_name="_calculate_instantaneous_relationship")
-            if series is None:
-                print(f"        -> [过程层警告] 依赖信号 '{signal_name}' (来源: {source_type}) 不存在，无法计算关系。")
-            return series
-        signal_a = get_signal_series(config.get('signal_A'), config.get('source_A', 'df'))
-        signal_b = get_signal_series(config.get('signal_B'), config.get('source_B', 'df'))
+                return self.strategy.atomic_states.get(signal_name)
+            try:
+                return self._get_safe_series(df, signal_name, np.nan, "_calculate_instantaneous_relationship")
+            except ValueError:
+                return None
+        signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
+        signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
         if signal_a is None or signal_b is None:
-            return pd.Series(dtype=np.float32)
-        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
-            if change_type == 'diff':
-                return series.diff(1).fillna(0)
-            return ta.percent_return(series, length=1).fillna(0)
-        change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
-        change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
-        momentum_a = self._normalize_series(change_a, df_index, bipolar=True)
-        thrust_b = self._normalize_series(change_b, df_index, bipolar=True)
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        change_a = signal_a.diff(1).fillna(0) if config.get('change_type_A', 'pct') == 'diff' else ta.percent_return(signal_a, length=1).fillna(0)
+        change_b = signal_b.diff(1).fillna(0) if config.get('change_type_B', 'pct') == 'diff' else ta.percent_return(signal_b, length=1).fillna(0)
+        momentum_a = np.tanh(self._apply_hab_shock(change_a, 13))
+        thrust_b = np.tanh(self._apply_hab_shock(change_b, 13))
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         if relationship_type == 'divergence':
-            relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
+            relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1.0)
         else:
             force_vector_sum = momentum_a + signal_b_factor_k * thrust_b
             magnitude = (momentum_a.abs() * thrust_b.abs()).pow(0.5)
             relationship_score = np.sign(force_vector_sum) * magnitude
-        relationship_score = relationship_score.clip(-1, 1).fillna(0.0)
-        self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
-        self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
-        return relationship_score
-
-    def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V3.1 · 军械库适配版】计算“资金与结构”的专属瞬时关系分。
-        - 核心修复:
-            1. 结构: `uptrend_strength_D` [Source 3] (替代趋势形态评分)
-            2. 资金: `flow_consistency_D` [Source 2] (替代资金共识评分)
-        """
-        # 军械库信号
-        structure_signal = 'uptrend_strength_D'
-        flow_signal = 'flow_consistency_D'
-        required_signals = [structure_signal, flow_signal]
-        # 使用通用校验
-        if not self._validate_required_signals(df, required_signals, "_calculate_ff_vs_structure_relationship"):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 计算基础背离分数 (依赖 Config 中的 signal_A/B 配置)
-        base_divergence_score = self._calculate_instantaneous_relationship(df, config)
-        # 引入战略态势放大器
-        # 使用 trend strength 的绝对值作为放大器，趋势越强，背离越重要
-        trend_strength = self._get_safe_series(df, structure_signal, 0.0, method_name="_calculate_ff_vs_structure_relationship")
-        # uptrend_strength_D 通常是 0-100 或 0-1，这里假设已归一化或直接使用
-        # 为了安全，先归一化
-        trend_strength_norm = self._normalize_series(trend_strength, df.index, bipolar=False)
-        strategic_context_amplifier = 1 + trend_strength_norm
-        final_score = (base_divergence_score * strategic_context_amplifier).clip(-1, 1)
-        return final_score
-
-    def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V3.1 · 军械库适配版】计算“动能与筹码”的专属瞬时关系分。
-        - 核心修复:
-            1. 动能: `ROC_13_D` [Source 1] (替代动量公理)
-            2. 心态: `winner_rate_D` [Source 4] (替代持仓心态公理)
-            3. 压力: `profit_ratio_D` [Source 3] (替代获利幅度)
-        """
-        # 军械库信号
-        momentum_signal = 'ROC_13_D'
-        sentiment_signal = 'winner_rate_D'
-        profit_signal = 'profit_ratio_D'
-        required_signals = [momentum_signal, sentiment_signal, profit_signal]
-        if not self._validate_required_signals(df, required_signals, "_calculate_dyn_vs_chip_relationship"):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 计算基础共识分数 (依赖 Config)
-        base_consensus_score = self._calculate_instantaneous_relationship(df, config)
-        # 引入派发压力因子进行动机审判
-        profit_ratio = self._get_safe_series(df, profit_signal, 0.0, method_name="_calculate_dyn_vs_chip_relationship")
-        profit_ratio_norm = self._normalize_series(profit_ratio, df.index, bipolar=False)
-        distribution_pressure_factor = 1 + profit_ratio_norm
-        # 仅当基础分为负（内部分裂/同步下跌）时，才进行动机审判
-        # 如果动能和心态都在变差（负分），且获利比例很高，说明是派发导致的下跌，信号加重
-        final_score = base_consensus_score.where(
-            base_consensus_score >= 0,
-            base_consensus_score * distribution_pressure_factor
-        ).clip(-1, 1)
-        return final_score
+        return (np.sign(relationship_score) * (np.abs(relationship_score) ** 1.5)).clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series, config: Dict) -> pd.Series:
         """
-        【V2.8 · 军械库直连版】识别主力利用洗盘后进行反弹的信号。
-        - 信号映射:
-          1. 洗盘: `shakeout_score_D` [Source 3]
-          2. 欺诈: `stealth_flow_ratio_D` [Source 3]
-          3. 卖压: `intraday_distribution_confidence_D` [Source 2]
-          4. 恐慌: `pressure_trapped_D` [Source 3]
-          5. 纯度: `pushing_score_D` [Source 3]
+        【V4.0.0 · 虚假派发与承接反包探针版】
+        识别主力利用极度洗盘环境后进行强力反抽的技术战术。
         """
-        method_name = "_calculate_process_wash_out_rebound"
-        df_index = df.index
-        p_conf = self.params
-        params = get_param_value(p_conf.get('wash_out_rebound_params'), {})
-        wash_sig = 'shakeout_score_D'
-        active_sell_sig = 'intraday_distribution_confidence_D'
-        panic_sig = 'pressure_trapped_D' 
-        purity_sig = 'pushing_score_D'
-        deception_sig = 'stealth_flow_ratio_D'
-        required_signals = [
-            wash_sig, deception_sig, active_sell_sig,
-            panic_sig, 
-            'closing_strength_index_D', purity_sig, # closing_strength_index_D 假设存在或使用默认
-            'SCORE_STRUCT_AXIOM_TREND_FORM', 'SCORE_STRUCT_AXIOM_STABILITY',
-            'deception_lure_long_intensity_D', 'deception_lure_short_intensity_D',
-            'SCORE_BEHAVIOR_DECEPTION_INDEX', 'SCORE_MICRO_STRATEGY_STEALTH_OPS',
-            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM',
-            'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT',
-            'main_force_buy_execution_alpha_D', 'buy_sweep_intensity_D',
-            'SCORE_STRUCT_AXIOM_TENSION', 'SCORE_STRUCT_AXIOM_MTF_COHESION'
-        ]
-        fusion_weights = get_param_value(params.get('fusion_weights'), {"deception_context": 0.3, "panic_depth": 0.3, "rebound_quality": 0.4})
-        deception_context_weights = get_param_value(params.get('deception_context_weights'), {})
-        panic_depth_weights = get_param_value(params.get('panic_depth_weights'), {})
-        rebound_quality_weights = get_param_value(params.get('rebound_quality_weights'), {})
-        context_amplification_weights = get_param_value(params.get('context_amplification_weights'), {})
-        max_context_bonus_factor = get_param_value(params.get('max_context_bonus_factor'), 0.5)
-        mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
-        for base_sig in [wash_sig, active_sell_sig, panic_sig, 'deception_lure_short_intensity_D']:
-            for period_str in mtf_slope_accel_weights.get('slope_periods', {}).keys():
-                required_signals.append(f'SLOPE_{period_str}_{base_sig}')
-            for period_str in mtf_slope_accel_weights.get('accel_periods', {}).keys():
-                required_signals.append(f'ACCEL_{period_str}_{base_sig}')
-        if not self._validate_required_signals(df, required_signals, method_name):
-            return pd.Series(0.0, index=df.index)
-        wash_trade_raw = self._get_safe_series(df, wash_sig, 0.0, method_name)
-        active_selling_raw = self._get_safe_series(df, active_sell_sig, 0.0, method_name)
-        panic_cascade_raw = self._get_safe_series(df, panic_sig, 0.0, method_name) 
-        closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name)
-        upward_purity_raw = self._get_safe_series(df, purity_sig, 0.0, method_name)
-        trend_form_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        stability_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_STABILITY', 0.0)
-        behavior_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
-        stealth_ops_score = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        holder_sentiment_score = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        sentiment_pendulum_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
-        absorption_strength_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
-        offensive_absorption_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 0.0)
-        mf_buy_execution_alpha_raw = self._get_safe_series(df, 'main_force_buy_execution_alpha_D', 0.0, method_name)
-        buy_sweep_intensity_raw = self._get_safe_series(df, 'buy_sweep_intensity_D', 0.0, method_name)
-        tension_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
-        mtf_cohesion_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_MTF_COHESION', 0.0)
-        # Context Scores
-        mtf_wash_trade_score = self._get_mtf_slope_accel_score(df, wash_sig, mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
-        mtf_active_selling_score = self._get_mtf_slope_accel_score(df, active_sell_sig, mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
-        mtf_deception_lure_short_score = self._get_mtf_slope_accel_score(df, 'deception_lure_short_intensity_D', mtf_slope_accel_weights, df_index, method_name, bipolar=False)
-        behavior_deception_score_negative = behavior_deception_index.clip(upper=0).abs()
-        stealth_ops_normalized = self._normalize_series(stealth_ops_score, df_index, bipolar=False)
-        mtf_wash_trade_slope_score = self._get_mtf_slope_accel_score(df, wash_sig, mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
-        mtf_active_selling_slope_score = self._get_mtf_slope_accel_score(df, active_sell_sig, mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
-        deception_context_score = (
-            (mtf_wash_trade_score).pow(deception_context_weights.get('wash_trade', 0.2)) *
-            (mtf_active_selling_score).pow(deception_context_weights.get('active_selling', 0.15)) *
-            (mtf_deception_lure_short_score).pow(deception_context_weights.get('deception_lure_short', 0.2)) *
-            (behavior_deception_score_negative).pow(deception_context_weights.get('behavior_deception_index', 0.2)) *
-            (stealth_ops_normalized).pow(deception_context_weights.get('stealth_ops', 0.15)) *
-            (mtf_wash_trade_slope_score).pow(deception_context_weights.get('wash_trade_slope', 0.05)) *
-            (mtf_active_selling_slope_score).pow(deception_context_weights.get('active_selling_slope', 0.05))
-        ).pow(1/sum(deception_context_weights.values())).fillna(0.0)
-        # Panic Scores
-        panic_cascade_score = self._normalize_series(panic_cascade_raw, df_index, bipolar=False)
-        mtf_retail_surrender_score = self._get_mtf_slope_accel_score(df, panic_sig, mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
-        mtf_loser_pain_score = self._get_mtf_slope_accel_score(df, panic_sig, mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False) # 使用相同信号代替
-        holder_sentiment_inverted_score = (1 - holder_sentiment_score).clip(0, 1)
-        sentiment_pendulum_negative_score = sentiment_pendulum_score.clip(upper=0).abs()
-        mtf_retail_surrender_slope_score = self._get_mtf_slope_accel_score(df, panic_sig, mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
-        mtf_loser_pain_slope_score = self._get_mtf_slope_accel_score(df, panic_sig, mtf_slope_accel_weights, df_index, method_name, ascending=True, bipolar=False)
-        panic_depth_score = (
-            (panic_cascade_score).pow(panic_depth_weights.get('panic_cascade', 0.2)) *
-            (mtf_retail_surrender_score).pow(panic_depth_weights.get('retail_surrender', 0.2)) *
-            (mtf_loser_pain_score).pow(panic_depth_weights.get('loser_pain', 0.2)) *
-            (holder_sentiment_inverted_score).pow(panic_depth_weights.get('holder_sentiment_inverted', 0.15)) *
-            (sentiment_pendulum_negative_score).pow(panic_depth_weights.get('sentiment_pendulum_negative', 0.15)) *
-            (mtf_retail_surrender_slope_score).pow(panic_depth_weights.get('retail_surrender_slope', 0.075)) *
-            (mtf_loser_pain_slope_score).pow(panic_depth_weights.get('loser_pain_slope', 0.075))
-        ).pow(1/sum(panic_depth_weights.values())).fillna(0.0)
-        # Rebound Quality
-        closing_strength_score = normalize_score(closing_strength_raw, df_index, windows=55)
-        upward_purity_score = self._normalize_series(upward_purity_raw, df_index, bipolar=False)
-        absorption_strength_normalized = self._normalize_series(absorption_strength_score, df_index, bipolar=False)
-        offensive_absorption_normalized = self._normalize_series(offensive_absorption_score, df_index, bipolar=False)
-        mf_buy_execution_alpha_score = self._normalize_series(mf_buy_execution_alpha_raw, df_index, bipolar=False)
-        buy_sweep_intensity_score = self._normalize_series(buy_sweep_intensity_raw, df_index, bipolar=False)
-        rebound_quality_score = (
-            (closing_strength_score).pow(rebound_quality_weights.get('closing_strength', 0.15)) *
-            (upward_purity_score).pow(rebound_quality_weights.get('upward_purity', 0.15)) *
-            (absorption_strength_normalized).pow(rebound_quality_weights.get('absorption_strength', 0.3)) *
-            (offensive_absorption_normalized).pow(rebound_quality_weights.get('offensive_absorption', 0.25)) *
-            (mf_buy_execution_alpha_score).pow(rebound_quality_weights.get('mf_buy_execution_alpha', 0.05)) *
-            (buy_sweep_intensity_score).pow(rebound_quality_weights.get('buy_sweep_intensity', 0.1))
-        ).pow(1/sum(rebound_quality_weights.values())).fillna(0.0)
-        # Final Synthesis
-        wash_out_rebound_score_base = (
-            (deception_context_score).pow(fusion_weights.get('deception_context', 0.3)) *
-            (panic_depth_score).pow(fusion_weights.get('panic_depth', 0.3)) *
-            (rebound_quality_score).pow(fusion_weights.get('rebound_quality', 0.4))
-        ).pow(1/(fusion_weights.get('deception_context', 0.3) + fusion_weights.get('panic_depth', 0.3) + fusion_weights.get('rebound_quality', 0.4))).fillna(0.0)
-        trend_form_norm = trend_form_score.clip(lower=0)
-        stability_norm = stability_score
-        tension_norm = tension_score.clip(lower=0)
-        mtf_cohesion_norm = mtf_cohesion_score.clip(lower=0)
-        structural_context_amplifier = (
-            (trend_form_norm * context_amplification_weights.get('trend_form', 0.4)) +
-            (stability_norm * context_amplification_weights.get('stability', 0.3)) +
-            (tension_norm * context_amplification_weights.get('tension', 0.15)) +
-            (mtf_cohesion_norm * context_amplification_weights.get('mtf_cohesion', 0.15))
-        ).clip(0, 1)
-        final_amplifier = 1 + (structural_context_amplifier * max_context_bonus_factor)
-        final_wash_out_rebound_score = (wash_out_rebound_score_base * final_amplifier).clip(0, 1)
-        return final_wash_out_rebound_score.clip(0, 1).astype(np.float32)
+        method_name="_calculate_process_wash_out_rebound"
+        required_signals=['shakeout_score_D','intraday_distribution_confidence_D','intraday_trough_filling_degree_D','intraday_resistance_test_count_D','closing_flow_intensity_D','short_term_chip_ratio_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        shakeout=self._get_safe_series(df,'shakeout_score_D',method_name=method_name)
+        fake_dist=self._get_safe_series(df,'intraday_distribution_confidence_D',method_name=method_name)
+        trough_fill=self._get_safe_series(df,'intraday_trough_filling_degree_D',method_name=method_name)
+        resist_test=self._get_safe_series(df,'intraday_resistance_test_count_D',method_name=method_name)
+        closing_intensity=self._get_safe_series(df,'closing_flow_intensity_D',method_name=method_name)
+        short_chip=self._get_safe_series(df,'short_term_chip_ratio_D',method_name=method_name)
+        washout_context=shakeout*fake_dist
+        rebound_intent=np.sqrt(trough_fill.abs()*(resist_test/10.0).clip(upper=1.0))
+        chip_penalty=1.0-np.clip(short_chip,0,0.5)
+        raw_score=washout_context*rebound_intent*closing_intensity*chip_penalty
+        final_score=np.tanh(raw_score*2.0).clip(0,1).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'shakeout_score_D':shakeout,'intraday_distribution_confidence_D':fake_dist,'intraday_trough_filling_degree_D':trough_fill,'intraday_resistance_test_count_D':resist_test,'closing_flow_intensity_D':closing_intensity,'short_term_chip_ratio_D':short_chip},calc_nodes={'washout_context':washout_context,'rebound_intent':rebound_intent,'chip_penalty':chip_penalty,'raw_score':raw_score},final_result=final_score)
+        return final_score
 
 
 
