@@ -70,27 +70,42 @@ class ProcessIntelligence:
             else:
                 print(key)
 
-    def _probe_variables(self, method_name: str, df_index: pd.Index, raw_inputs: Dict[str, pd.Series], calc_nodes: Dict[str, pd.Series], final_result: pd.Series):
+    def _probe_variables(self, method_name: str, df_index: pd.Index, raw_inputs: Dict[str, Any], calc_nodes: Dict[str, Any], final_result: Any):
         """
-        【V2.0.0 · 全息探针诊断】
-        统一管理调试探针，直接暴露所有原料、计算节点和结果的值，拒绝掩盖。
+        【V2.1.0 · 全息探针防御升级版】
+        统一管理调试探针。新增了针对 numpy.ndarray 和纯数值的强兼容防御，
+        确保即使底层释放了无索引张量，探针仍能精准定轨输出，杜绝执行中断。
         """
         is_debug=get_param_value(self.debug_params.get('enabled'),False) and get_param_value(self.debug_params.get('should_probe'),False)
         if not is_debug or not self.probe_dates:
             return
         probe_dates_dt=[pd.to_datetime(d).tz_localize(None).normalize() for d in self.probe_dates]
+        def _get_val(v, target_date):
+            if isinstance(v, pd.Series):
+                return v.loc[target_date] if target_date in v.index else np.nan
+            elif isinstance(v, np.ndarray):
+                if len(v)==len(df_index):
+                    try:
+                        idx=df_index.get_loc(target_date)
+                        return v[idx]
+                    except (KeyError, IndexError, TypeError):
+                        return np.nan
+                return np.nan
+            elif isinstance(v, (float, int, np.number)):
+                return v
+            return np.nan
         for date in reversed(df_index):
             if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
                 debug_output={f"--- {method_name} 全息探针 @ {date.strftime('%Y-%m-%d')} ---": ""}
                 debug_output["[原料数据]"]=""
                 for k,v in raw_inputs.items():
-                    val=v.loc[date] if date in v.index else np.nan
+                    val=_get_val(v, date)
                     debug_output[f"  -> {k}: {val:.4f}" if isinstance(val,(float,np.float32,np.float64)) else f"  -> {k}: {val}"]=""
                 debug_output["[计算节点]"]=""
                 for k,v in calc_nodes.items():
-                    val=v.loc[date] if date in v.index else np.nan
+                    val=_get_val(v, date)
                     debug_output[f"  -> {k}: {val:.4f}" if isinstance(val,(float,np.float32,np.float64)) else f"  -> {k}: {val}"]=""
-                final_val=final_result.loc[date] if date in final_result.index else np.nan
+                final_val=_get_val(final_result, date)
                 debug_output["[最终结果]"]=f"  -> OUTPUT: {final_val:.4f}"
                 self._print_debug_output(debug_output)
                 break
@@ -105,7 +120,10 @@ class ProcessIntelligence:
         return df[col_name].astype(np.float32)
 
     def _get_mtf_slope_accel_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights_config: Dict, df_index: pd.Index, method_name: str, ascending: bool = True, bipolar: bool = False) -> pd.Series:
-        """【V4.0.0 · MTF动态张量版】取代统一归一化，为多时间框架斜率和加速度提供定制的物理张量映射。"""
+        """
+        【V4.1.0 · MTF动态张量原生版】
+        取代统一归一化，使用 Pandas 原生 where 防止矩阵坍缩。
+        """
         slope_periods_weights=get_param_value(mtf_weights_config.get('slope_periods'),{"5":0.4,"13":0.3,"21":0.2,"34":0.1})
         accel_periods_weights=get_param_value(mtf_weights_config.get('accel_periods'),{"5":0.6,"13":0.4})
         all_scores_components=[]
@@ -116,9 +134,9 @@ class ProcessIntelligence:
             raw_series=df[col_name].astype(np.float32)
             if raw_series.isnull().all():
                 return 0.0,0.0
-            gated=np.where(np.abs(raw_series)<1e-4,0.0,raw_series)
+            gated=raw_series.where(raw_series.abs()>=1e-4,0.0)
             hab_window=max(21,period*2)
-            shock=self._apply_hab_shock(pd.Series(gated,index=df_index),window=hab_window)
+            shock=self._apply_hab_shock(gated,window=hab_window)
             norm_score=np.tanh(shock)
             if not ascending:
                 norm_score=-norm_score
@@ -140,6 +158,36 @@ class ProcessIntelligence:
         fused_score=sum(all_scores_components)/total_combined_weight
         return fused_score.clip(-1,1).astype(np.float32) if bipolar else fused_score.clip(0,1).astype(np.float32)
 
+    def _get_mtf_slope_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights: Dict, df_index: pd.Index, method_name: str, bipolar: bool = True) -> pd.Series:
+        """
+        【V4.1.0 · 纯斜率非线性动能原生版】
+        专供单一维度斜率融合，使用 Pandas 的 .where 杜绝索引降维。
+        """
+        fused_score=pd.Series(0.0,index=df_index,dtype=np.float32)
+        total_weight=0.0
+        for period_str,weight in mtf_weights.items():
+            try:
+                period=int(period_str)
+            except ValueError:
+                continue
+            col_name=f'SLOPE_{period}_{base_signal_name}'
+            if col_name not in df.columns:
+                continue
+            raw_series=df[col_name].astype(np.float32)
+            if raw_series.isnull().all():
+                continue
+            gated=raw_series.where(raw_series.abs()>=1e-4,0.0)
+            hab_window=max(21,period*2)
+            shock=self._apply_hab_shock(gated,window=hab_window)
+            score=np.tanh(shock)
+            if not bipolar:
+                score=0.5*(1.0+score)
+            fused_score+=score*weight
+            total_weight+=weight
+        if total_weight>0:
+            fused_score=fused_score/total_weight
+        return fused_score.clip(-1,1).astype(np.float32) if bipolar else fused_score.clip(0,1).astype(np.float32)
+
     def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
         """【V4.0.0 · 逆向张量协同探针版】直接基于多维信号动能矩阵计算标准差，利用逆向Tanh将横向极度离散映射为微观协同。"""
         all_fused_mtf_scores={}
@@ -155,33 +203,6 @@ class ProcessIntelligence:
         std_shock=self._apply_hab_shock(smoothed_std,window=34)
         cohesion_score=0.5*(1.0-np.tanh(std_shock))
         return cohesion_score.clip(0,1).astype(np.float32)
-
-    def _get_mtf_slope_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights: Dict, df_index: pd.Index, method_name: str, bipolar: bool = True) -> pd.Series:
-        """【V4.0.0 · 纯斜率非线性动能版】专供单一维度斜率融合。依据局部 HAB 冲击和 Tanh 非线性压缩。"""
-        fused_score=pd.Series(0.0,index=df_index,dtype=np.float32)
-        total_weight=0.0
-        for period_str,weight in mtf_weights.items():
-            try:
-                period=int(period_str)
-            except ValueError:
-                continue
-            col_name=f'SLOPE_{period}_{base_signal_name}'
-            if col_name not in df.columns:
-                continue
-            raw_series=df[col_name].astype(np.float32)
-            if raw_series.isnull().all():
-                continue
-            gated=np.where(np.abs(raw_series)<1e-4,0.0,raw_series)
-            hab_window=max(21,period*2)
-            shock=self._apply_hab_shock(pd.Series(gated,index=df_index),window=hab_window)
-            score=np.tanh(shock)
-            if not bipolar:
-                score=0.5*(1.0+score)
-            fused_score+=score*weight
-            total_weight+=weight
-        if total_weight>0:
-            fused_score=fused_score/total_weight
-        return fused_score.clip(-1,1).astype(np.float32) if bipolar else fused_score.clip(0,1).astype(np.float32)
 
     def _normalize_series(self, *args, **kwargs):
         """【V4.0.0 · 核心禁令】统一归一化引擎已彻底废除。禁止调用此方法，各逻辑节点必须内置领域特化的非线性张力映射。"""
@@ -451,12 +472,16 @@ class ProcessIntelligence:
         return ((series - roll_mean) / roll_std).astype(np.float32)
 
     def _get_kinematic_tensor(self, df: pd.DataFrame, base_col: str, period: int = 13, method_name: str = "") -> pd.Series:
-        """【V2.0.0 · 运动学张力处理器】提取导数并利用死区门限与tanh滤除无穷小噪音"""
-        slope = self._get_safe_series(df, f'SLOPE_{period}_{base_col}', 0.0, method_name)
-        accel = self._get_safe_series(df, f'ACCEL_{period}_{base_col}', 0.0, method_name)
-        raw_tensor = slope + accel * 0.5
-        gated_tensor = np.where(np.abs(raw_tensor) < 1e-4, 0.0, raw_tensor)
-        return np.tanh(gated_tensor * 20.0).astype(np.float32)
+        """
+        【V2.1.0 · 运动学张力处理器 (修复降维Bug)】
+        提取导数并利用死区门限与tanh滤除无穷小噪音。
+        (修复: 使用 Pandas 原生 where 保留索引结构，避免降维为 ndarray)
+        """
+        slope=self._get_safe_series(df,f'SLOPE_{period}_{base_col}',0.0,method_name)
+        accel=self._get_safe_series(df,f'ACCEL_{period}_{base_col}',0.0,method_name)
+        raw_tensor=slope+accel*0.5
+        gated_tensor=raw_tensor.where(raw_tensor.abs()>=1e-4,0.0)
+        return np.tanh(gated_tensor*20.0).astype(np.float32)
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
@@ -1013,29 +1038,29 @@ class ProcessIntelligence:
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 动能筹码分歧审判版】
-        执行派发审查，如果动能与持仓心态变差且获利极高，立即释放重度惩罚张力。
+        【V2.1.0 · 动能筹码分歧原生审判版】
+        执行派发审查。同步清除了内部 np.where 的张量降级隐患。
         """
-        method_name = "_calculate_dyn_vs_chip_relationship"
-        required_signals = [
-            'ROC_13_D', 'winner_rate_D', 'profit_ratio_D', 'chip_mean_D',
-            'SLOPE_13_ROC_13_D', 'ACCEL_13_ROC_13_D'
+        method_name="_calculate_dyn_vs_chip_relationship"
+        required_signals=[
+            'ROC_13_D','winner_rate_D','profit_ratio_D','chip_mean_D',
+            'SLOPE_13_ROC_13_D','ACCEL_13_ROC_13_D'
         ]
-        self._validate_required_signals(df, required_signals, method_name)
-        df_index = df.index
-        roc = self._get_safe_series(df, 'ROC_13_D', method_name=method_name)
-        win = self._get_safe_series(df, 'winner_rate_D', method_name=method_name)
-        profit = self._get_safe_series(df, 'profit_ratio_D', method_name=method_name)
-        chip_mean = self._get_safe_series(df, 'chip_mean_D', method_name=method_name)
-        kinematics_roc = self._get_kinematic_tensor(df, 'ROC_13_D', 13, method_name)
-        base_consensus = self._calculate_instantaneous_relationship(df, config)
-        profit_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(profit, 55)))
-        win_shock = np.tanh(self._apply_hab_shock(win, 21))
-        distribution_pressure = 1.0 + (profit_shock * np.abs(kinematics_roc)) * (1.0 + chip_mean.pct_change().fillna(0).abs())
-        final_score = np.where(base_consensus >= 0, base_consensus, base_consensus * distribution_pressure * (1.0 - win_shock * 0.5))
-        final_score = pd.Series(np.sign(final_score) * (np.abs(final_score) ** 1.5), index=df_index)
-        final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'ROC_13_D': roc, 'winner_rate_D': win}, calc_nodes={'kinematics_roc': kinematics_roc, 'profit_shock': profit_shock, 'distribution_pressure': pd.Series(distribution_pressure, index=df_index)}, final_result=final_score)
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        roc=self._get_safe_series(df,'ROC_13_D',method_name=method_name)
+        win=self._get_safe_series(df,'winner_rate_D',method_name=method_name)
+        profit=self._get_safe_series(df,'profit_ratio_D',method_name=method_name)
+        chip_mean=self._get_safe_series(df,'chip_mean_D',method_name=method_name)
+        kinematics_roc=self._get_kinematic_tensor(df,'ROC_13_D',13,method_name)
+        base_consensus=self._calculate_instantaneous_relationship(df,config)
+        profit_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(profit,55)))
+        win_shock=np.tanh(self._apply_hab_shock(win,21))
+        distribution_pressure=1.0+(profit_shock*np.abs(kinematics_roc))*(1.0+chip_mean.pct_change().fillna(0).abs())
+        final_score=base_consensus.where(base_consensus>=0,base_consensus*distribution_pressure*(1.0-win_shock*0.5))
+        final_score=np.sign(final_score)*(np.abs(final_score)**1.5)
+        final_score=np.tanh(final_score).clip(-1,1).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc,'winner_rate_D':win},calc_nodes={'kinematics_roc':kinematics_roc,'profit_shock':profit_shock,'distribution_pressure':distribution_pressure},final_result=final_score)
         return final_score
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
