@@ -235,7 +235,7 @@ class ProcessIntelligence:
 
     def _extract_and_validate_config_signals(self, df: pd.DataFrame, config: Dict, method_name: str) -> bool:
         """
-        【V5.0.0 · 蓝图审查官 (幽灵拦截与映射防线版)】
+        【V6.0.0 · 蓝图审查官 (幽灵拦截与映射防线版)】
         针对旧版 JSON 配置文件中残留的已淘汰信号名，
         在进行严格数据约束检查前，执行自适应热映射重定向。
         同时为已实现硬编码军械库直连的引擎开启白名单豁免，切断外部配置滞后污染。
@@ -244,7 +244,7 @@ class ProcessIntelligence:
         
         # 1. 遗留配置热映射 (Ghost Interception & Remapping)
         legacy_remap = {
-            'breakout_confidence_D': 'breakout_quality_score_D',
+            'breakout_quality_score_D': 'breakout_quality_score_D',
             'closing_strength_index_D': 'CLOSING_STRENGTH_D',
             'trend_confirmation_score_D': 'uptrend_strength_D',
             'consolidation_quality_grade_D': 'consolidation_quality_score_D'
@@ -258,21 +258,19 @@ class ProcessIntelligence:
                 required_signals.append(mapped_val)
                 
         if config.get('axioms'):
-            for axiom in config['axioms']:
+            for axiom in config.get('axioms', []):
                 if axiom.get('name'):
                     mapped_val = legacy_remap.get(axiom['name'], axiom['name'])
                     axiom['name'] = mapped_val
                     required_signals.append(mapped_val)
 
         # 2. 硬编码引擎豁免 (Blueprint Exemption)
-        # 这些引擎内部已经完全硬编码了所需的所有底层 L2 特征，
-        # 不再依赖 config 中的 signal_A/B，因此豁免外部 JSON 配置的前置审查。
         exempt_signals = {
             'PROCESS_META_POWER_TRANSFER', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION',
             'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_ACCUMULATION_INFLECTION',
             'PROCESS_META_BREAKOUT_ACCELERATION', 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT',
             'PROCESS_META_LOSER_CAPITULATION', 'PROCESS_META_PROFIT_VS_FLOW',
-            'PROCESS_META_STOCK_SECTOR_SYNC', 'PROCESS_META_HOT_SECTOR_COOLING'
+            'PROCESS_META_STOCK_SECTOR_SYNC', 'PROCESS_META_HOT_SECTOR_COOLING', 'PROCESS_META_WASH_OUT_REBOUND'
         }
         if signal_name in exempt_signals:
             return True
@@ -805,34 +803,56 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 突破爆发加速度探针版】
-        融入行业强度、资金连续性与异常高频放量，构建非线性突破张量矩阵。
+        【V3.0.0 · 突破爆发加速度原生修复版】
+        修复数据断层，彻底清除旧版 breakout_confidence_D，改用军械库存在的 breakout_quality_score_D。
+        结合 HAB 存量冲击系统与 Power Law 指数增强构建非线性突破张量矩阵。
         """
         method_name = "_calculate_breakout_acceleration"
+        
+        # 已剔除 breakout_confidence_D，全面对齐军械库清单特征
         required_signals = [
-            'breakout_confidence_D', 'industry_strength_rank_D', 'net_mf_amount_D', 
+            'breakout_quality_score_D', 'industry_strength_rank_D', 'net_mf_amount_D', 
             'flow_consistency_D', 'tick_abnormal_volume_ratio_D', 'uptrend_strength_D',
-            'SLOPE_13_breakout_confidence_D', 'ACCEL_13_net_mf_amount_D'
+            'SLOPE_13_breakout_quality_score_D', 'ACCEL_13_net_mf_amount_D'
         ]
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        breakout = self._get_safe_series(df, 'breakout_confidence_D', method_name=method_name)
+        
+        # 1. 基础矩阵数据挂载
+        breakout = self._get_safe_series(df, 'breakout_quality_score_D', method_name=method_name)
         industry = self._get_safe_series(df, 'industry_strength_rank_D', method_name=method_name)
         net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
         consistency = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
         abnormal_vol = self._get_safe_series(df, 'tick_abnormal_volume_ratio_D', method_name=method_name)
         uptrend = self._get_safe_series(df, 'uptrend_strength_D', method_name=method_name)
-        kinematics_brk = self._get_kinematic_tensor(df, 'breakout_confidence_D', 13, method_name)
+        
+        # 2. 运动学微积分张量提取 (内置防零基陷阱门限)
+        kinematics_brk = self._get_kinematic_tensor(df, 'breakout_quality_score_D', 13, method_name)
         kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 13, method_name)
+        
+        # 3. HAB 存量冲击测算与非线性 Power Law 引爆
         mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
         mf_power = np.sign(mf_shock) * (np.abs(mf_shock) ** 1.5)
+        
         ind_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(industry, 55)))
         abnorm_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(abnormal_vol, 21)))
+        
+        # 4. 张量聚合与催化共振
         base_tensor = breakout * ind_norm * (1.0 + mf_power.clip(lower=0))
         catalyst = (consistency * abnorm_norm * uptrend) ** 1.5
+        
         raw_score = base_tensor * catalyst * (1.0 + kinematics_brk.clip(lower=0) + kinematics_mf.clip(lower=0))
         final_score = np.tanh(raw_score).clip(0, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'breakout_confidence_D': breakout, 'tick_abnormal_volume_ratio_D': abnormal_vol}, calc_nodes={'kinematics_brk': kinematics_brk, 'mf_power': mf_power, 'catalyst': catalyst, 'raw_score': raw_score}, final_result=final_score)
+        
+        # 5. 全息探针数据注入
+        self._probe_variables(
+            method_name=method_name, 
+            df_index=df_index, 
+            raw_inputs={'breakout_quality_score_D': breakout, 'tick_abnormal_volume_ratio_D': abnormal_vol}, 
+            calc_nodes={'kinematics_brk': kinematics_brk, 'mf_power': mf_power, 'catalyst': catalyst, 'raw_score': raw_score}, 
+            final_result=final_score
+        )
+        
         return final_score
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
