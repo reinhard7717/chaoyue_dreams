@@ -8,9 +8,9 @@ from strategies.trend_following.utils import get_param_value
 class CalculateMainForceRallyIntent:
     """
     PROCESS_META_MAIN_FORCE_RALLY_INTENT
-    【V30.1.0 · 作用域解包陷阱彻底修复版】
-    完美修复 _calc_drag_component 返回值缺失导致的 NumPy 一维数组解包溢出崩溃。
-    全链路畅通欧几里得 L2 正交相空间、对数流形压缩与 144d Rolling 零未来函数防线。
+    【V31.0.0 · 解包陷阱修复与绝对流形投射版】
+    完美修复 _calc_drag_component 缺失返回值导致的 ValueError(解包溢出)。
+    废除滞后的 Rolling MAD 统计归一化，引入“绝对流形投射”消除高波动期的温水煮青蛙效应，实现绝对零未来函数与 $O(1)$ 极速计算。
     """
     def __init__(self, strategy_instance, process_intelligence_helper_instance):
         self.strategy = strategy_instance
@@ -21,18 +21,10 @@ class CalculateMainForceRallyIntent:
     def _kinematic_gate(self, val: np.ndarray, threshold: np.ndarray, scale: np.ndarray, vol_factor: np.ndarray = 1.0) -> np.ndarray:
         adj_threshold = threshold * vol_factor
         return np.tanh(np.sign(val) * np.maximum(0.0, np.abs(val) - adj_threshold) / scale)
-    def _robust_normalize(self, tensor: np.ndarray):
-        ts = pd.Series(tensor)
-        med_144 = ts.rolling(window=144, min_periods=1).median().fillna(0.0).values
-        mad_144 = (ts - med_144).abs().rolling(window=144, min_periods=1).median().fillna(0.1).values
-        med_55 = ts.rolling(window=55, min_periods=1).median().fillna(0.0).values
-        mad_55 = (ts - med_55).abs().rolling(window=55, min_periods=1).median().fillna(0.1).values
-        med = med_144 * 0.618 + med_55 * 0.382
-        mad = mad_144 * 0.618 + mad_55 * 0.382
-        robust_mad = np.maximum(mad, 0.1)
-        z_scores = (tensor - med) / (robust_mad * 3.0)
+    def _absolute_manifold_projection(self, tensor: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        z_scores = tensor / 4.0
         final_scores = 1.0 / (1.0 + np.exp(np.clip(-z_scores, -20.0, 20.0)))
-        return final_scores, z_scores, med, mad
+        return final_scores, z_scores
     def _get_neutral_defaults(self) -> Dict[str, float]:
         defaults = {k: 0.0 for k in self._get_required_column_map().keys()}
         score_keys = [
@@ -196,8 +188,8 @@ class CalculateMainForceRallyIntent:
         raw_intent, long_align, short_align, total_res, w_thrust = self._calc_tensor_synthesis(thrust, structure, drag, raw, idx, hab_pool_flow, cap_discount, cap_factor)
         raw_intent_clean = np.clip(np.nan_to_num(raw_intent, nan=0.0), -1e9, 1e9)
         compressed_intent = np.sign(raw_intent_clean) * np.log1p(np.abs(raw_intent_clean))
-        final_scores, z_scores, med_arr, mad_arr = self._robust_normalize(compressed_intent)
-        if self._is_probe_enabled(): self._generate_probe_report(idx, raw, thrust, structure, drag, raw_intent_clean, compressed_intent, z_scores, final_scores, cap_discount, cap_factor, volatility_factor, long_align, short_align, total_res, w_thrust, med_arr, mad_arr, uni_div, kine_mult, micro_mult)
+        final_scores, z_scores = self._absolute_manifold_projection(compressed_intent)
+        if self._is_probe_enabled(): self._generate_probe_report(idx, raw, thrust, structure, drag, raw_intent_clean, compressed_intent, z_scores, final_scores, cap_discount, cap_factor, volatility_factor, long_align, short_align, total_res, w_thrust, uni_div, kine_mult, micro_mult)
         return pd.Series(final_scores, index=idx, dtype=np.float32)
     def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index, hab_pool_flow: np.ndarray, hab_vol_impact: np.ndarray, cap_discount: np.ndarray, cap_factor: np.ndarray, vol_factor: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         mf_net_buy = raw['mf_net_buy'].values
@@ -221,7 +213,8 @@ class CalculateMainForceRallyIntent:
         cmf_accel = self._kinematic_gate(raw['cmf_accel_13'].values, np.array([0.01]), np.array([0.1]), vol_factor)
         hab_flow_impact = np.arcsinh(np.where(np.abs(hab_pool_flow) > 1.0, (mf_net_buy * cap_discount) / (np.abs(hab_pool_flow) / 23.8 + 1e-5), 0.0))
         synergy_multiplier = 1.0 + np.maximum(0.0, hm_synergy / 100.0)
-        net_energy_amp = 1.0 + np.tanh(net_energy / 100.0)
+        energy_match = np.sign(mf_net_buy) * np.sign(net_energy)
+        net_energy_amp = 1.0 + np.abs(np.tanh(net_energy / 100.0)) * np.where(energy_match > 0, 1.0, -0.5)
         macro_base = mf_net_buy * net_energy_amp * synergy_multiplier * (1.0 + np.tanh(np.abs(hab_flow_impact)))
         norm_macro_base = np.sign(macro_base) * np.log1p(np.abs(macro_base) / (1000.0 * cap_factor))
         macro_damping = np.tanh(np.abs(mf_net_buy) / (10000.0 * cap_factor))
@@ -438,7 +431,7 @@ class CalculateMainForceRallyIntent:
         exponent_gain = np.clip(hri_excess * t1_multiplier * (1.0 + norm_compression + hab_fuel), 0.0, 8.0)
         singularity_gain = 1.0 + np.expm1(np.clip(np.power(exponent_gain, 1.618), 0.0, 8.0))
         return np.clip(np.nan_to_num(raw_intent * singularity_gain, nan=0.0), -1e9, 1e9), long_align, short_align, total_resonance, w_thrust
-    def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, compressed_intent, z_scores, final, cap_discount, cap_factor, vol_factor, long_align, short_align, total_res, w_thrust, med_arr, mad_arr, uni_div, kine_mult, micro_mult):
+    def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, compressed_intent, z_scores, final, cap_discount, cap_factor, vol_factor, long_align, short_align, total_res, w_thrust, uni_div, kine_mult, micro_mult):
         locs = self._get_probe_locs(idx, compressed_intent)
         for i in locs:
             ts = idx[i]
@@ -452,10 +445,11 @@ class CalculateMainForceRallyIntent:
             k_burst = kine_mult[i]
             hab_imm = 1.0 - (1.0 / (1.0 + np.exp(np.clip(hab_pool * cap_d / 50000.0, -10.0, 10.0))))
             eff_drag = drag[i] * (1.0 - hab_imm)
-            net_energy_amp = 1.0 + np.tanh(raw['net_energy'].values[i] / 100.0)
+            energy_match = np.sign(net_buy) * np.sign(raw['net_energy'].values[i])
+            net_energy_amp = 1.0 + np.abs(np.tanh(raw['net_energy'].values[i] / 100.0)) * (1.0 if energy_match > 0 else -0.5)
             roc_norm = np.clip(np.tanh(raw['roc_13'].values[i] / 10.0), -1.0, 1.0)
             report = [
-                f"\n=== [PROBE V30.1.0] CalculateMainForceRallyIntent Full-Chain Audit (The Final Euclidean) @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V31.0.0] CalculateMainForceRallyIntent Full-Chain Audit (Absolute Manifold Edition) @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【0. Raw Data Overview (底层核心数据快照)】",
                 f"   [Thrust] MF_NetBuy: {net_buy:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | ExpFlow1D: {raw['exp_flow_1d'].values[i]:.2f} (Conf: {raw['flow_conf'].values[i]:.0f}%) | UptrendStr: {raw['uptrend_str'].values[i]:.2f}",
                 f"   [Struct] Close: {raw['close'].values[i]:.2f} | BehavAccum: {raw['behav_accum'].values[i]:.2f} | Control_Solidity: {raw['control_solidity'].values[i]:.4f} | Price_Entropy: {raw['price_entropy'].values[i]:.2f}",
@@ -468,8 +462,7 @@ class CalculateMainForceRallyIntent:
                 f"【C. Ecosystem (脱敏与相空间惩罚)】 ROC13_Norm: {roc_norm:.4f} | NetEnergy_Amp: {net_energy_amp:.4f} | L2_UnifiedDiv: {uni_div[i]:.4f}",
                 f"【E. Synthesis (分形流形合成)】 Thrust: {thrust[i]:.4f} | Structure: {structure[i]:.4f} | EffectiveDrag: {eff_drag:.4f}",
                 f"                              LongAlign: {long_align[i]:.4f} | ShortAlign: {short_align[i]:.4f} | Total Resonance: {total_res[i]:.4f} (W_Thrust: {w_thrust[i]:.4f})",
-                f"【F. Result (滚动绝对基准)】 Raw Intent: {raw_intent[i]:.4f} | Compressed log1p: {compressed_intent[i]:.4f} | Z-Score: {z_scores[i]:.4f}",
-                f"                           [Rolling Base] Fib Med(144/55d): {med_arr[i]:.4f} | Fib MAD(144/55d): {mad_arr[i]:.4f}",
+                f"【F. Result (绝对流形投射基准)】 Raw Intent: {raw_intent[i]:.4f} | Compressed log1p: {compressed_intent[i]:.4f} | Z-Score: {z_scores[i]:.4f}",
                 f"                           -> Final Normalized Score: {final[i]:.4f}",
                 f"===============================================================\n"
             ]
