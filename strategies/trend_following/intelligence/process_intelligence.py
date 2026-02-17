@@ -138,15 +138,12 @@ class ProcessIntelligence:
                     raw_series = slope
                 else:
                     raw_series = (slope.diff(period) / period).fillna(0.0)
-                    
             if raw_series.isnull().all():
                 return 0.0, 0.0
-                
             gated = raw_series.where(raw_series.abs() >= 1e-4, 0.0)
             hab_window = max(21, period * 2)
             shock = self._apply_hab_shock(gated, window=hab_window)
             norm_score = np.tanh(shock)
-            
             if not ascending:
                 norm_score = -norm_score
             if not bipolar:
@@ -157,15 +154,12 @@ class ProcessIntelligence:
             score, w = _process_kinematic('SLOPE', weight, int(period_str))
             all_scores_components.append(score)
             total_combined_weight += w
-            
         for period_str, weight in accel_periods_weights.items():
             score, w = _process_kinematic('ACCEL', weight, int(period_str))
             all_scores_components.append(score)
             total_combined_weight += w
-            
         if not all_scores_components or total_combined_weight == 0:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-            
         fused_score = sum(all_scores_components) / total_combined_weight
         return fused_score.clip(-1, 1).fillna(0.0).astype(np.float32) if bipolar else fused_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
@@ -176,40 +170,41 @@ class ProcessIntelligence:
         for period_str, weight in mtf_weights.items():
             try: period = int(period_str)
             except ValueError: continue
-                
             col_name = f'SLOPE_{period}_{base_signal_name}'
             if col_name in df.columns:
                 raw_series = df[col_name].astype(np.float32)
             else:
                 if base_signal_name not in df.columns: continue
                 raw_series = (df[base_signal_name].astype(np.float32).diff(period) / period).fillna(0.0)
-                
             if raw_series.isnull().all(): continue
-                
             gated = raw_series.where(raw_series.abs() >= 1e-4, 0.0)
             shock = self._apply_hab_shock(gated, window=max(21, period * 2))
             score = np.tanh(shock) if bipolar else 0.5 * (1.0 + np.tanh(shock))
             fused_score += score * weight
             total_weight += weight
-            
         if total_weight > 0: fused_score = fused_score / total_weight
         return fused_score.clip(-1, 1).fillna(0.0).astype(np.float32) if bipolar else fused_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
     def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
-        """【V4.0.0 · 逆向张量协同探针版】直接基于多维信号动能矩阵计算标准差，利用逆向Tanh将横向极度离散映射为微观协同。"""
-        all_fused_mtf_scores={}
+        """
+        【V12.0.0 · 逆向张量协同版】
+        直接基于多维信号动能矩阵计算标准差，利用逆向 Tanh 将横向极度离散映射为微观协同。
+        应用 HAB 冲击并实施绝对零基封印。
+        """
+        all_fused_mtf_scores = {}
         for base_signal_name in base_signal_names:
-            fused_score=self._get_mtf_slope_accel_score(df,base_signal_name,mtf_weights_config,df_index,method_name,ascending=True,bipolar=False)
-            all_fused_mtf_scores[base_signal_name]=fused_score
+            fused_score = self._get_mtf_slope_accel_score(df, base_signal_name, mtf_weights_config, df_index, method_name, ascending=True, bipolar=False)
+            all_fused_mtf_scores[base_signal_name] = fused_score
         if not all_fused_mtf_scores:
-            return pd.Series(0.0,index=df_index,dtype=np.float32)
-        fused_scores_df=pd.DataFrame(all_fused_mtf_scores,index=df_index)
-        min_periods_std=max(1,int(self.meta_window*0.5))
-        instant_std=fused_scores_df.std(axis=1).fillna(0.0)
-        smoothed_std=instant_std.rolling(window=self.meta_window,min_periods=min_periods_std).mean().fillna(0.0)
-        std_shock=self._apply_hab_shock(smoothed_std,window=34)
-        cohesion_score=0.5*(1.0-np.tanh(std_shock))
-        return cohesion_score.clip(0,1).astype(np.float32)
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+        fused_scores_df = pd.DataFrame(all_fused_mtf_scores, index=df_index)
+        min_periods_std = max(1, int(self.meta_window * 0.5))
+        instant_std = fused_scores_df.std(axis=1).fillna(0.0)
+        smoothed_std = instant_std.rolling(window=self.meta_window, min_periods=min_periods_std).mean().fillna(0.0)
+        std_shock = self._apply_hab_shock(smoothed_std, window=34)
+        # 逆向压缩：方差越小（冲击度越低），协同度越高
+        cohesion_score = 0.5 * (1.0 - np.tanh(std_shock))
+        return cohesion_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
     def _normalize_series(self, *args, **kwargs):
         """【V4.0.0 · 核心禁令】统一归一化引擎已彻底废除。禁止调用此方法，各逻辑节点必须内置领域特化的非线性张力映射。"""
@@ -217,18 +212,14 @@ class ProcessIntelligence:
 
     def _get_atomic_score(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> pd.Series:
         """
-        【V1.0 · 原子信号访问器】
-        - 核心职责: 提供一个标准的、安全的方法来从 self.strategy.atomic_states 中获取预先计算好的原子信号。
-        - 核心逻辑: 尝试从 atomic_states 字典中获取指定的信号 Series。如果不存在，则打印警告并
-                     返回一个与 df 索引对齐的、填充了默认值的 Series，以保证数据流的健壮性。
-        - 修复: 解决了 'ProcessIntelligence' object has no attribute '_get_atomic_score' 的 AttributeError。
+        【V12.0.0 · 原子信号安全门】
+        强制提供 Pandas 序列级别的绝对零基封印，防止任何未初始化的原子状态向上传递空值。
         """
-        #  实现了安全的原子信号访问逻辑
         score_series = self.strategy.atomic_states.get(score_name)
         if score_series is None:
-            print(f"    -> [过程情报警告] 依赖的原子信号 '{score_name}' 不存在，使用默认值 {default_value}。")
-            return pd.Series(default_value, index=df.index)
-        return score_series
+            # 采用静默生成，不再打印警告，避免在千万级循环中被 IO 拖垮
+            return pd.Series(default_value, index=df.index, dtype=np.float32)
+        return score_series.fillna(default_value).astype(np.float32)
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
         """
@@ -264,7 +255,6 @@ class ProcessIntelligence:
         }
         if signal_name in exempt_signals:
             return True
-            
         # 2. 遗留配置热映射 (Ghost Interception & Remapping)
         legacy_remap = {
             'breakout_confidence_D': 'breakout_quality_score_D',
@@ -296,7 +286,6 @@ class ProcessIntelligence:
 
         if not required_signals:
             return True
-            
         return self._validate_required_signals(df, required_signals, method_name)
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
@@ -355,7 +344,6 @@ class ProcessIntelligence:
         signal_name = config.get('name', '未知信号')
         if not self._extract_and_validate_config_signals(df, config, f"_run_meta_analysis (for {signal_name})"):
             return {}
-            
         diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
         if diagnosis_type == 'meta_relationship':
             return self._diagnose_meta_relationship(df, config)
@@ -377,7 +365,6 @@ class ProcessIntelligence:
         signal_name = config.get('name', '未知信号')
         if not self._extract_and_validate_config_signals(df, config, f"_diagnose_meta_relationship (for {signal_name})"):
             return {}
-            
         diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
         if diagnosis_type == 'meta_relationship':
             return self._diagnose_meta_relationship_internal(df, config)
@@ -486,11 +473,9 @@ class ProcessIntelligence:
         risk_signal_name = output_names.get('risk')
         if not opportunity_signal_name or not risk_signal_name:
             return {}
-            
         relationship_score = self._calculate_price_efficiency_relationship(df, config)
         if relationship_score.empty:
             return {}
-            
         df_index = df.index
         relationship_displacement = relationship_score.diff(self.meta_window).fillna(0.0)
         relationship_momentum = relationship_displacement.diff(1).fillna(0.0)
@@ -519,19 +504,16 @@ class ProcessIntelligence:
         """
         if base_col not in df.columns:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-            
         slope_col = f'SLOPE_{period}_{base_col}'
         accel_col = f'ACCEL_{period}_{base_col}'
         if slope_col in df.columns:
             slope = df[slope_col].astype(np.float32)
         else:
             slope = (df[base_col].diff(period) / period).fillna(0.0).astype(np.float32)
-            
         if accel_col in df.columns:
             accel = df[accel_col].astype(np.float32)
         else:
             accel = (slope.diff(period) / period).fillna(0.0).astype(np.float32)
-            
         raw_tensor = slope + accel * 0.5
         gated_tensor = raw_tensor.where(raw_tensor.abs() >= 1e-4, 0.0)
         return np.tanh(gated_tensor * 20.0).astype(np.float32)
@@ -688,7 +670,7 @@ class ProcessIntelligence:
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.1.0 · 领域反转全息诊断引擎】
+        【V12.0.0 · 领域反转全息诊断入口】
         摒弃孤立公理强校验，通过自适应加权机制执行柔性降级，引入公理群矩阵共振。
         """
         domain_name = config.get('domain_name')
@@ -697,7 +679,6 @@ class ProcessIntelligence:
         output_top_name = config.get('output_top_reversal_name')
         if not domain_name or not axiom_configs or not output_bottom_name or not output_top_name:
             return {}
-            
         df_index = df.index
         domain_health_components = []
         total_weight = 0.0
@@ -705,21 +686,17 @@ class ProcessIntelligence:
         for axiom_config in axiom_configs:
             axiom_name = axiom_config.get('name')
             axiom_weight = axiom_config.get('weight', 0.0)
-            
             # 柔性跳过未加载或计算失败的高阶公理信号，阻止系统雪崩
             if axiom_name not in self.strategy.atomic_states:
                 continue
-                
             axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=df_index))
-            domain_health_components.append(axiom_score * axiom_weight)
+            domain_health_components.append(axiom_score.fillna(0.0) * axiom_weight)
             total_weight += abs(axiom_weight)
-            
         if total_weight == 0:
             return {}
-            
         # 2. 领域基础健康度 (Bipolar: -1 to 1)
-        bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1).astype(np.float32)
-        # 将结果递交至审判庭
+        bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1).fillna(0.0).astype(np.float32)
+        # 将结果递交至审判庭 _judge_domain_reversal 进行 HAB 冲击判定
         return self._judge_domain_reversal(bipolar_domain_health, config, df)
 
     def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1149,7 +1126,6 @@ class ProcessIntelligence:
         scoring_mode = self.score_type_map.get(signal_name, {}).get('scoring_mode', 'unipolar')
         if scoring_mode == 'unipolar':
             meta_score = meta_score.clip(lower=0)
-            
         return meta_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1203,7 +1179,6 @@ class ProcessIntelligence:
         signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
         if signal_a is None or signal_b is None:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-            
         change_a = signal_a.diff(1).fillna(0.0) if config.get('change_type_A', 'pct') == 'diff' else ta.percent_return(signal_a, length=1).fillna(0.0)
         change_b = signal_b.diff(1).fillna(0.0) if config.get('change_type_B', 'pct') == 'diff' else ta.percent_return(signal_b, length=1).fillna(0.0)
         momentum_a = np.tanh(self._apply_hab_shock(change_a, 13))
@@ -1215,7 +1190,6 @@ class ProcessIntelligence:
             force_vector_sum = momentum_a + signal_b_factor_k * thrust_b
             magnitude = (np.abs(momentum_a) * np.abs(thrust_b)) ** 0.5
             relationship_score = np.sign(force_vector_sum) * magnitude
-            
         relationship_score = np.sign(relationship_score) * (np.abs(relationship_score) ** 1.5)
         return np.tanh(relationship_score).clip(-1, 1).fillna(0.0).astype(np.float32)
 
