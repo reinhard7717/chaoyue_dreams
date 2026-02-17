@@ -877,12 +877,14 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0.0 · 突破爆发加速度原生防爆版】
+        【V5.0.0 · 突破爆发加速度游资期望版】
+        纳入游资协同攻击与 T+1 溢价预期，构筑更敏锐的前瞻性爆发张量。
         """
         method_name = "_calculate_breakout_acceleration"
         required_signals = [
             'breakout_quality_score_D', 'industry_strength_rank_D', 'net_mf_amount_D', 
             'flow_consistency_D', 'tick_abnormal_volume_ratio_D', 'uptrend_strength_D',
+            'T1_PREMIUM_EXPECTATION_D', 'HM_COORDINATED_ATTACK_D',
             'SLOPE_13_breakout_quality_score_D', 'ACCEL_13_net_mf_amount_D'
         ]
         self._validate_required_signals(df, required_signals, method_name)
@@ -893,6 +895,9 @@ class ProcessIntelligence:
         consistency = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
         abnormal_vol = self._get_safe_series(df, 'tick_abnormal_volume_ratio_D', method_name=method_name)
         uptrend = self._get_safe_series(df, 'uptrend_strength_D', method_name=method_name)
+        # 新增高价值前瞻与情绪维度
+        t1_premium = self._get_safe_series(df, 'T1_PREMIUM_EXPECTATION_D', method_name=method_name)
+        hm_attack = self._get_safe_series(df, 'HM_COORDINATED_ATTACK_D', method_name=method_name)
         kinematics_brk = self._get_kinematic_tensor(df, 'breakout_quality_score_D', 13, method_name)
         kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 13, method_name)
         breakout_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(breakout, 21)))
@@ -902,28 +907,33 @@ class ProcessIntelligence:
         abnorm_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(abnormal_vol, 21)))
         cons_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(consistency, 21)))
         uptrend_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(uptrend, 21)))
+        # 处理新维度：将预期溢价与游资攻击转化为乘数动能
+        t1_shock = np.tanh(self._apply_hab_shock(t1_premium, 13))
+        hm_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(hm_attack, 21)))
+        alpha_multiplier = 1.0 + (t1_shock.clip(lower=0) * 0.6 + hm_shock * 0.4)
         base_tensor = breakout_shock * ind_norm * (1.0 + mf_power.clip(lower=0))
         catalyst = (cons_norm * abnorm_norm * uptrend_norm) ** 1.5
-        raw_score = base_tensor * catalyst * (1.0 + kinematics_brk.clip(lower=0) + kinematics_mf.clip(lower=0))
+        raw_score = base_tensor * catalyst * (1.0 + kinematics_brk.clip(lower=0) + kinematics_mf.clip(lower=0)) * alpha_multiplier
         final_score = np.tanh(raw_score).clip(0, 1).astype(np.float32)
         self._probe_variables(
-            method_name=method_name, 
-            df_index=df_index, 
-            raw_inputs={'breakout_quality_score_D': breakout, 'tick_abnormal_volume_ratio_D': abnormal_vol}, 
-            calc_nodes={'kinematics_brk': kinematics_brk, 'mf_power': mf_power, 'catalyst': catalyst, 'raw_score': raw_score}, 
+            method_name=method_name, df_index=df_index, 
+            raw_inputs={'breakout_quality_score_D': breakout, 'T1_PREMIUM_EXPECTATION_D': t1_premium, 'HM_COORDINATED_ATTACK_D': hm_attack}, 
+            calc_nodes={'kinematics_brk': kinematics_brk, 'mf_power': mf_power, 'catalyst': catalyst, 'alpha_multiplier': alpha_multiplier, 'raw_score': raw_score}, 
             final_result=final_score
         )
         return final_score
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0.0 · 资金流吸筹质变防爆版】
+        【V4.0.0 · 资金流吸筹质变动能跳空版】
+        引入跳空动能强度 (GAP_MOMENTUM_STRENGTH_D)，极大概率捕捉吸筹末期、起爆初期的跳空跃迁。
         """
         method_name = "_calculate_fund_flow_accumulation_inflection"
         required_signals = [
             'accumulation_signal_score_D', 'net_mf_amount_D', 'flow_efficiency_D', 
-            'tick_large_order_net_D', 'intraday_accumulation_confidence_D',
-            'SLOPE_21_accumulation_signal_score_D', 'ACCEL_21_net_mf_amount_D'
+            'tick_large_order_net_D', 'intraday_accumulation_confidence_D', 'GAP_MOMENTUM_STRENGTH_D',
+            'SLOPE_21_accumulation_signal_score_D', 'ACCEL_21_net_mf_amount_D', 
+            'SLOPE_5_GAP_MOMENTUM_STRENGTH_D', 'ACCEL_5_GAP_MOMENTUM_STRENGTH_D'
         ]
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
@@ -932,18 +942,28 @@ class ProcessIntelligence:
         flow_eff = self._get_safe_series(df, 'flow_efficiency_D', method_name=method_name)
         large_net = self._get_safe_series(df, 'tick_large_order_net_D', method_name=method_name)
         intra_acc = self._get_safe_series(df, 'intraday_accumulation_confidence_D', method_name=method_name)
+        gap_momentum = self._get_safe_series(df, 'GAP_MOMENTUM_STRENGTH_D', method_name=method_name)
         kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 21, method_name)
         kinematics_acc = self._get_kinematic_tensor(df, 'accumulation_signal_score_D', 21, method_name)
+        kinematics_gap = self._get_kinematic_tensor(df, 'GAP_MOMENTUM_STRENGTH_D', 5, method_name)
         acc_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(acc_score, 55)))
         mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
         eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(flow_eff, 21)))
         large_norm = np.tanh(self._apply_hab_shock(large_net, 21))
         intra_acc_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(intra_acc, 21)))
+        gap_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(gap_momentum, 13)))
+        # 跳空跃迁叠加态势的几何倍增
+        ignition_catalyst = (1.0 + gap_shock * (1.0 + kinematics_gap.clip(lower=0)))
         base_ignition = acc_shock * eff_norm * (1.0 + large_norm.clip(lower=0)) * intra_acc_shock
-        synergy_thrust = base_ignition * (1.0 + mf_shock.clip(lower=0) ** 1.5)
+        synergy_thrust = base_ignition * ignition_catalyst * (1.0 + mf_shock.clip(lower=0) ** 1.5)
         raw_score = synergy_thrust * (1.0 + kinematics_acc.clip(lower=0) + kinematics_mf.clip(lower=0))
         final_score = np.tanh(raw_score * 2.0).clip(0, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'accumulation_signal_score_D': acc_score, 'net_mf_amount_D': net_mf}, calc_nodes={'kinematics_mf': kinematics_mf, 'acc_shock': acc_shock, 'eff_norm': eff_norm, 'synergy_thrust': synergy_thrust}, final_result=final_score)
+        self._probe_variables(
+            method_name=method_name, df_index=df_index, 
+            raw_inputs={'accumulation_signal_score_D': acc_score, 'net_mf_amount_D': net_mf, 'GAP_MOMENTUM_STRENGTH_D': gap_momentum}, 
+            calc_nodes={'kinematics_gap': kinematics_gap, 'gap_shock': gap_shock, 'ignition_catalyst': ignition_catalyst, 'synergy_thrust': synergy_thrust}, 
+            final_result=final_score
+        )
         return final_score
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
