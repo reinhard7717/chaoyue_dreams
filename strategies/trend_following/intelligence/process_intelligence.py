@@ -513,8 +513,8 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.0.0 · 权力交接动能透视版】
-        计算"主力-散户"微观权力交接评分。
+        【V6.0.0 · 权力交接张量防爆版】
+        拦截无界物理量泄漏，采用 HAB Shock 压缩巨额换手效率，防止矩阵内爆。
         """
         method_name="_calculate_power_transfer"
         required_signals=['net_mf_amount_D','amount_D','tick_large_order_net_D','tick_chip_transfer_efficiency_D','flow_efficiency_D','intraday_cost_center_migration_D','downtrend_strength_D','chip_concentration_ratio_D']
@@ -523,30 +523,39 @@ class ProcessIntelligence:
         net_mf=self._get_safe_series(df,'net_mf_amount_D',method_name=method_name)
         amount=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan)
         tick_large_net=self._get_safe_series(df,'tick_large_order_net_D',method_name=method_name)
-        transfer_efficiency=self._get_safe_series(df,'tick_chip_transfer_efficiency_D',method_name=method_name)
-        flow_efficiency=self._get_safe_series(df,'flow_efficiency_D',method_name=method_name)
+        transfer_eff=self._get_safe_series(df,'tick_chip_transfer_efficiency_D',method_name=method_name)
+        flow_eff=self._get_safe_series(df,'flow_efficiency_D',method_name=method_name)
         cost_migration=self._get_safe_series(df,'intraday_cost_center_migration_D',method_name=method_name)
         downtrend=self._get_safe_series(df,'downtrend_strength_D',method_name=method_name)
         chip_conc=self._get_safe_series(df,'chip_concentration_ratio_D',method_name=method_name)
-        mf_ratio=net_mf/amount
-        tick_ratio=tick_large_net/amount
-        base_power=(mf_ratio*0.6+tick_ratio*0.4)*10.0
-        power_tanh=np.tanh(base_power)
-        efficiency_multiplier=1.0+(transfer_efficiency+flow_efficiency)/2.0
-        chip_penetration=chip_conc.diff()*efficiency_multiplier
-        raw_score=power_tanh*(1.0+chip_penetration.abs())
+        mf_ratio=(net_mf/amount).fillna(0)
+        tick_ratio=(tick_large_net/amount).fillna(0)
+        # 使用 HAB 将所有未经标度化的波动平推到相对 Z-Score
+        mf_shock=np.tanh(self._apply_hab_shock(mf_ratio,21))
+        tick_shock=np.tanh(self._apply_hab_shock(tick_ratio,21))
+        power_core=mf_shock*0.6+tick_shock*0.4
+        # 阻断175万这类的无界数值泄漏，使用 Sigmoid 压缩至 [0, 1] 域
+        transfer_eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(transfer_eff, 21)))
+        flow_eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(flow_eff, 21)))
+        efficiency_multiplier=1.0+(transfer_eff_norm+flow_eff_norm)/2.0
+        # 筹码差分极其微弱，利用 HAB 放大其相对强弱
+        chip_diff_shock=np.tanh(self._apply_hab_shock(chip_conc.diff().fillna(0),13))
+        chip_penetration=chip_diff_shock*efficiency_multiplier
+        raw_score=power_core*(1.0+np.abs(chip_penetration))
         trend_discount=pd.Series(1.0,index=df_index).mask(downtrend>0.8,0.6)
-        final_score=(raw_score*trend_discount).clip(-1,1).astype(np.float32)
+        # Power Law 激发极值
+        final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
+        final_score=(np.tanh(final_score)*trend_discount).clip(-1,1).astype(np.float32)
         if hasattr(self.strategy,'atomic_states'):
-            self.strategy.atomic_states["PROCESS_DEBUG_power_transfer_spread"]=power_tanh
+            self.strategy.atomic_states["PROCESS_DEBUG_power_transfer_spread"]=power_core
             self.strategy.atomic_states["PROCESS_DEBUG_power_transfer_penetration"]=chip_penetration
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':net_mf,'amount_D':amount,'tick_large_order_net_D':tick_large_net,'tick_chip_transfer_efficiency_D':transfer_efficiency,'flow_efficiency_D':flow_efficiency},calc_nodes={'mf_ratio':mf_ratio,'tick_ratio':tick_ratio,'base_power':base_power,'power_tanh':power_tanh,'efficiency_multiplier':efficiency_multiplier,'chip_penetration':chip_penetration,'raw_score':raw_score,'trend_discount':trend_discount},final_result=final_score)
+            
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':net_mf,'amount_D':amount,'tick_large_order_net_D':tick_large_net,'tick_chip_transfer_efficiency_D':transfer_eff,'flow_efficiency_D':flow_eff},calc_nodes={'mf_shock':mf_shock,'tick_shock':tick_shock,'power_core':power_core,'transfer_eff_norm':transfer_eff_norm,'flow_eff_norm':flow_eff_norm,'efficiency_multiplier':efficiency_multiplier,'chip_diff_shock':chip_diff_shock,'chip_penetration':chip_penetration,'raw_score':raw_score},final_result=final_score)
         return final_score
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 散户投降背离探针版】
-        计算价格与散户割肉的微观博弈关系。
+        【V3.0.0 · 散户投降背离探针防爆版】
         """
         method_name = "_calculate_price_vs_capitulation_relationship"
         required_signals = [
@@ -563,7 +572,9 @@ class ProcessIntelligence:
         kinematics_p = self._get_kinematic_tensor(df, 'pressure_trapped_D', 13, method_name)
         panic_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(pressure, 21)))
         support_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(support, 34)))
-        absorption_resonance = support_norm * (1.0 + low_lock.clip(lower=0)) * (1.0 - np.tanh(entropy / 10.0))
+        low_lock_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(low_lock, 21)))
+        entropy_shock = np.tanh(self._apply_hab_shock(entropy, 21))
+        absorption_resonance = support_norm * (1.0 + low_lock_shock) * (1.0 - entropy_shock.clip(lower=0))
         base_divergence = self._calculate_instantaneous_relationship(df, config)
         raw_score = base_divergence * panic_shock * absorption_resonance * (1.0 + kinematics_p.clip(lower=0))
         final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
@@ -573,8 +584,8 @@ class ProcessIntelligence:
 
     def _calculate_price_efficiency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 价格效率博弈探针版】
-        结合多时间框架效率、主力净额以及换手效率计算定价动能。
+        【V3.0.0 · 价格效率博弈探针版 (防标度爆炸修复)】
+        将转移效率绝对数值剥离乘积链，应用HAB强制压缩。
         """
         method_name = "_calculate_price_efficiency_relationship"
         required_signals = [
@@ -593,15 +604,18 @@ class ProcessIntelligence:
         eff_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(eff, 34)))
         mf_conviction = np.tanh(self._apply_hab_shock(net_mf, 55))
         shakeout_penalty = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(shakeout, 21)))
-        synergy = eff_shock * mf_conviction * (1.0 + transfer_eff) * (1.0 + kinematics_eff) * (1.0 + np.tanh(flow_skew).clip(lower=0))
-        final_score = (synergy * (1.0 - shakeout_penalty ** 1.5)).clip(-1, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'VPA_EFFICIENCY_D': eff, 'net_mf_amount_D': net_mf}, calc_nodes={'kinematics_eff': kinematics_eff, 'eff_shock': eff_shock, 'mf_conviction': mf_conviction, 'synergy': synergy}, final_result=final_score)
+        # 修复标度爆炸核心点
+        transfer_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(transfer_eff, 21)))
+        flow_skew_shock = np.tanh(self._apply_hab_shock(flow_skew, 21))
+        synergy = eff_shock * mf_conviction * (1.0 + transfer_shock) * (1.0 + kinematics_eff) * (1.0 + flow_skew_shock.clip(lower=0))
+        final_score = np.sign(synergy) * (np.abs(synergy) ** 1.5)
+        final_score = (final_score * (1.0 - shakeout_penalty ** 1.5)).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'VPA_EFFICIENCY_D': eff, 'net_mf_amount_D': net_mf, 'tick_chip_transfer_efficiency_D': transfer_eff}, calc_nodes={'kinematics_eff': kinematics_eff, 'eff_shock': eff_shock, 'mf_conviction': mf_conviction, 'transfer_shock': transfer_shock, 'synergy': synergy}, final_result=final_score)
         return final_score
 
     def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 博弈背离深度探针版】
-        结合筹码熵、均价成本、高频胜率与游戏激烈度构筑全息张量。
+        【V3.0.0 · 博弈背离深度防爆版】
         """
         method_name = "_calculate_pd_divergence_relationship"
         required_signals = [
@@ -621,9 +635,12 @@ class ProcessIntelligence:
         game_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(game, 55)))
         price_adv = np.tanh((close_p - cost) / cost * 10.0)
         win_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(winner, 21)))
+        intra_game_shock = np.tanh(self._apply_hab_shock(intra_game, 21))
+        chip_div_shock = np.tanh(self._apply_hab_shock(chip_div, 21))
         base_divergence = self._calculate_instantaneous_relationship(df, config)
-        tensor_resonance = game_shock * price_adv * win_norm * (1.0 + intra_game) * (1.0 + chip_div)
-        final_score = np.tanh(base_divergence * tensor_resonance * (1.0 + kinematics_game.clip(lower=0))).clip(-1, 1).astype(np.float32)
+        tensor_resonance = game_shock * price_adv * win_norm * (1.0 + intra_game_shock.clip(lower=0)) * (1.0 + chip_div_shock.clip(lower=0))
+        final_score = np.sign(base_divergence) * (np.abs(base_divergence) ** 1.5) * tensor_resonance * (1.0 + kinematics_game.clip(lower=0))
+        final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
         self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'game_intensity_D': game, 'weight_avg_cost_D': cost}, calc_nodes={'kinematics_game': kinematics_game, 'game_shock': game_shock, 'price_adv': price_adv, 'tensor_resonance': tensor_resonance}, final_result=final_score)
         return final_score
 
@@ -734,8 +751,8 @@ class ProcessIntelligence:
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.0.0 · 恐慌洗盘共振探针版】
-        计算“恐慌洗盘吸筹”的专属非线性信号。
+        【V7.0.0 · 恐慌洗盘防爆探针版】
+        阻断绝对能量值的失控传播，实施 HAB 标准差冲击融合。
         """
         method_name="_calculate_panic_washout_accumulation"
         required_signals=['pressure_trapped_D','intraday_low_lock_ratio_D','absorption_energy_D','intraday_trough_filling_degree_D','high_freq_flow_divergence_D','chip_rsi_divergence_D','chip_stability_D']
@@ -748,20 +765,27 @@ class ProcessIntelligence:
         hff_div=self._get_safe_series(df,'high_freq_flow_divergence_D',method_name=method_name)
         chip_div=self._get_safe_series(df,'chip_rsi_divergence_D',method_name=method_name)
         chip_stab=self._get_safe_series(df,'chip_stability_D',method_name=method_name)
-        panic_intensity=np.sqrt(panic_level.abs()*low_lock_ratio.clip(lower=0))
-        absorption_intensity=np.sqrt(absorption.abs()*trough_filling.clip(lower=0))
-        divergence_bonus=1.0+np.clip(hff_div,0,1)+np.clip(chip_div,0,1)
+        # 强制驯服所有可能爆炸的物理量纲
+        panic_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(panic_level,21)))
+        low_lock_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(low_lock_ratio,21)))
+        absorption_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(absorption,21)))
+        trough_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(trough_filling,21)))
+        panic_intensity=np.sqrt(panic_shock*low_lock_shock.clip(lower=0))
+        absorption_intensity=np.sqrt(absorption_shock*trough_shock.clip(lower=0))
+        hff_div_shock=np.tanh(self._apply_hab_shock(hff_div,21))
+        chip_div_shock=np.tanh(self._apply_hab_shock(chip_div,21))
+        divergence_bonus=1.0+hff_div_shock.clip(lower=0)+chip_div_shock.clip(lower=0)
         base_score=panic_intensity*absorption_intensity*divergence_bonus
         historical_potential_gate=config.get('historical_potential_gate',0.2)
         gate_mask=chip_stab>historical_potential_gate
-        final_score=base_score.where(gate_mask,0.0).clip(0,1).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':panic_level,'intraday_low_lock_ratio_D':low_lock_ratio,'absorption_energy_D':absorption,'intraday_trough_filling_degree_D':trough_filling,'high_freq_flow_divergence_D':hff_div,'chip_rsi_divergence_D':chip_div},calc_nodes={'panic_intensity':panic_intensity,'absorption_intensity':absorption_intensity,'divergence_bonus':divergence_bonus,'base_score':base_score,'gate_mask':pd.Series(gate_mask,index=df_index)},final_result=final_score)
+        final_score=np.tanh(base_score**1.5).where(gate_mask,0.0).clip(0,1).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':panic_level,'intraday_low_lock_ratio_D':low_lock_ratio,'absorption_energy_D':absorption,'intraday_trough_filling_degree_D':trough_filling,'high_freq_flow_divergence_D':hff_div,'chip_rsi_divergence_D':chip_div},calc_nodes={'panic_shock':panic_shock,'absorption_shock':absorption_shock,'panic_intensity':panic_intensity,'absorption_intensity':absorption_intensity,'divergence_bonus':divergence_bonus,'base_score':base_score,'gate_mask':pd.Series(gate_mask,index=df_index)},final_result=final_score)
         return final_score
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0.0 · 诡道偏度背离探针版】
-        利用资金特征与微观偏移计算“诡道吸筹”信号。
+        【V5.0.0 · 诡道偏度防爆重构版】
+        屏蔽密度与物理强度的直接矩阵相乘，改用其历史离散突变率。
         """
         method_name="_calculate_deceptive_accumulation"
         required_signals=['stealth_flow_ratio_D','tick_clustering_index_D','intraday_price_distribution_skewness_D','high_freq_flow_skewness_D','price_flow_divergence_D','chip_flow_intensity_D']
@@ -773,13 +797,18 @@ class ProcessIntelligence:
         flow_skew=self._get_safe_series(df,'high_freq_flow_skewness_D',method_name=method_name)
         price_flow_div=self._get_safe_series(df,'price_flow_divergence_D',method_name=method_name)
         flow_intensity=self._get_safe_series(df,'chip_flow_intensity_D',method_name=method_name)
+        # 全部送进 HAB 洗练仓
+        stealth_flow_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(stealth_flow, 21)))
+        flow_intensity_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(flow_intensity, 21)))
+        tick_clustering_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(tick_clustering, 21)))
         skew_divergence=flow_skew-price_skew
-        skew_tension=skew_divergence.clip(lower=0)
-        stealth_strength=stealth_flow*tick_clustering*flow_intensity
-        camouflage_index=np.clip(price_flow_div,0,1)+skew_tension*0.5
-        raw_deception=stealth_strength*camouflage_index
-        final_score=np.tanh(raw_deception).clip(0,1).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'stealth_flow_ratio_D':stealth_flow,'tick_clustering_index_D':tick_clustering,'intraday_price_distribution_skewness_D':price_skew,'high_freq_flow_skewness_D':flow_skew,'price_flow_divergence_D':price_flow_div,'chip_flow_intensity_D':flow_intensity},calc_nodes={'skew_divergence':skew_divergence,'skew_tension':skew_tension,'stealth_strength':stealth_strength,'camouflage_index':camouflage_index,'raw_deception':raw_deception},final_result=final_score)
+        skew_tension=np.tanh(self._apply_hab_shock(skew_divergence,21)).clip(lower=0)
+        stealth_strength=stealth_flow_norm*tick_clustering_norm*flow_intensity_norm
+        price_flow_div_shock=np.tanh(self._apply_hab_shock(price_flow_div,21))
+        camouflage_index=price_flow_div_shock.clip(lower=0)+skew_tension*0.5
+        raw_deception=stealth_strength*(1.0+camouflage_index)
+        final_score=np.tanh(raw_deception**1.5).clip(0,1).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'stealth_flow_ratio_D':stealth_flow,'tick_clustering_index_D':tick_clustering,'intraday_price_distribution_skewness_D':price_skew,'high_freq_flow_skewness_D':flow_skew,'price_flow_divergence_D':price_flow_div,'chip_flow_intensity_D':flow_intensity},calc_nodes={'flow_intensity_norm':flow_intensity_norm,'tick_clustering_norm':tick_clustering_norm,'stealth_flow_norm':stealth_flow_norm,'skew_divergence':skew_divergence,'skew_tension':skew_tension,'stealth_strength':stealth_strength,'camouflage_index':camouflage_index,'raw_deception':raw_deception},final_result=final_score)
         return final_score
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -811,8 +840,8 @@ class ProcessIntelligence:
 
     def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0.0 · 绝地反击锚定探针版】
-        计算底部杀跌势能竭力时的“套牢盘投降”确认信号。
+        【V5.0.0 · 绝地反击安全防爆版】
+        杜绝所有物理压力释放数值直接相乘，应用统一 HAB-Tanh 管线。
         """
         method_name="_calculate_loser_capitulation"
         required_signals=['pressure_release_index_D','pressure_trapped_D','intraday_low_lock_ratio_D','absorption_energy_D']
@@ -822,20 +851,21 @@ class ProcessIntelligence:
         pressure_trapped=self._get_safe_series(df,'pressure_trapped_D',method_name=method_name)
         low_lock=self._get_safe_series(df,'intraday_low_lock_ratio_D',method_name=method_name)
         absorption=self._get_safe_series(df,'absorption_energy_D',method_name=method_name)
-        panic_extremum=np.sqrt(pressure_release.clip(lower=0)*pressure_trapped.clip(lower=0))
-        absorption_anchor=np.sqrt(low_lock.clip(lower=0)*absorption.clip(lower=0))
+        release_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(pressure_release, 21)))
+        trapped_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(pressure_trapped, 21)))
+        low_lock_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(low_lock, 21)))
+        absorption_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(absorption, 21)))
+        panic_extremum=np.sqrt(release_shock*trapped_shock)
+        absorption_anchor=np.sqrt(low_lock_shock*absorption_shock)
         final_score=(panic_extremum*absorption_anchor).clip(0,1).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_release_index_D':pressure_release,'pressure_trapped_D':pressure_trapped,'intraday_low_lock_ratio_D':low_lock,'absorption_energy_D':absorption},calc_nodes={'panic_extremum':panic_extremum,'absorption_anchor':absorption_anchor},final_result=final_score)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_release_index_D':pressure_release,'pressure_trapped_D':pressure_trapped,'intraday_low_lock_ratio_D':low_lock,'absorption_energy_D':absorption},calc_nodes={'release_shock':release_shock,'trapped_shock':trapped_shock,'absorption_shock':absorption_shock,'panic_extremum':panic_extremum,'absorption_anchor':absorption_anchor},final_result=final_score)
         return final_score
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0.0 · 突破爆发加速度原生修复版】
-        修复数据断层，彻底清除旧版 breakout_confidence_D，改用军械库存在的 breakout_quality_score_D。
-        结合 HAB 存量冲击系统与 Power Law 指数增强构建非线性突破张量矩阵。
+        【V4.0.0 · 突破爆发加速度原生防爆版】
         """
         method_name = "_calculate_breakout_acceleration"
-        # 已剔除 breakout_confidence_D，全面对齐军械库清单特征
         required_signals = [
             'breakout_quality_score_D', 'industry_strength_rank_D', 'net_mf_amount_D', 
             'flow_consistency_D', 'tick_abnormal_volume_ratio_D', 'uptrend_strength_D',
@@ -843,27 +873,25 @@ class ProcessIntelligence:
         ]
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
-        # 1. 基础矩阵数据挂载
         breakout = self._get_safe_series(df, 'breakout_quality_score_D', method_name=method_name)
         industry = self._get_safe_series(df, 'industry_strength_rank_D', method_name=method_name)
         net_mf = self._get_safe_series(df, 'net_mf_amount_D', method_name=method_name)
         consistency = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
         abnormal_vol = self._get_safe_series(df, 'tick_abnormal_volume_ratio_D', method_name=method_name)
         uptrend = self._get_safe_series(df, 'uptrend_strength_D', method_name=method_name)
-        # 2. 运动学微积分张量提取 (内置防零基陷阱门限)
         kinematics_brk = self._get_kinematic_tensor(df, 'breakout_quality_score_D', 13, method_name)
         kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 13, method_name)
-        # 3. HAB 存量冲击测算与非线性 Power Law 引爆
+        breakout_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(breakout, 21)))
         mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
         mf_power = np.sign(mf_shock) * (np.abs(mf_shock) ** 1.5)
         ind_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(industry, 55)))
         abnorm_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(abnormal_vol, 21)))
-        # 4. 张量聚合与催化共振
-        base_tensor = breakout * ind_norm * (1.0 + mf_power.clip(lower=0))
-        catalyst = (consistency * abnorm_norm * uptrend) ** 1.5
+        cons_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(consistency, 21)))
+        uptrend_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(uptrend, 21)))
+        base_tensor = breakout_shock * ind_norm * (1.0 + mf_power.clip(lower=0))
+        catalyst = (cons_norm * abnorm_norm * uptrend_norm) ** 1.5
         raw_score = base_tensor * catalyst * (1.0 + kinematics_brk.clip(lower=0) + kinematics_mf.clip(lower=0))
         final_score = np.tanh(raw_score).clip(0, 1).astype(np.float32)
-        # 5. 全息探针数据注入
         self._probe_variables(
             method_name=method_name, 
             df_index=df_index, 
@@ -875,8 +903,7 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 资金流吸筹质变探针版】
-        检测吸筹缓冲池溢出并转化为上攻净流的加速度拐点。
+        【V3.0.0 · 资金流吸筹质变防爆版】
         """
         method_name = "_calculate_fund_flow_accumulation_inflection"
         required_signals = [
@@ -893,11 +920,12 @@ class ProcessIntelligence:
         intra_acc = self._get_safe_series(df, 'intraday_accumulation_confidence_D', method_name=method_name)
         kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 21, method_name)
         kinematics_acc = self._get_kinematic_tensor(df, 'accumulation_signal_score_D', 21, method_name)
-        acc_shock = np.tanh(self._apply_hab_shock(acc_score, 55)).clip(lower=0)
+        acc_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(acc_score, 55)))
         mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
         eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(flow_eff, 21)))
-        large_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(large_net, 21)))
-        base_ignition = acc_shock * eff_norm * large_norm * intra_acc
+        large_norm = np.tanh(self._apply_hab_shock(large_net, 21))
+        intra_acc_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(intra_acc, 21)))
+        base_ignition = acc_shock * eff_norm * (1.0 + large_norm.clip(lower=0)) * intra_acc_shock
         synergy_thrust = base_ignition * (1.0 + mf_shock.clip(lower=0) ** 1.5)
         raw_score = synergy_thrust * (1.0 + kinematics_acc.clip(lower=0) + kinematics_mf.clip(lower=0))
         final_score = np.tanh(raw_score * 2.0).clip(0, 1).astype(np.float32)
@@ -906,8 +934,7 @@ class ProcessIntelligence:
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 获利压迫与净流对冲张力版】
-        利用流向与一致性消化获利派发压力的全息非线性张量对抗。
+        【V3.0.0 · 获利压迫与净流对冲防爆版】
         """
         method_name = "_calculate_profit_vs_flow_relationship"
         required_signals = [
@@ -926,9 +953,12 @@ class ProcessIntelligence:
         kinematics_p = self._get_kinematic_tensor(df, 'profit_pressure_D', 13, method_name)
         pressure_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(pressure, 21)))
         mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
+        profit_ratio_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(profit_ratio, 21)))
+        cons_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(cons, 21)))
         win_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(winner, 55)))
-        pressure_tensor = (pressure_shock * profit_ratio * dist_conf) * (1.0 + kinematics_p.clip(lower=0))
-        support_tensor = (mf_shock.clip(lower=0) * cons) * (1.0 - win_norm * 0.5)
+        dist_conf_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(dist_conf, 21)))
+        pressure_tensor = (pressure_shock * profit_ratio_shock * dist_conf_shock) * (1.0 + kinematics_p.clip(lower=0))
+        support_tensor = (mf_shock.clip(lower=0) * cons_shock) * (1.0 - win_norm * 0.5)
         raw_score = support_tensor - pressure_tensor * 1.5
         final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
         final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
@@ -937,8 +967,7 @@ class ProcessIntelligence:
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 个股板块协同共振探针版】
-        板块势能与个股微观流动性构成的正交矩阵共振。
+        【V3.0.0 · 个股板块协同共振防爆版】
         """
         method_name = "_calculate_stock_sector_sync"
         required_signals = [
@@ -959,8 +988,10 @@ class ProcessIntelligence:
         sector_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(rank, 34)))
         mf_norm = np.tanh(self._apply_hab_shock(net_mf, 21))
         cons_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(cons, 21)))
-        sector_tensor = sector_shock * (1.0 + kinematics_rank) * (1.0 + leader)
-        flow_tensor = mf_norm * cons_norm * (1.0 + sync_score)
+        leader_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(leader, 21)))
+        sync_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(sync_score, 21)))
+        sector_tensor = sector_shock * (1.0 + kinematics_rank) * (1.0 + leader_shock)
+        flow_tensor = mf_norm * cons_norm * (1.0 + sync_shock)
         resonance = stock_shock * sector_tensor * np.abs(flow_tensor)
         final_score = (np.sign(resonance) * (np.abs(resonance) ** 1.5)).clip(-1, 1).astype(np.float32)
         self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'pct_change_D': pct, 'industry_strength_rank_D': rank}, calc_nodes={'kinematics_rank': kinematics_rank, 'stock_shock': stock_shock, 'sector_shock': sector_shock, 'resonance': resonance}, final_result=final_score)
@@ -968,8 +999,7 @@ class ProcessIntelligence:
 
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 热门板块退潮探针版】
-        捕捉高热度动能耗散下的资金连续净流出反转模型。
+        【V3.0.0 · 热门板块退潮防爆版】
         """
         method_name = "_calculate_hot_sector_cooling"
         required_signals = [
@@ -985,8 +1015,10 @@ class ProcessIntelligence:
         kinematics_hot = self._get_kinematic_tensor(df, 'THEME_HOTNESS_SCORE_D', 13, method_name)
         hot_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(hot, 21)))
         mf_shock = np.tanh(self._apply_hab_shock(net_mf, 13))
-        outflow_tensor = np.abs(mf_shock.clip(upper=0)) * (1.0 + outflow_q)
-        stagnation_boost = 1.0 + np.tanh(stagnation * 2.0)
+        stagnation_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(stagnation, 21)))
+        outflow_q_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(outflow_q, 21)))
+        outflow_tensor = np.abs(mf_shock.clip(upper=0)) * (1.0 + outflow_q_shock)
+        stagnation_boost = 1.0 + stagnation_shock * 2.0
         cooling_resonance = hot_shock * outflow_tensor * stagnation_boost * (1.0 - kinematics_hot.clip(lower=0))
         final_score = np.tanh(cooling_resonance ** 1.5).clip(0, 1).astype(np.float32)
         self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'THEME_HOTNESS_SCORE_D': hot, 'net_mf_amount_D': net_mf}, calc_nodes={'kinematics_hot': kinematics_hot, 'hot_shock': hot_shock, 'outflow_tensor': outflow_tensor, 'cooling_resonance': cooling_resonance}, final_result=final_score)
@@ -1153,36 +1185,42 @@ class ProcessIntelligence:
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.0.0 · 洗盘反包非线性动力学版】
-        彻底删除冗余的原子信号依赖参数。应用HAB冲击系统和微积分门限重构反包共振。
+        【V8.0.0 · 洗盘反包非线性防爆版】
+        控制无界能量与套牢压力的膨胀，使用 Sigmoid 域压缩。
         """
-        method_name = "_calculate_process_wash_out_rebound"
-        required_signals = [
-            'shakeout_score_D', 'intraday_distribution_confidence_D',
-            'pressure_trapped_D', 'CLOSING_STRENGTH_D', 
-            'intraday_trough_filling_degree_D', 'stealth_flow_ratio_D',
-            'absorption_energy_D', 'SLOPE_13_shakeout_score_D', 'ACCEL_13_shakeout_score_D'
-        ]
-        self._validate_required_signals(df, required_signals, method_name)
-        df_index = df.index
-        shakeout = self._get_safe_series(df, 'shakeout_score_D', method_name=method_name)
-        dist_conf = self._get_safe_series(df, 'intraday_distribution_confidence_D', method_name=method_name)
-        panic = self._get_safe_series(df, 'pressure_trapped_D', method_name=method_name)
-        closing = self._get_safe_series(df, 'CLOSING_STRENGTH_D', method_name=method_name)
-        trough_fill = self._get_safe_series(df, 'intraday_trough_filling_degree_D', method_name=method_name)
-        stealth = self._get_safe_series(df, 'stealth_flow_ratio_D', method_name=method_name)
-        absorption = self._get_safe_series(df, 'absorption_energy_D', method_name=method_name)
-        kinematics_shakeout = self._get_kinematic_tensor(df, 'shakeout_score_D', 13, method_name)
-        shakeout_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(shakeout, 21)))
-        dist_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(dist_conf, 13)))
-        panic_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(panic, 21)))
-        washout_env = (shakeout_shock * dist_shock * panic_shock) * (1.0 + stealth)
-        rebound_intent = trough_fill.clip(lower=0) * absorption.clip(lower=0)
-        rebound_shock = np.tanh(self._apply_hab_shock(rebound_intent, 13)).clip(lower=0)
-        raw_score = washout_env * (rebound_shock ** 1.5) * closing
-        final_score = np.tanh(raw_score * 2.0 * (1.0 + kinematics_shakeout.clip(lower=0))).clip(0, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'shakeout_score_D': shakeout, 'intraday_distribution_confidence_D': dist_conf, 'pressure_trapped_D': panic}, calc_nodes={'kinematics_shakeout': kinematics_shakeout, 'washout_env': washout_env, 'rebound_shock': rebound_shock, 'raw_score': raw_score}, final_result=final_score)
+        method_name="_calculate_process_wash_out_rebound"
+        required_signals=['shakeout_score_D','intraday_distribution_confidence_D','pressure_trapped_D','CLOSING_STRENGTH_D','intraday_trough_filling_degree_D','stealth_flow_ratio_D','absorption_energy_D','SLOPE_13_shakeout_score_D','ACCEL_13_shakeout_score_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        shakeout=self._get_safe_series(df,'shakeout_score_D',method_name=method_name)
+        dist_conf=self._get_safe_series(df,'intraday_distribution_confidence_D',method_name=method_name)
+        panic=self._get_safe_series(df,'pressure_trapped_D',method_name=method_name)
+        closing=self._get_safe_series(df,'CLOSING_STRENGTH_D',method_name=method_name)
+        trough_fill=self._get_safe_series(df,'intraday_trough_filling_degree_D',method_name=method_name)
+        stealth=self._get_safe_series(df,'stealth_flow_ratio_D',method_name=method_name)
+        absorption=self._get_safe_series(df,'absorption_energy_D',method_name=method_name)
+        kinematics_shakeout=self._get_kinematic_tensor(df,'shakeout_score_D',13,method_name)
+        # 物理张量隔离墙
+        shakeout_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(shakeout,21)))
+        dist_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(dist_conf,13)))
+        panic_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(panic,21)))
+        stealth_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(stealth,21)))
+        trough_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(trough_fill,21)))
+        absorption_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(absorption,21)))
+        closing_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(closing,21)))
+        washout_env=(shakeout_shock*dist_shock*panic_shock)*(1.0+stealth_shock)
+        rebound_intent=trough_shock*absorption_shock
+        raw_score=washout_env*(rebound_intent**1.5)*closing_shock
+        final_score=np.tanh(raw_score*2.0*(1.0+kinematics_shakeout.clip(lower=0))).clip(0,1).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'shakeout_score_D':shakeout,'intraday_distribution_confidence_D':dist_conf,'pressure_trapped_D':panic,'absorption_energy_D':absorption},calc_nodes={'kinematics_shakeout':kinematics_shakeout,'panic_shock':panic_shock,'absorption_shock':absorption_shock,'washout_env':washout_env,'rebound_intent':rebound_intent,'raw_score':raw_score},final_result=final_score)
         return final_score
+
+
+
+
+
+
+
 
 
 
