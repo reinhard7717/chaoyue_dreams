@@ -492,4 +492,3 @@ class CalculateMainForceRallyIntent:
 
 
 
-
