@@ -3,14 +3,14 @@
 # 说明: 1. 彻底修复变量断层引发的 NameError；2. 大规模修正底层因子的物理量纲映射 ([0,1]与[0,100]分制错位)；3. 引入 np.log1p 对数压缩层，解决抛压/拉升奇点畸变导致的 Z-Score 映射失效问题。
 import pandas as pd
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from strategies.trend_following.utils import get_param_value
 class CalculateMainForceRallyIntent:
     """
     PROCESS_META_MAIN_FORCE_RALLY_INTENT
-    【V30.1.0 · 参数解包陷阱修复版】
-    修复了 drag 张量在流入合成方法时被错误地当做元组进行 unpack 的 ValueError 崩溃问题。
-    继续保有欧几里得 L2 正交相空间及双重滤波。
+    【V30.1.0 · 作用域解包陷阱彻底修复版】
+    完美修复 _calc_drag_component 返回值缺失导致的 NumPy 一维数组解包溢出崩溃。
+    全链路畅通欧几里得 L2 正交相空间、对数流形压缩与 144d Rolling 零未来函数防线。
     """
     def __init__(self, strategy_instance, process_intelligence_helper_instance):
         self.strategy = strategy_instance
@@ -199,7 +199,7 @@ class CalculateMainForceRallyIntent:
         final_scores, z_scores, med_arr, mad_arr = self._robust_normalize(compressed_intent)
         if self._is_probe_enabled(): self._generate_probe_report(idx, raw, thrust, structure, drag, raw_intent_clean, compressed_intent, z_scores, final_scores, cap_discount, cap_factor, volatility_factor, long_align, short_align, total_res, w_thrust, med_arr, mad_arr, uni_div, kine_mult, micro_mult)
         return pd.Series(final_scores, index=idx, dtype=np.float32)
-    def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index, hab_pool_flow: np.ndarray, hab_vol_impact: np.ndarray, cap_discount: np.ndarray, cap_factor: np.ndarray, vol_factor: np.ndarray):
+    def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index, hab_pool_flow: np.ndarray, hab_vol_impact: np.ndarray, cap_discount: np.ndarray, cap_factor: np.ndarray, vol_factor: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         mf_net_buy = raw['mf_net_buy'].values
         tick_large_net = raw['tick_large_net'].values
         hm_synergy = raw['hm_synergy'].values
@@ -320,7 +320,7 @@ class CalculateMainForceRallyIntent:
         excess_res = np.clip(np.maximum(0.0, resonance_core - 1.5), 0.0, 5.0)
         avalanche_gain = 1.0 + np.power(np.maximum(0.0, excess_res), 1.618) * 1.5
         return np.clip(np.nan_to_num(resonance_core * avalanche_gain, nan=1.0), 0.01, 1000.0)
-    def _calc_drag_component(self, raw: Dict[str, np.ndarray], idx: pd.Index, hab_pool_flow: np.ndarray, cap_discount: np.ndarray, vol_factor: np.ndarray) -> np.ndarray:
+    def _calc_drag_component(self, raw: Dict[str, np.ndarray], idx: pd.Index, hab_pool_flow: np.ndarray, cap_discount: np.ndarray, vol_factor: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         dist_damping = np.clip(raw['dist_score'].values / 100.0, 0.0, 1.0)
         dist_slope_13 = self._kinematic_gate(raw['dist_slope_13'].values, np.array([1.0]), np.array([10.0]), vol_factor)
         dist_accel_13 = self._kinematic_gate(raw['dist_accel_13'].values, np.array([0.5]), np.array([5.0]), vol_factor)
@@ -376,8 +376,9 @@ class CalculateMainForceRallyIntent:
         core_drag_shielded = np.clip(core_drag_raw * (1.0 - hab_immunity) + turnover_drag + hf_hidden_div, 0.0, 1000.0) * parabolic_penalty
         excess_drag = np.clip(np.maximum(0.0, core_drag_shielded - 1.5), 0.0, 10.0)
         avalanche_gain = 1.0 + np.power(np.maximum(0.0, excess_drag), 1.618) * 1.5
-        return np.clip(np.nan_to_num(core_drag_shielded * avalanche_gain, nan=0.0), 0.0, 10000.0)
-    def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index, hab_pool_flow: np.ndarray, cap_discount: np.ndarray, cap_factor: np.ndarray):
+        final_drag = np.clip(np.nan_to_num(core_drag_shielded * avalanche_gain, nan=0.0), 0.0, 10000.0)
+        return final_drag, unified_div_penalty
+    def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index, hab_pool_flow: np.ndarray, cap_discount: np.ndarray, cap_factor: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         norm_theme = np.clip(raw['theme_hotness'].values / 100.0, 0.0, 1.0)
         norm_breakout_pot = np.clip(raw['breakout_pot'].values / 100.0, 0.0, 1.0)
         norm_turnover_stab = np.clip(raw['turnover_stability'].values / 100.0, 0.0, 1.0)
