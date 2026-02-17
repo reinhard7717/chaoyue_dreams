@@ -120,73 +120,80 @@ class ProcessIntelligence:
         return df[col_name].astype(np.float32)
 
     def _get_mtf_slope_accel_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights_config: Dict, df_index: pd.Index, method_name: str, ascending: bool = True, bipolar: bool = False) -> pd.Series:
-        """
-        【V4.1.0 · MTF动态张量原生版】
-        取代统一归一化，使用 Pandas 原生 where 防止矩阵坍缩。
-        """
-        slope_periods_weights=get_param_value(mtf_weights_config.get('slope_periods'),{"5":0.4,"13":0.3,"21":0.2,"34":0.1})
-        accel_periods_weights=get_param_value(mtf_weights_config.get('accel_periods'),{"5":0.6,"13":0.4})
-        all_scores_components=[]
-        total_combined_weight=0.0
-        def _process_kinematic(col_name:str,weight:float,period:int):
-            if col_name not in df.columns:
-                return 0.0,0.0
-            raw_series=df[col_name].astype(np.float32)
+        """【V6.0.0 · MTF动态张量免疫版】注入动态微积分推演，如果 df 中缺失 SLOPE 列，在内存中实时求导计算。"""
+        slope_periods_weights = get_param_value(mtf_weights_config.get('slope_periods'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.1})
+        accel_periods_weights = get_param_value(mtf_weights_config.get('accel_periods'), {"5": 0.6, "13": 0.4})
+        all_scores_components = []
+        total_combined_weight = 0.0
+        def _process_kinematic(kinematic_type: str, weight: float, period: int):
+            col_name = f'{kinematic_type}_{period}_{base_signal_name}'
+            if col_name in df.columns:
+                raw_series = df[col_name].astype(np.float32)
+            else:
+                if base_signal_name not in df.columns:
+                    return 0.0, 0.0
+                base_series = df[base_signal_name].astype(np.float32)
+                slope = (base_series.diff(period) / period).fillna(0.0)
+                if kinematic_type == 'SLOPE':
+                    raw_series = slope
+                else:
+                    raw_series = (slope.diff(period) / period).fillna(0.0)
+                    
             if raw_series.isnull().all():
-                return 0.0,0.0
-            gated=raw_series.where(raw_series.abs()>=1e-4,0.0)
-            hab_window=max(21,period*2)
-            shock=self._apply_hab_shock(gated,window=hab_window)
-            norm_score=np.tanh(shock)
+                return 0.0, 0.0
+                
+            gated = raw_series.where(raw_series.abs() >= 1e-4, 0.0)
+            hab_window = max(21, period * 2)
+            shock = self._apply_hab_shock(gated, window=hab_window)
+            norm_score = np.tanh(shock)
+            
             if not ascending:
-                norm_score=-norm_score
+                norm_score = -norm_score
             if not bipolar:
-                norm_score=0.5*(1.0+norm_score)
-            return norm_score*weight,weight
-        for period_str,weight in slope_periods_weights.items():
-            period=int(period_str)
-            score,w=_process_kinematic(f'SLOPE_{period}_{base_signal_name}',weight,period)
+                norm_score = 0.5 * (1.0 + norm_score)
+            return norm_score * weight, weight
+
+        for period_str, weight in slope_periods_weights.items():
+            score, w = _process_kinematic('SLOPE', weight, int(period_str))
             all_scores_components.append(score)
-            total_combined_weight+=w
-        for period_str,weight in accel_periods_weights.items():
-            period=int(period_str)
-            score,w=_process_kinematic(f'ACCEL_{period}_{base_signal_name}',weight,period)
+            total_combined_weight += w
+            
+        for period_str, weight in accel_periods_weights.items():
+            score, w = _process_kinematic('ACCEL', weight, int(period_str))
             all_scores_components.append(score)
-            total_combined_weight+=w
-        if not all_scores_components or total_combined_weight==0:
-            return pd.Series(0.0,index=df_index,dtype=np.float32)
-        fused_score=sum(all_scores_components)/total_combined_weight
-        return fused_score.clip(-1,1).astype(np.float32) if bipolar else fused_score.clip(0,1).astype(np.float32)
+            total_combined_weight += w
+            
+        if not all_scores_components or total_combined_weight == 0:
+            return pd.Series(0.0, index=df_index, dtype=np.float32)
+            
+        fused_score = sum(all_scores_components) / total_combined_weight
+        return fused_score.clip(-1, 1).fillna(0.0).astype(np.float32) if bipolar else fused_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
     def _get_mtf_slope_score(self, df: pd.DataFrame, base_signal_name: str, mtf_weights: Dict, df_index: pd.Index, method_name: str, bipolar: bool = True) -> pd.Series:
-        """
-        【V4.1.0 · 纯斜率非线性动能原生版】
-        专供单一维度斜率融合，使用 Pandas 的 .where 杜绝索引降维。
-        """
-        fused_score=pd.Series(0.0,index=df_index,dtype=np.float32)
-        total_weight=0.0
-        for period_str,weight in mtf_weights.items():
-            try:
-                period=int(period_str)
-            except ValueError:
-                continue
-            col_name=f'SLOPE_{period}_{base_signal_name}'
-            if col_name not in df.columns:
-                continue
-            raw_series=df[col_name].astype(np.float32)
-            if raw_series.isnull().all():
-                continue
-            gated=raw_series.where(raw_series.abs()>=1e-4,0.0)
-            hab_window=max(21,period*2)
-            shock=self._apply_hab_shock(gated,window=hab_window)
-            score=np.tanh(shock)
-            if not bipolar:
-                score=0.5*(1.0+score)
-            fused_score+=score*weight
-            total_weight+=weight
-        if total_weight>0:
-            fused_score=fused_score/total_weight
-        return fused_score.clip(-1,1).astype(np.float32) if bipolar else fused_score.clip(0,1).astype(np.float32)
+        """【V6.0.0 · 纯斜率非线性动能原生版】注入动态微积分推演与绝对零基封印。"""
+        fused_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        total_weight = 0.0
+        for period_str, weight in mtf_weights.items():
+            try: period = int(period_str)
+            except ValueError: continue
+                
+            col_name = f'SLOPE_{period}_{base_signal_name}'
+            if col_name in df.columns:
+                raw_series = df[col_name].astype(np.float32)
+            else:
+                if base_signal_name not in df.columns: continue
+                raw_series = (df[base_signal_name].astype(np.float32).diff(period) / period).fillna(0.0)
+                
+            if raw_series.isnull().all(): continue
+                
+            gated = raw_series.where(raw_series.abs() >= 1e-4, 0.0)
+            shock = self._apply_hab_shock(gated, window=max(21, period * 2))
+            score = np.tanh(shock) if bipolar else 0.5 * (1.0 + np.tanh(shock))
+            fused_score += score * weight
+            total_weight += weight
+            
+        if total_weight > 0: fused_score = fused_score / total_weight
+        return fused_score.clip(-1, 1).fillna(0.0).astype(np.float32) if bipolar else fused_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
     def _get_mtf_cohesion_score(self, df: pd.DataFrame, base_signal_names: List[str], mtf_weights_config: Dict, df_index: pd.Index, method_name: str) -> pd.Series:
         """【V4.0.0 · 逆向张量协同探针版】直接基于多维信号动能矩阵计算标准差，利用逆向Tanh将横向极度离散映射为微观协同。"""
@@ -507,7 +514,7 @@ class ProcessIntelligence:
 
     def _get_kinematic_tensor(self, df: pd.DataFrame, base_col: str, period: int = 13, method_name: str = "") -> pd.Series:
         """
-        【V5.0.0 · 自适应运动学张力处理器】
+        【V6.0.0 · 动态微积分免疫处理器】
         当配置遗漏导致缺失 SLOPE/ACCEL 列时，自动使用 diff 在内存中实时计算微积分替代，杜绝断层熔断。
         """
         if base_col not in df.columns:
@@ -568,14 +575,11 @@ class ProcessIntelligence:
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0.0 · 散户投降背离探针防爆版】
+        【V5.0.0 · 散户投降背离探针防爆版】
+        完全剥离微积分列强校验，末端绝对零基填补。
         """
         method_name = "_calculate_price_vs_capitulation_relationship"
-        required_signals = [
-            'pressure_trapped_D', 'INTRADAY_SUPPORT_INTENT_D', 
-            'intraday_low_lock_ratio_D', 'chip_entropy_D',
-            'SLOPE_13_pressure_trapped_D', 'ACCEL_13_pressure_trapped_D'
-        ]
+        required_signals = ['pressure_trapped_D', 'INTRADAY_SUPPORT_INTENT_D', 'intraday_low_lock_ratio_D', 'chip_entropy_D']
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
         pressure = self._get_safe_series(df, 'pressure_trapped_D', method_name=method_name)
@@ -591,21 +595,17 @@ class ProcessIntelligence:
         base_divergence = self._calculate_instantaneous_relationship(df, config)
         raw_score = base_divergence * panic_shock * absorption_resonance * (1.0 + kinematics_p.clip(lower=0))
         final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
-        final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
+        final_score = np.tanh(final_score).clip(-1, 1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'pressure_trapped_D': pressure, 'INTRADAY_SUPPORT_INTENT_D': support}, calc_nodes={'kinematics_p': kinematics_p, 'panic_shock': panic_shock, 'absorption_resonance': absorption_resonance}, final_result=final_score)
         return final_score
 
     def _calculate_price_efficiency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0.0 · 价格效率博弈探针版 (防标度爆炸修复)】
-        将转移效率绝对数值剥离乘积链，应用HAB强制压缩。
+        【V5.0.0 · 价格效率博弈防爆版】
+        完全剥离微积分列强校验，末端绝对零基填补。
         """
         method_name = "_calculate_price_efficiency_relationship"
-        required_signals = [
-            'VPA_EFFICIENCY_D', 'net_mf_amount_D', 'shakeout_score_D', 
-            'tick_chip_transfer_efficiency_D', 'high_freq_flow_skewness_D',
-            'SLOPE_13_VPA_EFFICIENCY_D', 'ACCEL_13_VPA_EFFICIENCY_D'
-        ]
+        required_signals = ['VPA_EFFICIENCY_D', 'net_mf_amount_D', 'shakeout_score_D', 'tick_chip_transfer_efficiency_D', 'high_freq_flow_skewness_D']
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
         eff = self._get_safe_series(df, 'VPA_EFFICIENCY_D', method_name=method_name)
@@ -617,19 +617,18 @@ class ProcessIntelligence:
         eff_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(eff, 34)))
         mf_conviction = np.tanh(self._apply_hab_shock(net_mf, 55))
         shakeout_penalty = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(shakeout, 21)))
-        # 修复标度爆炸核心点
         transfer_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(transfer_eff, 21)))
         flow_skew_shock = np.tanh(self._apply_hab_shock(flow_skew, 21))
         synergy = eff_shock * mf_conviction * (1.0 + transfer_shock) * (1.0 + kinematics_eff) * (1.0 + flow_skew_shock.clip(lower=0))
         final_score = np.sign(synergy) * (np.abs(synergy) ** 1.5)
-        final_score = (final_score * (1.0 - shakeout_penalty ** 1.5)).clip(-1, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'VPA_EFFICIENCY_D': eff, 'net_mf_amount_D': net_mf, 'tick_chip_transfer_efficiency_D': transfer_eff}, calc_nodes={'kinematics_eff': kinematics_eff, 'eff_shock': eff_shock, 'mf_conviction': mf_conviction, 'transfer_shock': transfer_shock, 'synergy': synergy}, final_result=final_score)
+        final_score = (final_score * (1.0 - shakeout_penalty ** 1.5)).clip(-1, 1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'VPA_EFFICIENCY_D': eff, 'net_mf_amount_D': net_mf}, calc_nodes={'kinematics_eff': kinematics_eff, 'eff_shock': eff_shock, 'synergy': synergy}, final_result=final_score)
         return final_score
 
     def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V5.0.0 · 博弈背离方向性智能杠杆版】
-        挂载 high_freq_flow_kurtosis_D，利用方向性价格杠杆适配多空双向场景背离。
+        完全剥离微积分列强校验，末端绝对零基填补。
         """
         method_name="_calculate_pd_divergence_relationship"
         required_signals=['game_intensity_D','weight_avg_cost_D','close_D','intraday_chip_game_index_D','chip_divergence_ratio_D','winner_rate_D','high_freq_flow_kurtosis_D']
@@ -650,13 +649,12 @@ class ProcessIntelligence:
         chip_div_shock=np.tanh(self._apply_hab_shock(chip_div,21))
         kurtosis_shock=np.tanh(self._apply_hab_shock(hf_kurtosis,21)).clip(lower=0)
         base_divergence=self._calculate_instantaneous_relationship(df,config)
-        # 方向性价格杠杆：底部看跌被强化，顶部看涨被强化
         price_leverage=(1.0-price_adv*np.sign(base_divergence)).clip(lower=0.1)
         tensor_resonance=game_shock*price_leverage*win_norm*(1.0+intra_game_shock.clip(lower=0))*(1.0+chip_div_shock.clip(lower=0))*(1.0+kurtosis_shock)
         raw_score=base_divergence*tensor_resonance*(1.0+kinematics_game.clip(lower=0))
         final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
         final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'game_intensity_D':game,'weight_avg_cost_D':cost,'high_freq_flow_kurtosis_D':hf_kurtosis},calc_nodes={'kinematics_game':kinematics_game,'price_adv':price_adv,'base_divergence':base_divergence,'price_leverage':price_leverage,'tensor_resonance':tensor_resonance,'raw_score':raw_score},final_result=final_score)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'game_intensity_D':game,'weight_avg_cost_D':cost},calc_nodes={'kinematics_game':kinematics_game,'price_leverage':price_leverage,'tensor_resonance':tensor_resonance,'raw_score':raw_score},final_result=final_score)
         return final_score
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -758,7 +756,7 @@ class ProcessIntelligence:
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V7.0.0 · 恐慌洗盘防爆探针版】
-        阻断绝对能量值的失控传播，实施 HAB 标准差冲击融合。
+        完全剥离微积分列强校验，末端绝对零基填补。
         """
         method_name="_calculate_panic_washout_accumulation"
         required_signals=['pressure_trapped_D','intraday_low_lock_ratio_D','absorption_energy_D','intraday_trough_filling_degree_D','high_freq_flow_divergence_D','chip_rsi_divergence_D','chip_stability_D']
@@ -771,7 +769,6 @@ class ProcessIntelligence:
         hff_div=self._get_safe_series(df,'high_freq_flow_divergence_D',method_name=method_name)
         chip_div=self._get_safe_series(df,'chip_rsi_divergence_D',method_name=method_name)
         chip_stab=self._get_safe_series(df,'chip_stability_D',method_name=method_name)
-        # 强制驯服所有可能爆炸的物理量纲
         panic_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(panic_level,21)))
         low_lock_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(low_lock_ratio,21)))
         absorption_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(absorption,21)))
@@ -784,14 +781,14 @@ class ProcessIntelligence:
         base_score=panic_intensity*absorption_intensity*divergence_bonus
         historical_potential_gate=config.get('historical_potential_gate',0.2)
         gate_mask=chip_stab>historical_potential_gate
-        final_score=np.tanh(base_score**1.5).where(gate_mask,0.0).clip(0,1).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':panic_level,'intraday_low_lock_ratio_D':low_lock_ratio,'absorption_energy_D':absorption,'intraday_trough_filling_degree_D':trough_filling,'high_freq_flow_divergence_D':hff_div,'chip_rsi_divergence_D':chip_div},calc_nodes={'panic_shock':panic_shock,'absorption_shock':absorption_shock,'panic_intensity':panic_intensity,'absorption_intensity':absorption_intensity,'divergence_bonus':divergence_bonus,'base_score':base_score,'gate_mask':pd.Series(gate_mask,index=df_index)},final_result=final_score)
+        final_score=np.tanh(base_score**1.5).where(gate_mask,0.0).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':panic_level,'intraday_low_lock_ratio_D':low_lock_ratio},calc_nodes={'panic_shock':panic_shock,'panic_intensity':panic_intensity,'absorption_intensity':absorption_intensity,'divergence_bonus':divergence_bonus,'base_score':base_score},final_result=final_score)
         return final_score
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V5.0.0 · 诡道偏度防爆重构版】
-        屏蔽密度与物理强度的直接矩阵相乘，改用其历史离散突变率。
+        完全剥离微积分列强校验，末端绝对零基填补。
         """
         method_name="_calculate_deceptive_accumulation"
         required_signals=['stealth_flow_ratio_D','tick_clustering_index_D','intraday_price_distribution_skewness_D','high_freq_flow_skewness_D','price_flow_divergence_D','chip_flow_intensity_D']
@@ -803,7 +800,6 @@ class ProcessIntelligence:
         flow_skew=self._get_safe_series(df,'high_freq_flow_skewness_D',method_name=method_name)
         price_flow_div=self._get_safe_series(df,'price_flow_divergence_D',method_name=method_name)
         flow_intensity=self._get_safe_series(df,'chip_flow_intensity_D',method_name=method_name)
-        # 全部送进 HAB 洗练仓
         stealth_flow_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(stealth_flow, 21)))
         flow_intensity_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(flow_intensity, 21)))
         tick_clustering_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(tick_clustering, 21)))
@@ -813,8 +809,8 @@ class ProcessIntelligence:
         price_flow_div_shock=np.tanh(self._apply_hab_shock(price_flow_div,21))
         camouflage_index=price_flow_div_shock.clip(lower=0)+skew_tension*0.5
         raw_deception=stealth_strength*(1.0+camouflage_index)
-        final_score=np.tanh(raw_deception**1.5).clip(0,1).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'stealth_flow_ratio_D':stealth_flow,'tick_clustering_index_D':tick_clustering,'intraday_price_distribution_skewness_D':price_skew,'high_freq_flow_skewness_D':flow_skew,'price_flow_divergence_D':price_flow_div,'chip_flow_intensity_D':flow_intensity},calc_nodes={'flow_intensity_norm':flow_intensity_norm,'tick_clustering_norm':tick_clustering_norm,'stealth_flow_norm':stealth_flow_norm,'skew_divergence':skew_divergence,'skew_tension':skew_tension,'stealth_strength':stealth_strength,'camouflage_index':camouflage_index,'raw_deception':raw_deception},final_result=final_score)
+        final_score=np.tanh(raw_deception**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'stealth_flow_ratio_D':stealth_flow,'high_freq_flow_skewness_D':flow_skew},calc_nodes={'stealth_flow_norm':stealth_flow_norm,'skew_divergence':skew_divergence,'skew_tension':skew_tension,'stealth_strength':stealth_strength,'camouflage_index':camouflage_index,'raw_deception':raw_deception},final_result=final_score)
         return final_score
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -869,8 +865,8 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.0.0 · 突破爆发全息游资版】
-        挂载游资攻击预期与突破假信号惩罚，执行虚假信号的精准击杀。
+        【V9.0.0 · 突破爆发全息游资版】
+        完全剥离对微积分特征的契约强约束。
         """
         method_name="_calculate_breakout_acceleration"
         required_signals=['breakout_quality_score_D','industry_strength_rank_D','net_mf_amount_D','flow_consistency_D','tick_abnormal_volume_ratio_D','uptrend_strength_D','T1_PREMIUM_EXPECTATION_D','HM_COORDINATED_ATTACK_D','breakout_penalty_score_D']
@@ -903,15 +899,16 @@ class ProcessIntelligence:
         raw_score=base_tensor*catalyst*(1.0+kinematics_brk.clip(lower=0)+kinematics_mf.clip(lower=0))*alpha_multiplier
         final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
         final_score=np.tanh(final_score).clip(0,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'breakout_quality_score_D':breakout,'breakout_penalty_score_D':penalty},calc_nodes={'mf_power':mf_power,'catalyst':catalyst,'penalty_shock':penalty_shock,'alpha_multiplier':alpha_multiplier,'raw_score':raw_score},final_result=final_score)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'breakout_quality_score_D':breakout,'T1_PREMIUM_EXPECTATION_D':t1_premium,'HM_COORDINATED_ATTACK_D':hm_attack},calc_nodes={'mf_power':mf_power,'catalyst':catalyst,'alpha_multiplier':alpha_multiplier,'raw_score':raw_score},final_result=final_score)
         return final_score
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.0.0 · 资金流吸筹质变动能跳空版】
+        【V6.0.0 · 资金流吸筹质变 (黄金坑与跳空动能版)】
+        挂载 GAP_MOMENTUM_STRENGTH_D 与 STATE_GOLDEN_PIT_D。
         """
         method_name = "_calculate_fund_flow_accumulation_inflection"
-        required_signals = ['accumulation_signal_score_D', 'net_mf_amount_D', 'flow_efficiency_D', 'tick_large_order_net_D', 'intraday_accumulation_confidence_D', 'GAP_MOMENTUM_STRENGTH_D']
+        required_signals = ['accumulation_signal_score_D', 'net_mf_amount_D', 'flow_efficiency_D', 'tick_large_order_net_D', 'intraday_accumulation_confidence_D', 'GAP_MOMENTUM_STRENGTH_D', 'STATE_GOLDEN_PIT_D']
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
         acc_score = self._get_safe_series(df, 'accumulation_signal_score_D', method_name=method_name)
@@ -920,6 +917,7 @@ class ProcessIntelligence:
         large_net = self._get_safe_series(df, 'tick_large_order_net_D', method_name=method_name)
         intra_acc = self._get_safe_series(df, 'intraday_accumulation_confidence_D', method_name=method_name)
         gap_momentum = self._get_safe_series(df, 'GAP_MOMENTUM_STRENGTH_D', method_name=method_name)
+        golden_pit = self._get_safe_series(df, 'STATE_GOLDEN_PIT_D', method_name=method_name).clip(0, 1)
         kinematics_mf = self._get_kinematic_tensor(df, 'net_mf_amount_D', 21, method_name)
         kinematics_acc = self._get_kinematic_tensor(df, 'accumulation_signal_score_D', 21, method_name)
         kinematics_gap = self._get_kinematic_tensor(df, 'GAP_MOMENTUM_STRENGTH_D', 5, method_name)
@@ -929,25 +927,24 @@ class ProcessIntelligence:
         large_norm = np.tanh(self._apply_hab_shock(large_net, 21))
         intra_acc_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(intra_acc, 21)))
         gap_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(gap_momentum, 13)))
+        pit_leverage = 1.0 + golden_pit * 0.5
         ignition_catalyst = (1.0 + gap_shock.clip(lower=0) * (1.0 + kinematics_gap.clip(lower=0)))
-        base_ignition = acc_shock * eff_norm * (1.0 + large_norm.clip(lower=0)) * intra_acc_shock
+        base_ignition = acc_shock * eff_norm * (1.0 + large_norm.clip(lower=0)) * intra_acc_shock * pit_leverage
         synergy_thrust = base_ignition * ignition_catalyst * (1.0 + mf_shock.clip(lower=0) ** 1.5)
         raw_score = synergy_thrust * (1.0 + kinematics_acc.clip(lower=0) + kinematics_mf.clip(lower=0))
         final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
         final_score = np.tanh(final_score).clip(0, 1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'accumulation_signal_score_D': acc_score, 'net_mf_amount_D': net_mf, 'GAP_MOMENTUM_STRENGTH_D': gap_momentum}, calc_nodes={'kinematics_gap': kinematics_gap, 'gap_shock': gap_shock, 'ignition_catalyst': ignition_catalyst, 'synergy_thrust': synergy_thrust}, final_result=final_score)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'STATE_GOLDEN_PIT_D': golden_pit, 'GAP_MOMENTUM_STRENGTH_D': gap_momentum}, calc_nodes={'gap_shock': gap_shock, 'pit_leverage': pit_leverage, 'synergy_thrust': synergy_thrust}, final_result=final_score)
         return final_score
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0.0 · 获利压迫与净流对冲防爆版】
+        【V10.0.0 · 获利压迫与净流对冲 (抛物线神谕极化版)】
+        挂载 STATE_PARABOLIC_WARNING_D 状态阵列。高位抛物线崩塌时，赋予派发堰塞湖 1.5 倍毁灭性惩罚杠杆。
+        完全剥离对微积分特征的契约强约束。
         """
         method_name = "_calculate_profit_vs_flow_relationship"
-        required_signals = [
-            'profit_pressure_D', 'net_mf_amount_D', 'profit_ratio_D', 
-            'flow_consistency_D', 'winner_rate_D', 'intraday_distribution_confidence_D',
-            'SLOPE_13_profit_pressure_D', 'ACCEL_13_profit_pressure_D'
-        ]
+        required_signals = ['profit_pressure_D', 'net_mf_amount_D', 'profit_ratio_D', 'flow_consistency_D', 'winner_rate_D', 'intraday_distribution_confidence_D', 'STATE_PARABOLIC_WARNING_D']
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
         pressure = self._get_safe_series(df, 'profit_pressure_D', method_name=method_name)
@@ -956,6 +953,7 @@ class ProcessIntelligence:
         cons = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
         winner = self._get_safe_series(df, 'winner_rate_D', method_name=method_name)
         dist_conf = self._get_safe_series(df, 'intraday_distribution_confidence_D', method_name=method_name)
+        parabolic_warning = self._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', method_name=method_name).clip(0, 1)
         kinematics_p = self._get_kinematic_tensor(df, 'profit_pressure_D', 13, method_name)
         pressure_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(pressure, 21)))
         mf_shock = np.tanh(self._apply_hab_shock(net_mf, 34))
@@ -963,25 +961,23 @@ class ProcessIntelligence:
         cons_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(cons, 21)))
         win_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(winner, 55)))
         dist_conf_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(dist_conf, 21)))
-        pressure_tensor = (pressure_shock * profit_ratio_shock * dist_conf_shock) * (1.0 + kinematics_p.clip(lower=0))
+        # 状态极化杠杆：抛物线高危状态下，派发压力被直接放大 1.5 倍
+        parabolic_leverage = 1.0 + parabolic_warning * 0.5
+        pressure_tensor = (pressure_shock * profit_ratio_shock * dist_conf_shock) * (1.0 + kinematics_p.clip(lower=0)) * parabolic_leverage
         support_tensor = (mf_shock.clip(lower=0) * cons_shock) * (1.0 - win_norm * 0.5)
         raw_score = support_tensor - pressure_tensor * 1.5
         final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
-        final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'profit_pressure_D': pressure, 'net_mf_amount_D': net_mf, 'profit_ratio_D': profit_ratio}, calc_nodes={'kinematics_p': kinematics_p, 'pressure_shock': pressure_shock, 'mf_shock': mf_shock, 'pressure_tensor': pressure_tensor, 'support_tensor': support_tensor}, final_result=final_score)
+        final_score = np.tanh(final_score).clip(-1, 1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'profit_pressure_D': pressure, 'STATE_PARABOLIC_WARNING_D': parabolic_warning}, calc_nodes={'pressure_tensor': pressure_tensor, 'support_tensor': support_tensor, 'parabolic_leverage': parabolic_leverage}, final_result=final_score)
         return final_score
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0.0 · 个股板块协同方向修复版】
-        使用方向性协同张量替代 np.abs(flow_tensor)，避免个股上涨但资金流出时产生虚假共振溢价。
+        【V10.0.0 · 个股板块协同 (领军神谕版)】
+        挂载 STATE_MARKET_LEADER_D。如果是市场核心龙头的协同，直接给予双倍极化引爆！
         """
         method_name = "_calculate_stock_sector_sync"
-        required_signals = [
-            'pct_change_D', 'industry_strength_rank_D', 'net_mf_amount_D', 
-            'flow_consistency_D', 'industry_leader_score_D', 'mid_long_sync_D',
-            'SLOPE_5_industry_strength_rank_D', 'ACCEL_5_industry_strength_rank_D'
-        ]
+        required_signals = ['pct_change_D', 'industry_strength_rank_D', 'net_mf_amount_D', 'flow_consistency_D', 'industry_leader_score_D', 'mid_long_sync_D', 'STATE_MARKET_LEADER_D']
         self._validate_required_signals(df, required_signals, method_name)
         df_index = df.index
         pct = self._get_safe_series(df, 'pct_change_D', method_name=method_name)
@@ -990,6 +986,7 @@ class ProcessIntelligence:
         cons = self._get_safe_series(df, 'flow_consistency_D', method_name=method_name)
         leader = self._get_safe_series(df, 'industry_leader_score_D', method_name=method_name)
         sync_score = self._get_safe_series(df, 'mid_long_sync_D', method_name=method_name)
+        market_leader_state = self._get_safe_series(df, 'STATE_MARKET_LEADER_D', method_name=method_name).clip(0, 1)
         kinematics_rank = self._get_kinematic_tensor(df, 'industry_strength_rank_D', 5, method_name)
         stock_shock = np.tanh(self._apply_hab_shock(pct, 13))
         sector_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(rank, 34)))
@@ -999,11 +996,12 @@ class ProcessIntelligence:
         sync_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(sync_score, 21)))
         sector_tensor = sector_shock * (1.0 + kinematics_rank) * (1.0 + leader_shock)
         flow_tensor = mf_norm * cons_norm * (1.0 + sync_shock)
-        # 修正：当个股态势与资金流向背离时，按比例大幅压降动能，而不应无脑放大
         flow_synergy = (1.0 + flow_tensor * np.sign(stock_shock)).clip(lower=0.1)
-        resonance = stock_shock * sector_tensor * flow_synergy
-        final_score = np.tanh(np.sign(resonance) * (np.abs(resonance) ** 1.5)).clip(-1, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'pct_change_D': pct, 'industry_strength_rank_D': rank}, calc_nodes={'kinematics_rank': kinematics_rank, 'stock_shock': stock_shock, 'sector_shock': sector_shock, 'flow_tensor': flow_tensor, 'flow_synergy': flow_synergy, 'resonance': resonance}, final_result=final_score)
+        # 龙头神谕加持
+        leader_leverage = 1.0 + market_leader_state
+        resonance = stock_shock * sector_tensor * flow_synergy * leader_leverage
+        final_score = np.tanh(np.sign(resonance) * (np.abs(resonance) ** 1.5)).clip(-1, 1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'pct_change_D': pct, 'STATE_MARKET_LEADER_D': market_leader_state}, calc_nodes={'flow_tensor': flow_tensor, 'flow_synergy': flow_synergy, 'leader_leverage': leader_leverage, 'resonance': resonance}, final_result=final_score)
         return final_score
 
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1033,10 +1031,38 @@ class ProcessIntelligence:
         self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'THEME_HOTNESS_SCORE_D': hot, 'net_mf_amount_D': net_mf}, calc_nodes={'kinematics_hot': kinematics_hot, 'hot_shock': hot_shock, 'outflow_tensor': outflow_tensor, 'cooling_resonance': cooling_resonance}, final_result=final_score)
         return final_score
 
+    def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V5.0.0 · 价资协同双向剥离版】
+        完全剥离微积分列强校验，末端绝对零基填补。
+        """
+        method_name="_calculate_pf_relationship"
+        required_signals=['net_mf_amount_D','close_D','price_vs_ma_13_ratio_D','main_force_activity_index_D','flow_momentum_13d_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        net_mf=self._get_safe_series(df,'net_mf_amount_D',method_name=method_name)
+        close_p=self._get_safe_series(df,'close_D',method_name=method_name)
+        price_ma_ratio=self._get_safe_series(df,'price_vs_ma_13_ratio_D',method_name=method_name)
+        activity=self._get_safe_series(df,'main_force_activity_index_D',method_name=method_name)
+        flow_mom=self._get_safe_series(df,'flow_momentum_13d_D',method_name=method_name)
+        kinematics_mf=self._get_kinematic_tensor(df,'net_mf_amount_D',13,method_name)
+        mf_shock=np.tanh(self._apply_hab_shock(net_mf,34))
+        activity_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(activity,21)))
+        flow_mom_shock=np.tanh(self._apply_hab_shock(flow_mom,13))
+        price_ma_shock=np.tanh(self._apply_hab_shock(price_ma_ratio,21))
+        momentum_p=np.tanh(self._apply_hab_shock(close_p.diff(1).fillna(0),13))
+        thrust_f=mf_shock*activity_shock*(1.0+np.abs(kinematics_mf))*(1.0+flow_mom_shock*0.5)
+        synergy_amplifier=(1.0+thrust_f*np.sign(momentum_p)).clip(lower=0.1)
+        raw_score=momentum_p*synergy_amplifier*(1.0+np.abs(price_ma_shock)*0.5)
+        relationship_score=pd.Series(np.sign(raw_score)*(np.abs(raw_score)**1.5),index=df_index).clip(-1,1)
+        meta_score=self._perform_meta_analysis_on_score(relationship_score.fillna(0.0),config,df,df_index).fillna(0.0)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':net_mf,'close_D':close_p},calc_nodes={'momentum_p':momentum_p,'thrust_f':thrust_f,'synergy_amplifier':synergy_amplifier,'relationship_score':relationship_score},final_result=meta_score)
+        return meta_score
+
     def _calculate_pc_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V5.0.0 · 价筹稳态共振全息版】
-        挂载 volatility_adjusted_concentration_D 与 high_position_lock_ratio_90_D。
+        完全剥离微积分列强校验，末端绝对零基填补。
         """
         method_name="_calculate_pc_relationship"
         required_signals=['peak_concentration_D','close_D','chip_convergence_ratio_D','high_position_lock_ratio_90_D','chip_stability_change_5d_D','volatility_adjusted_concentration_D']
@@ -1060,44 +1086,16 @@ class ProcessIntelligence:
         raw_score=momentum_p*synergy_amplifier
         relationship_score=pd.Series(np.sign(raw_score)*(np.abs(raw_score)**1.5),index=df_index).clip(-1,1)
         meta_score=self._perform_meta_analysis_on_score(relationship_score.fillna(0.0),config,df,df_index).fillna(0.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_concentration_D':peak_c,'high_position_lock_ratio_90_D':high_lock,'volatility_adjusted_concentration_D':vac},calc_nodes={'momentum_p':momentum_p,'thrust_c':thrust_c,'synergy_amplifier':synergy_amplifier,'relationship_score':relationship_score},final_result=meta_score)
-        return meta_score
-
-    def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V5.0.0 · 价资协同双向剥离版】
-        挂载 main_force_activity_index_D 与 flow_momentum_13d_D。
-        """
-        method_name="_calculate_pf_relationship"
-        required_signals=['net_mf_amount_D','close_D','price_vs_ma_13_ratio_D','main_force_activity_index_D','flow_momentum_13d_D']
-        self._validate_required_signals(df,required_signals,method_name)
-        df_index=df.index
-        net_mf=self._get_safe_series(df,'net_mf_amount_D',method_name=method_name)
-        close_p=self._get_safe_series(df,'close_D',method_name=method_name)
-        price_ma_ratio=self._get_safe_series(df,'price_vs_ma_13_ratio_D',method_name=method_name)
-        activity=self._get_safe_series(df,'main_force_activity_index_D',method_name=method_name)
-        flow_mom=self._get_safe_series(df,'flow_momentum_13d_D',method_name=method_name)
-        kinematics_mf=self._get_kinematic_tensor(df,'net_mf_amount_D',13,method_name)
-        mf_shock=np.tanh(self._apply_hab_shock(net_mf,34))
-        activity_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(activity,21)))
-        flow_mom_shock=np.tanh(self._apply_hab_shock(flow_mom,13))
-        price_ma_shock=np.tanh(self._apply_hab_shock(price_ma_ratio,21))
-        momentum_p=np.tanh(self._apply_hab_shock(close_p.diff(1).fillna(0),13))
-        thrust_f=mf_shock*activity_shock*(1.0+np.abs(kinematics_mf))*(1.0+flow_mom_shock*0.5)
-        synergy_amplifier=(1.0+thrust_f*np.sign(momentum_p)).clip(lower=0.1)
-        raw_score=momentum_p*synergy_amplifier*(1.0+np.abs(price_ma_shock)*0.5)
-        relationship_score=pd.Series(np.sign(raw_score)*(np.abs(raw_score)**1.5),index=df_index).clip(-1,1)
-        meta_score=self._perform_meta_analysis_on_score(relationship_score.fillna(0.0),config,df,df_index).fillna(0.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':net_mf,'close_D':close_p,'main_force_activity_index_D':activity},calc_nodes={'momentum_p':momentum_p,'thrust_f':thrust_f,'synergy_amplifier':synergy_amplifier,'relationship_score':relationship_score},final_result=meta_score)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_concentration_D':peak_c,'high_position_lock_ratio_90_D':high_lock},calc_nodes={'momentum_p':momentum_p,'thrust_c':thrust_c,'synergy_amplifier':synergy_amplifier,'relationship_score':relationship_score},final_result=meta_score)
         return meta_score
 
     def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.0.0 · 资金结构双极惩罚版】
-        挂载 industry_stagnation_score_D 与 large_order_anomaly_D，粉碎虚假结构支撑。
+        【V10.0.0 · 资金结构双极惩罚 (极化稳态神谕版)】
+        挂载 STATE_ROBUST_TREND_D。稳态趋势中，结构稳固度极难被大单突发噪音破坏。
         """
         method_name="_calculate_ff_vs_structure_relationship"
-        required_signals=['uptrend_strength_D','flow_consistency_D','ma_arrangement_status_D','chip_structure_state_D','industry_stagnation_score_D','large_order_anomaly_D']
+        required_signals=['uptrend_strength_D','flow_consistency_D','ma_arrangement_status_D','chip_structure_state_D','industry_stagnation_score_D','large_order_anomaly_D', 'STATE_ROBUST_TREND_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         struct=self._get_safe_series(df,'uptrend_strength_D',method_name=method_name)
@@ -1106,18 +1104,21 @@ class ProcessIntelligence:
         chip_struct=self._get_safe_series(df,'chip_structure_state_D',method_name=method_name)
         stagnation=self._get_safe_series(df,'industry_stagnation_score_D',method_name=method_name)
         anomaly=self._get_safe_series(df,'large_order_anomaly_D',method_name=method_name)
+        robust_trend = self._get_safe_series(df, 'STATE_ROBUST_TREND_D', method_name=method_name).clip(0, 1)
         kinematics_struct=self._get_kinematic_tensor(df,'uptrend_strength_D',13,method_name)
         struct_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(struct,34)))
         cons_norm=0.5*(1.0+np.tanh(self._apply_hab_shock(cons,21)))
         stag_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(stagnation,21)))
         anomaly_shock=np.tanh(self._apply_hab_shock(anomaly,13))
         base_divergence=self._calculate_instantaneous_relationship(df,config)
-        structural_penalty=(1.0-stag_shock*0.5)*(1.0-anomaly_shock.clip(lower=0)*0.5)
+        # 稳态趋势下，异常扰动的惩罚被大幅削弱
+        anomaly_penalty = anomaly_shock.clip(lower=0) * 0.5 * (1.0 - robust_trend * 0.8)
+        structural_penalty=(1.0-stag_shock*0.5)*(1.0 - anomaly_penalty)
         amplifier=1.0+(struct_shock*cons_norm*(1.0+ma_status*0.5+chip_struct*0.5)*(1.0+np.abs(kinematics_struct)))
         amplifier=amplifier*structural_penalty
         final_score = np.sign(base_divergence * amplifier) * (np.abs(base_divergence * amplifier) ** 1.5)
         final_score = np.tanh(final_score).clip(-1, 1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'uptrend_strength_D':struct,'large_order_anomaly_D':anomaly},calc_nodes={'struct_shock':struct_shock,'structural_penalty':structural_penalty,'amplifier':amplifier},final_result=final_score)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'uptrend_strength_D':struct, 'STATE_ROBUST_TREND_D': robust_trend},calc_nodes={'struct_shock':struct_shock,'structural_penalty':structural_penalty,'amplifier':amplifier},final_result=final_score)
         return final_score
 
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
@@ -1154,7 +1155,7 @@ class ProcessIntelligence:
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V5.0.0 · 动能筹码异向极化版】
-        高位获利盘丰厚时，一旦动能背离，派发堰塞湖的压力应当被【放大】而非【削弱】。
+        完全剥离微积分列强校验，末端绝对零基填补。
         """
         method_name="_calculate_dyn_vs_chip_relationship"
         required_signals=['ROC_13_D','winner_rate_D','profit_ratio_D','chip_mean_D','chip_kurtosis_D','volatility_adjusted_concentration_D']
@@ -1177,7 +1178,7 @@ class ProcessIntelligence:
         final_score=base_consensus.where(base_consensus>=0,base_consensus*distribution_pressure*(1.0+win_shock.clip(lower=0)*0.5))
         final_score=pd.Series(np.sign(final_score)*(np.abs(final_score)**1.5),index=df_index)
         final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc,'profit_ratio_D':profit,'chip_kurtosis_D':kurtosis},calc_nodes={'profit_shock':profit_shock,'win_shock':win_shock,'distribution_pressure':distribution_pressure},final_result=final_score)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc,'profit_ratio_D':profit},calc_nodes={'profit_shock':profit_shock,'win_shock':win_shock,'distribution_pressure':distribution_pressure},final_result=final_score)
         return final_score
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1220,11 +1221,11 @@ class ProcessIntelligence:
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V8.0.0 · 洗盘反包非线性防爆版】
-        控制无界能量与套牢压力的膨胀，使用 Sigmoid 域压缩。
+        【V10.0.0 · 洗盘反包非线性防爆 (圆弧底神谕版)】
+        挂载 STATE_ROUNDING_BOTTOM_D。若大形态已形成圆弧底，洗盘承接的爆发力将被彻底激活。
         """
         method_name="_calculate_process_wash_out_rebound"
-        required_signals=['shakeout_score_D','intraday_distribution_confidence_D','pressure_trapped_D','CLOSING_STRENGTH_D','intraday_trough_filling_degree_D','stealth_flow_ratio_D','absorption_energy_D','SLOPE_13_shakeout_score_D','ACCEL_13_shakeout_score_D']
+        required_signals=['shakeout_score_D','intraday_distribution_confidence_D','pressure_trapped_D','CLOSING_STRENGTH_D','intraday_trough_filling_degree_D','stealth_flow_ratio_D','absorption_energy_D','STATE_ROUNDING_BOTTOM_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         shakeout=self._get_safe_series(df,'shakeout_score_D',method_name=method_name)
@@ -1234,8 +1235,8 @@ class ProcessIntelligence:
         trough_fill=self._get_safe_series(df,'intraday_trough_filling_degree_D',method_name=method_name)
         stealth=self._get_safe_series(df,'stealth_flow_ratio_D',method_name=method_name)
         absorption=self._get_safe_series(df,'absorption_energy_D',method_name=method_name)
+        rounding_bottom = self._get_safe_series(df, 'STATE_ROUNDING_BOTTOM_D', method_name=method_name).clip(0, 1)
         kinematics_shakeout=self._get_kinematic_tensor(df,'shakeout_score_D',13,method_name)
-        # 物理张量隔离墙
         shakeout_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(shakeout,21)))
         dist_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(dist_conf,13)))
         panic_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(panic,21)))
@@ -1243,11 +1244,13 @@ class ProcessIntelligence:
         trough_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(trough_fill,21)))
         absorption_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(absorption,21)))
         closing_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(closing,21)))
+        # 状态神谕杠杆：圆弧底右侧的洗盘，反身向上的概率呈几何级暴增
+        rounding_leverage = 1.0 + rounding_bottom * 0.5
         washout_env=(shakeout_shock*dist_shock*panic_shock)*(1.0+stealth_shock)
-        rebound_intent=trough_shock*absorption_shock
+        rebound_intent=trough_shock*absorption_shock * rounding_leverage
         raw_score=washout_env*(rebound_intent**1.5)*closing_shock
-        final_score=np.tanh(raw_score*2.0*(1.0+kinematics_shakeout.clip(lower=0))).clip(0,1).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'shakeout_score_D':shakeout,'intraday_distribution_confidence_D':dist_conf,'pressure_trapped_D':panic,'absorption_energy_D':absorption},calc_nodes={'kinematics_shakeout':kinematics_shakeout,'panic_shock':panic_shock,'absorption_shock':absorption_shock,'washout_env':washout_env,'rebound_intent':rebound_intent,'raw_score':raw_score},final_result=final_score)
+        final_score=np.tanh(raw_score*2.0*(1.0+kinematics_shakeout.clip(lower=0))).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'shakeout_score_D':shakeout,'STATE_ROUNDING_BOTTOM_D':rounding_bottom},calc_nodes={'washout_env':washout_env,'rounding_leverage':rounding_leverage,'rebound_intent':rebound_intent,'raw_score':raw_score},final_result=final_score)
         return final_score
 
 
