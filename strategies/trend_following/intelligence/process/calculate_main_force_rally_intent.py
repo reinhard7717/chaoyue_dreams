@@ -320,8 +320,9 @@ class CalculateMainForceRallyIntent:
 
     def _calc_structure_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V17.0 · 晶格相变防坍缩基座版】
+        【V17.1 · 晶格相变防坍缩基座修复版】
         重筑全局防爆限位，防止因为极低熵值诱发的除零无限大雪崩。
+        修复了由于重构导致的动力学变量声明遗漏 (ctrl_slope_13, ctrl_accel_13, ctrl_jerk_13)。
         """
         cost_avg = raw['cost_avg'].values
         close = raw['close'].values
@@ -345,6 +346,9 @@ class CalculateMainForceRallyIntent:
         sr_ratio = raw['sr_ratio'].values
         flow_21d = raw['flow_21d'].values
         flow_55d = raw['flow_55d'].values
+        ctrl_slope_13 = raw['ctrl_slope_13'].values
+        ctrl_accel_13 = raw['ctrl_accel_13'].values
+        ctrl_jerk_13 = raw['ctrl_jerk_13'].values
         cost_gap = (close - cost_avg) / (cost_avg + 1e-9)
         cost_rbf = np.exp(np.clip(-10.0 * (cost_gap - 0.05)**2, -20.0, 20.0))
         entropy_raw = np.maximum(0.01, chip_entropy)
@@ -397,7 +401,7 @@ class CalculateMainForceRallyIntent:
             for i in locs:
                 ts = idx[i].strftime('%Y-%m-%d')
                 probe_log = [
-                    f"\n[PROBE-STRUCTURE-V17.0] 晶格相变全息审计(底层防爆版) @ {ts}",
+                    f"\n[PROBE-STRUCTURE-V17.1] 晶格相变全息审计(底层防爆版) @ {ts}",
                     f"  |- 熵稳平衡机制 (Entropy-Stability):",
                     f"     [Raw Lattice] ChipEntropy:{chip_entropy[i]:.4f}, ChipStability:{chip_stability[i]:.4f}, IntraConsol:{intra_consolidation[i]:.2f}, MACoherence:{ma_coherence[i]:.2f}",
                     f"     Stability Adjusted: {stability_raw[i]:.4f} | Entropy Penalty: {entropy_penalty[i]:.4f} -> Lattice Orderliness: {lattice_orderliness[i]:.4f}",
