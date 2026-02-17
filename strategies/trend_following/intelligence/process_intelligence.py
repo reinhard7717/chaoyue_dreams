@@ -513,8 +513,9 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.0.0 · 权力交接张量防爆版】
-        拦截无界物理量泄漏，采用 HAB Shock 压缩巨额换手效率，防止矩阵内爆。
+        【V7.0.0 · 权力交接张量终极版 (消除背离陷阱与信息孤岛)】
+        已通过实盘探针验证了175万级无界物理量泄漏的拦截能力。
+        新增方向性协同张量，修复了筹码与资金背离时被绝对值盲目放大的数学缺陷。
         """
         method_name="_calculate_power_transfer"
         required_signals=['net_mf_amount_D','amount_D','tick_large_order_net_D','tick_chip_transfer_efficiency_D','flow_efficiency_D','intraday_cost_center_migration_D','downtrend_strength_D','chip_concentration_ratio_D']
@@ -530,27 +531,37 @@ class ProcessIntelligence:
         chip_conc=self._get_safe_series(df,'chip_concentration_ratio_D',method_name=method_name)
         mf_ratio=(net_mf/amount).fillna(0)
         tick_ratio=(tick_large_net/amount).fillna(0)
-        # 使用 HAB 将所有未经标度化的波动平推到相对 Z-Score
+        # 1. 存量冲击测算 (HAB Shock)
         mf_shock=np.tanh(self._apply_hab_shock(mf_ratio,21))
         tick_shock=np.tanh(self._apply_hab_shock(tick_ratio,21))
-        power_core=mf_shock*0.6+tick_shock*0.4
-        # 阻断175万这类的无界数值泄漏，使用 Sigmoid 压缩至 [0, 1] 域
+        # 消除信息孤岛：汇入日内成本中心迁移，提供价格空间维度的绝对确认
+        cost_mig_shock=np.tanh(self._apply_hab_shock(cost_migration, 13))
+        # 三维资金动力核心
+        power_core=mf_shock*0.5+tick_shock*0.3+cost_mig_shock*0.2
+        # 2. 物理量纲驯服与门限防爆
         transfer_eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(transfer_eff, 21)))
         flow_eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(flow_eff, 21)))
         efficiency_multiplier=1.0+(transfer_eff_norm+flow_eff_norm)/2.0
-        # 筹码差分极其微弱，利用 HAB 放大其相对强弱
         chip_diff_shock=np.tanh(self._apply_hab_shock(chip_conc.diff().fillna(0),13))
         chip_penetration=chip_diff_shock*efficiency_multiplier
-        raw_score=power_core*(1.0+np.abs(chip_penetration))
+        # 3. 方向性协同张量 (Directional Synergy Tensor)
+        # 当筹码面与资金面同向时放大共振；当产生分歧背离时，强行剥夺最高 90% 的动能，粉碎诱多/诱空陷阱。
+        synergy_amplifier=(1.0 + chip_penetration * np.sign(power_core)).clip(lower=0.1)
+        raw_score=power_core*synergy_amplifier
         trend_discount=pd.Series(1.0,index=df_index).mask(downtrend>0.8,0.6)
-        # Power Law 激发极值
+        # 4. Power Law 非线性激发与终极域压制
         final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
         final_score=(np.tanh(final_score)*trend_discount).clip(-1,1).astype(np.float32)
         if hasattr(self.strategy,'atomic_states'):
             self.strategy.atomic_states["PROCESS_DEBUG_power_transfer_spread"]=power_core
             self.strategy.atomic_states["PROCESS_DEBUG_power_transfer_penetration"]=chip_penetration
             
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':net_mf,'amount_D':amount,'tick_large_order_net_D':tick_large_net,'tick_chip_transfer_efficiency_D':transfer_eff,'flow_efficiency_D':flow_eff},calc_nodes={'mf_shock':mf_shock,'tick_shock':tick_shock,'power_core':power_core,'transfer_eff_norm':transfer_eff_norm,'flow_eff_norm':flow_eff_norm,'efficiency_multiplier':efficiency_multiplier,'chip_diff_shock':chip_diff_shock,'chip_penetration':chip_penetration,'raw_score':raw_score},final_result=final_score)
+        self._probe_variables(
+            method_name=method_name, df_index=df_index,
+            raw_inputs={'net_mf_amount_D':net_mf,'amount_D':amount,'tick_large_order_net_D':tick_large_net,'tick_chip_transfer_efficiency_D':transfer_eff,'flow_efficiency_D':flow_eff,'intraday_cost_center_migration_D':cost_migration},
+            calc_nodes={'mf_shock':mf_shock,'tick_shock':tick_shock,'cost_mig_shock':cost_mig_shock,'power_core':power_core,'transfer_eff_norm':transfer_eff_norm,'flow_eff_norm':flow_eff_norm,'efficiency_multiplier':efficiency_multiplier,'chip_diff_shock':chip_diff_shock,'chip_penetration':chip_penetration,'synergy_amplifier':synergy_amplifier,'raw_score':raw_score},
+            final_result=final_score
+        )
         return final_score
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -615,7 +626,8 @@ class ProcessIntelligence:
 
     def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0.0 · 博弈背离深度防爆版】
+        【V4.0.0 · 博弈背离极性防御版】
+        使用 (1.0 + price_adv) 代替直接相乘，防止在空头主导 (price_adv < 0) 时错误地反转基础背离信号的符号极性。
         """
         method_name = "_calculate_pd_divergence_relationship"
         required_signals = [
@@ -638,10 +650,12 @@ class ProcessIntelligence:
         intra_game_shock = np.tanh(self._apply_hab_shock(intra_game, 21))
         chip_div_shock = np.tanh(self._apply_hab_shock(chip_div, 21))
         base_divergence = self._calculate_instantaneous_relationship(df, config)
-        tensor_resonance = game_shock * price_adv * win_norm * (1.0 + intra_game_shock.clip(lower=0)) * (1.0 + chip_div_shock.clip(lower=0))
-        final_score = np.sign(base_divergence) * (np.abs(base_divergence) ** 1.5) * tensor_resonance * (1.0 + kinematics_game.clip(lower=0))
+        # 修正：(1.0 + price_adv) 恒为正值 [0, 2]，在多头主导时增强，空头主导时衰减，且绝不翻转基础极性
+        tensor_resonance = game_shock * (1.0 + price_adv) * win_norm * (1.0 + intra_game_shock.clip(lower=0)) * (1.0 + chip_div_shock.clip(lower=0))
+        raw_score = base_divergence * tensor_resonance * (1.0 + kinematics_game.clip(lower=0))
+        final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
         final_score = np.tanh(final_score).clip(-1, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'game_intensity_D': game, 'weight_avg_cost_D': cost}, calc_nodes={'kinematics_game': kinematics_game, 'game_shock': game_shock, 'price_adv': price_adv, 'tensor_resonance': tensor_resonance}, final_result=final_score)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'game_intensity_D': game, 'weight_avg_cost_D': cost}, calc_nodes={'kinematics_game': kinematics_game, 'game_shock': game_shock, 'price_adv': price_adv, 'tensor_resonance': tensor_resonance, 'raw_score': raw_score}, final_result=final_score)
         return final_score
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -967,7 +981,8 @@ class ProcessIntelligence:
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0.0 · 个股板块协同共振防爆版】
+        【V4.0.0 · 个股板块协同方向修复版】
+        使用方向性协同张量替代 np.abs(flow_tensor)，避免个股上涨但资金流出时产生虚假共振溢价。
         """
         method_name = "_calculate_stock_sector_sync"
         required_signals = [
@@ -992,9 +1007,11 @@ class ProcessIntelligence:
         sync_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(sync_score, 21)))
         sector_tensor = sector_shock * (1.0 + kinematics_rank) * (1.0 + leader_shock)
         flow_tensor = mf_norm * cons_norm * (1.0 + sync_shock)
-        resonance = stock_shock * sector_tensor * np.abs(flow_tensor)
-        final_score = (np.sign(resonance) * (np.abs(resonance) ** 1.5)).clip(-1, 1).astype(np.float32)
-        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'pct_change_D': pct, 'industry_strength_rank_D': rank}, calc_nodes={'kinematics_rank': kinematics_rank, 'stock_shock': stock_shock, 'sector_shock': sector_shock, 'resonance': resonance}, final_result=final_score)
+        # 修正：当个股态势与资金流向背离时，按比例大幅压降动能，而不应无脑放大
+        flow_synergy = (1.0 + flow_tensor * np.sign(stock_shock)).clip(lower=0.1)
+        resonance = stock_shock * sector_tensor * flow_synergy
+        final_score = np.tanh(np.sign(resonance) * (np.abs(resonance) ** 1.5)).clip(-1, 1).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'pct_change_D': pct, 'industry_strength_rank_D': rank}, calc_nodes={'kinematics_rank': kinematics_rank, 'stock_shock': stock_shock, 'sector_shock': sector_shock, 'flow_tensor': flow_tensor, 'flow_synergy': flow_synergy, 'resonance': resonance}, final_result=final_score)
         return final_score
 
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
