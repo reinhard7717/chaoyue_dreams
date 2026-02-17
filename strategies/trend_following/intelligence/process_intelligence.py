@@ -469,28 +469,34 @@ class ProcessIntelligence:
         return {signal_name: meta_score}
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
-        """【V4.0.0 · 裂变张量重构版】摒弃统包归一化，在分裂关系内部直接构建专属的动量和位移 HAB 存量冲击矩阵。"""
-        states={}
-        output_names=config.get('output_names',{})
-        opportunity_signal_name=output_names.get('opportunity')
-        risk_signal_name=output_names.get('risk')
+        """
+        【V6.0.0 · 裂变张量全域防线版】
+        处理裂变状态输出，确保输出的所有字典 Series 100% 不含 NaN。
+        """
+        states = {}
+        output_names = config.get('output_names', {})
+        opportunity_signal_name = output_names.get('opportunity')
+        risk_signal_name = output_names.get('risk')
         if not opportunity_signal_name or not risk_signal_name:
             return {}
-        relationship_score=self._calculate_price_efficiency_relationship(df,config)
+            
+        relationship_score = self._calculate_price_efficiency_relationship(df, config)
         if relationship_score.empty:
             return {}
-        df_index=df.index
-        relationship_displacement=relationship_score.diff(self.meta_window).fillna(0)
-        relationship_momentum=relationship_displacement.diff(1).fillna(0)
-        bipolar_displacement=np.tanh(self._apply_hab_shock(relationship_displacement,window=self.meta_window*2))
-        bipolar_momentum=np.tanh(self._apply_hab_shock(relationship_momentum,window=13))
-        displacement_weight=self.meta_score_weights[0]
-        momentum_weight=self.meta_score_weights[1]
-        meta_score=(bipolar_displacement*displacement_weight+bipolar_momentum*momentum_weight)
-        meta_score=np.sign(meta_score)*(np.abs(meta_score)**1.5)
-        meta_score=meta_score.clip(-1,1)
-        states[opportunity_signal_name]=meta_score.clip(lower=0).astype(np.float32)
-        states[risk_signal_name]=meta_score.clip(upper=0).abs().astype(np.float32)
+            
+        df_index = df.index
+        relationship_displacement = relationship_score.diff(self.meta_window).fillna(0.0)
+        relationship_momentum = relationship_displacement.diff(1).fillna(0.0)
+        bipolar_displacement = np.tanh(self._apply_hab_shock(relationship_displacement, window=self.meta_window*2))
+        bipolar_momentum = np.tanh(self._apply_hab_shock(relationship_momentum, window=13))
+        displacement_weight = self.meta_score_weights[0]
+        momentum_weight = self.meta_score_weights[1]
+        meta_score = (bipolar_displacement * displacement_weight + bipolar_momentum * momentum_weight)
+        meta_score = np.sign(meta_score) * (np.abs(meta_score) ** 1.5)
+        meta_score = meta_score.clip(-1, 1).fillna(0.0)
+        # 绝对防漏：分裂后双向补 0.0
+        states[opportunity_signal_name] = meta_score.clip(lower=0).astype(np.float32)
+        states[risk_signal_name] = meta_score.clip(upper=0).abs().astype(np.float32)
         return states
 
     def _apply_hab_shock(self, series: pd.Series, window: int = 21) -> pd.Series:
@@ -528,6 +534,7 @@ class ProcessIntelligence:
         【V8.0.0 · 权力交接张量终极版 (彻底消除逆势折价陷阱)】
         """
         method_name="_calculate_power_transfer"
+        # 已移除对 SLOPE/ACCEL 的强校验，交由 _get_kinematic_tensor 动态处理
         required_signals=['net_mf_amount_D','amount_D','tick_large_order_net_D','tick_chip_transfer_efficiency_D','flow_efficiency_D','intraday_cost_center_migration_D','downtrend_strength_D','chip_concentration_ratio_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
@@ -539,8 +546,8 @@ class ProcessIntelligence:
         cost_migration=self._get_safe_series(df,'intraday_cost_center_migration_D',method_name=method_name)
         downtrend=self._get_safe_series(df,'downtrend_strength_D',method_name=method_name)
         chip_conc=self._get_safe_series(df,'chip_concentration_ratio_D',method_name=method_name)
-        mf_ratio=(net_mf/amount).fillna(0)
-        tick_ratio=(tick_large_net/amount).fillna(0)
+        mf_ratio=(net_mf/amount).fillna(0.0)
+        tick_ratio=(tick_large_net/amount).fillna(0.0)
         mf_shock=np.tanh(self._apply_hab_shock(mf_ratio,21))
         tick_shock=np.tanh(self._apply_hab_shock(tick_ratio,21))
         cost_mig_shock=np.tanh(self._apply_hab_shock(cost_migration, 13))
@@ -548,7 +555,7 @@ class ProcessIntelligence:
         transfer_eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(transfer_eff, 21)))
         flow_eff_norm = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(flow_eff, 21)))
         efficiency_multiplier=1.0+(transfer_eff_norm+flow_eff_norm)/2.0
-        chip_diff_shock=np.tanh(self._apply_hab_shock(chip_conc.diff().fillna(0),13))
+        chip_diff_shock=np.tanh(self._apply_hab_shock(chip_conc.diff().fillna(0.0),13))
         chip_penetration=chip_diff_shock*efficiency_multiplier
         synergy_amplifier=(1.0 + chip_penetration * np.sign(power_core)).clip(lower=0.1)
         raw_score=power_core*synergy_amplifier
@@ -719,32 +726,23 @@ class ProcessIntelligence:
 
     def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1.0 · 神谕审判庭 (HAB冲击与Power Law共振版)】
-        捕捉领域健康度的突发剧烈偏转，结合历史极值上下文施加非线性引爆。
+        【V4.0.0 · 神谕审判庭全域防线版】
         """
         domain_name = config.get('domain_name', '未知领域')
         output_bottom_name = config.get('output_bottom_reversal_name')
         output_top_name = config.get('output_top_reversal_name')
         df_index = df.index
-        # 1. 微积分位移与HAB存量冲击
-        health_yesterday = bipolar_domain_health.shift(1).fillna(0)
-        health_change = bipolar_domain_health.diff(1).fillna(0)
-        # 利用HAB系统评估健康度突变的绝对震撼力
+        health_yesterday = bipolar_domain_health.shift(1).fillna(0.0)
+        health_change = bipolar_domain_health.diff(1).fillna(0.0)
         shock = self._apply_hab_shock(health_change, window=13)
-        # 2. 底部反转神谕 (由死地而后生)
-        # 情境调节器：昨日越深陷泥潭(-1)，今日的触底反击越具爆发力 (最大为2.0)
         bottom_context = (1.0 - health_yesterday).clip(0, 2.0)
         bottom_shock = shock.clip(lower=0)
-        # Power Law非线性增益，奖励极端突变
         bottom_reversal_raw = (bottom_shock * bottom_context) ** 1.5
-        bottom_reversal_score = np.tanh(bottom_reversal_raw).clip(0, 1)
-        # 3. 顶部反转神谕 (盛极必衰)
-        # 情境调节器：昨日越处于巅峰(+1)，今日的断头铡刀越危险 (最大为2.0)
+        bottom_reversal_score = np.tanh(bottom_reversal_raw).clip(0, 1).fillna(0.0)
         top_context = (1.0 + health_yesterday).clip(0, 2.0)
         top_shock = shock.clip(upper=0).abs()
         top_reversal_raw = (top_shock * top_context) ** 1.5
-        top_reversal_score = np.tanh(top_reversal_raw).clip(0, 1)
-        # 4. 全息探针追猎
+        top_reversal_score = np.tanh(top_reversal_raw).clip(0, 1).fillna(0.0)
         self._probe_variables(
             method_name=f"_judge_domain_reversal ({domain_name})", 
             df_index=df_index, 
@@ -900,7 +898,7 @@ class ProcessIntelligence:
         hm_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(hm_attack,21)))
         penalty_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(penalty,13)))
         alpha_multiplier=1.0+(t1_shock.clip(lower=0)*0.6+hm_shock*0.4)
-        base_tensor=breakout_shock*ind_norm*(1.0+mf_power.clip(lower=0))*(1.0-penalty_shock)
+        base_tensor=breakout_shock*ind_norm*(1.0+mf_power.clip(lower=0))*(1.0-penalty_shock.clip(lower=0))
         catalyst=(cons_norm*abnorm_norm*uptrend_norm)**1.5
         raw_score=base_tensor*catalyst*(1.0+kinematics_brk.clip(lower=0)+kinematics_mf.clip(lower=0))*alpha_multiplier
         final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
@@ -931,12 +929,13 @@ class ProcessIntelligence:
         large_norm = np.tanh(self._apply_hab_shock(large_net, 21))
         intra_acc_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(intra_acc, 21)))
         gap_shock = 0.5 * (1.0 + np.tanh(self._apply_hab_shock(gap_momentum, 13)))
-        ignition_catalyst = (1.0 + gap_shock * (1.0 + kinematics_gap.clip(lower=0)))
+        ignition_catalyst = (1.0 + gap_shock.clip(lower=0) * (1.0 + kinematics_gap.clip(lower=0)))
         base_ignition = acc_shock * eff_norm * (1.0 + large_norm.clip(lower=0)) * intra_acc_shock
         synergy_thrust = base_ignition * ignition_catalyst * (1.0 + mf_shock.clip(lower=0) ** 1.5)
         raw_score = synergy_thrust * (1.0 + kinematics_acc.clip(lower=0) + kinematics_mf.clip(lower=0))
         final_score = np.sign(raw_score) * (np.abs(raw_score) ** 1.5)
         final_score = np.tanh(final_score).clip(0, 1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name, df_index=df_index, raw_inputs={'accumulation_signal_score_D': acc_score, 'net_mf_amount_D': net_mf, 'GAP_MOMENTUM_STRENGTH_D': gap_momentum}, calc_nodes={'kinematics_gap': kinematics_gap, 'gap_shock': gap_shock, 'ignition_catalyst': ignition_catalyst, 'synergy_thrust': synergy_thrust}, final_result=final_score)
         return final_score
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1122,29 +1121,35 @@ class ProcessIntelligence:
         return final_score
 
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
-        """【V4.0.0 · 元动力学非线性整合版】结合 HAB 冲击测算推演信号位移与动量的绝对极值，执行 Power Law 非线性增益放大。"""
-        signal_name=config.get('name')
-        relationship_displacement=relationship_score.diff(self.meta_window).fillna(0)
-        relationship_momentum=relationship_displacement.diff(1).fillna(0)
-        bipolar_displacement=np.tanh(self._apply_hab_shock(relationship_displacement,window=self.meta_window*2))
-        bipolar_momentum=np.tanh(self._apply_hab_shock(relationship_momentum,window=13))
-        instant_score_normalized=(relationship_score+1.0)/2.0
-        weight_momentum=(1.0-instant_score_normalized).clip(0,1)
-        weight_displacement=1.0-weight_momentum
-        meta_score=(bipolar_displacement*weight_displacement+bipolar_momentum*weight_momentum)
-        meta_score=np.sign(meta_score)*(np.abs(meta_score)**1.2)
-        if config.get('diagnosis_mode','meta_analysis')=='gated_meta_analysis':
-            gate_config=config.get('gate_condition',{})
-            if gate_config.get('type')=='price_vs_ma':
-                ma_period=gate_config.get('ma_period',5)
-                ma_col=f'EMA_{ma_period}_D'
+        """
+        【V6.0.0 · 元动力学全域防线版】
+        结合 HAB 冲击测算推演信号位移与动量的绝对极值，执行 Power Law 非线性增益放大。
+        贴上绝对零基填充封条，切断 NaN 向上层认知网络传播。
+        """
+        signal_name = config.get('name')
+        relationship_displacement = relationship_score.diff(self.meta_window).fillna(0.0)
+        relationship_momentum = relationship_displacement.diff(1).fillna(0.0)
+        bipolar_displacement = np.tanh(self._apply_hab_shock(relationship_displacement, window=self.meta_window*2))
+        bipolar_momentum = np.tanh(self._apply_hab_shock(relationship_momentum, window=13))
+        instant_score_normalized = (relationship_score + 1.0) / 2.0
+        weight_momentum = (1.0 - instant_score_normalized).clip(0, 1)
+        weight_displacement = 1.0 - weight_momentum
+        meta_score = (bipolar_displacement * weight_displacement + bipolar_momentum * weight_momentum)
+        meta_score = np.sign(meta_score) * (np.abs(meta_score) ** 1.2)
+        if config.get('diagnosis_mode', 'meta_analysis') == 'gated_meta_analysis':
+            gate_config = config.get('gate_condition', {})
+            if gate_config.get('type') == 'price_vs_ma':
+                ma_period = gate_config.get('ma_period', 5)
+                ma_col = f'EMA_{ma_period}_D'
                 if ma_col in df.columns and 'close_D' in df.columns:
-                    gate_is_open=(df['close_D']<df[ma_col]).astype(float)
-                    meta_score=meta_score*gate_is_open
-        scoring_mode=self.score_type_map.get(signal_name,{}).get('scoring_mode','unipolar')
-        if scoring_mode=='unipolar':
-            meta_score=meta_score.clip(lower=0)
-        return meta_score.clip(-1,1).astype(np.float32)
+                    gate_is_open = (df['close_D'] < df[ma_col]).astype(float)
+                    meta_score = meta_score * gate_is_open
+                    
+        scoring_mode = self.score_type_map.get(signal_name, {}).get('scoring_mode', 'unipolar')
+        if scoring_mode == 'unipolar':
+            meta_score = meta_score.clip(lower=0)
+            
+        return meta_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
@@ -1177,8 +1182,9 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 · 瞬时关系共振张量版】
+        【V6.0.0 · 瞬时张量全域防线版】
         重构底层A与B特征张量对冲，支持HAB存量意识与Power Law指数级共振。
+        强制防丢：遇到任何运算边界全部收敛至 0.0。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
@@ -1191,12 +1197,14 @@ class ProcessIntelligence:
                 return self._get_safe_series(df, signal_name, np.nan, "_calculate_instantaneous_relationship")
             except ValueError:
                 return None
+                
         signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
         signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
         if signal_a is None or signal_b is None:
             return pd.Series(0.0, index=df_index, dtype=np.float32)
-        change_a = signal_a.diff(1).fillna(0) if config.get('change_type_A', 'pct') == 'diff' else ta.percent_return(signal_a, length=1).fillna(0)
-        change_b = signal_b.diff(1).fillna(0) if config.get('change_type_B', 'pct') == 'diff' else ta.percent_return(signal_b, length=1).fillna(0)
+            
+        change_a = signal_a.diff(1).fillna(0.0) if config.get('change_type_A', 'pct') == 'diff' else ta.percent_return(signal_a, length=1).fillna(0.0)
+        change_b = signal_b.diff(1).fillna(0.0) if config.get('change_type_B', 'pct') == 'diff' else ta.percent_return(signal_b, length=1).fillna(0.0)
         momentum_a = np.tanh(self._apply_hab_shock(change_a, 13))
         thrust_b = np.tanh(self._apply_hab_shock(change_b, 13))
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
@@ -1204,9 +1212,11 @@ class ProcessIntelligence:
             relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1.0)
         else:
             force_vector_sum = momentum_a + signal_b_factor_k * thrust_b
-            magnitude = (momentum_a.abs() * thrust_b.abs()).pow(0.5)
+            magnitude = (np.abs(momentum_a) * np.abs(thrust_b)) ** 0.5
             relationship_score = np.sign(force_vector_sum) * magnitude
-        return (np.sign(relationship_score) * (np.abs(relationship_score) ** 1.5)).clip(-1, 1).fillna(0.0).astype(np.float32)
+            
+        relationship_score = np.sign(relationship_score) * (np.abs(relationship_score) ** 1.5)
+        return np.tanh(relationship_score).clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
