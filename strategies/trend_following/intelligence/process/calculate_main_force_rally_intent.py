@@ -5,10 +5,11 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List
 from strategies.trend_following.utils import get_param_value
+
 class CalculateMainForceRallyIntent:
     """
     PROCESS_META_MAIN_FORCE_RALLY_INTENT
-    【V21.0.0 · 全息几何张量与HAB存量冲击版】
+    【V22.0.0 · 全息几何张量与HAB存量冲击版】
     引入斐波那契HAB存量缓冲系统计算真实冲击强度。增加信号门限函数消除微积分零基噪音。
     融合价量背离、几何斜率与能量流，消除信息孤岛。独立定制 Robust MAD Sigmoid 归一化。
     """
@@ -56,7 +57,7 @@ class CalculateMainForceRallyIntent:
         zero_keys = [
             'ma_coherence', 'ma_tension', 'profit_pressure', 'trapped_pressure', 'intra_skew', 
             'buy_elg_rate', 'chip_divergence', 'gap_momentum', 'instability', 'pressure_release', 
-            'pf_div', 'cmf', 'geom_slope', 'net_energy', 'vol_burst'
+            'pf_div', 'cmf', 'geom_slope', 'net_energy'
         ]
         for k in zero_keys: defaults[k] = 0.0
         defaults['hab_structure'] = 0.6
@@ -69,6 +70,7 @@ class CalculateMainForceRallyIntent:
         defaults['cost_avg'] = 1.0
         defaults['bbp'] = 0.5
         defaults['fractal_dim'] = 1.5
+        defaults['vol_burst'] = 1.0
         return defaults
 
     def _load_data(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -93,7 +95,7 @@ class CalculateMainForceRallyIntent:
             'vol_34d': 'total_volume_34d_D', 'vol_55d': 'total_volume_55d_D',
             'hab_inv_13': 'total_net_amount_13d_D', 'hab_inv_21': 'total_net_amount_21d_D',
             'hab_inv_34': 'total_net_amount_34d_D', 'hab_inv_55': 'total_net_amount_55d_D',
-            'net_energy': 'net_energy_flow_D', 'vol_burst': 'volume_burstiness_index_D',
+            'net_energy': 'net_energy_flow_D', 'vol_burst': 'volume_ratio_D',
             'pf_div': 'price_flow_divergence_D', 'geom_slope': 'GEOM_REG_SLOPE_D',
             'vpa_adj': 'VPA_MF_ADJUSTED_EFF_D', 'cons_accum': 'consolidation_accumulation_score_D',
             'cmf': 'CMF_21_D', 'bbp': 'BBP_21_2.0_D', 'closing_str': 'CLOSING_STRENGTH_D',
@@ -196,8 +198,8 @@ class CalculateMainForceRallyIntent:
         push_jerk = self._kinematic_gate(raw['pushing_jerk_13'].values, 0.2, 2.0)
         cmf_slope = self._kinematic_gate(raw['cmf_slope_13'].values, 0.05, 0.5)
         cmf_accel = self._kinematic_gate(raw['cmf_accel_13'].values, 0.02, 0.2)
-        hab_flow_impact = np.where(np.abs(hab_pool_flow) > 1.0, mf_net_buy / (np.abs(hab_pool_flow) / 30.75 + 1e-5), 0.0)
-        hab_vol_impact = np.where(np.abs(hab_pool_vol) > 1.0, vol_current / (np.abs(hab_pool_vol) / 30.75 + 1e-5), 0.0)
+        hab_flow_impact = np.where(np.abs(hab_pool_flow) > 1.0, mf_net_buy / (np.abs(hab_pool_flow) / 23.8 + 1e-5), 0.0)
+        hab_vol_impact = np.where(np.abs(hab_pool_vol) > 1.0, vol_current / (np.abs(hab_pool_vol) / 23.8 + 1e-5), 0.0)
         synergy_multiplier = 1.0 + np.maximum(0.0, hm_synergy / 100.0)
         macro_base = (mf_net_buy + net_energy * 0.2) * synergy_multiplier * (1.0 + np.tanh(np.abs(hab_flow_impact)))
         norm_macro_base = np.sign(macro_base) * np.log1p(np.abs(macro_base) / 1000.0)
@@ -216,7 +218,7 @@ class CalculateMainForceRallyIntent:
         macro_momentum = norm_macro_base * purity_multiplier * acc_confidence_multiplier * (1.0 + coupling_field * 0.5)
         persistence_factor = np.tanh(raw['flow_persistence'].values / 120.0)
         tick_intensity = np.clip(tick_large_net / (np.abs(mf_net_buy) + 1e-9), -50.0, 50.0)
-        detonation_boost = 1.0 + np.tanh(np.maximum(0.0, raw['tick_abnormal_vol'].values - 1.0)) + np.clip(vol_burst, 0.0, 5.0) * 0.2 * np.tanh(hab_vol_impact)
+        detonation_boost = 1.0 + np.tanh(np.maximum(0.0, raw['tick_abnormal_vol'].values - 1.0)) + np.clip(vol_burst - 1.0, 0.0, 5.0) * 0.2 * np.tanh(np.abs(hab_vol_impact))
         norm_flow_consistency = np.clip(raw['flow_consistency'].values / 100.0, 0.0, 1.0)
         energy_dissipation = np.maximum(0.01, 1.0 - norm_flow_consistency)
         aligned_jet = np.clip(raw['intra_accel'].values / 10.0, -5.0, 5.0) + tick_intensity
@@ -359,8 +361,8 @@ class CalculateMainForceRallyIntent:
         hab_fuel = np.maximum(0.0, np.tanh(hab_pool_flow / 100000.0))
         hri_magnitude = np.abs(hri)
         hri_excess = np.clip(np.maximum(0.0, hri_magnitude - 3.0), 0.0, 10.0)
-        exponent_gain = np.clip(hri_excess * t1_multiplier * (1.0 + norm_compression + hab_fuel), 0.0, 10.0)
-        singularity_gain = 1.0 + np.expm1(np.power(exponent_gain, 1.618))
+        exponent_gain = np.clip(hri_excess * t1_multiplier * (1.0 + norm_compression + hab_fuel), 0.0, 8.0)
+        singularity_gain = 1.0 + np.expm1(np.clip(np.power(exponent_gain, 1.618), 0.0, 8.0))
         return np.clip(np.nan_to_num(raw_intent * singularity_gain, nan=0.0), -1e6, 1e6)
 
     def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, compressed_intent, z_scores, final):
@@ -369,14 +371,14 @@ class CalculateMainForceRallyIntent:
             ts = idx[i]
             net_buy = raw['mf_net_buy'].values[i]
             hab_pool = (raw['hab_inv_13'].values[i] * 0.4 + raw['hab_inv_21'].values[i] * 0.3 + raw['hab_inv_34'].values[i] * 0.2 + raw['hab_inv_55'].values[i] * 0.1)
-            hab_impact = np.where(np.abs(hab_pool) > 1.0, net_buy / (np.abs(hab_pool) / 30.75 + 1e-5), 0.0)
+            hab_impact = np.where(np.abs(hab_pool) > 1.0, net_buy / (np.abs(hab_pool) / 23.8 + 1e-5), 0.0)
             k_burst = 1.0 + ((np.tanh(raw['mf_slope_13'].values[i]/1000.0) * 0.3 + np.tanh(raw['mf_accel_13'].values[i]/500.0) * 0.3 + np.tanh(raw['mf_jerk_13'].values[i]/100.0) * 0.4) * np.tanh(np.abs(net_buy) / 10000.0))
             hab_imm = 1.0 - (1.0 / (1.0 + np.exp(np.clip(hab_pool / 50000.0, -10.0, 10.0))))
             eff_drag = drag[i] * (1.0 - hab_imm)
             report = [
-                f"\n=== [PROBE V21.0.0] CalculateMainForceRallyIntent Full-Chain Audit (The Final Edition) @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V22.0.0] CalculateMainForceRallyIntent Full-Chain Audit (The Final Edition) @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【0. Raw Data Overview (底层核心数据快照)】",
-                f"   [Thrust] MF_NetBuy: {net_buy:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | NetEnergy: {raw['net_energy'].values[i]:.2f}",
+                f"   [Thrust] MF_NetBuy: {net_buy:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | NetEnergy: {raw['net_energy'].values[i]:.2f} | VolRatio: {raw['vol_burst'].values[i]:.2f}",
                 f"   [Struct] Close: {raw['close'].values[i]:.2f} | Cost_Avg: {raw['cost_avg'].values[i]:.2f} | GeomSlope: {raw['geom_slope'].values[i]:.4f} | Control_Solidity: {raw['control_solidity'].values[i]:.4f}",
                 f"   [Drag]   Profit_Pres: {raw['profit_pressure'].values[i]:.4f} | VPA_Adj_Eff: {raw['vpa_adj'].values[i]:.4f} | PF_Div: {raw['pf_div'].values[i]:.4f} | Turnover: {raw['turnover'].values[i]:.4f}",
                 f"   [Eco]    Market_Sentiment: {raw['market_sentiment'].values[i]:.4f} | Is_Leader: {raw['is_leader'].values[i]:.1f} | Reversal_Prob: {raw['reversal_prob'].values[i]:.4f}",
@@ -393,8 +395,7 @@ class CalculateMainForceRallyIntent:
             for line in report: print(line)
 
     def _is_probe_enabled(self) -> bool:
-        return get_param_value(self.debug_params.get('enabled'), False)
-
+        return True
 
 
 
