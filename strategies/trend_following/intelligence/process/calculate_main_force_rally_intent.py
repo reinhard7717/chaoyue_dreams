@@ -20,13 +20,16 @@ class CalculateMainForceRallyIntent:
         self.probe_dates = self.helper.probe_dates
         self._probe_cache = []
         self._probe_tensors = {}
+
     def _kinematic_gate(self, val: np.ndarray, threshold: np.ndarray, scale: np.ndarray, vol_factor: np.ndarray = 1.0) -> np.ndarray:
         adj_threshold = threshold * vol_factor
         return np.tanh(np.sign(val) * np.maximum(0.0, np.abs(val) - adj_threshold) / scale)
+
     def _absolute_manifold_projection(self, tensor: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         z_scores = tensor / 4.0
         final_scores = 1.0 / (1.0 + np.exp(np.clip(-z_scores, -20.0, 20.0)))
         return final_scores, z_scores
+
     def _get_neutral_defaults(self) -> Dict[str, float]:
         defaults = {k: 0.0 for k in self._get_required_column_map().keys()}
         score_keys = [
@@ -73,6 +76,7 @@ class CalculateMainForceRallyIntent:
         defaults['price_range'] = 5.0
         defaults['price_entropy'] = 1.0
         return defaults
+
     def _load_data(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         data = {}
         col_map = self._get_required_column_map()
@@ -87,6 +91,7 @@ class CalculateMainForceRallyIntent:
         if 'close' in data: data['close'] = data['close'].ffill().bfill().fillna(1.0)
         if 'cost_avg' in data and 'close' in data: data['cost_avg'] = data['cost_avg'].replace(0.0, np.nan).fillna(data['close'])
         return data
+
     def _get_required_column_map(self) -> Dict[str, str]:
         return {
             'close': 'close_D', 'cost_avg': 'cost_50pct_D', 'mf_net_buy': 'net_mf_amount_D',
@@ -155,6 +160,7 @@ class CalculateMainForceRallyIntent:
             'ma_compression': 'MA_POTENTIAL_COMPRESSION_RATE_D', 'turnover_stability': 'TURNOVER_STABILITY_INDEX_D',
             'resistance_str': 'resistance_strength_D', 'flow_eff': 'flow_efficiency_D'
         }
+
     def _get_probe_locs(self, idx: pd.Index, target_tensor: np.ndarray = None) -> List[int]:
         locs = set()
         if self.probe_dates:
@@ -173,6 +179,7 @@ class CalculateMainForceRallyIntent:
         count = len(idx)
         if count > 0: locs.update([0, count - 1])
         return sorted(list(locs))
+
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         self._probe_cache = []
         self._probe_tensors = {}
@@ -203,6 +210,7 @@ class CalculateMainForceRallyIntent:
         final_scores, z_scores = self._absolute_manifold_projection(compressed_intent)
         if self._is_probe_enabled(): self._generate_probe_report(idx, raw, thrust, structure, drag, raw_intent_clean, compressed_intent, z_scores, final_scores)
         return pd.Series(final_scores, index=idx, dtype=np.float32)
+
     def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         hab_pool_flow = self._probe_tensors['hab_pool_flow']
         hab_vol_impact = self._probe_tensors['hab_vol_impact']
@@ -276,6 +284,7 @@ class CalculateMainForceRallyIntent:
         self._probe_tensors['kine_mult'] = kinematic_multiplier
         self._probe_tensors['micro_mult'] = micro_multiplier
         return np.clip(np.nan_to_num(base_final_thrust * nonlinear_gain, nan=0.0), -1000.0, 1000.0)
+
     def _calc_structure_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         hab_vol_impact = self._probe_tensors['hab_vol_impact']
         vol_factor = self._probe_tensors['vol_factor']
@@ -338,6 +347,7 @@ class CalculateMainForceRallyIntent:
         excess_res = np.clip(np.maximum(0.0, resonance_core - 1.5), 0.0, 5.0)
         avalanche_gain = 1.0 + np.power(np.maximum(0.0, excess_res), 1.618) * 1.5
         return np.clip(np.nan_to_num(resonance_core * avalanche_gain, nan=1.0), 0.01, 1000.0)
+
     def _calc_drag_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         hab_pool_flow = self._probe_tensors['hab_pool_flow']
         cap_discount = self._probe_tensors['cap_discount']
@@ -406,6 +416,7 @@ class CalculateMainForceRallyIntent:
         avalanche_gain = 1.0 + np.power(np.maximum(0.0, excess_drag), 1.618) * 1.5
         final_drag = np.clip(np.nan_to_num(core_drag_shielded * avalanche_gain, nan=0.0), 0.0, 10000.0)
         return final_drag
+
     def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         hab_pool_flow = self._probe_tensors['hab_pool_flow']
         cap_discount = self._probe_tensors['cap_discount']
@@ -476,6 +487,7 @@ class CalculateMainForceRallyIntent:
         self._probe_tensors['total_res'] = total_resonance
         self._probe_tensors['w_thrust'] = w_thrust
         return np.clip(np.nan_to_num(raw_intent * singularity_gain, nan=0.0), -1e9, 1e9)
+
     def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, compressed_intent, z_scores, final):
         locs = self._get_probe_locs(idx, compressed_intent)
         kine_mult = self._probe_tensors['kine_mult']
@@ -525,6 +537,7 @@ class CalculateMainForceRallyIntent:
             ]
             self._probe_cache.extend(report)
             for line in report: print(line)
+
     def _is_probe_enabled(self) -> bool:
         return True
 

@@ -794,7 +794,7 @@
                     "sigmoid_center": 0.6
                 }
             },
-{
+            {
                 "name": "PROCESS_META_COST_ADVANTAGE_TREND",
                 "type": "meta_analysis",
                 "task_type": "base",
@@ -1282,6 +1282,102 @@
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
             "description": "【V1.0 · 隐蔽吸筹协议】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。"
+            },
+            {
+                "name": "PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "趋势衰竭风险极值诊断。带游资接力免疫防爆机制。"
+            },
+            {
+                "name": "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY_RISE",
+                "type": "meta_analysis",
+                "task_type": "strategy",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "衡量力学下行动能减弱与筹码套牢风险消散的同步反转趋势。"
+            },
+            {
+                "name": "PROCESS_META_SMART_MONEY_IGNITION",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "聪明钱与游资协同攻击点火诊断。"
+            },
+            {
+                "name": "PROCESS_META_VPA_MF_COHERENCE_RESONANCE",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "量价与主力均线物理相干共振诊断。"
+            },
+            {
+                "name": "PROCESS_META_INSTITUTIONAL_SWEEP",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "国家队与大公募机构特大单扫货共振识别。"
+            },
+            {
+                "name": "PROCESS_META_HF_ALGO_MANIPULATION_RISK",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "高频资金算法拆单流极化的崩塌预警与假突破猎杀。"
+            },
+            {
+                "name": "PROCESS_META_MA_RUBBER_BAND_REVERSAL",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "均线引力极值与胡克定律反转张量捕获诊断。"
+            },
+            {
+                "name": "PROCESS_META_GEOMETRIC_TREND_RESONANCE",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "几何流形回归拟合与二阶导数曲率张力诊断。"
+            },
+            {
+                "name": "PROCESS_META_MTF_FRACTAL_RESONANCE",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "日/周/月线多重时空维度同步及分形维数低噪确认。"
+            },
+            {
+                "name": "PROCESS_META_INTRADAY_SIEGE_EXHAUSTION",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "日内关键水位高频攻防战的突破与多空阵亡衰竭判定。"
+            },
+            {
+                "name": "PROCESS_META_OVERNIGHT_INTRADAY_TEARING",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "隔夜跳空势能与日内开收盘(OCH)加速度及收盘强度的撕裂反转。"
+            },
+            {
+                "name": "PROCESS_META_CHIP_CENTER_KINEMATICS",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "筹码主峰发散速率、成本波动率与换手的极限顶底测算。"
             }
         ],
         "wash_out_rebound_params": {
@@ -1452,7 +1548,45 @@
             "total_loser_rate_D": 0.5,
             "impulse_quality_ratio_D": 0.5,
             "thrust_efficiency_score_D": 0.5,
-            "absorption_at_peak_intensity_D": 0.0
+            "absorption_at_peak_intensity_D": 0.0,
+            "HM_COORDINATED_ATTACK_D": 0.0,
+            "T1_PREMIUM_EXPECTATION_D": 0.0,
+            "IS_MARKET_LEADER_D": 0.0,
+            "STATE_PARABOLIC_WARNING_D": 0.0,
+            "STATE_EMOTIONAL_EXTREME_D": 0.0,
+            "MA_COHERENCE_RESONANCE_D": 0.0,
+            "VPA_MF_ADJUSTED_EFF_D": 0.0,
+            "MA_ACCELERATION_EMA_55_D": 0.0,
+            "VPA_ACCELERATION_13D": 0.0,
+            "PRICE_ENTROPY_D": 0.5,
+            "chip_kurtosis_D": 0.0,
+            "buy_elg_amount_D": 0.0,
+            "high_freq_flow_skewness_D": 0.0,
+            "high_freq_flow_kurtosis_D": 0.0,
+            "large_order_anomaly_D": 0.0,
+            "price_flow_divergence_D": 0.0,
+            "MA_RUBBER_BAND_EXTENSION_D": 0.0,
+            "MA_POTENTIAL_TENSION_INDEX_D": 0.0,
+            "ADX_14_D": 20.0,
+            "GEOM_REG_R2_D": 0.5,
+            "GEOM_REG_SLOPE_D": 0.0,
+            "GEOM_ARC_CURVATURE_D": 0.0,
+            "GEOM_CHANNEL_POS_D": 0.5,
+            "daily_weekly_sync_D": 0.0,
+            "daily_monthly_sync_D": 0.0,
+            "PRICE_FRACTAL_DIM_D": 1.5,
+            "uptrend_continuation_prob_D": 0.5,
+            "intraday_resistance_test_count_D": 0.0,
+            "intraday_support_test_count_D": 0.0,
+            "CLOSING_STRENGTH_D": 50.0,
+            "vwap_deviation_D": 0.0,
+            "GAP_MOMENTUM_STRENGTH_D": 0.0,
+            "OCH_ACCELERATION_D": 0.0,
+            "intraday_price_range_ratio_D": 0.0,
+            "peak_migration_speed_5d_D": 0.0,
+            "intraday_cost_center_volatility_D": 0.0,
+            "price_to_weight_avg_ratio_D": 1.0,
+            "turnover_rate_f_D": 0.0
         }
     }
 }

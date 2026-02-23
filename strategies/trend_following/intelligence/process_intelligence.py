@@ -233,60 +233,51 @@ class ProcessIntelligence:
 
     def _extract_and_validate_config_signals(self, df: pd.DataFrame, config: Dict, method_name: str) -> bool:
         """
-        【V6.1.0 · 蓝图审查官 (领域神谕白名单版)】
-        针对旧版 JSON 配置文件中残留的已淘汰信号名，
-        在进行严格数据约束检查前，执行自适应热映射重定向。
-        同时为已实现硬编码军械库直连的引擎，以及具有自适应豁免逻辑的 domain_reversal，
-        开启白名单豁免，彻底切断外部配置滞后及跨层时序错位导致的“原子信号不存在”误杀。
+        【V13.0.0 · 蓝图审查官 (多维时空与攻防撕裂白名单扩容版)】
+        更新版本号。将新增的时空分形共振、日内攻城拔寨、隔夜日内撕裂以及筹码重心动力学等战役级引擎加入免检白名单。
         """
-        signal_name = config.get('name', '')
-        diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
-        # 1. 领域反转与硬编码引擎豁免 (Blueprint Exemption)
-        # 领域反转依赖的是顶层跨引擎计算的原子信号，并且其内部已具备容错，必须在此豁免。
-        if diagnosis_type == 'domain_reversal':
+        signal_name=config.get('name','')
+        diagnosis_type=config.get('diagnosis_type','meta_relationship')
+        if diagnosis_type=='domain_reversal':
             return True
-
-        exempt_signals = {
-            'PROCESS_META_POWER_TRANSFER', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION',
-            'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_ACCUMULATION_INFLECTION',
-            'PROCESS_META_BREAKOUT_ACCELERATION', 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT',
-            'PROCESS_META_LOSER_CAPITULATION', 'PROCESS_META_PROFIT_VS_FLOW',
-            'PROCESS_META_STOCK_SECTOR_SYNC', 'PROCESS_META_HOT_SECTOR_COOLING', 'PROCESS_META_WASH_OUT_REBOUND'
+        exempt_signals={
+            'PROCESS_META_POWER_TRANSFER','PROCESS_META_PANIC_WASHOUT_ACCUMULATION',
+            'PROCESS_META_DECEPTIVE_ACCUMULATION','PROCESS_META_ACCUMULATION_INFLECTION',
+            'PROCESS_META_BREAKOUT_ACCELERATION','PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT',
+            'PROCESS_META_LOSER_CAPITULATION','PROCESS_META_PROFIT_VS_FLOW',
+            'PROCESS_META_STOCK_SECTOR_SYNC','PROCESS_META_HOT_SECTOR_COOLING','PROCESS_META_WASH_OUT_REBOUND',
+            'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME','PROCESS_STRATEGY_DYN_VS_CHIP_DECAY_RISE',
+            'PROCESS_META_SMART_MONEY_IGNITION','PROCESS_META_VPA_MF_COHERENCE_RESONANCE',
+            'PROCESS_META_MTF_FRACTAL_RESONANCE','PROCESS_META_INTRADAY_SIEGE_EXHAUSTION',
+            'PROCESS_META_OVERNIGHT_INTRADAY_TEARING','PROCESS_META_CHIP_CENTER_KINEMATICS'
         }
         if signal_name in exempt_signals:
             return True
-        # 2. 遗留配置热映射 (Ghost Interception & Remapping)
-        legacy_remap = {
-            'breakout_confidence_D': 'breakout_quality_score_D',
-            'closing_strength_index_D': 'CLOSING_STRENGTH_D',
-            'trend_confirmation_score_D': 'uptrend_strength_D',
-            'consolidation_quality_grade_D': 'consolidation_quality_score_D'
+        legacy_remap={
+            'breakout_confidence_D':'breakout_quality_score_D',
+            'closing_strength_index_D':'CLOSING_STRENGTH_D',
+            'trend_confirmation_score_D':'uptrend_strength_D',
+            'consolidation_quality_grade_D':'consolidation_quality_score_D'
         }
-        required_signals = []
-        for key in ['signal_A', 'signal_B', 'antidote_signal', 'source_signal']:
+        required_signals=[]
+        for key in ['signal_A','signal_B','antidote_signal','source_signal']:
             if config.get(key):
-                mapped_val = legacy_remap.get(config[key], config[key])
-                config[key] = mapped_val
+                mapped_val=legacy_remap.get(config[key],config[key])
+                config[key]=mapped_val
                 required_signals.append(mapped_val)
-
-        # 映射 axioms 中的过时配置
         if config.get('axioms'):
-            for axiom in config.get('axioms', []):
+            for axiom in config.get('axioms',[]):
                 if axiom.get('name'):
-                    mapped_val = legacy_remap.get(axiom['name'], axiom['name'])
-                    axiom['name'] = mapped_val
+                    mapped_val=legacy_remap.get(axiom['name'],axiom['name'])
+                    axiom['name']=mapped_val
                     required_signals.append(mapped_val)
-
-        # 3. 严格契约验证 (Strict Validation for remaining dynamic configs)
-        # 过滤掉高维跨层推演信号 (SCORE_, PROCESS_, FUSION_)，仅对 L2 物理原材进行强拦截
-        required_signals = [
+        required_signals=[
             sig for sig in required_signals 
             if not (sig.startswith('SCORE_') or sig.startswith('PROCESS_') or sig.startswith('FUSION_'))
         ]
-
         if not required_signals:
             return True
-        return self._validate_required_signals(df, required_signals, method_name)
+        return self._validate_required_signals(df,required_signals,method_name)
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
@@ -380,87 +371,103 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship_internal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V7.0.0 · 关系诊断分发器 (解耦幽灵依赖版)】
-        完全移除所有硬编码的 SCORE_ 旧版公理调用，彻底切断对 SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT 的无效传参。
+        【V13.0.0 · 关系诊断分发器 (日内攻城与多维时空挂载版)】
+        挂载多时间框架分形共振、日内攻城拔寨衰竭、隔夜撕裂与筹码重心动力学终极防爆引擎。
         """
-        signal_name = config.get('name')
-        df_index = df.index
-        meta_score = pd.Series(dtype=np.float32)
-        if signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
-            meta_score = self.calculate_cost_advantage_trend_relationship_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY':
-            relationship_score = self._calculate_dyn_vs_chip_relationship(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
-        elif signal_name == 'PROCESS_META_PRICE_VS_RETAIL_CAPITULATION':
-            relationship_score = self._calculate_price_vs_capitulation_relationship(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
-        elif signal_name == 'PROCESS_META_PD_DIVERGENCE_CONFIRM':
-            relationship_score = self._calculate_pd_divergence_relationship(df, config)
-            meta_score = relationship_score
-        elif signal_name == 'PROCESS_META_PROFIT_VS_FLOW':
-            relationship_score = self._calculate_profit_vs_flow_relationship(df, config)
-            meta_score = relationship_score
-        elif signal_name == 'PROCESS_META_PF_REL_BULLISH_TURN':
-            meta_score = self._calculate_pf_relationship(df, config)
-        elif signal_name == 'PROCESS_META_PC_REL_BULLISH_TURN':
-            meta_score = self._calculate_pc_relationship(df, config)
-        elif signal_name == 'PROCESS_META_PRICE_VOLUME_DYNAMICS':
-            meta_score = self.calculate_price_volume_dynamics_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
-            meta_score = self.calculate_main_force_rally_intent_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_META_WINNER_CONVICTION':
-            relationship_score = self.calculate_winner_conviction_relationship_processor.calculate(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
-        elif signal_name == 'PROCESS_META_LOSER_CAPITULATION':
-            meta_score = self._calculate_loser_capitulation(df, config)
-        elif signal_name == 'PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD':
-            relationship_score = self._calculate_ff_vs_structure_relationship(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
-        elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
-            meta_score = self.calculate_main_force_control_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
-            meta_score = self._calculate_panic_washout_accumulation(df, config)
-        elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION':
-            meta_score = self._calculate_deceptive_accumulation(df, config)
-        elif signal_name == 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY':
-            meta_score = self.calculate_split_order_accumulation_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT':
-            meta_score = self.calculate_upthrust_washout_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION':
-            meta_score = self._calculate_accumulation_inflection(df, config)
-        elif signal_name == 'PROCESS_META_BREAKOUT_ACCELERATION':
-            meta_score = self._calculate_breakout_acceleration(df, config)
-        elif signal_name == 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
-            meta_score = self._calculate_fund_flow_accumulation_inflection(df, config)
-        elif signal_name == 'PROCESS_META_STOCK_SECTOR_SYNC':
-            relationship_score = self._calculate_stock_sector_sync(df, config)
-            meta_score = relationship_score
-        elif signal_name == 'PROCESS_META_HOT_SECTOR_COOLING':
-            relationship_score = self._calculate_hot_sector_cooling(df, config)
-            meta_score = relationship_score
-        elif signal_name == 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE':
-            meta_score = self.calculate_price_momentum_divergence_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_META_STORM_EYE_CALM':
-            meta_score = self.calculate_storm_eye_calm_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_META_WASH_OUT_REBOUND':
-            meta_score = self._calculate_process_wash_out_rebound(df, config)
-        elif signal_name == 'PROCESS_META_COVERT_ACCUMULATION':
-            meta_score = self.calculate_process_covert_accumulation_processor.calculate(df, config)
-        elif signal_name == 'PROCESS_META_POWER_TRANSFER':
-            meta_score = self._calculate_power_transfer(df, config)
+        signal_name=config.get('name')
+        df_index=df.index
+        meta_score=pd.Series(dtype=np.float32)
+        if signal_name=='PROCESS_META_COST_ADVANTAGE_TREND':
+            meta_score=self.calculate_cost_advantage_trend_relationship_processor.calculate(df,config)
+        elif signal_name=='PROCESS_STRATEGY_DYN_VS_CHIP_DECAY':
+            relationship_score=self._calculate_dyn_vs_chip_relationship(df,config)
+            meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
+        elif signal_name=='PROCESS_META_PRICE_VS_RETAIL_CAPITULATION':
+            relationship_score=self._calculate_price_vs_capitulation_relationship(df,config)
+            meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
+        elif signal_name=='PROCESS_META_PD_DIVERGENCE_CONFIRM':
+            relationship_score=self._calculate_pd_divergence_relationship(df,config)
+            meta_score=relationship_score
+        elif signal_name=='PROCESS_META_PROFIT_VS_FLOW':
+            relationship_score=self._calculate_profit_vs_flow_relationship(df,config)
+            meta_score=relationship_score
+        elif signal_name=='PROCESS_META_PF_REL_BULLISH_TURN':
+            meta_score=self._calculate_pf_relationship(df,config)
+        elif signal_name=='PROCESS_META_PC_REL_BULLISH_TURN':
+            meta_score=self._calculate_pc_relationship(df,config)
+        elif signal_name=='PROCESS_META_PRICE_VOLUME_DYNAMICS':
+            meta_score=self.calculate_price_volume_dynamics_processor.calculate(df,config)
+        elif signal_name=='PROCESS_META_MAIN_FORCE_RALLY_INTENT':
+            meta_score=self.calculate_main_force_rally_intent_processor.calculate(df,config)
+        elif signal_name=='PROCESS_META_WINNER_CONVICTION':
+            relationship_score=self.calculate_winner_conviction_relationship_processor.calculate(df,config)
+            meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
+        elif signal_name=='PROCESS_META_LOSER_CAPITULATION':
+            meta_score=self._calculate_loser_capitulation(df,config)
+        elif signal_name=='PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD':
+            relationship_score=self._calculate_ff_vs_structure_relationship(df,config)
+            meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
+        elif signal_name=='PROCESS_META_MAIN_FORCE_CONTROL':
+            meta_score=self.calculate_main_force_control_processor.calculate(df,config)
+        elif signal_name=='PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
+            meta_score=self._calculate_panic_washout_accumulation(df,config)
+        elif signal_name=='PROCESS_META_DECEPTIVE_ACCUMULATION':
+            meta_score=self._calculate_deceptive_accumulation(df,config)
+        elif signal_name=='PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY':
+            meta_score=self.calculate_split_order_accumulation_processor.calculate(df,config)
+        elif signal_name=='PROCESS_META_UPTHRUST_WASHOUT':
+            meta_score=self.calculate_upthrust_washout_processor.calculate(df,config)
+        elif signal_name=='PROCESS_META_ACCUMULATION_INFLECTION':
+            meta_score=self._calculate_accumulation_inflection(df,config)
+        elif signal_name=='PROCESS_META_BREAKOUT_ACCELERATION':
+            meta_score=self._calculate_breakout_acceleration(df,config)
+        elif signal_name=='PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
+            meta_score=self._calculate_fund_flow_accumulation_inflection(df,config)
+        elif signal_name=='PROCESS_META_STOCK_SECTOR_SYNC':
+            relationship_score=self._calculate_stock_sector_sync(df,config)
+            meta_score=relationship_score
+        elif signal_name=='PROCESS_META_HOT_SECTOR_COOLING':
+            relationship_score=self._calculate_hot_sector_cooling(df,config)
+            meta_score=relationship_score
+        elif signal_name=='PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE':
+            meta_score=self.calculate_price_momentum_divergence_processor.calculate(df,config)
+        elif signal_name=='PROCESS_META_STORM_EYE_CALM':
+            meta_score=self.calculate_storm_eye_calm_processor.calculate(df,config)
+        elif signal_name=='PROCESS_META_WASH_OUT_REBOUND':
+            meta_score=self._calculate_process_wash_out_rebound(df,config)
+        elif signal_name=='PROCESS_META_COVERT_ACCUMULATION':
+            meta_score=self.calculate_process_covert_accumulation_processor.calculate(df,config)
+        elif signal_name=='PROCESS_META_POWER_TRANSFER':
+            meta_score=self._calculate_power_transfer(df,config)
+        elif signal_name=='PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME':
+            meta_score=self._calculate_fusion_trend_exhaustion_syndrome(df,config)
+        elif signal_name=='PROCESS_STRATEGY_DYN_VS_CHIP_DECAY_RISE':
+            meta_score=self._calculate_dyn_vs_chip_decay_rise(df,config)
+        elif signal_name=='PROCESS_META_SMART_MONEY_IGNITION':
+            meta_score=self._calculate_smart_money_ignition(df,config)
+        elif signal_name=='PROCESS_META_VPA_MF_COHERENCE_RESONANCE':
+            meta_score=self._calculate_vpa_mf_coherence_resonance(df,config)
+        elif signal_name=='PROCESS_META_MTF_FRACTAL_RESONANCE':
+            meta_score=self._calculate_mtf_fractal_resonance(df,config)
+        elif signal_name=='PROCESS_META_INTRADAY_SIEGE_EXHAUSTION':
+            meta_score=self._calculate_intraday_siege_exhaustion(df,config)
+        elif signal_name=='PROCESS_META_OVERNIGHT_INTRADAY_TEARING':
+            meta_score=self._calculate_overnight_intraday_tearing(df,config)
+        elif signal_name=='PROCESS_META_CHIP_CENTER_KINEMATICS':
+            meta_score=self._calculate_chip_center_kinematics(df,config)
         else:
-            relationship_score = self._calculate_instantaneous_relationship(df, config)
+            relationship_score=self._calculate_instantaneous_relationship(df,config)
             if relationship_score.empty:
                 return {}
-            self.strategy.atomic_states[f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"] = relationship_score.astype(np.float32)
-            diagnosis_mode = config.get('diagnosis_mode', 'direct_confirmation')
-            if diagnosis_mode == 'direct_confirmation':
-                meta_score = relationship_score
+            self.strategy.atomic_states[f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"]=relationship_score.astype(np.float32)
+            diagnosis_mode=config.get('diagnosis_mode','direct_confirmation')
+            if diagnosis_mode=='direct_confirmation':
+                meta_score=relationship_score
             else:
-                meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
+                meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
         if meta_score.empty:
             return {}
-        return {signal_name: meta_score}
+        return {signal_name:meta_score}
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
@@ -1227,11 +1234,322 @@ class ProcessIntelligence:
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'shakeout_score_D':shakeout,'STATE_ROUNDING_BOTTOM_D':rounding_bottom},calc_nodes={'washout_env':washout_env,'rounding_leverage':rounding_leverage,'rebound_intent':rebound_intent,'raw_score':raw_score},final_result=final_score)
         return final_score
 
+    def _calculate_fusion_trend_exhaustion_syndrome(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V2.0.0 · 极限坍塌与红军防线版】
+        诊断抛物线加速后的衰竭综合征。引入红军对抗防爆机制：如果顶部存在强力的游资协同，强制熔断衰竭信号，防止卖飞主升浪。
+        """
+        method_name="_calculate_fusion_trend_exhaustion_syndrome"
+        required_signals=['STATE_PARABOLIC_WARNING_D','STATE_EMOTIONAL_EXTREME_D','PRICE_ENTROPY_D','profit_pressure_D','HM_COORDINATED_ATTACK_D','intraday_distribution_confidence_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        parabolic=self._get_safe_series(df,'STATE_PARABOLIC_WARNING_D',method_name=method_name).clip(0,1)
+        emotional=self._get_safe_series(df,'STATE_EMOTIONAL_EXTREME_D',method_name=method_name).clip(0,1)
+        entropy=self._get_safe_series(df,'PRICE_ENTROPY_D',method_name=method_name)
+        pressure=self._get_safe_series(df,'profit_pressure_D',method_name=method_name)
+        hm_attack=self._get_safe_series(df,'HM_COORDINATED_ATTACK_D',method_name=method_name)
+        dist_conf=self._get_safe_series(df,'intraday_distribution_confidence_D',method_name=method_name)
+        entropy_shock=np.tanh(self._apply_hab_shock(entropy,13)).clip(lower=0)
+        pressure_shock=np.tanh(self._apply_hab_shock(pressure,21)).clip(lower=0)
+        dist_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(dist_conf,13)))
+        hm_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(hm_attack,13)))
+        state_leverage=1.0+parabolic*1.5+emotional*1.0
+        physical_gate=dist_shock*0.6+pressure_shock*0.4
+        veto_suppression=(1.0-hm_shock*0.9).clip(lower=0.1)
+        raw_score=state_leverage*physical_gate*(1.0+entropy_shock)*veto_suppression
+        final_score=np.tanh(raw_score**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'STATE_PARABOLIC_WARNING_D':parabolic,'profit_pressure_D':pressure},calc_nodes={'state_leverage':state_leverage,'physical_gate':physical_gate,'veto_suppression':veto_suppression,'raw_score':raw_score},final_result=final_score)
+        return final_score
 
+    def _calculate_dyn_vs_chip_decay_rise(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.1.0 · 张量阻尼看涨版】
+        衡量力学下行动能减弱与筹码套牢风险消散的同步反转趋势。寻找强阻尼吸能带来的力学拐点反抽。
+        """
+        method_name="_calculate_dyn_vs_chip_decay_rise"
+        required_signals=['downtrend_strength_D','pressure_trapped_D','absorption_energy_D','chip_kurtosis_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        downtrend=self._get_safe_series(df,'downtrend_strength_D',method_name=method_name)
+        pressure=self._get_safe_series(df,'pressure_trapped_D',method_name=method_name)
+        absorption=self._get_safe_series(df,'absorption_energy_D',method_name=method_name)
+        kurtosis=self._get_safe_series(df,'chip_kurtosis_D',method_name=method_name)
+        kinematics_down=self._get_kinematic_tensor(df,'downtrend_strength_D',13,method_name)
+        kinetic_dissipation=np.abs(np.clip(kinematics_down,-1.0,0.0))
+        downtrend_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(downtrend,21)))
+        pressure_decay_shock=-np.tanh(self._apply_hab_shock(pressure,21))
+        absorption_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(absorption,21)))
+        kurtosis_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(kurtosis,21)))
+        chip_relief=(pressure_decay_shock.clip(lower=0)+absorption_shock)*0.5
+        damping_resonance=downtrend_shock*kinetic_dissipation*kurtosis_shock*chip_relief
+        final_score=np.tanh(damping_resonance**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'downtrend_strength_D':downtrend,'pressure_trapped_D':pressure},calc_nodes={'kinetic_dissipation':kinetic_dissipation,'chip_relief':chip_relief,'damping_resonance':damping_resonance},final_result=final_score)
+        return final_score
 
+    def _calculate_smart_money_ignition(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 游资协同核爆版】
+        诊断游资与主力聪明钱的协同点火。融合游资协同攻击、T+1溢价预期。
+        受红军底层逻辑约束：绝对严禁在非突破的空头趋势中触发。
+        """
+        method_name="_calculate_smart_money_ignition"
+        required_signals=['HM_COORDINATED_ATTACK_D','T1_PREMIUM_EXPECTATION_D','IS_MARKET_LEADER_D','flow_acceleration_intraday_D','uptrend_strength_D','STATE_BREAKOUT_CONFIRMED_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        hm_attack=self._get_safe_series(df,'HM_COORDINATED_ATTACK_D',method_name=method_name)
+        t1_premium=self._get_safe_series(df,'T1_PREMIUM_EXPECTATION_D',method_name=method_name)
+        is_leader=self._get_safe_series(df,'IS_MARKET_LEADER_D',method_name=method_name).clip(0,1)
+        flow_accel=self._get_safe_series(df,'flow_acceleration_intraday_D',method_name=method_name)
+        uptrend=self._get_safe_series(df,'uptrend_strength_D',method_name=method_name)
+        breakout=self._get_safe_series(df,'STATE_BREAKOUT_CONFIRMED_D',method_name=method_name).clip(0,1)
+        hm_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(hm_attack,13)))
+        t1_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(t1_premium,21)))
+        accel_shock=np.tanh(self._apply_hab_shock(flow_accel,13)).clip(lower=0)
+        uptrend_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(uptrend,21)))
+        trend_gate=(uptrend_shock+breakout).clip(0,1)
+        leader_leverage=1.0+is_leader*1.5
+        attack_kinetic=hm_shock*t1_shock*(1.0+accel_shock)
+        raw_score=attack_kinetic*leader_leverage*trend_gate
+        final_score=np.tanh(raw_score**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'HM_COORDINATED_ATTACK_D':hm_attack,'IS_MARKET_LEADER_D':is_leader},calc_nodes={'trend_gate':trend_gate,'leader_leverage':leader_leverage,'attack_kinetic':attack_kinetic,'raw_score':raw_score},final_result=final_score)
+        return final_score
 
+    def _calculate_vpa_mf_coherence_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 量价主力物理相干版】
+        融合均线相干共振、主力调整后的VPA效率及动能加速度，寻找极高胜率的多周期收敛共振加速点。
+        """
+        method_name="_calculate_vpa_mf_coherence_resonance"
+        required_signals=['MA_COHERENCE_RESONANCE_D','VPA_MF_ADJUSTED_EFF_D','MA_ACCELERATION_EMA_55_D','VPA_ACCELERATION_13D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        ma_coh=self._get_safe_series(df,'MA_COHERENCE_RESONANCE_D',method_name=method_name)
+        vpa_mf_eff=self._get_safe_series(df,'VPA_MF_ADJUSTED_EFF_D',method_name=method_name)
+        ma_accel=self._get_safe_series(df,'MA_ACCELERATION_EMA_55_D',method_name=method_name)
+        vpa_accel=self._get_safe_series(df,'VPA_ACCELERATION_13D',method_name=method_name)
+        ma_coh_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(ma_coh,34)))
+        vpa_eff_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(vpa_mf_eff,21)))
+        ma_accel_shock=np.tanh(self._apply_hab_shock(ma_accel,21)).clip(lower=0)
+        vpa_accel_shock=np.tanh(self._apply_hab_shock(vpa_accel,13)).clip(lower=0)
+        base_resonance=ma_coh_shock*vpa_eff_shock
+        kinetic_catalyst=1.0+ma_accel_shock+vpa_accel_shock
+        raw_score=base_resonance*kinetic_catalyst
+        final_score=np.tanh(raw_score**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'MA_COHERENCE_RESONANCE_D':ma_coh,'VPA_MF_ADJUSTED_EFF_D':vpa_mf_eff},calc_nodes={'base_resonance':base_resonance,'kinetic_catalyst':kinetic_catalyst,'raw_score':raw_score},final_result=final_score)
+        return final_score
 
+    def _calculate_institutional_sweep(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 机构超大单扫货核爆引擎】
+        量化买入特大单(buy_elg)与日内微观筹码转移效率的共振。
+        这是量化顶级机构(如国家队/大公募)无视短期波动的左侧/右侧建仓绝对底座信号。
+        """
+        method_name="_calculate_institutional_sweep"
+        required_signals=['buy_elg_amount_D','amount_D','tick_chip_transfer_efficiency_D','flow_consistency_D','net_mf_amount_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        buy_elg=self._get_safe_series(df,'buy_elg_amount_D',method_name=method_name)
+        amount=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan)
+        transfer_eff=self._get_safe_series(df,'tick_chip_transfer_efficiency_D',method_name=method_name)
+        cons=self._get_safe_series(df,'flow_consistency_D',method_name=method_name)
+        net_mf=self._get_safe_series(df,'net_mf_amount_D',method_name=method_name)
+        elg_ratio=(buy_elg/amount).fillna(0.0)
+        elg_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(elg_ratio,21)))
+        transfer_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(transfer_eff,21)))
+        cons_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(cons,21)))
+        mf_shock=np.tanh(self._apply_hab_shock(net_mf,21))
+        kinematics_mf=self._get_kinematic_tensor(df,'net_mf_amount_D',13,method_name)
+        base_sweep=elg_shock*transfer_shock*cons_shock*(1.0+mf_shock.clip(lower=0))
+        raw_score=base_sweep*(1.0+kinematics_mf.clip(lower=0))
+        final_score=np.tanh(raw_score**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'buy_elg_amount_D':buy_elg,'amount_D':amount},calc_nodes={'elg_ratio':elg_ratio,'elg_shock':elg_shock,'transfer_shock':transfer_shock,'raw_score':raw_score},final_result=final_score)
+        return final_score
 
+    def _calculate_hf_algo_manipulation_risk(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 高频算法诱骗崩塌惩罚引擎】
+        量化视角下，主力撤退与诱多绝不是挂单明卖，而是通过算法拆单(Spoofing)体现为高频流的严重极化。
+        融合流偏度、峰度与价流背离，对冰山派发实施一剑封喉。
+        """
+        method_name="_calculate_hf_algo_manipulation_risk"
+        required_signals=['high_freq_flow_skewness_D','high_freq_flow_kurtosis_D','large_order_anomaly_D','price_flow_divergence_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        hf_skew=self._get_safe_series(df,'high_freq_flow_skewness_D',method_name=method_name)
+        hf_kurt=self._get_safe_series(df,'high_freq_flow_kurtosis_D',method_name=method_name)
+        anomaly=self._get_safe_series(df,'large_order_anomaly_D',method_name=method_name)
+        divergence=self._get_safe_series(df,'price_flow_divergence_D',method_name=method_name)
+        skew_shock=np.tanh(self._apply_hab_shock(hf_skew,21)).abs()
+        kurt_shock=np.tanh(self._apply_hab_shock(hf_kurt,21)).clip(lower=0)
+        anomaly_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(anomaly,13)))
+        div_shock=np.tanh(self._apply_hab_shock(divergence,21)).clip(lower=0)
+        risk_tensor=skew_shock*(1.0+kurt_shock)*anomaly_shock*(1.0+div_shock)
+        final_score=np.tanh(risk_tensor**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'high_freq_flow_skewness_D':hf_skew,'large_order_anomaly_D':anomaly},calc_nodes={'skew_shock':skew_shock,'kurt_shock':kurt_shock,'anomaly_shock':anomaly_shock,'risk_tensor':risk_tensor},final_result=final_score)
+        return final_score
+
+    def _calculate_ma_rubber_band_reversal(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 均线张力极值反噬引擎】
+        物理学张力在金融市场的终极体现。深度捕捉价格暴涨/暴跌后积累的均值回归胡克拉力。
+        利用ADX趋势过滤防止单边被套。负分为向上偏离过大带来的高空跳水预警；正分为向下偏离极值的暴力反抽。
+        """
+        method_name="_calculate_ma_rubber_band_reversal"
+        required_signals=['MA_RUBBER_BAND_EXTENSION_D','MA_POTENTIAL_TENSION_INDEX_D','ADX_14_D','profit_pressure_D','pressure_trapped_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        rubber_ext=self._get_safe_series(df,'MA_RUBBER_BAND_EXTENSION_D',method_name=method_name)
+        tension=self._get_safe_series(df,'MA_POTENTIAL_TENSION_INDEX_D',method_name=method_name)
+        adx=self._get_safe_series(df,'ADX_14_D',method_name=method_name)
+        profit_p=self._get_safe_series(df,'profit_pressure_D',method_name=method_name)
+        trapped_p=self._get_safe_series(df,'pressure_trapped_D',method_name=method_name)
+        rubber_shock=np.tanh(self._apply_hab_shock(rubber_ext,21))
+        tension_shock=np.tanh(self._apply_hab_shock(tension,21))
+        profit_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(profit_p,21)))
+        trapped_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(trapped_p,21)))
+        trend_suppression=1.0-np.tanh(np.maximum(adx-35.0,0.0)/15.0)
+        top_reversal_force=(rubber_shock.clip(lower=0))*tension_shock.clip(lower=0)*profit_shock
+        bottom_reversal_force=(rubber_shock.clip(upper=0).abs())*tension_shock.clip(lower=0)*trapped_shock
+        raw_score=(bottom_reversal_force-top_reversal_force)*trend_suppression
+        final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
+        final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'MA_RUBBER_BAND_EXTENSION_D':rubber_ext,'ADX_14_D':adx},calc_nodes={'top_reversal_force':top_reversal_force,'bottom_reversal_force':bottom_reversal_force,'trend_suppression':trend_suppression},final_result=final_score)
+        return final_score
+
+    def _calculate_geometric_trend_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 几何流形趋势共振引擎】
+        将趋势视为高维刚体。基于线性回归R2、斜率与圆弧曲率，刻画趋势的物理刚性与加速度张力。
+        惩罚R2极低的无序波动，奖励曲率向上的二次加速发散。
+        """
+        method_name="_calculate_geometric_trend_resonance"
+        required_signals=['GEOM_REG_R2_D','GEOM_REG_SLOPE_D','GEOM_ARC_CURVATURE_D','GEOM_CHANNEL_POS_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        r2=self._get_safe_series(df,'GEOM_REG_R2_D',method_name=method_name)
+        slope=self._get_safe_series(df,'GEOM_REG_SLOPE_D',method_name=method_name)
+        curvature=self._get_safe_series(df,'GEOM_ARC_CURVATURE_D',method_name=method_name)
+        channel_pos=self._get_safe_series(df,'GEOM_CHANNEL_POS_D',method_name=method_name)
+        r2_gate=np.tanh(self._apply_hab_shock(r2,21)).clip(lower=0.1)
+        slope_shock=np.tanh(self._apply_hab_shock(slope,21))
+        curvature_shock=np.tanh(self._apply_hab_shock(curvature,21))
+        channel_norm=(channel_pos-0.5)*2.0
+        rigid_tensor=slope_shock*r2_gate
+        manifold_dynamics=curvature_shock-channel_norm*0.3
+        raw_score=rigid_tensor*(1.0+manifold_dynamics.clip(lower=0))
+        final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
+        final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GEOM_REG_R2_D':r2,'GEOM_ARC_CURVATURE_D':curvature},calc_nodes={'rigid_tensor':rigid_tensor,'manifold_dynamics':manifold_dynamics,'raw_score':raw_score},final_result=final_score)
+        return final_score
+
+    def _calculate_mtf_fractal_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 多时间框架分形共振引擎】
+        量化日线、周线、月线在特定时刻的完美同步对齐。
+        结合价格分形维数（趋势平滑度）与上升趋势延续概率，过滤掉日内高频噪音，捕捉宏观级别的共振主升浪。
+        """
+        method_name="_calculate_mtf_fractal_resonance"
+        required_signals=['daily_weekly_sync_D','daily_monthly_sync_D','PRICE_FRACTAL_DIM_D','uptrend_continuation_prob_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        dw_sync=self._get_safe_series(df,'daily_weekly_sync_D',method_name=method_name)
+        dm_sync=self._get_safe_series(df,'daily_monthly_sync_D',method_name=method_name)
+        fractal_dim=self._get_safe_series(df,'PRICE_FRACTAL_DIM_D',method_name=method_name)
+        prob=self._get_safe_series(df,'uptrend_continuation_prob_D',method_name=method_name)
+        sync_tensor=0.5*(1.0+np.tanh(self._apply_hab_shock(dw_sync+dm_sync,21)))
+        # 分形维数越低越接近单向流，噪音越小，趋势越强
+        fractal_smoothness=1.0-np.tanh(self._apply_hab_shock(fractal_dim,34)).clip(lower=0)
+        prob_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(prob,21)))
+        raw_score=sync_tensor*fractal_smoothness*prob_shock
+        final_score=np.tanh(raw_score**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'daily_weekly_sync_D':dw_sync,'PRICE_FRACTAL_DIM_D':fractal_dim},calc_nodes={'sync_tensor':sync_tensor,'fractal_smoothness':fractal_smoothness,'raw_score':raw_score},final_result=final_score)
+        return final_score
+
+    def _calculate_intraday_siege_exhaustion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 日内攻城拔寨衰竭引擎】
+        量化日内多空在阻力/支撑位上的反复肉搏与消耗战（Siege Warfare）。
+        多次高频测试阻力后若能强势收盘且VWAP向上，代表空头尸体垫脚，城门告破（看涨突破）。
+        多次测试支撑但收盘极弱，代表多头承接溃散（看跌崩塌）。
+        """
+        method_name="_calculate_intraday_siege_exhaustion"
+        required_signals=['intraday_resistance_test_count_D','intraday_support_test_count_D','CLOSING_STRENGTH_D','vwap_deviation_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        res_tests=self._get_safe_series(df,'intraday_resistance_test_count_D',method_name=method_name)
+        sup_tests=self._get_safe_series(df,'intraday_support_test_count_D',method_name=method_name)
+        closing=self._get_safe_series(df,'CLOSING_STRENGTH_D',method_name=method_name)
+        vwap_dev=self._get_safe_series(df,'vwap_deviation_D',method_name=method_name)
+        res_shock=np.tanh(res_tests/3.0) 
+        sup_shock=np.tanh(sup_tests/3.0)
+        closing_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(closing,21)))
+        vwap_shock=np.tanh(self._apply_hab_shock(vwap_dev,21))
+        breakout_force=res_shock*closing_shock*(1.0+vwap_shock.clip(lower=0))
+        breakdown_force=sup_shock*(1.0-closing_shock)*(1.0+vwap_shock.clip(upper=0).abs())
+        raw_score=breakout_force-breakdown_force
+        final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
+        final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'intraday_resistance_test_count_D':res_tests,'CLOSING_STRENGTH_D':closing},calc_nodes={'breakout_force':breakout_force,'breakdown_force':breakdown_force,'raw_score':raw_score},final_result=final_score)
+        return final_score
+
+    def _calculate_overnight_intraday_tearing(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 隔夜跳空与日内动能撕裂引擎】
+        量化隔夜情绪意志(Gap)与日内真实买盘(OCH)的致命背离。
+        高开低走(跳空极高但日内收盘极弱的诱多派发)将被施以毁灭性负面惩罚；
+        稳健高开高走(跳空且日内动能极强)将获得巨额的顺势奖励。
+        """
+        method_name="_calculate_overnight_intraday_tearing"
+        required_signals=['GAP_MOMENTUM_STRENGTH_D','OCH_ACCELERATION_D','CLOSING_STRENGTH_D','intraday_price_range_ratio_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        gap=self._get_safe_series(df,'GAP_MOMENTUM_STRENGTH_D',method_name=method_name)
+        och=self._get_safe_series(df,'OCH_ACCELERATION_D',method_name=method_name)
+        closing=self._get_safe_series(df,'CLOSING_STRENGTH_D',method_name=method_name)
+        range_ratio=self._get_safe_series(df,'intraday_price_range_ratio_D',method_name=method_name)
+        gap_shock=np.tanh(self._apply_hab_shock(gap,13))
+        och_shock=np.tanh(self._apply_hab_shock(och,13))
+        closing_norm=0.5*(1.0+np.tanh(self._apply_hab_shock(closing,21)))
+        range_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(range_ratio,21)))
+        # 撕裂防线：Gap为正但日内极差(closing_norm < 0.5且och弱)则向量翻负
+        tearing_vector=gap_shock*(closing_norm*2.0 - 1.0 + och_shock)
+        # 波动率越高，撕裂或共振的杠杆效应越大
+        leverage=1.0+(range_shock*np.abs(closing_norm-0.5)*2.0)
+        raw_score=tearing_vector*leverage
+        final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
+        final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GAP_MOMENTUM_STRENGTH_D':gap,'CLOSING_STRENGTH_D':closing},calc_nodes={'gap_shock':gap_shock,'tearing_vector':tearing_vector,'leverage':leverage,'raw_score':raw_score},final_result=final_score)
+        return final_score
+
+    def _calculate_chip_center_kinematics(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0.0 · 筹码重心迁徙动力学引擎】
+        透视筹码主峰在拉升/下跌途中的迁移速率与震荡幅度。
+        股价飙升但重心低波段锁定 = 强庄锁仓不卖 (强势看涨正分)；
+        重心极速上移且剧烈波动、高换手 = 主力高位大规模筹码大搬家派发给散户 (极度看跌负分)。
+        """
+        method_name="_calculate_chip_center_kinematics"
+        required_signals=['peak_migration_speed_5d_D','intraday_cost_center_volatility_D','price_to_weight_avg_ratio_D','turnover_rate_f_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        migration=self._get_safe_series(df,'peak_migration_speed_5d_D',method_name=method_name)
+        cost_vol=self._get_safe_series(df,'intraday_cost_center_volatility_D',method_name=method_name)
+        price_to_cost=self._get_safe_series(df,'price_to_weight_avg_ratio_D',method_name=method_name)
+        turnover=self._get_safe_series(df,'turnover_rate_f_D',method_name=method_name)
+        mig_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(migration,21)))
+        vol_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(cost_vol,13)))
+        dev_shock=np.tanh(self._apply_hab_shock(price_to_cost,21))
+        to_shock=0.5*(1.0+np.tanh(self._apply_hab_shock(turnover,13)))
+        # 派发动能：高速度 + 高震荡 + 高换手
+        distribution_kinetic=mig_shock*vol_shock*to_shock
+        # 锁仓动能：低速度(1-mig) + 高价格偏离
+        lock_kinetic=(1.0-mig_shock)*dev_shock.clip(lower=0)
+        # 高派发动能结合高价格偏离，产生毁灭性的向下撕扯力
+        raw_score=lock_kinetic - (distribution_kinetic*(1.0+dev_shock.clip(lower=0)))
+        final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
+        final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_migration_speed_5d_D':migration,'price_to_weight_avg_ratio_D':price_to_cost},calc_nodes={'distribution_kinetic':distribution_kinetic,'lock_kinetic':lock_kinetic,'raw_score':raw_score},final_result=final_score)
+        return final_score
 
 
 
