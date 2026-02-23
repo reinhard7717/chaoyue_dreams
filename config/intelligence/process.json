@@ -1378,6 +1378,70 @@
                 "relationship_type": "custom",
                 "scoring_mode": "bipolar",
                 "description": "筹码主峰发散速率、成本波动率与换手的极限顶底测算。"
+            },
+            {
+                "name": "PROCESS_META_MA_COMPRESSION_EXPLOSION",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "多周期均线极度粘合与筹码高度密集下的绝对势能奇点引爆。"
+            },
+            {
+                "name": "PROCESS_META_TOP_TIER_HM_HARVESTING",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "一线顶级游资极度活跃背景下的大单净流出派发陷阱识别。"
+            },
+            {
+                "name": "PROCESS_META_VWAP_MAGNETIC_DIVERGENCE",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "基于历史均值回归强度的价格偏离VWAP万有引力黑洞拉回判定。"
+            },
+            {
+                "name": "PROCESS_META_MULTI_PEAK_AVALANCHE_RISK",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "多头结构下的高位多筹码峰梯队派发预警与上下夹击断层雪崩。"
+            },
+            {
+                "name": "PROCESS_META_SECTOR_LIFECYCLE_TAILWIND",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "板块处于预热/拉升期或停滞/衰退期的生命周期顺风/逆风测算。"
+            },
+            {
+                "name": "PROCESS_META_TIME_ASYMMETRY_TRAP",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "bipolar",
+                "description": "早盘与午后资金流比例严重失衡的A字型诱多陷阱防爆。"
+            },
+            {
+                "name": "PROCESS_META_HIGH_POS_LIQUIDITY_SQUEEZE",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "价格高位叠加极高锁仓率和买流持久度的向上真空轧空。"
+            },
+            {
+                "name": "PROCESS_META_INSTITUTIONAL_STRUCTURAL_EXIT",
+                "type": "meta_analysis",
+                "task_type": "base",
+                "relationship_type": "custom",
+                "scoring_mode": "unipolar",
+                "description": "特大卖单砸盘与派发能量共振下的高位筹码锁仓瓦解清仓预警。"
             }
         ],
         "wash_out_rebound_params": {
@@ -1586,7 +1650,31 @@
             "peak_migration_speed_5d_D": 0.0,
             "intraday_cost_center_volatility_D": 0.0,
             "price_to_weight_avg_ratio_D": 1.0,
-            "turnover_rate_f_D": 0.0
+            "turnover_rate_f_D": 0.0,
+            "MA_POTENTIAL_COMPRESSION_RATE_D": 0.0,
+            "chip_convergence_ratio_D": 0.5,
+            "TURNOVER_STABILITY_INDEX_D": 0.5,
+            "MACDh_13_34_8_D": 0.0,
+            "HM_ACTIVE_TOP_TIER_D": 0.0,
+            "tick_large_order_net_D": 0.0,
+            "amount_D": 0.0,
+            "intraday_main_force_activity_D": 50.0,
+            "is_multi_peak_D": 0.0,
+            "chip_divergence_ratio_D": 0.0,
+            "intraday_distribution_confidence_D": 0.0,
+            "downtrend_strength_D": 0.0,
+            "industry_preheat_score_D": 0.0,
+            "industry_markup_score_D": 0.0,
+            "industry_stagnation_score_D": 0.0,
+            "industry_downtrend_score_D": 0.0,
+            "morning_flow_ratio_D": 50.0,
+            "afternoon_flow_ratio_D": 50.0,
+            "intraday_peak_valley_ratio_D": 0.0,
+            "price_percentile_position_D": 50.0,
+            "high_position_lock_ratio_90_D": 0.0,
+            "flow_persistence_minutes_D": 0.0,
+            "sell_elg_amount_D": 0.0,
+            "distribution_energy_D": 0.0
         }
     }
 }
