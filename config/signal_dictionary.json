@@ -1,545 +1,442 @@
 {
     "score_type_map": {
-        "说明": "【V88.4 · 通达信模式与均线动态增强版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。修正了所有基础情报引擎的共振信号名称，以符合统一命名协议。",
-        "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
-        "PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME": {
-            "cn_name": "【过程融合】趋势衰竭综合征",
+        "说明": "【V6.0.0 · 绝对非对称博弈版】已全面引入 T0(奇点/毁灭) -> T1(战役) -> T2(战术) -> T3(基底) 的指数级阶梯打分机制。彻底解决多头信号累加覆盖致命风险的对称性系统灾难。",
+
+        "__SECTION_1__": "========== T0 级：绝对统治域（毁灭风险 / 奇点爆破） ==========",
+        
+        "PROCESS_META_INSTITUTIONAL_STRUCTURAL_EXIT": {
+            "cn_name": "【T0核武】机构结构性清仓",
             "category": "过程层-风险",
             "type": "risk",
-            "penalty_weight": -300,
+            "penalty_weight": -5000,
             "scoring_mode": "unipolar",
-            "description": "融合层趋势衰竭综合征，代表趋势顶部风险。"
-        },
-        "PROCESS_META_WASH_OUT_REBOUND": {
-            "cn_name": "【过程】洗盘诱空反弹",
-            "category": "过程层-机会",
-            "type": "opportunity",
-            "score": 300,
-            "scoring_mode": "unipolar",
-            "description": "【V2.4 · 深度情境感知版】识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。融合了洗盘诱空背景（增强欺骗信号、动态洗盘强度）、恐慌割肉深度（信念韧性评估、情绪极端化、加速恐慌）和承接反弹品质（高阶承接信号、主力买入效率、日内恢复质量）三个维度进行评估，并引入结构情境放大器（结构张力、宏观趋势健康度）进行调节。当任一核心维度为0时，最终分数也为0。"
-        },
-        "PROCESS_META_COVERT_ACCUMULATION": {
-            "cn_name": "【过程】隐蔽吸筹",
-            "category": "过程层-机会",
-            "type": "opportunity",
-            "score": 280,
-            "scoring_mode": "unipolar",
-            "description": "【V2.4 · 深度情境感知版】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。融合了市场背景（情绪低迷、低张力环境、低波动不稳定）、隐蔽行动（直接隐蔽吸筹信号、筹码势能、主力成本优势、主力买入流、加速隐蔽）和筹码优化（弱手筹码、健康换手、浮筹清洗、高亏损盘）三个维度进行评估。当任一核心维度为0时，最终分数也为0。"
-        },
-        "PROCESS_META_STORM_EYE_CALM": {
-            "cn_name": "【过程】风暴眼中的寂静",
-            "category": "过程层-机会",
-            "type": "process",
-            "score": 200,
-            "scoring_mode": "unipolar",
-            "description": "【V3.0 · 混沌边缘重构版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。它融合了极致的能量压缩（结构张力、低波动率、均衡压缩、波动率收缩）、深度的量能枯竭（量能萎缩、低换手、对手盘枯竭、订单簿流动性薄弱、报价枯竭、换手率萎缩）、隐蔽且积极的主力意图（微观隐秘行动、拆单吸筹、主力信念与净流正向、成本优势、买入订单流、T0买入效率、净流量加速）、低迷且稳定的市场情绪（情绪钟摆负向、市场情绪低迷、散户恐慌/FOMO反向、亏损盘痛苦）和明确的爆发准备度（结构突破准备度、平台基石品质、拟合优度、平台信念）五大维度。并引入价格平静度（价格斜率和日涨跌幅绝对值）作为情境放大器，以及主力控盘与活跃度融合作为裁决门控和非线性放大器。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。"
-        },
-        "PROCESS_META_STOCK_SECTOR_SYNC": {
-            "cn_name": "【过程】个股板块协同共振",
-            "category": "过程层-战略",
-            "type": "process",
-            "score": 100,
-            "scoring_mode": "bipolar",
-            "description": "【V3.0 · 协同共振版】诊断个股与所属板块强弱排名的协同共振性。正分代表个股上涨伴随板块排名提升且动能增强；负分代表个股下跌伴随板块排名下降且动能减弱。"
-        },
-        "PROCESS_META_HOT_SECTOR_COOLING": {
-            "cn_name": "【过程】热门板块冷却",
-            "category": "过程层-战略",
-            "type": "process",
-            "penalty_weight": -100,
-            "scoring_mode": "unipolar",
-            "description": "【V2.1 · 军令直达版】诊断热门板块的冷却迹象。正分代表热度下降且资金流出。"
-        },
-        "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE": {
-            "cn_name": "【过程】价势背离",
-            "category": "过程层-战略",
-            "type": "process",
-            "penalty_weight": -150,
-            "scoring_mode": "bipolar",
-            "description": "【V3.0 · 多维共振与情境自适应版】诊断价格趋势与动量趋势的背离。它融合了多时间框架的价格与动量趋势、量能确认、主力意图穿透、背离品质量化和情境调节五大维度。通过非线性融合，精准识别由多重证据确认的、具备高可靠性的顶背离风险（正分）或底背离机会（负分）。"
-        },
-        "PROCESS_META_PRICE_VOLUME_DYNAMICS": {
-            "cn_name": "【过程】价量关系看涨拐点",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 100,
-            "scoring_mode": "bipolar",
-            "description": "诊断'价格-成交量'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
-        },
-        "PROCESS_META_PF_REL_BULLISH_TURN": {
-            "cn_name": "【过程】价资关系看涨拐点",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 120,
-            "scoring_mode": "bipolar",
-            "description": "诊断'价格-资金流'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
-        },
-        "PROCESS_META_PC_REL_BULLISH_TURN": {
-            "cn_name": "【过程】价筹关系看涨拐点",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "bipolar",
-            "description": "诊断'价格-筹码集中度'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
-        },
-        "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION": {
-            "cn_name": "【过程】价与散户投降",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 200,
-            "scoring_mode": "bipolar",
-            "description": "【逻辑升级】诊断'价格下跌'与'散户投降式派发行为加剧'的背离。正分代表恐慌盘被吸收，是看涨的底部特征。"
-        },
-        "PROCESS_OPP_VPA_EFFICIENCY_TURN": {
-            "cn_name": "【过程】VPA效率看涨拐点",
-            "category": "过程层-机会",
-            "type": "process",
-            "score": 100,
-            "scoring_mode": "unipolar",
-            "description": "【过程引擎分裂信号】诊断'价格-VPA效率'关系中的积极动态。高分代表价格上涨与VPA效率提升形成共识，并且这种良好关系正在加速改善。"
-        },
-        "PROCESS_RISK_VPA_EFFICIENCY_DECAY": {
-            "cn_name": "【过程风险】VPA效率衰减",
-            "category": "过程层-风险",
-            "type": "risk",
-            "penalty_weight": -300,
-            "scoring_mode": "unipolar",
-            "description": "【过程引擎分裂信号】诊断'价格-VPA效率'关系中的负面动态。高分代表价格下跌与VPA效率下降形成共识，或出现价涨但效率下降的背离，并且这种负面关系正在加速恶化。"
-        },
-        "PROCESS_META_PD_DIVERGENCE_CONFIRM": {
-            "cn_name": "【过程】主力散户背离确认",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 180,
-            "scoring_mode": "bipolar",
-            "description": "诊断'价格-主力散户行为背离'关系。正分为看涨背离，负分为看跌背离（惩罚）。"
-        },
-        "PROCESS_META_POWER_TRANSFER": {
-            "cn_name": "【过程】权力转移",
-            "type": "process",
-            "score": 250,
-            "scoring_mode": "bipolar",
-            "description": "【V4.0 · 诡道甄别版】主力从散户手中夺取控制权的过程。核心升级：引入“转移真实性”调节器，通过融合“对倒强度”和“欺骗指数”等诡道信号，甄别筹码转移的真实意图，旨在过滤掉主力通过诱多或诱空制造的虚假权力交割，精确量化具备高含金量的、真实的控盘权转移。正分为佳，负分为罚。"
-        },
-        "PROCESS_META_MAIN_FORCE_RALLY_INTENT": {
-            "cn_name": "【过程】主力拉升意图",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 300,
-            "scoring_mode": "bipolar",
-            "description": "【V5.0 · 风险审判版】诊断主力拉升的综合意图。核心升级：引入“风险审判”机制。在评估拉升“动力”（攻击性、控制力、障碍清除能力）的基础上，引入“顶部派发强度”、“上影线抛压”等信号构建“风险调节器”，对伴随派发迹象的“伪拉升”进行惩罚。旨在穿透上涨表象，区分“真突破”与“拉高出货的陷阱”。"
-        },
-        "PROCESS_META_COST_ADVANTAGE_TREND": {
-            "cn_name": "【过程】成本优势趋势",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 280,
-            "scoring_mode": "bipolar",
-            "description": "【V4.0 · 全息战场版】诊断'价格'与'主力成本优势'的共识与背离。核心升级：将四象限模型从依赖“间接推断”的原子信号，升级为由“直接战术行为”信号驱动。例如，Q3象限（价跌优扩-黄金坑）将直接由“打压吸筹强度”等信号确认，Q4象限（价涨优缩-牛市陷阱）将由“顶部派发强度”等信号确认，极大提升了对战场真实博弈意图的识别精度。"
-        },
-        "PROCESS_META_DECEPTIVE_ACCUMULATION": {
-            "cn_name": "【过程】诡道吸筹",
-            "category": "过程层-机会",
-            "type": "process",
-            "score": 260,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0 · 诡道博弈】诊断主力通过制造虚假抛压（如大单压单）来掩盖真实吸筹意图（如拆单买入）的高级欺骗行为。"
-        },
-        "PROCESS_META_PANIC_WASHOUT_ACCUMULATION": {
-            "cn_name": "【过程】恐慌洗盘吸筹",
-            "category": "过程层-机会",
-            "type": "process",
-            "score": 350,
-            "scoring_mode": "unipolar",
-            "description": "【V4.4 · 战果审判版】诊断主力通过制造恐慌性下跌来清洗浮筹并借机吸筹的“黄金坑”战术。"
-        },
-        "PROCESS_META_UPTHRUST_WASHOUT": {
-            "cn_name": "【过程】上冲回落洗盘",
-            "category": "过程层-机会",
-            "type": "process",
-            "score": 280,
-            "scoring_mode": "unipolar",
-            "description": "【V2.0 · 强证优先版】识别主力在拉升初期利用高开低走“假阴线”进行的洗盘行为。"
-        },
-        "PROCESS_META_ACCUMULATION_INFLECTION": {
-            "cn_name": "【过程】吸筹末端拐点",
-            "category": "过程层-机会",
-            "type": "process",
-            "score": 450,
-            "scoring_mode": "unipolar",
-            "description": "【V2.3 · 势能衰减版】识别多日累积吸筹后，由“量变”到“质变”的拉升启动临界点。"
-        },
-        "PROCESS_META_BREAKOUT_ACCELERATION": {
-            "cn_name": "【过程】突破加速抢筹",
-            "category": "过程层-机会",
-            "type": "process",
-            "score": 550,
-            "scoring_mode": "unipolar",
-            "description": "【V3.0 · 共振审判版】诊断主力在成功突破关键平台后，乘胜追击、加速抢筹的高能战术场景。基于“突破前置、意图驱动、权力交割、形态确认”四维证据链。"
-        },
-        "PROCESS_META_WINNER_CONVICTION": {
-            "cn_name": "【过程】赢家信念",
-            "type": "bipolar",
-            "score": 250,
-            "scoring_mode": "bipolar",
-            "description": "【V4.0 · 韧性博弈与多维时空版】诊断赢家信念的综合强度。正分代表信念坚定，负分代表信念动摇。"
-        },
-        "PROCESS_META_LOSER_CAPITULATION": {
-            "cn_name": "【过程】输家投降仪式",
-            "type": "process",
-            "score": 250,
-            "scoring_mode": "unipolar",
-            "description": "【V3.1 · 战场扩展版】套牢盘最终放弃希望，不计成本卖出的过程。只应有加分。"
-        },
-        "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY": {
-            "cn_name": "【过程风险】力学筹码共振看跌",
-            "type": "risk",
-            "penalty_weight": -200,
-            "scoring_mode": "unipolar",
-            "description": "【V3.0 · 派发审判版】衡量力学与筹码两大战略维度【看跌风险】的同步形成趋势。分值越高，风险越大。"
-        },
-        "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY_RISE": {
-            "cn_name": "【过程机会】力学筹码共振看涨",
-            "type": "positional",
-            "score": 200,
-            "scoring_mode": "unipolar",
-            "description": "衡量力学与筹码两大战略维度【看跌风险】的同步消散趋势。分值越高，机会越大。"
-        },
-        "PROCESS_META_MAIN_FORCE_CONTROL": {
-            "cn_name": "【过程】主力控盘",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 250,
-            "scoring_mode": "bipolar",
-            "description": "【V2.0 · 控盘杠杆版】诊断主力控盘的强度和趋势，基于通达信公式中的“控盘”和“有庄控盘”逻辑。正分代表主力控盘强且趋势向上。"
-        },
-        "PROCESS_META_PROFIT_VS_FLOW": {
-            "cn_name": "【过程】主力盈亏vs流量",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 220,
-            "scoring_mode": "bipolar",
-            "description": "【V4.1 · 战场态势版】诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
-        },
-        "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY": {
-            "cn_name": "【过程】拆单吸筹强度",
-            "category": "过程层-资金流",
-            "type": "process",
-            "score": 200,
-            "scoring_mode": "unipolar",
-            "description": "【V3.1 · 质效校准版】衡量主力通过小单和中单在股价下跌或横盘时进行隐蔽吸筹的强度。该信号为多时间维度归一化后的强度值，值越高表示吸筹强度越大。"
-        },
-        "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC": {
-            "cn_name": "【过程】筹码行为同步",
-            "category": "过程层-战略",
-            "type": "process",
-            "score": 100,
-            "scoring_mode": "bipolar",
-            "description": "【V3.0 引擎统一版】诊断'筹码看涨共振'与'行为看涨共振'的同步过程。正分代表两者同步改善，负分代表两者同步恶化或方向相反。"
-        },
-        "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT": {
-            "cn_name": "【过程】资金流吸筹拐点意图",
-            "category": "过程层-资金流",
-            "type": "process",
-            "score": 250,
-            "scoring_mode": "unipolar",
-            "description": "【V2.0 · 战术升级版】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。纯粹基于资金流数据，旨在捕捉主力行为模式的转变。"
-        },
-        "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD": {
-            "cn_name": "【过程】资金领先结构",
-            "category": "过程层-战略",
-            "type": "process",
-            "score": 120,
-            "scoring_mode": "unipolar",
-            "description": "【V3.0 · 势能加权版】诊断'资金流'是否领先于'结构'。这是一个事件，只加分。"
-        },
-        "PROCESS_META_COST_VS_PRICE": {
-            "cn_name": "【过程】主力成本vs价格",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "bipolar",
-            "description": "诊断主力买入成本的变化率是否超越价格本身的变化率。正分代表主力在加速、追高买入。"
-        },
-        "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL": {
-            "cn_name": "【过程】基础底部反转",
-            "category": "过程层-反转",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，基础领域（趋势、摆动、流体、波动）的底部反转信号。"
-        },
-        "PROCESS_META_FOUNDATION_TOP_REVERSAL": {
-            "cn_name": "【过程】基础顶部反转",
-            "category": "过程层-反转",
-            "type": "risk",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，基础领域（趋势、摆动、流体、波动）的顶部反转信号。"
-        },
-        "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL": {
-            "cn_name": "【过程】结构底部反转",
-            "category": "过程层-反转",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，结构领域（趋势形态、多周期协同、结构稳定性）的底部反转信号。"
-        },
-        "PROCESS_META_STRUCTURE_TOP_REVERSAL": {
-            "cn_name": "【过程】结构顶部反转",
-            "category": "过程层-反转",
-            "type": "risk",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，结构领域（趋势形态、多周期协同、结构稳定性）的顶部反转信号。"
-        },
-        "PROCESS_META_PATTERN_BOTTOM_REVERSAL": {
-            "cn_name": "【过程】形态底部反转",
-            "category": "过程层-反转",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，形态领域（背离、反转、突破）的底部反转信号。"
-        },
-        "PROCESS_META_PATTERN_TOP_REVERSAL": {
-            "cn_name": "【过程】形态顶部反转",
-            "category": "过程层-反转",
-            "type": "risk",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，形态领域（背离、反转、突破）的顶部反转信号。"
-        },
-        "PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL": {
-            "cn_name": "【过程】力学底部反转",
-            "category": "过程层-反转",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，力学领域（动量、惯性、稳定性、能量）的底部反转信号。"
-        },
-        "PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL": {
-            "cn_name": "【过程】力学顶部反转",
-            "category": "过程层-反转",
-            "type": "risk",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，力学领域（动量、惯性、稳定性、能量）的顶部反转信号。"
-        },
-        "PROCESS_META_CHIP_BOTTOM_REVERSAL": {
-            "cn_name": "【过程】筹码底部反转",
-            "category": "过程层-反转",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0】由过程层生成的，筹码领域（聚散、成本结构、持股心态、筹码峰形态）的底部反转信号。"
-        },
-        "PROCESS_META_CHIP_TOP_REVERSAL": {
-            "cn_name": "【过程】筹码顶部反转",
-            "category": "过程层-反转",
-            "type": "risk",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，筹码领域（聚散、成本结构、持股心态、筹码峰形态）的顶部反转信号。"
-        },
-        "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL": {
-            "cn_name": "【过程】资金流底部反转",
-            "category": "过程层-反转",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0】由过程层生成的，资金流领域（共识、信念、存量）的底部反转信号。"
-        },
-        "PROCESS_META_FUND_FLOW_TOP_REVERSAL": {
-            "cn_name": "【过程】资金流顶部反转",
-            "category": "过程层-反转",
-            "type": "risk",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，资金流领域（共识、信念、存量）的顶部反转信号。"
-        },
-        "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL": {
-            "cn_name": "【过程】微观行为底部反转",
-            "category": "过程层-反转",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，微观行为领域（伪装、试探、效率）的底部反转信号。"
-        },
-        "PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL": {
-            "cn_name": "【过程】微观行为顶部反转",
-            "category": "过程层-反转",
-            "type": "risk",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，微观行为领域（伪装、试探、效率）的顶部反转信号。"
-        },
-        "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL": {
-            "cn_name": "【过程】行为底部反转",
-            "category": "过程层-反转",
-            "type": "process",
-            "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的底部反转信号。"
-        },
-        "PROCESS_META_BEHAVIOR_TOP_REVERSAL": {
-            "cn_name": "【过程】行为顶部反转",
-            "category": "过程层-反转",
-            "type": "risk",
-            "penalty_weight": -150,
-            "scoring_mode": "unipolar",
-            "description": "【V1.1 · 神谕审判生产版】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的顶部反转信号。"
-        },
-        "PROCESS_META_WINNER_CONVICTION_DECAY": {
-            "cn_name": "【过程风险】赢家信念衰减",
-            "category": "过程层-风险",
-            "type": "risk",
-            "penalty_weight": -250,
-            "scoring_mode": "unipolar",
-            "description": "【V3.0】诊断赢家信念的衰减。引入多时间框架共振、主力派发确认和情境动态调制，旨在提供一个更全面、更精准的顶部风险预警。"
-        },
-        "PROCESS_META_SMART_MONEY_IGNITION": {
-            "cn_name": "【过程】聪明钱协同点火",
-            "category": "过程层-机会",
-            "type": "opportunity",
-            "score": 400,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0 · 游资协同网络】诊断顶级聪明钱（游资与机构）的协同攻击强度。结合市场龙头地位、T+1溢价预期及日内流量加速，捕捉核心主升浪。内置红军防御门控，严禁在空头趋势中触发。"
-        },
-        "PROCESS_META_VPA_MF_COHERENCE_RESONANCE": {
-            "cn_name": "【过程】量价主力相干共振",
-            "category": "过程层-机会",
-            "type": "opportunity",
-            "score": 300,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0 · 物理相干版】融合均线相干共振、主力调整后的VPA效率及动能加速度，寻找极高胜率的多周期收敛共振加速突破点。"
-        },
-        "PROCESS_META_INSTITUTIONAL_SWEEP": {
-            "cn_name": "【过程】机构超大单扫货",
-            "category": "过程层-机会",
-            "type": "opportunity",
-            "score": 450,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0】量化极高资金门槛的特大买单(buy_elg)与微观筹码转移效率共振。是国家队/顶层机构左侧/右侧建仓的绝对不可伪造指纹，防踏空核武。"
-        },
-        "PROCESS_META_HF_ALGO_MANIPULATION_RISK": {
-            "cn_name": "【过程风险】高频算法诱骗操纵",
-            "category": "过程层-风险",
-            "type": "risk",
-            "penalty_weight": -350,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0】捕捉高频订单流极度偏斜、峰度异常与价流背离共振的算法杀跌/诱多前兆。专杀量化资金Spoofing制造的假突破冰山陷阱。"
-        },
-        "PROCESS_META_MA_RUBBER_BAND_REVERSAL": {
-            "cn_name": "【过程】均线张力极值反噬",
-            "category": "过程层-机会/风险",
-            "type": "bipolar",
-            "score": 300,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】物理学胡克定律在均线系统上的终极体现。深度捕捉价格暴涨暴跌后积累的均值回归张力，辅以ADX门控防止逆势被套。正分为底背离暴力反抽，负分为抛物线高空跳水预警。"
-        },
-        "PROCESS_META_GEOMETRIC_TREND_RESONANCE": {
-            "cn_name": "【过程】几何流形张力共振",
-            "category": "过程层-机会/风险",
-            "type": "bipolar",
-            "score": 250,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】将趋势视为高维刚体。通过线性拟合R2、圆弧曲率、斜率与通道位置，评估趋势在几何流形上的物理刚性及二阶加速度张力。"
-        },
-        "PROCESS_META_MTF_FRACTAL_RESONANCE": {
-            "cn_name": "【过程】多维时空分形共振",
-            "category": "过程层-战略",
-            "type": "opportunity",
-            "score": 450,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0】量化日线、周线、月线级别的完美同步。配合极低的价格分形维数（噪音扫除），专抓资金宏观共识达到顶峰的世纪大主升浪。"
-        },
-        "PROCESS_META_INTRADAY_SIEGE_EXHAUSTION": {
-            "cn_name": "【过程】日内攻城拔寨衰竭",
-            "category": "过程层-机会/风险",
-            "type": "bipolar",
-            "score": 380,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】透视日内多空在阻力/支撑位上的高频消耗战。高频测试阻力且收盘极强（正分）为突破城墙；高频测试支撑且收盘极弱（负分）为城池崩塌。"
-        },
-        "PROCESS_META_OVERNIGHT_INTRADAY_TEARING": {
-            "cn_name": "【过程】隔夜日内动能撕裂",
-            "category": "过程层-机会/风险",
-            "type": "bipolar",
-            "score": 400,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】量化机构隔夜意志(Gap)与日内真实买盘(OCH)的致命背离。精准猎杀高开低走天地板陷阱，重奖跳空且日内封死的真黄金底座。"
-        },
-        "PROCESS_META_CHIP_CENTER_KINEMATICS": {
-            "cn_name": "【过程】筹码重心迁徙动力学",
-            "category": "过程层-机会/风险",
-            "type": "bipolar",
-            "score": 350,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】监测筹码主峰在拉升过程中的光速逃逸现象。价格飙升而重心稳如泰山为锁仓真龙(正分)；重心极速上移且伴随高换手高波动，为主力大搬家派发前兆(负分)。"
-        },
-        "PROCESS_META_MA_COMPRESSION_EXPLOSION": {
-            "cn_name": "【过程】均线奇点核爆启动",
-            "category": "过程层-机会",
-            "type": "opportunity",
-            "score": 480,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】均线极度粘合与筹码绝对收敛的物理极限。量化市场成本完全一致、换手率极度死寂时的“引力奇点”。精准捕捉横盘大妖股无阻力第一波的主升浪起爆点。"
-        },
-        "PROCESS_META_TOP_TIER_HM_HARVESTING": {
-            "cn_name": "【过程风险】游资核按钮收割",
-            "category": "过程层-风险",
-            "type": "risk",
-            "penalty_weight": -450,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0】专门猎杀龙虎榜游资溢价陷阱。能量化顶级一线游资极端活跃但大单疯狂净流出、收盘拉胯的教科书式“诱多派发”。装载此引擎彻底免疫核按钮镰刀。"
-        },
-        "PROCESS_META_VWAP_MAGNETIC_DIVERGENCE": {
-            "cn_name": "【过程】VWAP磁性黑洞引力",
-            "category": "过程层-机会/风险",
-            "type": "bipolar",
-            "score": 350,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】基于历史均值回归强度的价格偏离VWAP万有引力拉回判定。正分为抄底恐慌极值砸盘的深V重器，负分为专杀日内无量假突破的防追高雷达。"
+            "description": "【绝对一票否决】特大卖单砸盘与派发能量共振，高位锁仓瓦解。一旦触发，直接穿透并抵消所有买入信号，强制空仓。"
         },
         "PROCESS_META_MULTI_PEAK_AVALANCHE_RISK": {
-            "cn_name": "【过程风险】多峰筹码断层雪崩",
+            "cn_name": "【T0核武】多峰筹码断层雪崩",
             "category": "过程层-风险",
             "type": "risk",
-            "penalty_weight": -420,
+            "penalty_weight": -4000,
             "scoring_mode": "unipolar",
-            "description": "【V1.0】专杀复杂震荡市中的多峰林立形态。当高度发散的多峰叠加日内派发与下降趋势时，量化上方套牢盘与下方获利盘双向踩踏引发的断层崩塌风险。"
+            "description": "【深渊绞肉机】多筹码峰高度发散并伴随向下的双向挤压踩踏。底仓崩溃的明确宣告。"
         },
-        "PROCESS_META_SECTOR_LIFECYCLE_TAILWIND": {
-            "cn_name": "【过程】板块生命周期顺风",
-            "category": "过程层-战略",
-            "type": "bipolar",
-            "score": 250,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】量化个股趋势与所属板块生命周期的共振。处于‘预热’与‘拉升’期的板块为个股提供巨大的胜率顺风（正分）；处于‘停滞’与‘衰退’期的板块则施加顺势惩罚（负分）。"
+        "PROCESS_META_TOP_TIER_HM_HARVESTING": {
+            "cn_name": "【T0核武】顶级游资核按钮收割",
+            "category": "过程层-风险",
+            "type": "risk",
+            "penalty_weight": -4000,
+            "scoring_mode": "unipolar",
+            "description": "【致命镰刀】一线顶级游资极度活跃但大单净流出、收盘拉胯。专杀龙虎榜无脑接盘跟风者。"
         },
-        "PROCESS_META_TIME_ASYMMETRY_TRAP": {
-            "cn_name": "【过程】日内时间非对称陷阱",
-            "category": "过程层-风险/机会",
-            "type": "bipolar",
-            "score": 300,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0】防范A股经典的‘早盘冲高、午后派发’的A字型杀猪盘。早盘极度活跃但午后资金枯竭，并伴随剧烈震幅，将被系统无情判定为诱多陷阱（毁灭负分）；午后稳定吸筹则判定为坚决做多。"
+        "PROCESS_META_MA_COMPRESSION_EXPLOSION": {
+            "cn_name": "【T0核武】均线奇点引爆",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 3000,
+            "scoring_mode": "unipolar",
+            "description": "【绝对势能】多周期均线极度粘合与筹码高度密集下的物理大爆炸。标志阻力绝对真空区的第一波主升浪启动。"
+        },
+        "PROCESS_META_INSTITUTIONAL_SWEEP": {
+            "cn_name": "【T0核武】机构特大单扫货",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 2500,
+            "scoring_mode": "unipolar",
+            "description": "【真金白银】国家队/大公募无视波动的左侧底仓抢筹与右侧强力建仓。散户无法伪造的核心资金指纹。"
+        },
+
+        "__SECTION_2__": "========== T1 级：战役级主干（趋势存亡与爆发高度） ==========",
+
+        "PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME": {
+            "cn_name": "【T1战役】趋势衰竭综合征",
+            "category": "过程层-风险",
+            "type": "risk",
+            "penalty_weight": -2000,
+            "scoring_mode": "unipolar",
+            "description": "【顶部崩塌】抛物线狂热后的物理动能耗散与派发能量共振，大级别顶部的丧钟。"
+        },
+        "PROCESS_META_BREAKOUT_ACCELERATION": {
+            "cn_name": "【T1战役】突破加速强攻",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 1500,
+            "scoring_mode": "unipolar",
+            "description": "【顺势倍增】突破后特大买单燃料与筹码流动阻力系数的完美配合。"
         },
         "PROCESS_META_HIGH_POS_LIQUIDITY_SQUEEZE": {
-            "cn_name": "【过程】高位流动性真空轧空",
+            "cn_name": "【T1战役】高位流动性轧空",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 1500,
+            "scoring_mode": "unipolar",
+            "description": "【跨年妖股】高位锁仓率逼近极限引发的抛压真空。极小买盘即可引发惨烈的逼空上行。"
+        },
+        "PROCESS_META_HF_ALGO_MANIPULATION_RISK": {
+            "cn_name": "【T1战役】高频算法诱骗操纵",
+            "category": "过程层-风险",
+            "type": "risk",
+            "penalty_weight": -1500,
+            "scoring_mode": "unipolar",
+            "description": "【量化杀手】高频流偏度、峰度异常与价流背离共振。专杀冰山指令与 Spoofing 撤单诱多陷阱。"
+        },
+        "PROCESS_META_OVERNIGHT_INTRADAY_TEARING": {
+            "cn_name": "【T1战役】隔夜日内动能撕裂",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 500,
+            "penalty_weight": -1500,
+            "scoring_mode": "bipolar",
+            "description": "【非对称防爆】跳空高开高走奖励(+500)；跳空高开低走的天地板诱多施加毁灭性惩罚(-1500)。"
+        },
+        "PROCESS_META_ACCUMULATION_INFLECTION": {
+            "cn_name": "【T1战役】吸筹末端质变拐点",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 1200,
+            "scoring_mode": "unipolar",
+            "description": "【量变到质变】隐蔽、恐慌、诡道三大吸筹状态的终极聚合爆破点。"
+        },
+        "PROCESS_META_SMART_MONEY_IGNITION": {
+            "cn_name": "【T1战役】聪明钱协同点火",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 1200,
+            "scoring_mode": "unipolar",
+            "description": "顶尖游资与机构特大单资金的协同共振，提供极高爆发力。"
+        },
+        "PROCESS_META_MTF_FRACTAL_RESONANCE": {
+            "cn_name": "【T1战役】多维时空分形共振",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 1000,
+            "scoring_mode": "unipolar",
+            "description": "日/周/月多周期同步对齐，结合分形维数低噪确认，锁定宏观级别主升浪。"
+        },
+
+        "__SECTION_3__": "========== T2 级：战术级攻防（局部绞肉机与转折点） ==========",
+
+        "PROCESS_META_TIME_ASYMMETRY_TRAP": {
+            "cn_name": "【T2战术】日内时间非对称陷阱",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 400,
+            "penalty_weight": -1200,
+            "scoring_mode": "bipolar",
+            "description": "【极端非对称】专杀早盘冲高诱多、午后枯竭跳水的A字形杀猪盘(-1200)。奖励午后稳健吸筹扫货(+400)。"
+        },
+        "PROCESS_META_CHIP_CENTER_KINEMATICS": {
+            "cn_name": "【T2战术】筹码重心迁徙动力学",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 500,
+            "penalty_weight": -1000,
+            "scoring_mode": "bipolar",
+            "description": "【不对称】价格涨重心不动为强锁仓(+500)；重心极速高波动上移为主力大搬家派发(-1000)。"
+        },
+        "PROCESS_META_MA_RUBBER_BAND_REVERSAL": {
+            "cn_name": "【T2战术】均线张力极值反噬",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 800,
+            "penalty_weight": -1000,
+            "scoring_mode": "bipolar",
+            "description": "服从胡克定律的均线引力反噬。高位无支撑抛物线坠落预警(-1000)，超跌底背离恐慌深V反抽(+800)。"
+        },
+        "PROCESS_META_WASH_OUT_REBOUND": {
+            "cn_name": "【T2战术】洗盘反包反转",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 800,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_PANIC_WASHOUT_ACCUMULATION": {
+            "cn_name": "【T2战术】恐慌洗盘吸筹",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 700,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_INTRADAY_SIEGE_EXHAUSTION": {
+            "cn_name": "【T2战术】日内攻城拔寨衰竭",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 600,
+            "penalty_weight": -800,
+            "scoring_mode": "bipolar",
+            "description": "高频测试阻力且收盘强势记正分（破城突破）；高频测试支撑且收盘拉胯记负分（防线破位）。"
+        },
+        "PROCESS_META_VWAP_MAGNETIC_DIVERGENCE": {
+            "cn_name": "【T2战术】VWAP磁性黑洞引力",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 500,
+            "penalty_weight": -800,
+            "scoring_mode": "bipolar",
+            "description": "基于均值回归强度的偏离引力。正分为恐慌极值深V抄底(+500)，负分为无量假突破防追高(-800)。"
+        },
+        "PROCESS_META_DECEPTIVE_ACCUMULATION": {
+            "cn_name": "【T2战术】诡道吸筹",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 600,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_LOSER_CAPITULATION": {
+            "cn_name": "【T2战术】输家投降割肉",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 600,
+            "scoring_mode": "unipolar"
+        },
+
+        "__SECTION_4__": "========== T3 级：基底环境（物理常数感知与微偏离） ==========",
+
+        "PROCESS_META_SECTOR_LIFECYCLE_TAILWIND": {
+            "cn_name": "【T3基底】板块生命周期顺风",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 400,
+            "penalty_weight": -500,
+            "scoring_mode": "bipolar",
+            "description": "拉升/预热期板块给予正向势能；衰退/停滞期施加逆风惩罚。"
+        },
+        "PROCESS_META_GEOMETRIC_TREND_RESONANCE": {
+            "cn_name": "【T3基底】几何流形趋势共振",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 300,
+            "penalty_weight": -400,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_PROFIT_VS_FLOW": {
+            "cn_name": "【T3基底】获利压迫与净流对冲",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 250,
+            "penalty_weight": -400,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE": {
+            "cn_name": "【T3基底】价势多维背离",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -400,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_COST_ADVANTAGE_TREND": {
+            "cn_name": "【T3基底】主力成本与趋势博弈",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 250,
+            "penalty_weight": -300,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_MAIN_FORCE_RALLY_INTENT": {
+            "cn_name": "【T3基底】主力拉升意图",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 250,
+            "penalty_weight": -300,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY_RISE": {
+            "cn_name": "【T3基底】力学筹码阻尼看涨",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 300,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY": {
+            "cn_name": "【T3基底】力学筹码共振看跌",
+            "category": "过程层-风险",
+            "type": "risk",
+            "penalty_weight": -400,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_HOT_SECTOR_COOLING": {
+            "cn_name": "【T3基底】热点板块退潮预警",
+            "category": "过程层-风险",
+            "type": "risk",
+            "penalty_weight": -400,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_WINNER_CONVICTION_DECAY": {
+            "cn_name": "【T3基底】赢家信念多维衰减",
+            "category": "过程层-风险",
+            "type": "risk",
+            "penalty_weight": -400,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT": {
+            "cn_name": "【T3基底】资金流吸筹质变",
             "category": "过程层-机会",
             "type": "opportunity",
             "score": 400,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0】打破‘高位必跌’的常识。当股价处于历史高位，但高位锁仓率极高（无抛压），且买盘资金具备高持久度时，形成向上无阻力的流动性真空，极易引发暴力轧空主升浪。"
+            "scoring_mode": "unipolar"
         },
-        "PROCESS_META_INSTITUTIONAL_STRUCTURAL_EXIT": {
-            "cn_name": "【过程风险】机构结构性清仓",
+        "PROCESS_META_STORM_EYE_CALM": {
+            "cn_name": "【T3基底】风暴眼中的寂静",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 400,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_VPA_MF_COHERENCE_RESONANCE": {
+            "cn_name": "【T3基底】量价主力相干共振",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 400,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_COVERT_ACCUMULATION": {
+            "cn_name": "【T3基底】隐蔽微观吸筹",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 350,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_UPTHRUST_WASHOUT": {
+            "cn_name": "【T3基底】上冲回落洗盘",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 350,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY": {
+            "cn_name": "【T3基底】微观拆单吸筹矩阵",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 300,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_PRICE_VOLUME_DYNAMICS": {
+            "cn_name": "【T3基底】价量关系基础拐点",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -300,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_STOCK_SECTOR_SYNC": {
+            "cn_name": "【T3基底】个股板块强度共振",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -250,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_PC_REL_BULLISH_TURN": {
+            "cn_name": "【T3基底】价筹稳态共振",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -250,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION": {
+            "cn_name": "【T3基底】价格与散户投降背离",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -250,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_PD_DIVERGENCE_CONFIRM": {
+            "cn_name": "【T3基底】博弈背离确认",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -300,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_PF_REL_BULLISH_TURN": {
+            "cn_name": "【T3基底】价资协同拐点",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -200,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_MAIN_FORCE_CONTROL": {
+            "cn_name": "【T3基底】主力控盘常数",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -200,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_POWER_TRANSFER": {
+            "cn_name": "【T3基底】微观权力转移",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -200,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_META_WINNER_CONVICTION": {
+            "cn_name": "【T3基底】赢家信念稳定度",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -250,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_OPP_VPA_EFFICIENCY_TURN": {
+            "cn_name": "【T3基底】VPA效率看涨",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 200,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_RISK_VPA_EFFICIENCY_DECAY": {
+            "cn_name": "【T3基底】VPA效率衰减",
             "category": "过程层-风险",
             "type": "risk",
-            "penalty_weight": -500,
-            "scoring_mode": "unipolar",
-            "description": "【V1.0】量化巨无霸资金的不计成本式逃顶。当特大单卖出额激增，派发能量爆表，且原本稳固的高位锁仓筹码开始松动瓦解，这是绝对的灾难性逃顶信号。"
-        }
+            "penalty_weight": -300,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC": {
+            "cn_name": "【T3基底】筹码行为同步",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 200,
+            "penalty_weight": -200,
+            "scoring_mode": "bipolar"
+        },
+        "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD": {
+            "cn_name": "【T3基底】资金领跑结构发令",
+            "category": "过程层-机会",
+            "type": "opportunity",
+            "score": 200,
+            "scoring_mode": "unipolar"
+        },
+        "PROCESS_META_COST_VS_PRICE": {
+            "cn_name": "【T3基底】主力成本追高意愿",
+            "category": "过程层-双极",
+            "type": "bipolar",
+            "score": 150,
+            "penalty_weight": -200,
+            "scoring_mode": "bipolar"
+        },
+
+        "__SECTION_5__": "========== 原子级反转公理 (基底中的基底，提供最基础支持) ==========",
+        
+        "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL": {"cn_name": "【原子反转】基础底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
+        "PROCESS_META_FOUNDATION_TOP_REVERSAL": {"cn_name": "【原子反转】基础顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"},
+        "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL": {"cn_name": "【原子反转】结构底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
+        "PROCESS_META_STRUCTURE_TOP_REVERSAL": {"cn_name": "【原子反转】结构顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"},
+        "PROCESS_META_PATTERN_BOTTOM_REVERSAL": {"cn_name": "【原子反转】形态底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
+        "PROCESS_META_PATTERN_TOP_REVERSAL": {"cn_name": "【原子反转】形态顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"},
+        "PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL": {"cn_name": "【原子反转】力学底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
+        "PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL": {"cn_name": "【原子反转】力学顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"},
+        "PROCESS_META_CHIP_BOTTOM_REVERSAL": {"cn_name": "【原子反转】筹码底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
+        "PROCESS_META_CHIP_TOP_REVERSAL": {"cn_name": "【原子反转】筹码顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"},
+        "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL": {"cn_name": "【原子反转】资金流底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
+        "PROCESS_META_FUND_FLOW_TOP_REVERSAL": {"cn_name": "【原子反转】资金流顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"},
+        "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL": {"cn_name": "【原子反转】微观行为底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
+        "PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL": {"cn_name": "【原子反转】微观行为顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"},
+        "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL": {"cn_name": "【原子反转】行为底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
+        "PROCESS_META_BEHAVIOR_TOP_REVERSAL": {"cn_name": "【原子反转】行为顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"}
     }
 }
