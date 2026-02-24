@@ -338,8 +338,8 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship_internal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V20.1.0 · 关系诊断分发器 (局部重构防爆版)】
-        将背离处理器收拢至本地，切断外部处理器的 NaN 污染。
+        【V20.2.0 · 终极路由解耦版】
+        修复由于二次求导(displacement/momentum)导致的持续极值稳态信号被错误归零的漏洞。
         """
         signal_name=config.get('name')
         df_index=df.index
@@ -347,17 +347,13 @@ class ProcessIntelligence:
         if signal_name=='PROCESS_META_COST_ADVANTAGE_TREND':
             meta_score=self.calculate_cost_advantage_trend_relationship_processor.calculate(df,config)
         elif signal_name=='PROCESS_STRATEGY_DYN_VS_CHIP_DECAY':
-            relationship_score=self._calculate_dyn_vs_chip_relationship(df,config)
-            meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
+            meta_score=self._calculate_dyn_vs_chip_relationship(df,config)
         elif signal_name=='PROCESS_META_PRICE_VS_RETAIL_CAPITULATION':
-            relationship_score=self._calculate_price_vs_capitulation_relationship(df,config)
-            meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
+            meta_score=self._calculate_price_vs_capitulation_relationship(df,config)
         elif signal_name=='PROCESS_META_PD_DIVERGENCE_CONFIRM':
-            relationship_score=self._calculate_pd_divergence_relationship(df,config)
-            meta_score=relationship_score
+            meta_score=self._calculate_pd_divergence_relationship(df,config)
         elif signal_name=='PROCESS_META_PROFIT_VS_FLOW':
-            relationship_score=self._calculate_profit_vs_flow_relationship(df,config)
-            meta_score=relationship_score
+            meta_score=self._calculate_profit_vs_flow_relationship(df,config)
         elif signal_name=='PROCESS_META_PF_REL_BULLISH_TURN':
             meta_score=self._calculate_pf_relationship(df,config)
         elif signal_name=='PROCESS_META_PC_REL_BULLISH_TURN':
@@ -372,8 +368,7 @@ class ProcessIntelligence:
         elif signal_name=='PROCESS_META_LOSER_CAPITULATION':
             meta_score=self._calculate_loser_capitulation(df,config)
         elif signal_name=='PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD':
-            relationship_score=self._calculate_ff_vs_structure_relationship(df,config)
-            meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
+            meta_score=self._calculate_ff_vs_structure_relationship(df,config)
         elif signal_name=='PROCESS_META_MAIN_FORCE_CONTROL':
             meta_score=self.calculate_main_force_control_processor.calculate(df,config)
         elif signal_name=='PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
@@ -391,11 +386,9 @@ class ProcessIntelligence:
         elif signal_name=='PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
             meta_score=self._calculate_fund_flow_accumulation_inflection(df,config)
         elif signal_name=='PROCESS_META_STOCK_SECTOR_SYNC':
-            relationship_score=self._calculate_stock_sector_sync(df,config)
-            meta_score=relationship_score
+            meta_score=self._calculate_stock_sector_sync(df,config)
         elif signal_name=='PROCESS_META_HOT_SECTOR_COOLING':
-            relationship_score=self._calculate_hot_sector_cooling(df,config)
-            meta_score=relationship_score
+            meta_score=self._calculate_hot_sector_cooling(df,config)
         elif signal_name=='PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE':
             meta_score=self._calculate_price_vs_momentum_divergence(df,config)
         elif signal_name=='PROCESS_META_STORM_EYE_CALM':
@@ -456,7 +449,7 @@ class ProcessIntelligence:
                 meta_score=relationship_score
             else:
                 meta_score=self._perform_meta_analysis_on_score(relationship_score,config,df,df_index)
-        if meta_score.empty:
+        if meta_score is None or meta_score.empty:
             return {}
         return {signal_name:meta_score}
 
@@ -1178,7 +1171,8 @@ class ProcessIntelligence:
 
     def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.7.0 · 乘数自愈版】资金结构双极惩罚引擎
+        【V6.8.1 · 零噪防爆版】资金结构双极惩罚引擎
+        直接输出张量结果，拒绝二次求导污染。
         """
         method_name="_calculate_ff_vs_structure_relationship"
         required_signals=['uptrend_strength_D','flow_consistency_D','ma_arrangement_status_D','chip_structure_state_D','industry_stagnation_score_D','large_order_anomaly_D','STATE_ROBUST_TREND_D','net_mf_amount_D','chip_stability_D','flow_momentum_13d_D']
@@ -1227,8 +1221,8 @@ class ProcessIntelligence:
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.7.0 · 乘数自愈版】价资协同双向剥离
-        采用1.0中性乘数取代0.5折半，防止多维共振在计算中途被强制衰减。
+        【V6.8.1 · 逻辑逆转防爆版】价资协同双向剥离
+        将乘积逻辑升级为向量加法合成，防止价格横盘导致主力巨额买入流(m_base)被强行归零。
         """
         method_name="_calculate_pf_relationship"
         required_signals=['net_mf_amount_D','close_D','price_vs_ma_13_ratio_D','main_force_activity_index_D','flow_momentum_13d_D','flow_impact_ratio_D','tick_chip_transfer_efficiency_D']
@@ -1264,17 +1258,19 @@ class ProcessIntelligence:
         k_mf=_kinematics('net_mf_amount_D',mf,13)
         c_diff=pd.Series(np.where(cls.diff(1).fillna(0.0).abs()<1e-4,0.0,cls.diff(1).fillna(0.0)),index=df_index)
         m_p=np.tanh(_hab('close_D',c_diff,13))*_zg(c_diff)
-        thr=m_base*a_mult*(1.0+np.abs(k_mf))*f_mult*i_mult*t_mult
-        amp=(1.0+thr*np.sign(m_p)).clip(lower=0.1)
-        raw=m_p*amp*p_mult
-        rel=pd.Series(np.sign(raw)*(np.abs(raw)**1.5),index=df_index).clip(-1,1).fillna(0.0)
-        final_score=self._perform_meta_analysis_on_score(rel,config,df,df_index).fillna(0.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':mf,'flow_impact_ratio_D':imp},calc_nodes={'thr':thr,'amp':amp},final_result=final_score)
+        # [修复] 改乘积为向量加法，保留资金横盘异动的绝对预警权重
+        force_vector=m_p+m_base
+        thr=a_mult*(1.0+np.abs(k_mf))*f_mult*i_mult*t_mult
+        amp=(1.0+thr).clip(lower=0.1)
+        raw=force_vector*amp*p_mult
+        final_score=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':mf,'flow_impact_ratio_D':imp},calc_nodes={'force_vector':force_vector,'amp':amp},final_result=final_score)
         return final_score
 
     def _calculate_pc_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.7.0 · 零噪防爆版】价筹稳态共振引力引擎
+        【V6.8.1 · 路由直连修复版】价筹稳态共振引力引擎
+        直接输出张量结果，拒绝 _perform_meta_analysis_on_score 二次求导污染。
         """
         method_name="_calculate_pc_relationship"
         required_signals=['peak_concentration_D','close_D','chip_convergence_ratio_D','high_position_lock_ratio_90_D','chip_stability_change_5d_D','volatility_adjusted_concentration_D','chip_entropy_D','chip_flow_intensity_D']
@@ -1312,12 +1308,13 @@ class ProcessIntelligence:
         k_pk=_kinematics('peak_concentration_D',pk,13)
         c_diff=pd.Series(np.where(cls.diff(1).fillna(0).abs()<1e-4,0.0,cls.diff(1).fillna(0)),index=df_index)
         m_p=np.tanh(_hab('close_D',c_diff,13))*_zg(c_diff)
-        thr=pk_base*cv_mult*hl_mult*sc_mult*va_mult*(1.0+np.abs(k_pk))*en_penal*fi_mult
-        amp=(1.0+thr*np.sign(m_p)).clip(lower=0.1)
-        raw=m_p*amp
-        rel=pd.Series(np.sign(raw)*(np.abs(raw)**1.5),index=df_index).clip(-1,1).fillna(0.0)
-        final_score=self._perform_meta_analysis_on_score(rel,config,df,df_index).fillna(0.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_concentration_D':pk,'chip_entropy_D':ent},calc_nodes={'thr':thr,'amp':amp},final_result=final_score)
+        # [修复] 引入向量加法，不让横盘归零
+        force_vector=m_p+pk_base*0.5
+        thr=cv_mult*hl_mult*sc_mult*va_mult*(1.0+np.abs(k_pk))*en_penal*fi_mult
+        amp=(1.0+thr).clip(lower=0.1)
+        raw=force_vector*amp
+        final_score=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_concentration_D':pk,'chip_entropy_D':ent},calc_nodes={'force_vector':force_vector,'amp':amp},final_result=final_score)
         return final_score
 
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
@@ -1352,14 +1349,16 @@ class ProcessIntelligence:
 
     def _calculate_price_vs_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.2.0 · 量子张量防爆版】价势多维背离引擎
-        完全在内部重构的价势背离逻辑，强制收拢，彻底免疫外部处理器的 NaN 污染崩塌。
+        【V6.8.1 · 逻辑逆转防爆版】价势多维背离引擎
+        修复了顶背离输出正分的逻辑倒置漏洞。严格规范：顶背离=负分(风险)，底背离=正分(机会)。
         """
         method_name="_calculate_price_vs_momentum_divergence"
         required_signals=['close_D','ROC_13_D','VPA_EFFICIENCY_D','PRICE_ENTROPY_D','net_mf_amount_D','turnover_rate_f_D','GEOM_REG_SLOPE_D','GEOM_REG_R2_D','BIAS_21_D','GEOM_ARC_CURVATURE_D','market_sentiment_score_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         def _hab(col: str, s: pd.Series, w: int) -> pd.Series:
+            hab_col=f'HAB_{w}_{col}'
+            if hab_col in df.columns: return df[hab_col].fillna(0.0).astype(np.float32)
             sf=s.ffill().fillna(0.0).replace([np.inf,-np.inf],0.0)
             return ((sf-sf.rolling(w,min_periods=1).mean())/sf.rolling(w,min_periods=1).std().replace(0,1e-5).fillna(1e-5)).fillna(0.0).astype(np.float32)
         def _kinematics(col: str, s: pd.Series, w: int) -> pd.Series:
@@ -1380,24 +1379,27 @@ class ProcessIntelligence:
         bias=self._get_safe_series(df,'BIAS_21_D',method_name=method_name).fillna(0.0)
         arc=self._get_safe_series(df,'GEOM_ARC_CURVATURE_D',method_name=method_name).fillna(0.0)
         sent=self._get_safe_series(df,'market_sentiment_score_D',method_name=method_name).fillna(0.0)
-        p_vel=np.tanh(_hab('close_D',cls,13))
+        c_diff=pd.Series(np.where(cls.diff(1).fillna(0.0).abs()<1e-4,0.0,cls.diff(1).fillna(0.0)),index=df_index)
+        p_vel=np.tanh(_hab('close_D',c_diff,13))
         m_acc=_kinematics('ROC_13_D',roc,13)
-        kinematic_div=p_vel-m_acc
+        # [极性修复]: 价涨(+)且动能跌(-) = 顶背离 = 负分(风险)。
+        kinematic_div=m_acc-p_vel
         vpa_shk=np.tanh(_hab('VPA_EFFICIENCY_D',vpa,21))
         ent_shk=np.tanh(_hab('PRICE_ENTROPY_D',ent,13)).clip(lower=0)
         mf_shk=np.tanh(_hab('net_mf_amount_D',mf,21))
         to_shk=0.5*(1.0+np.tanh(_hab('turnover_rate_f_D',to,13)))
-        energy_decay=ent_shk*to_shk-vpa_shk*mf_shk
+        # [极性修复]: 能量偏离 = 能量势(VPA和资金同向)-价格速度。保证高位滞涨大抛售输出负分。
+        energy_div=(vpa_shk+mf_shk)/2.0-p_vel
         r2_shk=0.5*(1.0+np.tanh(_hab('GEOM_REG_R2_D',r2,34)))
-        slope_shk=np.tanh(_hab('GEOM_REG_SLOPE_D',slope,21))
-        arc_shk=np.tanh(_hab('GEOM_ARC_CURVATURE_D',arc,21))
         bias_shk=np.tanh(_hab('BIAS_21_D',bias,21))
-        geom_tension=(bias_shk-arc_shk)*r2_shk*np.sign(slope_shk)
+        arc_shk=np.tanh(_hab('GEOM_ARC_CURVATURE_D',arc,21))
+        # [极性修复]: 超买(bias>0)且曲率向下(arc<0) = 负分(风险)。
+        geom_tension=(arc_shk-bias_shk)*r2_shk
         sent_shk=np.tanh(_hab('market_sentiment_score_D',sent,34))
-        raw_div=kinematic_div*0.4+energy_decay*0.3+geom_tension*0.3
+        raw_div=kinematic_div*0.4+energy_div*0.3+geom_tension*0.3
         raw_score=raw_div*(1.0+np.abs(sent_shk))
         final_score=np.tanh(np.sign(raw_score)*(np.abs(raw_score)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc,'VPA_EFFICIENCY_D':vpa},calc_nodes={'kinematic_div':kinematic_div,'energy_decay':energy_decay,'geom_tension':geom_tension,'raw_score':raw_score},final_result=final_score)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc,'VPA_EFFICIENCY_D':vpa},calc_nodes={'kinematic_div':kinematic_div,'energy_div':energy_div,'geom_tension':geom_tension,'raw_score':raw_score},final_result=final_score)
         return final_score
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1448,7 +1450,8 @@ class ProcessIntelligence:
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.7.0 · 乘数自愈版】动能筹码异向极化引擎
+        【V6.8.1 · 路由直连修复版】动能筹码异向极化引擎
+        彻底剥离二次求导污染，稳态风险直接输出纯正向物理分值(单极)。
         """
         method_name="_calculate_dyn_vs_chip_relationship"
         required_signals=['ROC_13_D','winner_rate_D','profit_ratio_D','chip_mean_D','chip_kurtosis_D','volatility_adjusted_concentration_D','downtrend_strength_D','chip_entropy_D']
@@ -1481,7 +1484,7 @@ class ProcessIntelligence:
         p_mult=1.0+_norm(prof, 100.0)
         w_mult=1.0+_norm(win, 100.0)
         m_mult=1.0+np.tanh(_hab('chip_mean_D',mean,13)).abs()
-        k_mult=1.0+np.tanh(_hab('chip_kurtosis_D',kurt,21)).clip(lower=0)
+        k_mult=1.0+_norm(kurt, 100.0)
         v_mult=1.0+_norm(vac, 100.0)
         d_mult=1.0+_norm(down, 100.0)
         e_mult=1.0+_norm(ent, 10.0)
@@ -1939,8 +1942,8 @@ class ProcessIntelligence:
 
     def _calculate_overnight_intraday_tearing(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V6.2.0 · 零噪防爆版】隔夜跳空与日内动能撕裂引擎
-        加装绝对门控阀值。无跳空不启动，杜绝0Gap产生的虚假幽灵撕裂。
+        【V6.8.1 · 极性纠正版】隔夜跳空与日内动能撕裂引擎
+        修正 Gap 与日内方向的独立极性映射，以日内真实动能作为主导方向。
         """
         method_name="_calculate_overnight_intraday_tearing"
         required_signals=['GAP_MOMENTUM_STRENGTH_D','OCH_ACCELERATION_D','CLOSING_STRENGTH_D','intraday_price_range_ratio_D','morning_flow_ratio_D','afternoon_flow_ratio_D']
@@ -1965,18 +1968,26 @@ class ProcessIntelligence:
         range_ratio=self._get_safe_series(df,'intraday_price_range_ratio_D',method_name=method_name).fillna(0.0)
         morning=self._get_safe_series(df,'morning_flow_ratio_D',method_name=method_name).fillna(50.0)
         afternoon=self._get_safe_series(df,'afternoon_flow_ratio_D',method_name=method_name).fillna(50.0)
-        gap_shock=np.tanh(_hab('GAP_MOMENTUM_STRENGTH_D',gap,13))*_zg(gap)
+        gap_shock=np.tanh(_hab('GAP_MOMENTUM_STRENGTH_D',gap,13))
+        gap_mag=gap_shock.abs() * _zg(gap)
         och_shock=np.tanh(_hab('OCH_ACCELERATION_D',och,13))
         closing_norm=closing/100.0
         range_shock=np.tanh(_hab('intraday_price_range_ratio_D',range_ratio,21)).clip(lower=0)
         flow_tearing=np.tanh(_hab('flow_tearing', morning-afternoon,13)).clip(lower=0)
         k_tensor=_kinematics('GAP_MOMENTUM_STRENGTH_D',gap,13)
-        tearing_vector=gap_shock*(closing_norm*2.0-1.0+och_shock-flow_tearing)
+        # [极性修复] 日内真实意图。强收盘(+) 强OCH(+) 弱午后衰退(-)
+        intraday_vector=(closing_norm*2.0-1.0)+och_shock-flow_tearing*np.sign(closing_norm*2.0-1.0)
+        # 极性判定：以日内为真。如果Gap极大，导致天地板撕裂或黄金坑反转，则受 Gap 震级直接放大。
+        tearing_vector=gap_mag*intraday_vector
         leverage=1.0+(range_shock*np.abs(closing_norm-0.5)*2.0)
-        raw_score=tearing_vector*leverage*(1.0+k_tensor*np.sign(tearing_vector))*_zg(gap)
+        raw_score=tearing_vector*leverage*(1.0+k_tensor.abs())*_zg(gap)
+        # [极性修复] 如果 Gap 和 日内方向一致（均涨或均跌），降低惩罚/奖励权重，只有背离才是严重的“撕裂”
+        is_resonance = (np.sign(gap_shock) * np.sign(intraday_vector)).clip(lower=0)
+        raw_score = raw_score * (1.0 - is_resonance * 0.5) 
+
         final_score=np.sign(raw_score)*(np.abs(raw_score)**1.5)
         final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GAP_MOMENTUM_STRENGTH_D':gap,'CLOSING_STRENGTH_D':closing},calc_nodes={'tearing_vector':tearing_vector,'leverage':leverage,'raw_score':raw_score},final_result=final_score)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GAP_MOMENTUM_STRENGTH_D':gap,'CLOSING_STRENGTH_D':closing},calc_nodes={'intraday_vector':intraday_vector,'leverage':leverage,'raw_score':raw_score},final_result=final_score)
         return final_score
 
     def _calculate_chip_center_kinematics(self, df: pd.DataFrame, config: Dict) -> pd.Series:
