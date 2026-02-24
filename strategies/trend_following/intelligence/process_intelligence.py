@@ -1050,7 +1050,7 @@ class ProcessIntelligence:
         return res
 
     def _calculate_fusion_trend_exhaustion_syndrome(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【V12.0.0 · 绝对流形边界版】趋势衰竭综合征引擎"""
+        """【V13.0.0 · 动能门控防爆版】趋势衰竭综合征引擎"""
         method_name="_calculate_fusion_trend_exhaustion_syndrome"
         required_signals=['STATE_PARABOLIC_WARNING_D','STATE_EMOTIONAL_EXTREME_D','PRICE_ENTROPY_D','profit_pressure_D','HM_COORDINATED_ATTACK_D','intraday_distribution_confidence_D','distribution_energy_D','chip_entropy_D','sell_elg_amount_D','amount_D','VPA_EFFICIENCY_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1066,12 +1066,14 @@ class ProcessIntelligence:
         sell_elg=self._get_safe_series(df,'sell_elg_amount_D',method_name=method_name)
         amt=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
         vpa=self._get_safe_series(df,'VPA_EFFICIENCY_D',method_name=method_name)
-        core=np.maximum(self._apply_norm(pres,100.0),self._apply_norm(dist_e,100.0))*self._apply_zg(df_index,pres+dist_e)
-        amp=1.0+(self._apply_norm(dist_c,100.0)+self._apply_norm((sell_elg/amt).fillna(0),0.1)+para+emot+self._apply_norm(ent,10.0)+self._apply_norm(c_ent,10.0))/6.0
+        base_state=np.maximum(para,emot)
+        dist_force=np.maximum(self._apply_norm(pres,100.0),self._apply_norm(dist_e,100.0))
+        core=(base_state*dist_force)**0.5*self._apply_zg(df_index,base_state*dist_force)
+        amp=1.0+(self._apply_norm(dist_c,100.0)+self._apply_norm((sell_elg/amt).fillna(0),0.1)+self._apply_norm(ent,10.0)+self._apply_norm(c_ent,10.0))/4.0
         veto=(1.0-self._apply_norm(hm,100.0)*0.9).clip(lower=0.1)*(1.0-self._apply_norm(vpa.abs(),100.0)*0.5)
         raw=core*amp*veto*(1.0+self._apply_kinematics(df,'profit_pressure_D',pres,13).clip(lower=0))
         res=np.tanh(raw**1.5).clip(0,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'STATE_PARABOLIC_WARNING_D':para},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'STATE_PARABOLIC_WARNING_D':para,'distribution_energy_D':dist_e},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_dyn_vs_chip_decay_rise(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1209,7 +1211,7 @@ class ProcessIntelligence:
         return res
 
     def _calculate_chip_center_kinematics(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【V12.0.0 · 绝对流形边界版】筹码重心迁徙动力学引擎"""
+        """【V13.0.0 · 动能门控防爆版】筹码重心迁徙动力学引擎"""
         method_name="_calculate_chip_center_kinematics"
         required_signals=['peak_migration_speed_5d_D','intraday_cost_center_volatility_D','price_to_weight_avg_ratio_D','turnover_rate_f_D','cost_50pct_D','chip_entropy_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1224,12 +1226,13 @@ class ProcessIntelligence:
         vol_shock=self._apply_norm(cost_vol,100.0)
         dist_amp=1.0+(vol_shock+self._apply_norm(turnover,10.0)+np.tanh(self._apply_hab(df,'cost',cost_50,21)).clip(lower=0)+self._apply_norm(c_ent,10.0))/4.0
         distribution=mig_base*dist_amp
-        lock_base=(1.0-mig_base)*self._apply_zg(df_index,price_to_cost-1.0)
+        price_dev=np.maximum(price_to_cost-1.0,0.0)
+        lock_core=(1.0-mig_base)*self._apply_norm(price_dev,0.2)*np.tanh(turnover)*self._apply_zg(df_index,price_dev*turnover)
         lock_amp=1.0+((1.0-vol_shock)+np.tanh(self._apply_hab(df,'ptc',price_to_cost,21)).clip(lower=0)+(1.0-self._apply_norm(c_ent,10.0)))/3.0
-        lock=lock_base*lock_amp
+        lock=lock_core*lock_amp
         raw=(lock-distribution)*(1.0+np.abs(self._apply_kinematics(df,'cost_50pct_D',cost_50,13)))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_migration_speed_5d_D':migration},calc_nodes={'lock_base':lock_base,'mig_base':mig_base},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_migration_speed_5d_D':migration,'turnover_rate_f_D':turnover},calc_nodes={'lock_core':lock_core,'mig_base':mig_base,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_ma_compression_explosion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1253,7 +1256,7 @@ class ProcessIntelligence:
         return res
 
     def _calculate_top_tier_hm_harvesting(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【V12.0.0 · 绝对流形边界版】顶级游资收割镰刀引擎"""
+        """【V13.0.0 · 动能门控防爆版】顶级游资收割镰刀引擎"""
         method_name="_calculate_top_tier_hm_harvesting"
         required_signals=['HM_ACTIVE_TOP_TIER_D','CLOSING_STRENGTH_D','tick_large_order_net_D','amount_D','outflow_quality_D','distribution_energy_D','market_sentiment_score_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1265,12 +1268,13 @@ class ProcessIntelligence:
         outflow_q=self._get_safe_series(df,'outflow_quality_D',method_name=method_name)
         dist_eng=self._get_safe_series(df,'distribution_energy_D',method_name=method_name)
         sent=self._get_safe_series(df,'market_sentiment_score_D',method_name=method_name)
-        core=self._apply_norm(hm_active,100.0)*self._apply_zg(df_index,hm_active)
         net_ratio=(large_net/amt).fillna(0.0)
-        amp=1.0+(np.tanh(net_ratio*10.0).clip(upper=0).abs()+(1.0-self._apply_norm(closing,100.0))+self._apply_norm(outflow_q,100.0)+self._apply_norm(dist_eng,100.0)+(1.0-self._apply_norm(sent,100.0)))/5.0
-        raw=core*amp*(1.0+self._apply_kinematics(df,'tick_large_order_net_D',large_net,13).clip(upper=0).abs())*self._apply_zg(df_index,hm_active)
+        dump_force=np.tanh(net_ratio*10.0).clip(upper=0).abs()
+        core=(self._apply_norm(hm_active,100.0)*dump_force)**0.5*self._apply_zg(df_index,hm_active)*self._apply_zg(df_index,dump_force)
+        amp=1.0+((1.0-self._apply_norm(closing,100.0))+self._apply_norm(outflow_q,100.0)+self._apply_norm(dist_eng,100.0)+(1.0-self._apply_norm(sent,100.0)))/4.0
+        raw=core*amp*(1.0+self._apply_kinematics(df,'tick_large_order_net_D',large_net,13).clip(upper=0).abs())
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'HM_ACTIVE_TOP_TIER_D':hm_active},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'HM_ACTIVE_TOP_TIER_D':hm_active,'tick_large_order_net_D':large_net},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_vwap_magnetic_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1295,7 +1299,7 @@ class ProcessIntelligence:
         return res
 
     def _calculate_multi_peak_avalanche_risk(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【V12.0.0 · 绝对流形边界版】多峰筹码断层雪崩引擎"""
+        """【V13.0.0 · 动能门控防爆版】多峰筹码断层雪崩引擎"""
         method_name="_calculate_multi_peak_avalanche_risk"
         required_signals=['is_multi_peak_D','chip_divergence_ratio_D','intraday_distribution_confidence_D','downtrend_strength_D','chip_entropy_D','chip_stability_change_5d_D','volatility_adjusted_concentration_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1307,11 +1311,12 @@ class ProcessIntelligence:
         ent=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
         stab_chg=self._get_safe_series(df,'chip_stability_change_5d_D',method_name=method_name)
         vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        core=mp*self._apply_zg(df_index,mp)
-        amp=1.0+(np.maximum(self._apply_norm(dist,100.0),self._apply_norm(down,100.0))+self._apply_norm(div,100.0)+self._apply_norm(ent,10.0)+np.tanh(self._apply_hab(df,'stab',stab_chg.diff(1).fillna(0),13)).clip(upper=0).abs()+(1.0-self._apply_norm(vac,100.0)))/5.0
+        env_risk=np.maximum(self._apply_norm(dist,100.0),self._apply_norm(down,100.0))
+        core=mp*env_risk*self._apply_zg(df_index,mp*env_risk)
+        amp=1.0+(self._apply_norm(div,100.0)+self._apply_norm(ent,10.0)+np.tanh(self._apply_hab(df,'stab',stab_chg.diff(1).fillna(0),13)).clip(upper=0).abs()+(1.0-self._apply_norm(vac,100.0)))/4.0
         raw=core*amp*(1.0+self._apply_kinematics(df,'chip_divergence_ratio_D',div,13).clip(lower=0))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'is_multi_peak_D':mp},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'is_multi_peak_D':mp,'downtrend_strength_D':down},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_sector_lifecycle_tailwind(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1358,7 +1363,7 @@ class ProcessIntelligence:
         return res
 
     def _calculate_high_pos_liquidity_squeeze(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【V12.0.0 · 绝对流形边界版】高位流动性真空轧空引擎"""
+        """【V13.0.0 · 动能门控防爆版】高位流动性真空轧空引擎"""
         method_name="_calculate_high_pos_liquidity_squeeze"
         required_signals=['price_percentile_position_D','high_position_lock_ratio_90_D','flow_persistence_minutes_D','short_term_chip_ratio_D','uptrend_strength_D','turnover_rate_f_D','chip_entropy_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1371,11 +1376,12 @@ class ProcessIntelligence:
         to=self._get_safe_series(df,'turnover_rate_f_D',method_name=method_name)
         c_ent=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
         pos_norm=np.tanh(perc/50.0) if perc.max()>1.0 else np.tanh(perc*2.0)
-        core=self._apply_norm(lock,1.0)*self._apply_zg(df_index,lock)
-        amp=1.0+(self._apply_norm(per,100.0)+(1.0-self._apply_norm(short,1.0))+self._apply_norm(up,100.0)+(1.0-self._apply_norm(to,10.0))+pos_norm.clip(lower=0)+(1.0-self._apply_norm(c_ent,10.0)))/6.0
+        up_norm=self._apply_norm(up,100.0)
+        core=self._apply_norm(lock,1.0)*pos_norm.clip(lower=0)*up_norm*self._apply_zg(df_index,lock*up_norm)
+        amp=1.0+(self._apply_norm(per,100.0)+(1.0-self._apply_norm(short,1.0))+(1.0-self._apply_norm(to,10.0))+(1.0-self._apply_norm(c_ent,10.0)))/4.0
         raw=(core*amp)**1.5*(1.0+self._apply_kinematics(df,'high_position_lock_ratio_90_D',lock,13).clip(lower=0))
         res=np.tanh(raw*2.0).clip(0,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'price_percentile_position_D':perc},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'price_percentile_position_D':perc,'uptrend_strength_D':up},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_institutional_structural_exit(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1423,7 +1429,7 @@ class ProcessIntelligence:
         return res
 
     def _calculate_hf_algo_manipulation_risk(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【V12.0.0 · 绝对流形边界版】高频算法诱骗崩塌防线"""
+        """【V13.0.0 · 动能门控防爆版】高频算法诱骗崩塌防线"""
         method_name="_calculate_hf_algo_manipulation_risk"
         required_signals=['high_freq_flow_skewness_D','high_freq_flow_kurtosis_D','large_order_anomaly_D','price_flow_divergence_D','intraday_price_distribution_skewness_D','tick_abnormal_volume_ratio_D','volatility_adjusted_concentration_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1435,11 +1441,11 @@ class ProcessIntelligence:
         pskew=self._get_safe_series(df,'intraday_price_distribution_skewness_D',method_name=method_name)
         abn=self._get_safe_series(df,'tick_abnormal_volume_ratio_D',method_name=method_name)
         vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        core=np.tanh(skew.abs()/10.0)*self._apply_zg(df_index,skew)
-        amp=1.0+(self._apply_norm(anom,1.0)+np.tanh(self._apply_hab(df,'div',div,21)).clip(lower=0)+np.tanh(self._apply_hab(df,'kurt',kurt,34)).clip(lower=0)+np.tanh(self._apply_hab(df,'mis',skew-pskew,13)).abs()+np.tanh(self._apply_hab(df,'abn',abn,21)).clip(lower=0)+(1.0-self._apply_norm(vac,100.0)))/6.0
+        core=(np.tanh(skew.abs()/10.0)*self._apply_norm(anom,1.0))**0.5*self._apply_zg(df_index,skew)*self._apply_zg(df_index,anom)
+        amp=1.0+(np.tanh(self._apply_hab(df,'div',div,21)).clip(lower=0)+np.tanh(self._apply_hab(df,'kurt',kurt,34)).clip(lower=0)+np.tanh(self._apply_hab(df,'mis',skew-pskew,13)).abs()+np.tanh(self._apply_hab(df,'abn',abn,21)).clip(lower=0)+(1.0-self._apply_norm(vac,100.0)))/5.0
         raw=core*amp*(1.0+self._apply_kinematics(df,'large_order_anomaly_D',anom,13).clip(upper=0).abs())
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'high_freq_flow_skewness_D':skew},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'high_freq_flow_skewness_D':skew,'large_order_anomaly_D':anom},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_ma_rubber_band_reversal(self, df: pd.DataFrame, config: Dict) -> pd.Series:
