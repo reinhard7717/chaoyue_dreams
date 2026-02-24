@@ -708,6 +708,32 @@ class ProcessIntelligence:
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'stealth_flow_ratio_D':stealth,'intraday_accumulation_confidence_D':acc_conf},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
+    def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """【V18.0.0 · 主辅解耦防爆版】吸筹末端质变拐点引擎"""
+        method_name="_calculate_accumulation_inflection"
+        required_signals=['PROCESS_META_COVERT_ACCUMULATION','PROCESS_META_DECEPTIVE_ACCUMULATION','PROCESS_META_PANIC_WASHOUT_ACCUMULATION','PROCESS_META_MAIN_FORCE_RALLY_INTENT','chip_convergence_ratio_D','price_vs_ma_21_ratio_D','flow_acceleration_intraday_D','flow_consistency_D','MA_POTENTIAL_COMPRESSION_RATE_D','MACDh_13_34_8_D','consolidation_quality_score_D','volatility_adjusted_concentration_D']
+        self._validate_required_signals(df,required_signals,method_name)
+        df_index=df.index
+        covert=self._get_atomic_score(df,'PROCESS_META_COVERT_ACCUMULATION',0.0).clip(lower=0)
+        decept=self._get_atomic_score(df,'PROCESS_META_DECEPTIVE_ACCUMULATION',0.0).clip(lower=0)
+        panic=self._get_atomic_score(df,'PROCESS_META_PANIC_WASHOUT_ACCUMULATION',0.0).clip(lower=0)
+        rally=self._get_atomic_score(df,'PROCESS_META_MAIN_FORCE_RALLY_INTENT',0.0).clip(lower=0)
+        c_conv=self._get_safe_series(df,'chip_convergence_ratio_D',method_name=method_name)
+        p_ma21=self._get_safe_series(df,'price_vs_ma_21_ratio_D',method_name=method_name).fillna(1.0)
+        f_accel=self._get_safe_series(df,'flow_acceleration_intraday_D',method_name=method_name)
+        f_cons=self._get_safe_series(df,'flow_consistency_D',method_name=method_name)
+        ma_comp=self._get_safe_series(df,'MA_POTENTIAL_COMPRESSION_RATE_D',method_name=method_name)
+        macd=self._get_safe_series(df,'MACDh_13_34_8_D',method_name=method_name)
+        consol=self._get_safe_series(df,'consolidation_quality_score_D',method_name=method_name)
+        vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
+        pot=((covert+decept+panic)/3.0).ewm(span=config.get('accumulation_window',21),adjust=False,min_periods=5).mean()
+        core=pot*self._apply_zg(df_index,pot)
+        amp=1.0+(self._apply_norm(consol,100.0)+self._apply_norm(c_conv,1.0)+(1.0-np.tanh(self._apply_hab(df,'pma',np.abs(p_ma21-1.0),21)).clip(lower=0)*0.5)+self._apply_norm(ma_comp,1.0)+self._apply_norm(vac,100.0)+np.tanh(self._apply_hab(df,'fa',f_accel,13)).clip(lower=0)+self._apply_norm(f_cons,100.0)+rally+np.tanh(self._apply_hab(df,'md',macd,13)).clip(lower=0))/9.0
+        raw=core*amp*(1.0+self._apply_kinematics(df,'chip_convergence_ratio_D',c_conv,13).clip(lower=0))
+        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).where(raw>=0.1,0.0).clip(0,1).fillna(0.0).astype(np.float32)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'consolidation_quality_score_D':consol},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        return res
+
     def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """【V24.0.0 · 极小比率感光增强版】输家绝地投降引擎"""
         method_name="_calculate_loser_capitulation"
