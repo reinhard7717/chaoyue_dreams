@@ -1173,8 +1173,9 @@ class ProcessIntelligence:
 
     def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V7.2.0 · 乘数反转补丁版】资金结构双极惩罚引擎
-        结构越弱（分值趋近0），资金领先的权重越大（1.0），保护主升浪暗流爆发能力。
+        【V7.2.3 · 零噪防爆修复版】资金结构单极机会引擎
+        彻底修复内联函数 sf 变量命名导致的 NameError 断层崩溃。
+        强行收敛至 [0, 1] 区间，输出纯正向的机会触发强度。
         """
         method_name="_calculate_ff_vs_structure_relationship"
         required_signals=['uptrend_strength_D','flow_consistency_D','ma_arrangement_status_D','chip_structure_state_D','industry_stagnation_score_D','large_order_anomaly_D','STATE_ROBUST_TREND_D','net_mf_amount_D','chip_stability_D','flow_momentum_13d_D']
@@ -1186,7 +1187,7 @@ class ProcessIntelligence:
             hab_col=f'HAB_{w}_{col}'
             if hab_col in df.columns: return df[hab_col].fillna(0.0).astype(np.float32)
             sf=s.ffill().fillna(0.0).replace([np.inf,-np.inf],0.0)
-            return ((sf-sf.rolling(w,min_periods=1).mean())/s_f.rolling(w,min_periods=1).std().replace(0,1e-5).fillna(1e-5)).fillna(0.0).astype(np.float32)
+            return ((sf-sf.rolling(w,min_periods=1).mean())/sf.rolling(w,min_periods=1).std().replace(0,1e-5).fillna(1e-5)).fillna(0.0).astype(np.float32)
         def _kinematics(col: str, s: pd.Series, w: int) -> pd.Series:
             sf=s.ffill().fillna(0.0).replace([np.inf,-np.inf],0.0)
             slope=df.get(f'SLOPE_{w}_{col}', sf.diff(w)/w).fillna(0.0)
@@ -1219,7 +1220,8 @@ class ProcessIntelligence:
         amp=u_penal*c_mult*(1.0+ma_s*0.5+chip_s*0.5)*(1.0+np.abs(k_up))*str_penalty
         raw=base_div*amp
         final_score=np.sign(raw)*(np.abs(raw)**1.5)
-        final_score=np.tanh(final_score).clip(-1,1).fillna(0.0).astype(np.float32)
+        # 单极机会信号，截断至 [0, 1] 区间
+        final_score=np.tanh(final_score).clip(0,1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'uptrend_strength_D':up,'large_order_anomaly_D':anom},calc_nodes={'amp':amp,'raw':raw},final_result=final_score)
         return final_score
 
