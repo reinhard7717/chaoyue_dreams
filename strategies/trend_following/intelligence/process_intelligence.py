@@ -534,12 +534,12 @@ class ProcessIntelligence:
 
     def _get_safe_array(self, df: pd.DataFrame, col_name: str, method_name: str = "") -> np.ndarray:
         """
-        【V306.0.0】极致数据萃取
-        修改要点：引入 ffill().bfill() 维持真实的时序物理连贯性，杜绝停牌或缺失的日线数据在 nan_to_num 下瞬间归零，避免引发动力学引擎的虚假暴跌加速度。
+        【V326.0.0 · 时空连贯性缝合版】极致数据萃取
+        修改要点：引入 ffill().bfill() 维持真实的时序物理连贯性，杜绝停牌或缺失的日线数据在 nan_to_num 下瞬间归零，避免在张量网络中引发虚假暴跌加速度脉冲。
         """
         if col_name not in df.columns:
             raise ValueError(f"[{method_name}] 致命数据断层: 缺失必需特征列 '{col_name}'。")
-        return np.nan_to_num(df[col_name].ffill().bfill().to_numpy(dtype=np.float32),nan=0.0,posinf=0.0,neginf=0.0)
+        return np.nan_to_num(df[col_name].ffill().bfill().to_numpy(dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
 
     def _get_atomic_array(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> np.ndarray:
         """【V300.0.0】提取原子信号为 Numpy 数组"""
@@ -550,12 +550,12 @@ class ProcessIntelligence:
 
     def _safe_div(self, a: np.ndarray, b: np.ndarray, fill_val: float = 0.0) -> np.ndarray:
         """
-        【V306.0.0】极速矩阵安全除法
-        修改要点：免疫底层微观奇点穿透。原逻辑仅拦截绝对零值(b==0.0)，现采用 np.abs(b)<1e-6 进行微观级强力拦截，防止浮点漂移极小值撕裂矩阵拓扑。
+        【V326.0.0 · 微观奇点免疫版】极速矩阵安全除法
+        修改要点：防范底层清洗遗漏的 1.42e-16 级浮点幽灵。原逻辑仅拦截绝对 0.0，现采用 np.abs(b)<1e-6 强力拦截微观奇点，防止超大数值撕裂 Tanh 梯度拓扑。
         """
-        mask=(np.abs(b)<1e-6)|np.isnan(b)
-        b_safe=np.where(mask,1.0,b)
-        return np.where(mask,fill_val,a/b_safe).astype(np.float32)
+        mask = (np.abs(b) < 1e-6) | np.isnan(b)
+        b_safe = np.where(mask, 1.0, b)
+        return np.where(mask, fill_val, a / b_safe).astype(np.float32)
 
     def _apply_zg(self, arr: np.ndarray) -> np.ndarray:
         """【V300.0.0】绝对零基防御门限 Numpy版"""
@@ -567,13 +567,13 @@ class ProcessIntelligence:
 
     def _apply_norm_adaptive(self, arr: np.ndarray) -> np.ndarray:
         """
-        【V306.0.0】智能自适应标度鲁棒版
-        修改要点：免疫数据毛刺引发的全局拓扑坍缩。彻底废除逐元素判断与最大值判断机制，引入 95% 分位数计算序列基准稳态，实现对极端异常脉冲的统计学防爆。
+        【V326.0.0 · 极限算力自适应标度版】智能自适应标度鲁棒版
+        修改要点：废除极易导致拓扑坍缩的逐元素 np.where 判断。采用全局绝对极大值法，只要整条序列历史中存在超过 2.0 的真实数据，即刻判定为百分比标度进行全局统一降维，完美保全时空特征的微观连续性，且比分位数计算省算力。
         """
-        sf=np.nan_to_num(arr,nan=0.0,posinf=0.0,neginf=0.0)
-        if len(sf)>0 and np.percentile(np.abs(sf),95)>2.0:
-            sf=sf/100.0
-        return np.clip(sf,0.0,1.0).astype(np.float32)
+        sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        if len(sf) > 0 and np.max(np.abs(sf)) > 2.0:
+            sf = sf / 100.0
+        return np.clip(sf, 0.0, 1.0).astype(np.float32)
 
     def _apply_hab(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
         """【V300.0.0】Numba 加速多维HAB历史缓冲池"""
@@ -587,31 +587,31 @@ class ProcessIntelligence:
 
     def _apply_kinematics(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
         """
-        【V306.0.0】三阶动力学张量引擎
-        修改要点：修复差分计算时减去未初始化 0.0 区间的物理因果律漏洞，通过严格向后推移计算切片游标 (2w, 3w)，根除脉冲污染。
+        【V326.0.0 · 因果律锚定版】三阶动力学张量引擎
+        修改要点：修复高阶差分计算时越界减去 0.0 虚无区间的因果律穿越BUG。严格要求二阶加速度 ac 切片推移至 2w，三阶 jk 切片推移至 3w，彻底将动力学网络底噪清零。
         """
-        sf=np.nan_to_num(arr,nan=0.0,posinf=0.0,neginf=0.0)
-        n=len(sf)
-        sl_series=df.get(f'SLOPE_{w}_{col_name}')
+        sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        n = len(sf)
+        sl_series = df.get(f'SLOPE_{w}_{col_name}')
         if sl_series is not None:
-            sl=np.nan_to_num(sl_series.to_numpy(dtype=np.float32),nan=0.0)
+            sl = np.nan_to_num(sl_series.to_numpy(dtype=np.float32), nan=0.0)
         else:
-            sl=np.zeros(n,dtype=np.float32)
-            if n>w: sl[w:]=(sf[w:]-sf[:-w])/w
-        ac_series=df.get(f'ACCEL_{w}_{col_name}')
+            sl = np.zeros(n, dtype=np.float32)
+            if n > w: sl[w:] = (sf[w:] - sf[:-w]) / w
+        ac_series = df.get(f'ACCEL_{w}_{col_name}')
         if ac_series is not None:
-            ac=np.nan_to_num(ac_series.to_numpy(dtype=np.float32),nan=0.0)
+            ac = np.nan_to_num(ac_series.to_numpy(dtype=np.float32), nan=0.0)
         else:
-            ac=np.zeros(n,dtype=np.float32)
-            if n>2*w: ac[2*w:]=(sl[2*w:]-sl[w:-w])/w
-        jk_series=df.get(f'JERK_{w}_{col_name}')
+            ac = np.zeros(n, dtype=np.float32)
+            if n > 2*w: ac[2*w:] = (sl[2*w:] - sl[w:-w]) / w
+        jk_series = df.get(f'JERK_{w}_{col_name}')
         if jk_series is not None:
-            jk=np.nan_to_num(jk_series.to_numpy(dtype=np.float32),nan=0.0)
+            jk = np.nan_to_num(jk_series.to_numpy(dtype=np.float32), nan=0.0)
         else:
-            jk=np.zeros(n,dtype=np.float32)
-            if n>3*w: jk[3*w:]=(ac[3*w:]-ac[2*w:-w])/w
-        ts=np.where(np.abs(sl)<1e-4,0.0,sl)+np.where(np.abs(ac)<1e-4,0.0,ac)*0.5+np.where(np.abs(jk)<1e-4,0.0,jk)*0.25
-        return np.nan_to_num(np.clip(np.tanh(np.clip(ts,-20.0,20.0)*10.0),-1.0,1.0),nan=0.0).astype(np.float32)
+            jk = np.zeros(n, dtype=np.float32)
+            if n > 3*w: jk[3*w:] = (ac[3*w:] - ac[2*w:-w]) / w
+        ts = np.where(np.abs(sl) < 1e-4, 0.0, sl) + np.where(np.abs(ac) < 1e-4, 0.0, ac) * 0.5 + np.where(np.abs(jk) < 1e-4, 0.0, jk) * 0.25
+        return np.nan_to_num(np.clip(np.tanh(np.clip(ts, -20.0, 20.0) * 10.0), -1.0, 1.0), nan=0.0).astype(np.float32)
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         method_name="_diagnose_signal_decay"
@@ -1113,8 +1113,8 @@ class ProcessIntelligence:
 
     def _calculate_price_vs_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V306.0.0】价势多维背离引擎
-        修改要点：修复致命的“轨道压制悖论”。原代码 `orbit_suppression = 1.0 - tanh` 将高动量(高ROC)时的真实风险背离信号强行压缩到接近0，导致系统在主升浪狂飙期无视顶背离。现重构为 orbit_activation，在泡沫最大时火力全开拦截风险。
+        【V326.0.0 · 物理象限坍缩防御版】价势多维背离引擎
+        修改要点：修复“同向上涨却被误判为背离风险”的灾难。强制引入同号相乘隔离：顶背离(负向差值)必须发生在动能超买区且两者反向运动；底背离同理。任何趋势同向的指标差速，均被截断为 0，拒绝由于加速度不同产生的无病呻吟。
         """
         method_name="_calculate_price_vs_momentum_divergence"
         required_signals=['close_D','ROC_13_D','VPA_EFFICIENCY_D','PRICE_ENTROPY_D','net_mf_amount_D','turnover_rate_f_D','GEOM_REG_SLOPE_D','GEOM_REG_R2_D','BIAS_21_D','GEOM_ARC_CURVATURE_D','market_sentiment_score_D','volatility_adjusted_concentration_D','amount_D']
@@ -1137,21 +1137,25 @@ class ProcessIntelligence:
         cls_smooth=np.where(_jit_rolling_mean(cls,13)==0.0,1.0,_jit_rolling_mean(cls,13))
         p_kin=self._apply_kinematics(df,'close_D_scaled',self._safe_div(cls,cls_smooth,1.0)*10.0,13)
         roc_kin=self._apply_kinematics(df,'ROC_13_D_scaled',roc/100.0,13)
-        is_true_div=(np.sign(p_kin)*np.sign(roc_kin))<0
-        phase_mask=np.where(is_true_div,1.0,0.2)
-        kinematic_div=(roc_kin-p_kin)*phase_mask
+        top_div=np.where((p_kin>0.0)&(roc_kin<0.0),p_kin-roc_kin,0.0)
+        bot_div=np.where((p_kin<0.0)&(roc_kin>0.0),roc_kin-p_kin,0.0)
+        kinematic_div=(bot_div-top_div)
         c_diff=np.zeros_like(cls)
         c_diff[1:]=cls[1:]-cls[:-1]
         p_vel=np.tanh(self._safe_div(c_diff,cls,0.0)*10.0)
-        energy_div=(np.tanh(vpa*5.0)+np.tanh(self._safe_div(mf,amt,0.0)*50.0))/2.0-p_vel
-        geom_tension=(np.tanh(self._apply_hab(df,'arc',arc,21))-np.tanh(self._apply_hab(df,'bias',bias,21)))*0.5*(1.0+self._apply_norm(r2,1.0))
-        raw_div=(kinematic_div*0.4+energy_div*0.3+geom_tension*0.3)
+        e_vel=(np.tanh(vpa*5.0)+np.tanh(self._safe_div(mf,amt,0.0)*50.0))/2.0
+        e_top_div=np.where((p_vel>0.0)&(e_vel<0.0),p_vel-e_vel,0.0)
+        e_bot_div=np.where((p_vel<0.0)&(e_vel>0.0),e_vel-p_vel,0.0)
+        energy_div=(e_bot_div-e_top_div)
+        geom_tension=(np.tanh(self._apply_hab(df,'bias',bias,21))-np.tanh(self._apply_hab(df,'arc',arc,21)))*0.5*(1.0+self._apply_norm(r2,1.0))
+        raw_div=(kinematic_div*0.4+energy_div*0.3-geom_tension*0.3)
+        div_physics_gate=np.where(roc>0,np.minimum(raw_div,0.0),np.maximum(raw_div,0.0)).astype(np.float32)
         orbit_activation=np.tanh(np.abs(roc)/20.0)
-        core=raw_div*self._apply_zg(roc)*orbit_activation
+        core=div_physics_gate*self._apply_zg(roc)*orbit_activation
         amp=1.0+(np.abs(np.tanh(roc/10.0))+np.abs(self._apply_norm(sent,100.0))+self._apply_norm(ent,10.0)+self._apply_norm(vac,100.0))/4.0
         raw=core*amp
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc,'VPA_EFFICIENCY_D':vpa},calc_nodes={'kinematic_div':kinematic_div,'orbit_activation':orbit_activation,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc,'VPA_EFFICIENCY_D':vpa},calc_nodes={'kinematic_div':kinematic_div,'div_physics_gate':div_physics_gate,'orbit_activation':orbit_activation,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1357,8 +1361,12 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_mtf_fractal_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V326.0.0 · 绝对趋势极化版】多维时空分形共振引擎
+        修改要点：修复“暴跌共振误判”。引入 up_penalty 强制约束，只有在上涨趋势 (uptrend_strength) 支撑下的共振，才被允许激活为单极机会信号，防止在连环跌停时因为向下高度共振而满仓接刀。
+        """
         method_name="_calculate_mtf_fractal_resonance"
-        required_signals=['daily_weekly_sync_D','daily_monthly_sync_D','PRICE_FRACTAL_DIM_D','uptrend_continuation_prob_D','mid_long_sync_D','short_mid_sync_D','market_sentiment_score_D']
+        required_signals=['daily_weekly_sync_D','daily_monthly_sync_D','PRICE_FRACTAL_DIM_D','uptrend_continuation_prob_D','mid_long_sync_D','short_mid_sync_D','market_sentiment_score_D','uptrend_strength_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         dw_sync=self._get_safe_array(df,'daily_weekly_sync_D',method_name=method_name)
@@ -1368,11 +1376,13 @@ class ProcessIntelligence:
         fractal_dim=self._get_safe_array(df,'PRICE_FRACTAL_DIM_D',method_name=method_name)
         prob=self._get_safe_array(df,'uptrend_continuation_prob_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
-        core=self._apply_norm(dw_sync+dm_sync+ml_sync+sm_sync,400.0)*self._apply_zg(dw_sync)
+        up=self._get_safe_array(df,'uptrend_strength_D',method_name=method_name)
+        up_penalty=self._apply_norm(up,50.0)
+        core=self._apply_norm(dw_sync+dm_sync+ml_sync+sm_sync,400.0)*self._apply_zg(dw_sync)*up_penalty
         amp=1.0+((1.0-self._apply_norm(fractal_dim,2.0))+self._apply_norm(prob,100.0)+self._apply_norm(sent,100.0))/3.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'daily_weekly_sync_D_scaled',dw_sync/100.0,13),0.0))
         res=np.clip(np.tanh(raw**1.5),0.0,1.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'daily_weekly_sync_D':dw_sync},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'daily_weekly_sync_D':dw_sync,'uptrend_strength_D':up},calc_nodes={'core':core,'amp':amp,'up_penalty':up_penalty,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_intraday_siege_exhaustion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1578,8 +1588,8 @@ class ProcessIntelligence:
 
     def _calculate_time_asymmetry_trap(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V306.0.0】时间非对称陷阱
-        修改要点：加入净流向符号 (net_mf_amount_D)。修复在全局深水大逃亡（净流出）时，仅仅因为午后抛压极大（高占比）就被错算为“正向午后吸筹做多”的毁灭性逻辑漏洞。
+        【V326.0.0 · 杀猪盘极性纠偏版】时间非对称陷阱
+        修改要点：彻底修复“负负得正”的逻辑自杀漏洞。摒弃 flow_sign 相乘。直接使用 np.where 极性隔离：只要主力净流出(mf<0)，无论是早盘杀还是尾盘跳水诱多(差值正负皆可)，均取其非对称程度的绝对值，施加严格的负分风险惩罚 (-1.0)。
         """
         method_name="_calculate_time_asymmetry_trap"
         required_signals=['morning_flow_ratio_D','afternoon_flow_ratio_D','intraday_peak_valley_ratio_D','profit_pressure_D','closing_flow_ratio_D','high_freq_flow_divergence_D','VPA_EFFICIENCY_D','net_mf_amount_D']
@@ -1593,20 +1603,24 @@ class ProcessIntelligence:
         hd=self._get_safe_array(df,'high_freq_flow_divergence_D',method_name=method_name)
         vpa=self._get_safe_array(df,'VPA_EFFICIENCY_D',method_name=method_name)
         mf=self._get_safe_array(df,'net_mf_amount_D',method_name=method_name)
-        flow_sign=np.where(mf>=0,1.0,-1.0).astype(np.float32)
-        diff=(afternoon+closing*0.5-morning*1.5)*flow_sign
-        core=np.tanh(diff/100.0)*self._apply_zg(diff)
+        afternoon_dominance=afternoon+closing*0.5-morning*1.5
+        core=np.where(mf<0.0,-np.abs(np.tanh(afternoon_dominance/100.0)),np.tanh(afternoon_dominance/100.0)).astype(np.float32)
+        core=core*self._apply_zg(afternoon_dominance)
         risk_amp=self._apply_norm(pv,10.0)+self._apply_norm(pp,100.0)+np.maximum(np.tanh(self._apply_hab(df,'hd',hd,21)),0.0)
         opp_amp=np.tanh(np.abs(vpa)*5.0)*3.0
-        amp=1.0+np.where(core<0,risk_amp/3.0,opp_amp/2.0)
+        amp=1.0+np.where(core<0.0,risk_amp/3.0,opp_amp/2.0)
         raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'morning_flow_ratio_D_scaled',morning/100.0,13)))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'morning_flow_ratio_D':morning,'afternoon_flow_ratio_D':afternoon,'net_mf_amount_D':mf},calc_nodes={'flow_sign':flow_sign,'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'morning_flow_ratio_D':morning,'afternoon_flow_ratio_D':afternoon,'net_mf_amount_D':mf},calc_nodes={'afternoon_dominance':afternoon_dominance,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_high_pos_liquidity_squeeze(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V326.0.0 · 逼空前置约束版】高位流动性轧空引擎
+        修改要点：高位锁仓如果发生在深跌结构初期，那叫“高位筹码套牢死扛”而非流动性轧空。现已加入 up_penalty 乘数门控，并使用 mf_gate 过滤主力净流出时的假锁仓真派发，确保只有在狂暴主升浪且主力资金未溃散的背景下，才能激活轧空。
+        """
         method_name="_calculate_high_pos_liquidity_squeeze"
-        required_signals=['price_percentile_position_D','high_position_lock_ratio_90_D','flow_persistence_minutes_D','short_term_chip_ratio_D','uptrend_strength_D','turnover_rate_f_D','chip_entropy_D']
+        required_signals=['price_percentile_position_D','high_position_lock_ratio_90_D','flow_persistence_minutes_D','short_term_chip_ratio_D','uptrend_strength_D','turnover_rate_f_D','chip_entropy_D','net_mf_amount_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         perc=self._get_safe_array(df,'price_percentile_position_D',method_name=method_name)
@@ -1616,14 +1630,17 @@ class ProcessIntelligence:
         up=self._get_safe_array(df,'uptrend_strength_D',method_name=method_name)
         to=self._get_safe_array(df,'turnover_rate_f_D',method_name=method_name)
         c_ent=self._get_safe_array(df,'chip_entropy_D',method_name=method_name)
+        mf=self._get_safe_array(df,'net_mf_amount_D',method_name=method_name)
         pos_norm=self._apply_norm_adaptive(perc)
         lock_norm=self._apply_norm_adaptive(lock)
         to_penalty=np.tanh(to/15.0)
-        core=lock_norm*np.maximum(pos_norm,0.0)*(1.0-to_penalty)*self._apply_zg(lock)
+        up_penalty=self._apply_norm(up,50.0)
+        mf_gate=np.where(mf<0.0,0.0,1.0).astype(np.float32)
+        core=lock_norm*np.maximum(pos_norm,0.0)*(1.0-to_penalty)*self._apply_zg(lock)*up_penalty*mf_gate
         amp=1.0+(self._apply_norm(up,100.0)+self._apply_norm(per,100.0)+(1.0-self._apply_norm(short,1.0))+(1.0-self._apply_norm(c_ent,10.0)))/4.0
         raw=(core*amp)**1.5*(1.0+np.maximum(self._apply_kinematics(df,'high_position_lock_ratio_90_D_scaled',lock_norm,13),0.0))
         res=np.clip(np.tanh(raw*2.0),0.0,1.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'price_percentile_position_D':perc,'high_position_lock_ratio_90_D':lock,'turnover_rate_f_D':to},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'price_percentile_position_D':perc,'high_position_lock_ratio_90_D':lock,'turnover_rate_f_D':to},calc_nodes={'core':core,'amp':amp,'up_penalty':up_penalty,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_institutional_structural_exit(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1662,8 +1679,8 @@ class ProcessIntelligence:
 
     def _calculate_institutional_sweep(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V306.0.0】机构超大单扫货
-        修改要点：引入 mf_gate 净流绝对门控。防止系统成为对倒出货诱多盘的接盘侠。当全局主力资金深度流出时，直接削弱或没收因对倒毛买入单而产生的虚假核武得分。
+        【V326.0.0 · 净流绝对斩首版】机构特大单扫货
+        修改要点：将 mf_gate 的负向兜底从 0.1 彻底切断至 0.0。绝不允许在全局主力资金深度净流出 (net_mf_amount < 0) 的派发日，被游资左手倒右手的对倒大买单诱骗出虚假的 T0 级看多核武。
         """
         method_name="_calculate_institutional_sweep"
         required_signals=['buy_elg_amount_D','buy_lg_amount_D','amount_D','tick_chip_transfer_efficiency_D','flow_consistency_D','net_mf_amount_D','flow_impact_ratio_D','market_sentiment_score_D']
@@ -1679,7 +1696,7 @@ class ProcessIntelligence:
         imp=self._get_safe_array(df,'flow_impact_ratio_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
         buy_ratio=self._safe_div(buy_elg+buy_lg*0.5,amt,0.0)
-        mf_gate=np.where(mf<0.0,0.1,1.0).astype(np.float32)
+        mf_gate=np.where(mf<0.0,0.0,1.0).astype(np.float32)
         sweep_gate=np.where(buy_ratio>0.03,1.0,0.0).astype(np.float32)
         core=self._apply_norm(buy_ratio,0.1)*self._apply_zg(buy_ratio)*mf_gate*sweep_gate
         amp=1.0+(np.maximum(np.tanh(self._apply_hab(df,'mf',mf,55)),0.0)+self._apply_norm(tr,1e6)+self._apply_norm(cons,100.0)+self._apply_norm(imp,10.0)+self._apply_norm(sent,100.0))/5.0
@@ -1746,11 +1763,11 @@ class ProcessIntelligence:
 
     def _calculate_geometric_trend_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V302.0.0 · 极限算力热修复版】几何流形趋势共振引擎
-        修改要点: 移除废弃的 df_index 传参，剥离 Pandas 逻辑。
+        【V326.0.0 · 趋势上下文约束版】几何流形趋势共振引擎
+        修改要点：作为双极(Bipolar)信号，正斜率绝不等于安全做多(可能是主跌浪反抽死猫跳)。已嵌入 trend_context 乘数，正斜率必须接受 uptrend 验证，负斜率必须受 downtrend 放大，彻底杜绝逆势盲目做多。
         """
         method_name="_calculate_geometric_trend_resonance"
-        required_signals=['GEOM_REG_R2_D','GEOM_REG_SLOPE_D','GEOM_ARC_CURVATURE_D','GEOM_CHANNEL_POS_D','PRICE_FRACTAL_DIM_D','trend_confirmation_score_D','volatility_adjusted_concentration_D','close_D']
+        required_signals=['GEOM_REG_R2_D','GEOM_REG_SLOPE_D','GEOM_ARC_CURVATURE_D','GEOM_CHANNEL_POS_D','PRICE_FRACTAL_DIM_D','trend_confirmation_score_D','volatility_adjusted_concentration_D','close_D','uptrend_strength_D','downtrend_strength_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         r2=self._get_safe_array(df,'GEOM_REG_R2_D',method_name=method_name)
@@ -1762,13 +1779,19 @@ class ProcessIntelligence:
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
         cls=self._get_safe_array(df,'close_D',method_name=method_name)
         cls=np.where(cls==0.0,1.0,cls)
+        up=self._get_safe_array(df,'uptrend_strength_D',method_name=method_name)
+        down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
         slope_ratio=self._safe_div(slope,cls,0.0)*100.0
-        # [V302.0.0] 移除 df_index 传参
-        core=np.tanh(slope_ratio/10.0)*self._apply_norm(r2,1.0)*self._apply_zg(slope)*self._apply_zg(r2)
+        trend_context=np.where(slope>0,self._apply_norm(up,50.0),self._apply_norm(down,50.0)).astype(np.float32)
+        core=np.tanh(slope_ratio/10.0)*self._apply_norm(r2,1.0)*self._apply_zg(slope)*self._apply_zg(r2)*trend_context
         dyn=np.tanh(self._apply_hab(df,'curv',curv,21))-(self._apply_norm(pos,1.0)-0.5)*2.0*0.3
         amp=1.0+((1.0-self._apply_norm(frac,2.0))+self._apply_norm(conf,100.0)+np.maximum(dyn,0.0)+self._apply_norm(vac,100.0))/4.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'GEOM_REG_SLOPE_D_scaled',slope_ratio/10.0,13),0.0))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GEOM_REG_SLOPE_D':slope,'GEOM_REG_R2_D':r2},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GEOM_REG_SLOPE_D':slope,'GEOM_REG_R2_D':r2},calc_nodes={'core':core,'amp':amp,'trend_context':trend_context,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
+
+
+
+
 
