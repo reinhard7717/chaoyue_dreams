@@ -754,9 +754,9 @@ class ProcessIntelligence:
 
     def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V331.0.0 · 博弈极性回滚修正版】
+        【V332.0.0 · 博弈极性校准版】
         用途：博弈背离确认引擎。
-        修改要点：拨乱反正！_calculate_instantaneous_relationship 的原版输出已完美契合 Bipolar 极性(顶背离=负数，底背离=正数)。移除上一版本画蛇添足的符号翻转，确保其向主脑输出绝对正确的引力方向。
+        修改要点：坚守 Bipolar 规则（正为机会，负为风险），底层 _calculate_instantaneous_relationship 的顶背离本就是负值，底背离本就是正值。绝对禁止人为添加负号反转导致主脑判决颠倒。
         """
         method_name="_calculate_pd_divergence_relationship"
         required_signals=['game_intensity_D','weight_avg_cost_D','close_D','intraday_chip_game_index_D','chip_divergence_ratio_D','winner_rate_D','high_freq_flow_kurtosis_D','chip_entropy_D','turnover_rate_f_D']
@@ -771,11 +771,11 @@ class ProcessIntelligence:
         hf_kurt=self._get_safe_array(df,'high_freq_flow_kurtosis_D',method_name=method_name)
         c_ent=self._get_safe_array(df,'chip_entropy_D',method_name=method_name)
         turnover=self._get_safe_array(df,'turnover_rate_f_D',method_name=method_name)
-        # [V331.0.0] 恢复原汁原味的 Bipolar 矢量输出，不进行翻转
+        # [V332.0.0] 恢复原汁原味的 Bipolar 矢量输出，不进行翻转
         base_div=self._calculate_instantaneous_relationship(df,config).to_numpy(dtype=np.float32)
         core=base_div*self._apply_norm(game,1.0)*self._apply_zg(game)
         price_adv=np.tanh(self._safe_div(close_p-cost,cost,0.0)*10.0)
-        # Bipolar放大器：顶背离且处于高位放大；底背离且处于低位放大
+        # Bipolar放大器：顶背离(base_div<0)且处于高位(price_adv>0)时放大；底背离(base_div>0)且处于低位(price_adv<0)时放大
         p_lev=np.maximum(1.0-price_adv*np.sign(base_div),0.1)
         amp=1.0+(self._apply_norm(winner,100.0)+self._apply_norm(intra_game,100.0)+self._apply_norm(chip_div,100.0)+np.maximum(np.tanh(self._apply_hab(df,'kurt',hf_kurt,21)),0.0)+(1.0-self._apply_norm(c_ent,10.0))+self._apply_norm(turnover,10.0))/6.0
         raw=core*p_lev*amp*(1.0+np.abs(self._apply_kinematics(df,'game_intensity_D_scaled',game,13)))
@@ -1147,7 +1147,7 @@ class ProcessIntelligence:
         """
         【V332.0.0 · 第一性原理极性绝对纠偏版】
         用途：诊断价格趋势位移与动能张量的多维非线性背离。
-        修改要点：强力修复重大极性反噬遗漏！在 Bipolar 机制中，机会必须为正，风险必须为负。现利用第一性原理的自然对齐极性：顶背离(roc_kin - p_kin)自然生成负向张量，底背离自然生成正向张量。同时采用严密的 np.where 强门控，彻底杜绝高位超买区报出正分的“指鹿为马”。
+        修改要点：强力修复重大极性反噬遗漏！在 Bipolar 机制中，机会必须为正，风险必须为负。现利用第一性原理的自然对齐极性：顶背离(roc_kin - p_kin)自然生成负向张量，底背离(roc_kin - p_kin)自然生成正向张量。同时采用严密的 np.where 强门控，彻底杜绝高位超买区报出正分的“指鹿为马”。
         """
         method_name="_calculate_price_vs_momentum_divergence"
         required_signals=['close_D','ROC_13_D','VPA_EFFICIENCY_D','PRICE_ENTROPY_D','net_mf_amount_D','turnover_rate_f_D','GEOM_REG_SLOPE_D','GEOM_REG_R2_D','BIAS_21_D','GEOM_ARC_CURVATURE_D','market_sentiment_score_D','volatility_adjusted_concentration_D','amount_D']
@@ -1167,38 +1167,30 @@ class ProcessIntelligence:
         arc=self._get_safe_array(df,'GEOM_ARC_CURVATURE_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        
         cls_smooth=np.where(_jit_rolling_mean(cls,13)==0.0,1.0,_jit_rolling_mean(cls,13))
         p_kin=self._apply_kinematics(df,'close_D_scaled',self._safe_div(cls,cls_smooth,1.0)*10.0,13)
         roc_kin=self._apply_kinematics(df,'ROC_13_D_scaled',roc/100.0,13)
-        
         # [V332.0.0] 极性第一性原理对齐：
-        # 顶背离(风险)：动能减弱(roc_kin<0) 减 价格上涨(p_kin>0) = 负向张量
+        # 顶背离(风险)：动能减弱(roc_kin<0) 减去 价格上涨(p_kin>0) = 天然的负向张量
         top_div=np.where((p_kin>0.0)&(roc_kin<0.0), roc_kin-p_kin, 0.0) 
-        # 底背离(机会)：动能增强(roc_kin>0) 减 价格下跌(p_kin<0) = 正向张量
+        # 底背离(机会)：动能增强(roc_kin>0) 减去 价格下跌(p_kin<0) = 天然的正向张量
         bot_div=np.where((p_kin<0.0)&(roc_kin>0.0), roc_kin-p_kin, 0.0) 
-        kinematic_div=top_div+bot_div
-        
+        kinematic_div = top_div + bot_div
         c_diff=np.zeros_like(cls)
         c_diff[1:]=cls[1:]-cls[:-1]
         p_vel=np.tanh(self._safe_div(c_diff,cls,0.0)*10.0)
         e_vel=(np.tanh(vpa*5.0)+np.tanh(self._safe_div(mf,amt,0.0)*50.0))/2.0
-        
-        # 同理，量价能量背离极性对齐
+        # 同理，量价能量背离极性同步对齐
         e_top_div=np.where((p_vel>0.0)&(e_vel<0.0), e_vel-p_vel, 0.0) # 负向张量
         e_bot_div=np.where((p_vel<0.0)&(e_vel>0.0), e_vel-p_vel, 0.0) # 正向张量
-        energy_div=e_top_div+e_bot_div
-        
-        # 高位张力过大也是风险，生成负分惩罚
+        energy_div = e_top_div + e_bot_div
+        # 高位张力过大是绝对风险，直接生成负分惩罚
         geom_tension=(np.tanh(self._apply_hab(df,'bias',bias,21))-np.tanh(self._apply_hab(df,'arc',arc,21)))*0.5*(1.0+self._apply_norm(r2,1.0))
         geom_penalty=-np.maximum(geom_tension, 0.0)
-        
         raw_div=(kinematic_div*0.4 + energy_div*0.3 + geom_penalty*0.3)
-        
-        # [V332.0.0] 绝对门控：多头超买区(roc>0)只允许输出负数风险，空头超卖区(roc<=0)只允许输出正数机会
+        # 绝对物理门控：多头超买区(roc>0)只允许输出负数风险，空头超卖区(roc<=0)只允许输出正数机会
         div_physics_gate=np.where(roc>0, np.minimum(raw_div, 0.0), np.maximum(raw_div, 0.0)).astype(np.float32)
         orbit_activation=np.tanh(np.abs(roc)/20.0)
-        
         core=div_physics_gate*self._apply_zg(roc)*orbit_activation
         amp=1.0+(np.abs(np.tanh(roc/10.0))+np.abs(self._apply_norm(sent,100.0))+self._apply_norm(ent,10.0)+self._apply_norm(vac,100.0))/4.0
         raw=core*amp
@@ -1257,18 +1249,14 @@ class ProcessIntelligence:
         down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
         ent=self._get_safe_array(df,'chip_entropy_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
-        
         bc=self._calculate_instantaneous_relationship(df,config).to_numpy(dtype=np.float32)
-        # Unipolar 风险：由于系统框架通过负权重转化为风险，这里取正分送出
+        # Unipolar 风险：由于系统框架通过负权重转化为风险，这里强制取正分送出
         core=np.where(bc<0.0,-bc,0.0)*self._apply_zg(bc)
-        
         amp=1.0+(self._apply_norm(prof,100.0)+self._apply_norm(win,100.0)+np.abs(np.tanh(self._apply_hab(df,'mn',mean,13)))+self._apply_norm(kurt,100.0)+self._apply_norm(vac,100.0)+self._apply_norm(down,100.0)+self._apply_norm(ent,10.0)+(1.0-self._apply_norm(sent,100.0)))/8.0
         roc_k=self._apply_kinematics(df,'ROC_13_D_scaled',roc/100.0,13)
-        
         # [V332.0.0] 取消硬锁，替换为恶化催化剂，防止逼空期盲区
         roc_catalyst=np.where((roc<0.0)|(roc_k<0.0),1.5,1.0).astype(np.float32)
         raw=core*amp*(1.0+np.abs(roc_k))*roc_catalyst
-        
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc},calc_nodes={'roc_k':roc_k,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
