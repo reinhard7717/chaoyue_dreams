@@ -618,7 +618,6 @@ class ProcessIntelligence:
             if source_signal_name not in df.columns: return {}
             source_series=df[source_signal_name].astype(np.float32)
         if source_series is None: return {}
-        
         arr=np.nan_to_num(source_series.to_numpy(dtype=np.float32),nan=0.0)
         diff_arr=np.zeros_like(arr)
         diff_arr[1:]=arr[1:]-arr[:-1]
@@ -626,7 +625,6 @@ class ProcessIntelligence:
         local_std=np.sqrt(_jit_rolling_std(arr,21)**2+1e-5)
         relative_decay=self._safe_div(decay_magnitude,local_std,0.0)
         decay_score=np.clip(np.tanh(relative_decay*1.5),0.0,1.0)
-        
         if is_debug_enabled and self.probe_dates:
             self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'source':arr},calc_nodes={'signal_change':diff_arr,'relative_decay':relative_decay},final_result=decay_score)
         return {signal_name:pd.Series(decay_score,index=df_index,dtype=np.float32)}
@@ -1040,32 +1038,37 @@ class ProcessIntelligence:
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V35.0.0】价资协同双向剥离
-        修改要点: 修正 VPA_EFFICIENCY_D 标度失真。
+        【V301.0.0 · 极限算力补丁版】价资协同双向剥离
+        修改要点: 修复上一轮遗漏的 numpy 向量化改造，彻底对齐 _apply_zg 签名(移除 df_index)，并修正 numpy 的 abs 调用错误。
         """
         method_name="_calculate_pf_relationship"
         required_signals=['net_mf_amount_D','close_D','price_vs_ma_13_ratio_D','main_force_activity_index_D','flow_momentum_13d_D','flow_impact_ratio_D','tick_chip_transfer_efficiency_D','VPA_EFFICIENCY_D','amount_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
-        mf=self._get_safe_series(df,'net_mf_amount_D',method_name=method_name)
-        cls=self._get_safe_series(df,'close_D',method_name=method_name)
-        pm=self._get_safe_series(df,'price_vs_ma_13_ratio_D',method_name=method_name).fillna(1.0)
-        act=self._get_safe_series(df,'main_force_activity_index_D',method_name=method_name)
-        fm=self._get_safe_series(df,'flow_momentum_13d_D',method_name=method_name)
-        imp=self._get_safe_series(df,'flow_impact_ratio_D',method_name=method_name)
-        tr=self._get_safe_series(df,'tick_chip_transfer_efficiency_D',method_name=method_name)
-        vpa=self._get_safe_series(df,'VPA_EFFICIENCY_D',method_name=method_name)
-        amt=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
-        c_diff=pd.Series(np.where(cls.diff(1).fillna(0.0).abs()<1e-4,0.0,cls.diff(1).fillna(0.0)),index=df_index)
-        mf_ratio=(mf/amt).fillna(0.0)
-        price_force=np.tanh((c_diff/cls.replace(0,np.nan).fillna(1.0)).fillna(0.0)*20.0)
+        mf=self._get_safe_array(df,'net_mf_amount_D',method_name=method_name)
+        cls=self._get_safe_array(df,'close_D',method_name=method_name)
+        pm=self._get_safe_array(df,'price_vs_ma_13_ratio_D',method_name=method_name)
+        pm=np.where(pm==0.0,1.0,pm)
+        act=self._get_safe_array(df,'main_force_activity_index_D',method_name=method_name)
+        fm=self._get_safe_array(df,'flow_momentum_13d_D',method_name=method_name)
+        imp=self._get_safe_array(df,'flow_impact_ratio_D',method_name=method_name)
+        tr=self._get_safe_array(df,'tick_chip_transfer_efficiency_D',method_name=method_name)
+        vpa=self._get_safe_array(df,'VPA_EFFICIENCY_D',method_name=method_name)
+        amt=self._get_safe_array(df,'amount_D',method_name=method_name)
+        amt=np.where(amt==0.0,1.0,amt)
+        c_diff=np.zeros_like(cls)
+        c_diff[1:]=cls[1:]-cls[:-1]
+        mf_ratio=self._safe_div(mf,amt,0.0)
+        price_force=np.tanh(self._safe_div(c_diff,cls,0.0)*20.0)
         mf_force=np.tanh(mf_ratio*50.0)
-        core=(price_force*0.5+mf_force*0.5)*self._apply_zg(df_index,np.abs(price_force)+np.abs(mf_force))
-        amp=1.0+(self._apply_norm(act,100.0)+np.tanh(self._apply_hab(df,'fm',fm,13)).clip(lower=0)+np.tanh(self._apply_hab(df,'imp',imp,21)).clip(lower=0)+np.tanh(self._apply_hab(df,'tr',tr,21)).clip(lower=0)+np.abs(np.tanh(vpa.fillna(0.0)*5.0)))/5.0
-        raw=core*amp*(1.0+np.tanh(self._apply_hab(df,'pm',pm,21)).abs()*0.5)*(1.0+np.abs(self._apply_kinematics(df,'mf_ratio_scaled',mf_ratio*100.0,13)))
-        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
+        # [V301.0.0 传参修复] 移除废弃的 df_index，严格对齐底层 Numpy 单张量签名
+        core=(price_force*0.5+mf_force*0.5)*self._apply_zg(np.abs(price_force)+np.abs(mf_force))
+        amp=1.0+(self._apply_norm(act,100.0)+np.maximum(np.tanh(self._apply_hab(df,'fm',fm,13)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'imp',imp,21)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'tr',tr,21)),0.0)+np.abs(np.tanh(vpa*5.0)))/5.0
+        # [V301.0.0 API修复] 移除 pandas 特有的 .abs() 调用，改为 np.abs()
+        raw=core*amp*(1.0+np.abs(np.tanh(self._apply_hab(df,'pm',pm,21)))*0.5)*(1.0+np.abs(self._apply_kinematics(df,'mf_ratio_scaled',mf_ratio*100.0,13)))
+        res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':mf,'close_D':cls},calc_nodes={'price_force':price_force,'mf_force':mf_force,'core':core,'amp':amp,'raw_score':raw},final_result=res)
-        return res
+        return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_price_vs_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         method_name="_calculate_price_vs_momentum_divergence"
@@ -1140,32 +1143,31 @@ class ProcessIntelligence:
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V108.0.0 · 绝对物理门控收官版】力学筹码共振看跌引擎
-        用途: 测量下跌动能与筹码套牢的共振恶化（确认主跌浪趋势，发出平仓风险信号）。
-        修改要点: 引入绝对物理门控 (Absolute Physical Gate)！无论底层发生何种微观看跌背离，只要宏观动能 ROC_13_D >= 0（身处绝对上涨通道），该看跌风险信号必须被物理强行抹杀并归零，彻底杜绝主升浪洗盘被系统错杀！
+        【V301.0.0 · 极限算力补丁版】力学筹码共振看跌引擎
+        修改要点: 修复 numpy array 的 Pandas 特有 .where() 错误调用，并去除 df_index 传参。
         """
         method_name="_calculate_dyn_vs_chip_relationship"
         required_signals=['ROC_13_D','winner_rate_D','profit_ratio_D','chip_mean_D','chip_kurtosis_D','volatility_adjusted_concentration_D','downtrend_strength_D','chip_entropy_D','market_sentiment_score_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
-        roc=self._get_safe_series(df,'ROC_13_D',method_name=method_name)
-        win=self._get_safe_series(df,'winner_rate_D',method_name=method_name)
-        prof=self._get_safe_series(df,'profit_ratio_D',method_name=method_name)
-        mean=self._get_safe_series(df,'chip_mean_D',method_name=method_name)
-        kurt=self._get_safe_series(df,'chip_kurtosis_D',method_name=method_name)
-        vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        down=self._get_safe_series(df,'downtrend_strength_D',method_name=method_name)
-        ent=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
-        sent=self._get_safe_series(df,'market_sentiment_score_D',method_name=method_name)
-        bc=self._calculate_instantaneous_relationship(df,config).fillna(0.0)
-        core=(-bc).where(bc<0,0.0)*self._apply_zg(df_index,bc)
-        amp=1.0+(self._apply_norm(prof,100.0)+self._apply_norm(win,100.0)+np.tanh(self._apply_hab(df,'mn',mean,13)).abs()+self._apply_norm(kurt,100.0)+self._apply_norm(vac,100.0)+self._apply_norm(down,100.0)+self._apply_norm(ent,10.0)+(1.0-self._apply_norm(sent,100.0)))/8.0
-        # [V108.0.0 终极防线] 牛市绝对一票否决权。如果 ROC >= 0，将 roc_penalty 设为 0，强制压死归零
-        roc_penalty=pd.Series(np.where(roc.fillna(0.0)<0.0,1.0,0.0),index=df_index)
-        raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'ROC_13_D_scaled',roc.fillna(0.0)/100.0,13)))*roc_penalty
-        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
+        roc=self._get_safe_array(df,'ROC_13_D',method_name=method_name)
+        win=self._get_safe_array(df,'winner_rate_D',method_name=method_name)
+        prof=self._get_safe_array(df,'profit_ratio_D',method_name=method_name)
+        mean=self._get_safe_array(df,'chip_mean_D',method_name=method_name)
+        kurt=self._get_safe_array(df,'chip_kurtosis_D',method_name=method_name)
+        vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
+        down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
+        ent=self._get_safe_array(df,'chip_entropy_D',method_name=method_name)
+        sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
+        bc=self._calculate_instantaneous_relationship(df,config).to_numpy(dtype=np.float32)
+        # [V301.0.0 热修复] np.where 替换 pandas 的 where，并去除 df_index 传参
+        core=np.where(bc<0, -bc, 0.0)*self._apply_zg(bc)
+        amp=1.0+(self._apply_norm(prof,100.0)+self._apply_norm(win,100.0)+np.abs(np.tanh(self._apply_hab(df,'mn',mean,13)))+self._apply_norm(kurt,100.0)+self._apply_norm(vac,100.0)+self._apply_norm(down,100.0)+self._apply_norm(ent,10.0)+(1.0-self._apply_norm(sent,100.0)))/8.0
+        roc_penalty=np.where(roc<0.0,1.0,0.0)
+        raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'ROC_13_D_scaled',roc/100.0,13)))*roc_penalty
+        res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
-        return res
+        return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         method_name="_calculate_process_wash_out_rebound"
