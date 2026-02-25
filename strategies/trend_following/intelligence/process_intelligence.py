@@ -1312,8 +1312,9 @@ class ProcessIntelligence:
 
     def _calculate_intraday_siege_exhaustion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.0.0】日内攻城拔寨衰竭引擎
-        修改要点: 修复 VPA_EFFICIENCY_D 降维失真，改用 tanh(vpa * 5.0)。
+        【V58.0.0 · 物理裁决极性修正版】日内攻城拔寨衰竭引擎
+        用途: 量化日内多空在重要阻力位的高频消耗与胜负判定。
+        修改要点: 彻底纠正极性倒置漏洞！向上测试阻力(res_tests)本身不代表看涨，若收盘拉胯则说明多头"攻城衰竭"，必须记负分。通过提取 close_vector 统一赋予盘口波动的最终极性。
         """
         method_name="_calculate_intraday_siege_exhaustion"
         required_signals=['intraday_resistance_test_count_D','intraday_support_test_count_D','CLOSING_STRENGTH_D','vwap_deviation_D','resistance_strength_D','support_strength_D','VPA_EFFICIENCY_D']
@@ -1330,13 +1331,16 @@ class ProcessIntelligence:
         sup_base=self._apply_norm(sup_tests,10.0)*self._apply_zg(df_index,sup_tests)
         closing_shock=self._apply_norm(closing,100.0)
         vwap_shock=np.tanh(self._apply_hab(df,'vwap',vwap_dev,21))
-        # [V38.0.0] 修复 VPA 失真
         vpa_norm=np.abs(np.tanh(vpa.fillna(0.0)*5.0))
         b_amp=1.0+(self._apply_norm(res_str,100.0)+closing_shock+vwap_shock.clip(lower=0)+vpa_norm)/4.0
         d_amp=1.0+(self._apply_norm(sup_str,100.0)+(1.0-closing_shock)+vwap_shock.clip(upper=0).abs()+(1.0-vpa_norm))/4.0
-        raw=(res_base*b_amp-sup_base*d_amp)*(1.0+np.abs(self._apply_kinematics(df,'CLOSING_STRENGTH_D_scaled',closing.fillna(0.0)/100.0,13)))
+        # [V58.0.0 极性修复] 用收盘强度的双极状态 (-1 到 1) 作为绝对裁决极性
+        close_vector=closing_shock*2.0-1.0
+        # 激烈的交火(res_power+sup_power)作为绝对动能强度，由收盘向量决定最终赢家
+        total_siege_power=res_base*b_amp+sup_base*d_amp
+        raw=total_siege_power*close_vector*(1.0+np.abs(self._apply_kinematics(df,'CLOSING_STRENGTH_D_scaled',closing.fillna(0.0)/100.0,13)))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'intraday_resistance_test_count_D':res_tests},calc_nodes={'res_base':res_base,'sup_base':sup_base},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'intraday_resistance_test_count_D':res_tests,'CLOSING_STRENGTH_D':closing},calc_nodes={'total_siege_power':total_siege_power,'close_vector':close_vector,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_overnight_intraday_tearing(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1372,8 +1376,9 @@ class ProcessIntelligence:
 
     def _calculate_chip_center_kinematics(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V31.0.0】筹码重心迁徙动力学引擎
-        修改要点: 提取收盘价，将 cost_50 绝对价格转化为 cost_norm 百分比进行 kinematics 避免饱和爆炸。
+        【V58.0.0 · 物理极性重构版】筹码重心迁徙动力学引擎
+        用途: 量化筹码主峰的发散速率、成本波动率与换手的极限顶底状态。
+        修改要点: 拨乱反正！真正的“高位锁仓”应当是【低换手】。将锁仓的主核改为奖励低换手 (1.0 - to_active)，修复高换手被误判为锁仓的逻辑死锁。
         """
         method_name="_calculate_chip_center_kinematics"
         required_signals=['peak_migration_speed_5d_D','intraday_cost_center_volatility_D','price_to_weight_avg_ratio_D','turnover_rate_f_D','cost_50pct_D','chip_entropy_D','close_D']
@@ -1385,21 +1390,24 @@ class ProcessIntelligence:
         turnover=self._get_safe_series(df,'turnover_rate_f_D',method_name=method_name)
         cost_50=self._get_safe_series(df,'cost_50pct_D',method_name=method_name)
         c_ent=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
-        cls=self._get_safe_series(df,'close_D',method_name=method_name)
+        cls=self._get_safe_series(df,'close_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
         mig_base=self._apply_norm(migration,10.0)*self._apply_zg(df_index,migration)
         vol_shock=self._apply_norm(cost_vol,100.0)
-        to_base=np.tanh(turnover.fillna(0.0)/10.0)*self._apply_zg(df_index,turnover)
-        dist_amp=1.0+(vol_shock+to_base+np.tanh(self._apply_hab(df,'cost',cost_50,21)).clip(lower=0)+self._apply_norm(c_ent,10.0))/4.0
+        # [V58.0.0] 物理极性分离：派发需要高换手(to_active)，锁仓伴随低换手(to_locked)
+        # turnover 正常 2%~5%，使用 /2.0 让低换手也能保持极高的灰度敏感度
+        to_active=np.tanh(turnover.fillna(0.0)/2.0)
+        to_locked=(1.0-to_active)*self._apply_zg(df_index,turnover) # 必须有真实交易才可能构成锁仓
+        dist_amp=1.0+(vol_shock+to_active+np.tanh(self._apply_hab(df,'cost',cost_50,21)).clip(lower=0)+self._apply_norm(c_ent,10.0))/4.0
         distribution=mig_base*dist_amp
         price_dev=np.maximum(price_to_cost.fillna(1.0)-1.0,0.0)
-        lock_core=(1.0-mig_base)*self._apply_norm(price_dev,0.2)*to_base
+        # [V58.0.0] 锁仓主核：无迁移 + 高溢价 + 极低换手
+        lock_core=(1.0-mig_base)*self._apply_norm(price_dev,0.2)*to_locked*self._apply_zg(df_index,price_dev)
         lock_amp=1.0+((1.0-vol_shock)+np.tanh(self._apply_hab(df,'ptc',price_to_cost,21)).clip(lower=0)+(1.0-self._apply_norm(c_ent,10.0)))/3.0
         lock=lock_core*lock_amp
-        # [V31.0.0] 将绝对价格 cost_50 转化为无量纲比率
-        cost_norm=(cost_50.fillna(0.0)/cls.replace(0,np.nan).fillna(1.0)).fillna(1.0)*10.0
+        cost_norm=(cost_50.fillna(0.0)/cls).fillna(1.0)*10.0
         raw=(lock.fillna(0.0)-distribution.fillna(0.0))*(1.0+np.abs(self._apply_kinematics(df,'cost_50_norm',cost_norm,13)))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_migration_speed_5d_D':migration,'turnover_rate_f_D':turnover},calc_nodes={'lock_core':lock_core,'mig_base':mig_base,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'peak_migration_speed_5d_D':migration,'turnover_rate_f_D':turnover},calc_nodes={'lock_core':lock_core,'mig_base':mig_base,'to_locked':to_locked,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_ma_compression_explosion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
