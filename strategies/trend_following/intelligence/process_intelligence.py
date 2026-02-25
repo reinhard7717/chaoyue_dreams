@@ -560,9 +560,13 @@ class ProcessIntelligence:
         return np.clip(np.nan_to_num(arr, nan=0.0) / max_v, 0.0, 1.0).astype(np.float32)
 
     def _apply_norm_adaptive(self, arr: np.ndarray) -> np.ndarray:
-        """【V300.0.0】智能自适应标度截断 Numpy版"""
+        """
+        【V303.0.0 · 语义拨乱反正版】智能自适应标度截断 Numpy版
+        用途: 自动探测并兼容 0~1 与 0~100 两种异构数据标度，自我纠错映射至 0~1 绝对区间。
+        修改要点: 修复 numpy.where 语义反转。当绝对值大于 1.0 时才执行除以 100 的降维操作。
+        """
         sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(np.where(sf <= 1.0, sf / 100.0, sf), 0.0, 1.0).astype(np.float32)
+        return np.clip(np.where(np.abs(sf) > 1.0, sf / 100.0, sf), 0.0, 1.0).astype(np.float32)
 
     def _apply_hab(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
         """【V300.0.0】Numba 加速多维HAB历史缓冲池"""
@@ -755,6 +759,10 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V303.0.0 · 语义拨乱反正版】恐慌洗盘吸筹引擎
+        修改要点: 修复 np.where 语义倒置问题。当筹码稳定性(chip_stab)大于阈值时，应保留并放行信号，而不是将其抹零。
+        """
         method_name="_calculate_panic_washout_accumulation"
         required_signals=['pressure_trapped_D','intraday_low_lock_ratio_D','absorption_energy_D','intraday_trough_filling_degree_D','high_freq_flow_divergence_D','chip_rsi_divergence_D','chip_stability_D','pressure_release_index_D','tick_abnormal_volume_ratio_D','volatility_adjusted_concentration_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -774,7 +782,9 @@ class ProcessIntelligence:
         core=p_core*a_core
         amp=1.0+(np.tanh(release*100.0)+self._apply_norm(abnorm_vol,10.0)+self._apply_norm(low_lock,1.0)+self._apply_norm(trough_fill,100.0)+np.maximum(np.tanh(self._apply_hab(df,'hff',hff_div,21)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'cdiv',chip_div,21)),0.0)+self._apply_norm(vac,100.0))/7.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'pressure_trapped_D_scaled',panic*100.0,13),0.0))
-        res=np.where(chip_stab>config.get('historical_potential_gate',0.2),0.0,np.clip(np.tanh(raw**1.5),0.0,1.0))
+        res_raw=np.clip(np.tanh(raw**1.5),0.0,1.0)
+        # [V303.0.0 逻辑修复] 必须满足基础筹码稳定度大门才能确认有效洗盘，将满足条件时保留信号 (res_raw)
+        res=np.where(chip_stab>config.get('historical_potential_gate',0.2), res_raw, 0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':panic,'absorption_energy_D':absorption},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
@@ -802,6 +812,10 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V303.0.0 · 语义拨乱反正版】吸筹末端质变拐点引擎
+        修改要点: 修复 np.where 的 Pandas 历史遗留语义倒置问题，恢复对 raw >= 0.1 强动能信号的保留激活。
+        """
         method_name="_calculate_accumulation_inflection"
         required_signals=['PROCESS_META_COVERT_ACCUMULATION','PROCESS_META_DECEPTIVE_ACCUMULATION','PROCESS_META_PANIC_WASHOUT_ACCUMULATION','PROCESS_META_MAIN_FORCE_RALLY_INTENT','chip_convergence_ratio_D','price_vs_ma_21_ratio_D','flow_acceleration_intraday_D','flow_consistency_D','MA_POTENTIAL_COMPRESSION_RATE_D','MACDh_13_34_8_D','consolidation_quality_score_D','volatility_adjusted_concentration_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -817,13 +831,15 @@ class ProcessIntelligence:
         f_cons=self._get_safe_array(df,'flow_consistency_D',method_name=method_name)
         ma_comp=self._get_safe_array(df,'MA_POTENTIAL_COMPRESSION_RATE_D',method_name=method_name)
         macd=self._get_safe_array(df,'MACDh_13_34_8_D',method_name=method_name)
-        consol=self._get_safe_array(df,'consolidation_quality_score_D',method_name=method_name)
+        consol=self._get_safe_array(df,'consolidation_quality_score_D',methodmethod_name=method_name)
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
         pot=_jit_ema((covert+decept+panic)/3.0,config.get('accumulation_window',21))
         core=pot*self._apply_zg(pot)
         amp=1.0+(self._apply_norm(consol,100.0)+self._apply_norm(c_conv,1.0)+(1.0-np.maximum(np.tanh(self._apply_hab(df,'pma',np.abs(p_ma21-1.0),21)),0.0)*0.5)+self._apply_norm(ma_comp,1.0)+self._apply_norm(vac,100.0)+np.maximum(np.tanh(self._apply_hab(df,'fa',f_accel,13)),0.0)+self._apply_norm(f_cons,100.0)+rally+np.maximum(np.tanh(self._apply_hab(df,'md',macd,13)),0.0))/9.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'chip_convergence_ratio_D_scaled',c_conv,13),0.0))
-        res=np.where(raw>=0.1,0.0,np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0))
+        res_raw=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
+        # [V303.0.0 逻辑修复] 只有在动能 raw >= 0.1 时，才允许释放吸筹质变信号
+        res=np.where(raw>=0.1, res_raw, 0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'consolidation_quality_score_D':consol},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
@@ -1038,8 +1054,8 @@ class ProcessIntelligence:
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V302.0.0 · 极限算力热修复版】价资协同双向剥离
-        修改要点: 移除废弃的 df_index 传参，全面接入 Numpy 纯算生态，解决 TypeError。
+        【V303.0.0 · 传参修复版】价资协同双向剥离
+        修改要点: 彻底移除废弃的 df_index 传参，对齐 _apply_zg 纯数组签名，解决 TypeError 宕机。
         """
         method_name="_calculate_pf_relationship"
         required_signals=['net_mf_amount_D','close_D','price_vs_ma_13_ratio_D','main_force_activity_index_D','flow_momentum_13d_D','flow_impact_ratio_D','tick_chip_transfer_efficiency_D','VPA_EFFICIENCY_D','amount_D']
@@ -1061,10 +1077,9 @@ class ProcessIntelligence:
         mf_ratio=self._safe_div(mf,amt,0.0)
         price_force=np.tanh(self._safe_div(c_diff,cls,0.0)*20.0)
         mf_force=np.tanh(mf_ratio*50.0)
-        # [V302.0.0] 移除 df_index 传参，对齐 _apply_zg 签名
+        # [V303.0.0 热修复] 彻底移除 df_index 传参
         core=(price_force*0.5+mf_force*0.5)*self._apply_zg(np.abs(price_force)+np.abs(mf_force))
         amp=1.0+(self._apply_norm(act,100.0)+np.maximum(np.tanh(self._apply_hab(df,'fm',fm,13)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'imp',imp,21)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'tr',tr,21)),0.0)+np.abs(np.tanh(vpa*5.0)))/5.0
-        # [V302.0.0] 剥离 pandas 的 abs 调用
         raw=core*amp*(1.0+np.abs(np.tanh(self._apply_hab(df,'pm',pm,21)))*0.5)*(1.0+np.abs(self._apply_kinematics(df,'mf_ratio_scaled',mf_ratio*100.0,13)))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':mf,'close_D':cls},calc_nodes={'price_force':price_force,'mf_force':mf_force,'core':core,'amp':amp,'raw_score':raw},final_result=res)
