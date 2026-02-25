@@ -503,7 +503,11 @@ class ProcessIntelligence:
         return np.tanh(pd.Series(ts,index=s.index)*10.0).fillna(0.0).astype(np.float32)
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
-        """【V4.0.0 · 局部方差压迫衰减版】利用本地特征滚动标准差刻画相对衰变严重度，执行非线性激增阻尼。"""
+        """
+        【V49.0.0 · 方差正则化防爆版】信号衰减总线
+        用途: 利用本地特征滚动标准差刻画相对衰变严重度，执行非线性激增阻尼。
+        修改要点: 升级 local_std 采用 np.sqrt(std**2 + 1e-5) 进行正则化，彻底杜绝一字板或停牌期间方差为 0 导致的 NaN 崩塌。
+        """
         method_name="_diagnose_signal_decay"
         is_debug_enabled=get_param_value(self.debug_params.get('enabled'),False) and get_param_value(self.debug_params.get('should_probe'),False)
         signal_name=config.get('name')
@@ -522,10 +526,11 @@ class ProcessIntelligence:
             source_series=df[source_signal_name].astype(np.float32)
         if source_series is None:
             return {}
-        signal_change=source_series.diff(1).fillna(0)
-        decay_magnitude=signal_change.clip(upper=0).abs()
-        local_std=source_series.rolling(window=21,min_periods=1).std().replace(0,1e-5).fillna(1e-5)
-        relative_decay=decay_magnitude/local_std
+        signal_change=source_series.diff(1).fillna(0.0)
+        decay_magnitude=signal_change.clip(upper=0.0).abs()
+        # [V49.0.0] 彻底解决除以零问题，引入统一的方差正则化模型
+        local_std=np.sqrt(source_series.rolling(window=21,min_periods=1).std()**2 + 1e-5).fillna(1e-5)
+        relative_decay=(decay_magnitude/local_std).fillna(0.0)
         decay_score=np.tanh(relative_decay*1.5).clip(0,1)
         if is_debug_enabled and self.probe_dates:
             self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'source':source_series},calc_nodes={'signal_change':signal_change,'relative_decay':relative_decay},final_result=decay_score)
@@ -601,9 +606,9 @@ class ProcessIntelligence:
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V34.0.0】价格与散户投降背离
-        用途: 捕捉价格下行但套牢盘停止割肉的背离机会。
-        修改要点: 极小比率 pressure_trapped 放大100倍，追加 _scaled 穿透错误缓存。
+        【V49.0.0 · 极性拨乱反正版】价格与散户投降背离
+        用途: 捕捉价格下行但套牢盘停止抵抗开始割肉的背离机会 (底部吸筹信号)。
+        修改要点: 极性反转。当价跌且套牢盘降时 base_div 为负，必须乘以 -1 转化为正向的 Opportunity 买入信号。
         """
         method_name="_calculate_price_vs_capitulation_relationship"
         required_signals=['pressure_trapped_D','INTRADAY_SUPPORT_INTENT_D','intraday_low_lock_ratio_D','chip_entropy_D','volatility_adjusted_concentration_D','turnover_rate_f_D']
@@ -616,7 +621,8 @@ class ProcessIntelligence:
         vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
         turnover=self._get_safe_series(df,'turnover_rate_f_D',method_name=method_name)
         base_div=self._calculate_instantaneous_relationship(df,config).fillna(0.0)
-        core=base_div*np.tanh(pressure.fillna(0.0)*100.0)*self._apply_zg(df_index,pressure)
+        # [V49.0.0 极性修复] 散户投降是买入机会，base_div 为负时必须反转为正
+        core=-base_div*np.tanh(pressure.fillna(0.0)*100.0)*self._apply_zg(df_index,pressure)
         amp=1.0+(np.tanh(self._apply_hab(df,'sup',support,34)).clip(lower=0)+self._apply_norm(low_lock,1.0)+(1.0-self._apply_norm(entropy,10.0))+self._apply_norm(vac,100.0)+(1.0-np.tanh(turnover.fillna(0.0)/10.0)))/5.0
         raw=core*amp*(1.0+self._apply_kinematics(df,'pressure_trapped_D_scaled',pressure.fillna(0.0)*100.0,13).clip(lower=0))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
@@ -938,9 +944,9 @@ class ProcessIntelligence:
 
     def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.0.0】资金领跑结构发令引擎
-        用途: 捕捉结构处于弱势或起步期，但资金流已呈现强劲领跑的黄金爆发点 (机会信号)。
-        修改要点: 彻底纠正极性错杀，提取净流入（mf_ratio > 0）与弱结构的共振。
+        【V49.0.0 · 契约对齐版】资金领跑结构发令引擎
+        用途: 捕捉结构处于弱势或起步期，但主力资金已呈现强劲领跑流入的左侧爆发点 (Opportunity)。
+        修改要点: 拨乱反正！恢复提取资金净流入 (inflow_force)，并叠加滞后的弱结构进行机会共振。
         """
         method_name="_calculate_ff_vs_structure_relationship"
         required_signals=['uptrend_strength_D','flow_consistency_D','ma_arrangement_status_D','chip_structure_state_D','industry_stagnation_score_D','large_order_anomaly_D','STATE_ROBUST_TREND_D','net_mf_amount_D','chip_stability_D','flow_momentum_13d_D','volatility_adjusted_concentration_D','amount_D']
@@ -960,7 +966,7 @@ class ProcessIntelligence:
         amt=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
         mf_ratio=(mf/amt).fillna(0.0)
         base_div=self._calculate_instantaneous_relationship(df,config).fillna(0.0).clip(lower=0)
-        # [V38.0.0 极性修复] 资金领跑 = 强净流入 + base_div(一致性背离领跑) + 结构滞后(1.0 - up)
+        # [V49.0.0 极性修复] 资金领跑发令是一次正向机会 (Opportunity)，提取强流入(mf_ratio > 0)
         inflow_force=np.tanh(mf_ratio*50.0).clip(lower=0)
         struct_lag=1.0-self._apply_norm(up,100.0)
         core=base_div*inflow_force*struct_lag*self._apply_zg(df_index,inflow_force)
@@ -1164,8 +1170,9 @@ class ProcessIntelligence:
 
     def _calculate_fusion_trend_exhaustion_syndrome(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.0.0】趋势衰竭综合征引擎
-        修改要点: 修复 VPA_EFFICIENCY_D 绝对值过小导致被 /100 抹除的失真。
+        【V49.0.0 · 标度统合版】趋势衰竭综合征引擎
+        用途: 诊断极端抛物线拉升后的趋势衰竭与派发共振。
+        修改要点: 统一将 profit_pressure_D 恢复为标准的 100 标度归一化；VPA严格实施极性单向整流，仅多头放量能压制预警。
         """
         method_name="_calculate_fusion_trend_exhaustion_syndrome"
         required_signals=['STATE_PARABOLIC_WARNING_D','STATE_EMOTIONAL_EXTREME_D','PRICE_ENTROPY_D','profit_pressure_D','HM_COORDINATED_ATTACK_D','intraday_distribution_confidence_D','distribution_energy_D','chip_entropy_D','sell_elg_amount_D','amount_D','VPA_EFFICIENCY_D']
@@ -1183,12 +1190,13 @@ class ProcessIntelligence:
         amt=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
         vpa=self._get_safe_series(df,'VPA_EFFICIENCY_D',method_name=method_name)
         base_state=np.maximum(self._apply_norm(para,1.0),self._apply_norm(emot,1.0))**2
-        dist_force=np.maximum(np.tanh(pres.fillna(0.0)/10.0).clip(lower=0),self._apply_norm(dist_e,100.0))
+        # [V49.0.0 标度修复] 统一使用 _apply_norm 进行 100 标度归一
+        dist_force=np.maximum(self._apply_norm(pres,100.0),self._apply_norm(dist_e,100.0))
         core=base_state*dist_force*self._apply_zg(df_index,base_state*dist_force)
         amp=1.0+(self._apply_norm(dist_c,100.0)+np.tanh((sell_elg.fillna(0.0)/amt).fillna(0.0)*10.0)+self._apply_norm(ent,10.0)+self._apply_norm(c_ent,10.0))/4.0
-        # [V38.0.0] 修复 vpa 标度失真
-        vpa_norm=np.abs(np.tanh(vpa.fillna(0.0)*5.0))
-        veto=(1.0-self._apply_norm(hm,100.0)*0.9).clip(lower=0.1)*(1.0-vpa_norm*0.5)
+        # [V49.0.0 单向整流] 仅正向的高效拉升 VPA 才具备否决衰竭风险的资格
+        vpa_bull=np.tanh(vpa.fillna(0.0)*5.0).clip(lower=0)
+        veto=(1.0-self._apply_norm(hm,100.0)*0.9).clip(lower=0.1)*(1.0-vpa_bull*0.5)
         raw=core*amp*veto*(1.0+self._apply_kinematics(df,'profit_pressure_D_scaled',pres.fillna(0.0)/100.0,13).clip(lower=0))
         res=np.tanh(raw**1.5).clip(0,1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'STATE_PARABOLIC_WARNING_D':para,'distribution_energy_D':dist_e},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
