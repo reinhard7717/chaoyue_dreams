@@ -708,6 +708,12 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V333.0.0 · 物理背离绝对正交版】
+        用途：诊断价格与散户投降套牢盘的微观背离。
+        修改要点：拨乱反正！修复了原代码要求价格与恐慌同向(同负或同正)才激活的致命逻辑错位(导致严重0值死锁)。
+        现严格遵循背离第一性原理：价格下跌(p_kin<0)且恐慌剧增(t_kin>0)生成极致机会(opp_core)；价格上涨(p_kin>0)且恐慌衰竭(t_kin<0)生成风险(risk_core)。彻底激活这套双极核武。
+        """
         method_name="_calculate_price_vs_capitulation_relationship"
         required_signals=['pressure_trapped_D','INTRADAY_SUPPORT_INTENT_D','intraday_low_lock_ratio_D','chip_entropy_D','volatility_adjusted_concentration_D','turnover_rate_f_D','close_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -719,17 +725,26 @@ class ProcessIntelligence:
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
         turnover=self._get_safe_array(df,'turnover_rate_f_D',method_name=method_name)
         cls=self._get_safe_array(df,'close_D',method_name=method_name)
+        
         cls_safe=np.where(cls==0.0,1.0,cls)
         cls_rm=_jit_rolling_mean(cls_safe,21)
         p_kin=self._apply_kinematics(df,'close_D_scaled',self._safe_div(cls,cls_rm,1.0)*10.0,13)
         t_kin=self._apply_kinematics(df,'pressure_trapped_D_scaled',pressure*100.0,13)
-        opp_core=np.tanh(-np.clip(p_kin,a_min=None,a_max=0.0))*np.tanh(-np.clip(t_kin,a_min=None,a_max=0.0))
-        risk_core=np.tanh(np.clip(p_kin,a_min=0.0,a_max=None))*np.tanh(np.clip(t_kin,a_min=0.0,a_max=None))
+        
+        # [V333.0.0] 极性第一性原理重构：异向矢量对冲
+        # Opportunity (机会)：价格下跌(p_kin < 0) 与 恐慌盘飙升(t_kin > 0) 正交
+        opp_core=np.tanh(-np.clip(p_kin,a_min=None,a_max=0.0)) * np.tanh(np.clip(t_kin,a_min=0.0,a_max=None))
+        # Risk (风险)：价格上涨(p_kin > 0) 与 恐慌盘极度衰竭(t_kin < 0) 正交
+        risk_core=np.tanh(np.clip(p_kin,a_min=0.0,a_max=None)) * np.tanh(-np.clip(t_kin,a_min=None,a_max=0.0))
+        
         state_magnitude=np.tanh(pressure*100.0)
+        # 机会取正，风险取负，完美对齐 Bipolar 标准输出
         core=(opp_core-risk_core)*state_magnitude*self._apply_zg(pressure)
+        
         amp=1.0+(np.maximum(np.tanh(self._apply_hab(df,'sup',support,34)),0.0)+self._apply_norm(low_lock,1.0)+(1.0-self._apply_norm(entropy,10.0))+self._apply_norm(vac,100.0)+(1.0-np.tanh(turnover/10.0)))/5.0
         raw=core*amp*(1.0+np.abs(t_kin))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
+        
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':pressure,'close_D':cls},calc_nodes={'p_kin':p_kin,'t_kin':t_kin,'state_magnitude':state_magnitude,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
@@ -1145,9 +1160,9 @@ class ProcessIntelligence:
 
     def _calculate_price_vs_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V332.0.0 · 第一性原理极性绝对纠偏版】
+        【V333.0.0 · 第一性原理极性绝对纠偏版】
         用途：诊断价格趋势位移与动能张量的多维非线性背离。
-        修改要点：强力修复重大极性反噬遗漏！在 Bipolar 机制中，机会必须为正，风险必须为负。现利用第一性原理的自然对齐极性：顶背离(roc_kin - p_kin)自然生成负向张量，底背离(roc_kin - p_kin)自然生成正向张量。同时采用严密的 np.where 强门控，彻底杜绝高位超买区报出正分的“指鹿为马”。
+        修改要点：强制覆盖！消除极性反噬 BUG。在 Bipolar 机制中，风险必须为负。现利用第一性原理：顶背离(roc_kin - p_kin)天然生成负向张量，底背离天然生成正向张量。采用严密的 np.minimum/maximum 绝对门控，彻底杜绝高位超买区报出正分机会的“指鹿为马”。
         """
         method_name="_calculate_price_vs_momentum_divergence"
         required_signals=['close_D','ROC_13_D','VPA_EFFICIENCY_D','PRICE_ENTROPY_D','net_mf_amount_D','turnover_rate_f_D','GEOM_REG_SLOPE_D','GEOM_REG_R2_D','BIAS_21_D','GEOM_ARC_CURVATURE_D','market_sentiment_score_D','volatility_adjusted_concentration_D','amount_D']
@@ -1167,30 +1182,38 @@ class ProcessIntelligence:
         arc=self._get_safe_array(df,'GEOM_ARC_CURVATURE_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
+        
         cls_smooth=np.where(_jit_rolling_mean(cls,13)==0.0,1.0,_jit_rolling_mean(cls,13))
         p_kin=self._apply_kinematics(df,'close_D_scaled',self._safe_div(cls,cls_smooth,1.0)*10.0,13)
         roc_kin=self._apply_kinematics(df,'ROC_13_D_scaled',roc/100.0,13)
-        # [V332.0.0] 极性第一性原理对齐：
+        
+        # [V333.0.0] 极性第一性原理对齐：
         # 顶背离(风险)：动能减弱(roc_kin<0) 减去 价格上涨(p_kin>0) = 天然的负向张量
         top_div=np.where((p_kin>0.0)&(roc_kin<0.0), roc_kin-p_kin, 0.0) 
         # 底背离(机会)：动能增强(roc_kin>0) 减去 价格下跌(p_kin<0) = 天然的正向张量
         bot_div=np.where((p_kin<0.0)&(roc_kin>0.0), roc_kin-p_kin, 0.0) 
         kinematic_div = top_div + bot_div
+        
         c_diff=np.zeros_like(cls)
         c_diff[1:]=cls[1:]-cls[:-1]
         p_vel=np.tanh(self._safe_div(c_diff,cls,0.0)*10.0)
         e_vel=(np.tanh(vpa*5.0)+np.tanh(self._safe_div(mf,amt,0.0)*50.0))/2.0
+        
         # 同理，量价能量背离极性同步对齐
         e_top_div=np.where((p_vel>0.0)&(e_vel<0.0), e_vel-p_vel, 0.0) # 负向张量
         e_bot_div=np.where((p_vel<0.0)&(e_vel>0.0), e_vel-p_vel, 0.0) # 正向张量
         energy_div = e_top_div + e_bot_div
+        
         # 高位张力过大是绝对风险，直接生成负分惩罚
         geom_tension=(np.tanh(self._apply_hab(df,'bias',bias,21))-np.tanh(self._apply_hab(df,'arc',arc,21)))*0.5*(1.0+self._apply_norm(r2,1.0))
         geom_penalty=-np.maximum(geom_tension, 0.0)
+        
         raw_div=(kinematic_div*0.4 + energy_div*0.3 + geom_penalty*0.3)
-        # 绝对物理门控：多头超买区(roc>0)只允许输出负数风险，空头超卖区(roc<=0)只允许输出正数机会
-        div_physics_gate=np.where(roc>0, np.minimum(raw_div, 0.0), np.maximum(raw_div, 0.0)).astype(np.float32)
+        
+        # [V333.0.0] 绝对物理门控：多头超买区(roc>0)只允许输出负数风险，空头超卖区(roc<=0)只允许输出正数机会
+        div_physics_gate=np.where(roc>0.0, np.minimum(raw_div, 0.0), np.maximum(raw_div, 0.0)).astype(np.float32)
         orbit_activation=np.tanh(np.abs(roc)/20.0)
+        
         core=div_physics_gate*self._apply_zg(roc)*orbit_activation
         amp=1.0+(np.abs(np.tanh(roc/10.0))+np.abs(self._apply_norm(sent,100.0))+self._apply_norm(ent,10.0)+self._apply_norm(vac,100.0))/4.0
         raw=core*amp
