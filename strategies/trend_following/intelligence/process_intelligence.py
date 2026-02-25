@@ -813,8 +813,8 @@ class ProcessIntelligence:
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V303.0.0 · 语义拨乱反正版】吸筹末端质变拐点引擎
-        修改要点: 修复 np.where 的 Pandas 历史遗留语义倒置问题，恢复对 raw >= 0.1 强动能信号的保留激活。
+        【V303.1.0 · 參數接口熱修復版】吸籌末端質變拐點引擎
+        修改要點: 修正 _get_safe_array 調用時的關鍵字參數拼寫錯誤 (methodmethod_name -> method_name)，恢復系統穩定性。
         """
         method_name="_calculate_accumulation_inflection"
         required_signals=['PROCESS_META_COVERT_ACCUMULATION','PROCESS_META_DECEPTIVE_ACCUMULATION','PROCESS_META_PANIC_WASHOUT_ACCUMULATION','PROCESS_META_MAIN_FORCE_RALLY_INTENT','chip_convergence_ratio_D','price_vs_ma_21_ratio_D','flow_acceleration_intraday_D','flow_consistency_D','MA_POTENTIAL_COMPRESSION_RATE_D','MACDh_13_34_8_D','consolidation_quality_score_D','volatility_adjusted_concentration_D']
@@ -831,14 +831,13 @@ class ProcessIntelligence:
         f_cons=self._get_safe_array(df,'flow_consistency_D',method_name=method_name)
         ma_comp=self._get_safe_array(df,'MA_POTENTIAL_COMPRESSION_RATE_D',method_name=method_name)
         macd=self._get_safe_array(df,'MACDh_13_34_8_D',method_name=method_name)
-        consol=self._get_safe_array(df,'consolidation_quality_score_D',methodmethod_name=method_name)
+        consol=self._get_safe_array(df,'consolidation_quality_score_D',method_name=method_name)
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
         pot=_jit_ema((covert+decept+panic)/3.0,config.get('accumulation_window',21))
         core=pot*self._apply_zg(pot)
         amp=1.0+(self._apply_norm(consol,100.0)+self._apply_norm(c_conv,1.0)+(1.0-np.maximum(np.tanh(self._apply_hab(df,'pma',np.abs(p_ma21-1.0),21)),0.0)*0.5)+self._apply_norm(ma_comp,1.0)+self._apply_norm(vac,100.0)+np.maximum(np.tanh(self._apply_hab(df,'fa',f_accel,13)),0.0)+self._apply_norm(f_cons,100.0)+rally+np.maximum(np.tanh(self._apply_hab(df,'md',macd,13)),0.0))/9.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'chip_convergence_ratio_D_scaled',c_conv,13),0.0))
         res_raw=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
-        # [V303.0.0 逻辑修复] 只有在动能 raw >= 0.1 时，才允许释放吸筹质变信号
         res=np.where(raw>=0.1, res_raw, 0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'consolidation_quality_score_D':consol},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
