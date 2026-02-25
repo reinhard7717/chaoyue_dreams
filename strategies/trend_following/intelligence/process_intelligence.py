@@ -1232,6 +1232,11 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V329.0.0 · 深V物理并联版】
+        用途：洗盘诱空反弹协议。
+        修改要点：破除 shakeout_score_D 缺失造成的 0 值连乘死锁。若盘中出现极强的填谷 (trough_filling) 与资金吸收 (absorption)，即使系统未显式打上洗盘标签，也将通过 reb_norm * 0.5 的保底并联，强行激活日内深V反转张量。
+        """
         method_name="_calculate_process_wash_out_rebound"
         required_signals=['shakeout_score_D','intraday_distribution_confidence_D','pressure_trapped_D','CLOSING_STRENGTH_D','intraday_trough_filling_degree_D','stealth_flow_ratio_D','absorption_energy_D','STATE_ROUNDING_BOTTOM_D','intraday_low_lock_ratio_D','vwap_deviation_D','tick_abnormal_volume_ratio_D','chip_entropy_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1254,7 +1259,9 @@ class ProcessIntelligence:
         tf_norm=self._apply_norm_adaptive(tf)
         abs_norm=np.tanh(abs_e*100.0)
         reb_norm=(tf_norm+abs_norm)/2.0
-        core=shk_norm*reb_norm*self._apply_zg(shk_norm*reb_norm)
+        # [V329.0.0] 并联深V反转张量，杜绝核心 0 值死锁
+        base_shk=np.maximum(shk_norm,reb_norm*0.5)
+        core=base_shk*reb_norm*self._apply_zg(base_shk*reb_norm)
         pan_norm=np.tanh(pan*100.0)
         stl_norm=np.tanh(stl*100.0)
         amp=1.0+(self._apply_norm(dist,100.0)+pan_norm+self._apply_norm(llck,1.0)+self._apply_norm(t_abn,10.0)+stl_norm+np.abs(np.clip(np.tanh(self._apply_hab(df,'vdev',vdev,13)),None,0.0))+cls_norm+rnd+(1.0-self._apply_norm(c_ent,10.0)))/9.0
@@ -1377,8 +1384,9 @@ class ProcessIntelligence:
 
     def _calculate_mtf_fractal_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V326.0.0 · 绝对趋势极化版】多维时空分形共振引擎
-        修改要点：修复“暴跌共振误判”。引入 up_penalty 强制约束，只有在上涨趋势 (uptrend_strength) 支撑下的共振，才被允许激活为单极机会信号，防止在连环跌停时因为向下高度共振而满仓接刀。
+        【V329.0.0 · 时空分形防断崖版】
+        用途：日/周/月多周期同步对齐识别。
+        修改要点：修正 up_penalty 的零值硬截断。若短期 uptrend 剧烈回踩归零，不应摧毁月线/周线耗时数月凝聚的时空共振网络，植入 0.1 最小生存底座，允许系统在长线下跌的末端发出共振火种。
         """
         method_name="_calculate_mtf_fractal_resonance"
         required_signals=['daily_weekly_sync_D','daily_monthly_sync_D','PRICE_FRACTAL_DIM_D','uptrend_continuation_prob_D','mid_long_sync_D','short_mid_sync_D','market_sentiment_score_D','uptrend_strength_D']
@@ -1392,8 +1400,10 @@ class ProcessIntelligence:
         prob=self._get_safe_array(df,'uptrend_continuation_prob_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
         up=self._get_safe_array(df,'uptrend_strength_D',method_name=method_name)
-        up_penalty=self._apply_norm(up,50.0)
-        core=self._apply_norm(dw_sync+dm_sync+ml_sync+sm_sync,400.0)*self._apply_zg(dw_sync)*up_penalty
+        # [V329.0.0] 0.1 的物理底座
+        up_penalty=np.clip(self._apply_norm(up,50.0),0.1,1.0)
+        sync_sum=dw_sync+dm_sync+ml_sync+sm_sync
+        core=self._apply_norm(sync_sum,400.0)*self._apply_zg(sync_sum)*up_penalty
         amp=1.0+((1.0-self._apply_norm(fractal_dim,2.0))+self._apply_norm(prob,100.0)+self._apply_norm(sent,100.0))/3.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'daily_weekly_sync_D_scaled',dw_sync/100.0,13),0.0))
         res=np.clip(np.tanh(raw**1.5),0.0,1.0)
@@ -1609,9 +1619,9 @@ class ProcessIntelligence:
 
     def _calculate_time_asymmetry_trap(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V328.0.0 · 归一化流形对齐版】
+        【V329.0.0 · 极性纠偏版】
         用途：早盘与午后资金流比例严重失衡的A字型诱多陷阱防爆。
-        修改要点：修复由于直接将原始异构比例(0-100)相减导致的计算越界失真(输出溢出并导致极性压缩)。现已纠正为使用 _apply_norm_adaptive 将 morning 和 afternoon 映射至 [0,1] 空间后再行极性对冲，完美映射真实的资金引力场。
+        修改要点：修复 core 符号被 mf < 0 强行翻转的灾难级极性反噬漏洞。如果日内表现为稳健推升（opportunity_vector 占优），即使主力整体轻微净流出，也不能将其抹黑为极度恶劣的“诱多杀猪盘”（负分）。现改为由真实的日内形态矢量 asymmetry_dominance 决定极性，将 mf 剥离为振幅催化剂 (mf_catalyst)。
         """
         method_name="_calculate_time_asymmetry_trap"
         required_signals=['morning_flow_ratio_D','afternoon_flow_ratio_D','intraday_peak_valley_ratio_D','profit_pressure_D','CLOSING_STRENGTH_D','high_freq_flow_divergence_D','VPA_EFFICIENCY_D','net_mf_amount_D']
@@ -1631,8 +1641,10 @@ class ProcessIntelligence:
         trap_vector=np.maximum(morning_norm-afternoon_norm,0.0)*(1.0-cls_norm)
         opportunity_vector=np.maximum(afternoon_norm-morning_norm,0.0)*cls_norm
         asymmetry_dominance=opportunity_vector-trap_vector*1.5
-        core=np.where(mf<0.0,-np.abs(np.tanh(asymmetry_dominance*2.0)),np.tanh(asymmetry_dominance*2.0)).astype(np.float32)
-        core=core*self._apply_zg(asymmetry_dominance)
+        base_core=np.tanh(asymmetry_dominance*2.0)
+        # [V329.0.0] 剥离负号反转，转为乘数催化剂
+        mf_catalyst=np.where((base_core>0)&(mf<0),0.5,np.where((base_core<0)&(mf<0),1.5,1.0)).astype(np.float32)
+        core=base_core*mf_catalyst*self._apply_zg(asymmetry_dominance)
         risk_amp=self._apply_norm(pv,10.0)+self._apply_norm(pp,100.0)+np.maximum(np.tanh(self._apply_hab(df,'hd',hd,21)),0.0)
         opp_amp=np.tanh(np.abs(vpa)*5.0)*3.0
         amp=1.0+np.where(core<0.0,risk_amp/3.0,opp_amp/2.0)
@@ -1643,8 +1655,9 @@ class ProcessIntelligence:
 
     def _calculate_high_pos_liquidity_squeeze(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V326.0.0 · 逼空前置约束版】高位流动性轧空引擎
-        修改要点：高位锁仓如果发生在深跌结构初期，那叫“高位筹码套牢死扛”而非流动性轧空。现已加入 up_penalty 乘数门控，并使用 mf_gate 过滤主力净流出时的假锁仓真派发，确保只有在狂暴主升浪且主力资金未溃散的背景下，才能激活轧空。
+        【V329.0.0 · 空中加油防死锁版】
+        用途：高位锁仓率逼近极限引发的抛压真空与逼空上行。
+        修改要点：解开 up_penalty 与 mf_gate 的 0 值死锁。当高位妖股处于“空中加油”横盘洗盘期，uptrend_strength 会阶段性衰减归零，主力也会做微弱流出震仓。此时如果不赋予 0.1 和 0.2 的物理底座，系统会因为乘数归零而错过极佳的第二波轧空启动点。
         """
         method_name="_calculate_high_pos_liquidity_squeeze"
         required_signals=['price_percentile_position_D','high_position_lock_ratio_90_D','flow_persistence_minutes_D','short_term_chip_ratio_D','uptrend_strength_D','turnover_rate_f_D','chip_entropy_D','net_mf_amount_D']
@@ -1661,8 +1674,9 @@ class ProcessIntelligence:
         pos_norm=self._apply_norm_adaptive(perc)
         lock_norm=self._apply_norm_adaptive(lock)
         to_penalty=np.tanh(to/15.0)
-        up_penalty=self._apply_norm(up,50.0)
-        mf_gate=np.where(mf<0.0,0.0,1.0).astype(np.float32)
+        # [V329.0.0] 0.1 的物理底座，防止 0 值乘法抹杀
+        up_penalty=np.clip(self._apply_norm(up,50.0),0.1,1.0)
+        mf_gate=np.where(mf<0.0,0.2,1.0).astype(np.float32)
         core=lock_norm*np.maximum(pos_norm,0.0)*(1.0-to_penalty)*self._apply_zg(lock)*up_penalty*mf_gate
         amp=1.0+(self._apply_norm(up,100.0)+self._apply_norm(per,100.0)+(1.0-self._apply_norm(short,1.0))+(1.0-self._apply_norm(c_ent,10.0)))/4.0
         raw=(core*amp)**1.5*(1.0+np.maximum(self._apply_kinematics(df,'high_position_lock_ratio_90_D_scaled',lock_norm,13),0.0))
@@ -1706,9 +1720,9 @@ class ProcessIntelligence:
 
     def _calculate_institutional_sweep(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V328.0.0 · 绝境反击防盲版】
+        【V329.0.0 · 左侧托底核武版】
         用途：国家队与大公募机构特大单扫货共振识别。
-        修改要点：废除 `mf < 0` 时的硬性乘 0 一票否决。引入 0.1 的软缓冲底座 mf_gate，并通过连续 clipping 平滑 sweep_gate，允许系统在千股跌停极度恐慌的暴跌分歧中，精准捕获左侧抢筹的核武级信号。
+        修改要点：翻转 mf_gate 惩罚逻辑。当全局资金处于恐慌出逃状态 (mf < 0.0) 时，机构特大单主动扫货 (buy_elg) 不应该被当做杂音压制为 0.1，这恰好是“国家队/顶尖主力雪中送炭左侧托底”的极品指纹，因此将此时的 mf_gate 翻转奖励为 1.2。
         """
         method_name="_calculate_institutional_sweep"
         required_signals=['buy_elg_amount_D','buy_lg_amount_D','amount_D','tick_chip_transfer_efficiency_D','flow_consistency_D','net_mf_amount_D','flow_impact_ratio_D','market_sentiment_score_D']
@@ -1724,7 +1738,8 @@ class ProcessIntelligence:
         imp=self._get_safe_array(df,'flow_impact_ratio_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
         buy_ratio=self._safe_div(buy_elg+buy_lg*0.5,amt,0.0)
-        mf_gate=np.where(mf<0.0,0.1,1.0).astype(np.float32)
+        # [V329.0.0] 将原本的错杀打压(0.1)翻转为左侧英雄奖励(1.2)
+        mf_gate=np.where(mf<0.0,1.2,1.0).astype(np.float32)
         sweep_gate=np.clip((buy_ratio-0.01)*50.0,0.0,1.0).astype(np.float32)
         core=self._apply_norm(buy_ratio,0.1)*self._apply_zg(buy_ratio)*mf_gate*sweep_gate
         amp=1.0+(np.maximum(np.tanh(self._apply_hab(df,'mf',mf,55)),0.0)+self._apply_norm(tr,1e6)+self._apply_norm(cons,100.0)+self._apply_norm(imp,10.0)+self._apply_norm(sent,100.0))/5.0
@@ -1791,8 +1806,9 @@ class ProcessIntelligence:
 
     def _calculate_geometric_trend_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V326.0.0 · 趋势上下文约束版】几何流形趋势共振引擎
-        修改要点：作为双极(Bipolar)信号，正斜率绝不等于安全做多(可能是主跌浪反抽死猫跳)。已嵌入 trend_context 乘数，正斜率必须接受 uptrend 验证，负斜率必须受 downtrend 放大，彻底杜绝逆势盲目做多。
+        【V329.0.0 · 几何流形柔性底座版】
+        用途：几何流形回归拟合与二阶导数曲率张力诊断。
+        修改要点：修复 trend_context 在横盘或初次起爆时带来的 0 值锁死。当标的从深海中拔地而起展现极强的正向 slope 时，不能因为均线系统滞后导致 uptrend=0 而被一票否决。建立 0.1 的柔性传导底座。
         """
         method_name="_calculate_geometric_trend_resonance"
         required_signals=['GEOM_REG_R2_D','GEOM_REG_SLOPE_D','GEOM_ARC_CURVATURE_D','GEOM_CHANNEL_POS_D','PRICE_FRACTAL_DIM_D','trend_confirmation_score_D','volatility_adjusted_concentration_D','close_D','uptrend_strength_D','downtrend_strength_D']
@@ -1810,7 +1826,8 @@ class ProcessIntelligence:
         up=self._get_safe_array(df,'uptrend_strength_D',method_name=method_name)
         down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
         slope_ratio=self._safe_div(slope,cls,0.0)*100.0
-        trend_context=np.where(slope>0,self._apply_norm(up,50.0),self._apply_norm(down,50.0)).astype(np.float32)
+        # [V329.0.0] 防爆 0.1 阻尼底座
+        trend_context=np.where(slope>0,np.clip(self._apply_norm(up,50.0),0.1,1.0),np.clip(self._apply_norm(down,50.0),0.1,1.0)).astype(np.float32)
         core=np.tanh(slope_ratio/10.0)*self._apply_norm(r2,1.0)*self._apply_zg(slope)*self._apply_zg(r2)*trend_context
         dyn=np.tanh(self._apply_hab(df,'curv',curv,21))-(self._apply_norm(pos,1.0)-0.5)*2.0*0.3
         amp=1.0+((1.0-self._apply_norm(frac,2.0))+self._apply_norm(conf,100.0)+np.maximum(dyn,0.0)+self._apply_norm(vac,100.0))/4.0
