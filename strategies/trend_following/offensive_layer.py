@@ -9,7 +9,7 @@ class OffensiveLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
-def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
+    def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
         【V521.0 · 极性绝对正交解算版】
         - 核心修复: 彻底修复了由于 if-elif 分支互斥导致的 penalty_weight 被丢弃的致命数值黑洞 BUG。
