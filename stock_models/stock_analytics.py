@@ -181,8 +181,8 @@ class DailyPositionSnapshot(models.Model):
 
 class StrategyDailyScore(models.Model):
     """
-    【V1.1 · 神谕契约版】策略每日分数 (公共知识库)
-    - 核心升级: 在 TradeActionType 中补全了所有新的交易动作枚举，包括先知入场/离场和战略失效离场。
+    【V1.2 · 工业级合规同步版】策略每日分数 (公共知识库)
+    - 核心升级: 彻底清洗神话隐喻。将 PROPHET_ENTRY/EXIT 同步变更为 EARLY_WARNING_ENTRY/EXIT，与应用层实现全链路对齐。
     """
     class TradeActionType(models.TextChoices):
         INITIAL_ENTRY = 'INITIAL_ENTRY', '首次建仓'
@@ -192,12 +192,9 @@ class StrategyDailyScore(models.Model):
         STOP_LOSS_EXIT = 'STOP_LOSS_EXIT', '止损清仓'
         RISK_EXIT = 'RISK_EXIT', '风险清仓'
         TREND_BROKEN_EXIT = 'TREND_BROKEN_EXIT', '趋势破位清仓'
-        # 为“战略失效”提供专属交易动作
         STRATEGY_INVALIDATED_EXIT = 'STRATEGY_INVALIDATED_EXIT', '战略失效清仓'
-        # 为“先知入场”提供专属交易动作
-        PROPHET_ENTRY = 'PROPHET_ENTRY', '先知入场'
-        # 为“先知离场”提供专属交易动作
-        PROPHET_EXIT = 'PROPHET_EXIT', '先知离场'
+        EARLY_WARNING_ENTRY = 'EARLY_WARNING_ENTRY', '提前预警入场'
+        EARLY_WARNING_EXIT = 'EARLY_WARNING_EXIT', '提前预警离场'
         HOLD = 'HOLD', '持仓观望'
         AVOID = 'AVOID', '规避'
         PROCEED_WITH_CAUTION = 'PROCEED_WITH_CAUTION', '谨慎持仓'

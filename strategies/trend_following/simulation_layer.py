@@ -14,8 +14,9 @@ class SimulationLayer:
 
     def run_position_management_simulation(self):
         """
-        【V516.3 · 交易模拟引擎词汇净化版】
-        - 针对离入场动作指令进行合规替换，严禁“先知”等修辞越权干预，采用标准的“提前预警”业务名词。
+        【V516.4 · 强类型契约强制降维版】
+        - 核心革命: 彻底清剿所有非法的 getattr 回退机制。
+        - 逻辑重构: 交易行为枚举（TradeActionType）必须是不可动摇的强类型契约，直接使用强引用赋值，消除 Python 参数提前求值导致的 AttributeError 崩溃黑洞。
         """
         df = self.strategy.df_indicators.copy()
         if 'open_D' not in df.columns:
@@ -59,26 +60,26 @@ class SimulationLayer:
                 df.loc[current_date, 'current_profit_loss_pct'] = 0.0
             if in_position:
                 if i > 0:
-                    if current_signal_type == '提前预警离场':
+                    if current_signal_type in ['提前预警离场', '先知离场']:
                         print(f"  -> {current_date.date()}: [提前预警离场] T-1日收到高潮衰竭警报，今日开盘执行清仓。")
                         in_position, current_position_size, actual_entry_price, pyramid_count, stop_loss_price = False, 0.0, 0.0, 0, 0.0
-                        df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'EARLY_WARNING_EXIT', StrategyDailyScore.TradeActionType.SELL_EXIT).value
+                        df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.EARLY_WARNING_EXIT.value
                         df.loc[current_date, 'position_size'] = current_position_size
                         df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                         continue
                 if stop_loss_enabled and current_price < stop_loss_price:
                     in_position, current_position_size, actual_entry_price, pyramid_count, stop_loss_price = False, 0.0, 0.0, 0, 0.0
-                    df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'STOP_LOSS_EXIT', StrategyDailyScore.TradeActionType.SELL_EXIT).value
+                    df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.STOP_LOSS_EXIT.value
                     df.loc[current_date, 'position_size'] = current_position_size
                     df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                     continue
                 exit_triggers = self.strategy.exit_triggers.loc[current_date]
                 if exit_triggers.any():
                     triggered_reasons = exit_triggers[exit_triggers].index.tolist()
-                    exit_action = getattr(StrategyDailyScore.TradeActionType, 'RISK_EXIT', StrategyDailyScore.TradeActionType.SELL_EXIT).value
-                    if 'EXIT_PROFIT_PROTECT' in triggered_reasons: exit_action = getattr(StrategyDailyScore.TradeActionType, 'PROFIT_EXIT', StrategyDailyScore.TradeActionType.SELL_EXIT).value
-                    elif 'EXIT_TREND_BROKEN' in triggered_reasons: exit_action = getattr(StrategyDailyScore.TradeActionType, 'TREND_BROKEN_EXIT', StrategyDailyScore.TradeActionType.SELL_EXIT).value
-                    elif 'EXIT_STRATEGY_INVALIDATED' in triggered_reasons: exit_action = getattr(StrategyDailyScore.TradeActionType, 'STRATEGY_INVALIDATED_EXIT', StrategyDailyScore.TradeActionType.SELL_EXIT).value
+                    exit_action = StrategyDailyScore.TradeActionType.RISK_EXIT.value
+                    if 'EXIT_PROFIT_PROTECT' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.PROFIT_EXIT.value
+                    elif 'EXIT_TREND_BROKEN' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value
+                    elif 'EXIT_STRATEGY_INVALIDATED' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value
                     in_position, current_position_size, actual_entry_price, pyramid_count, stop_loss_price = False, 0.0, 0.0, 0, 0.0
                     df.loc[current_date, 'trade_action'] = exit_action
                     df.loc[current_date, 'position_size'] = current_position_size
@@ -94,9 +95,9 @@ class SimulationLayer:
                     current_position_size = new_total_size
                     actual_entry_price = new_total_cost / new_total_size
                     pyramid_count += 1
-                    df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'ADD_POSITION', StrategyDailyScore.TradeActionType.BUY_ENTRY).value
+                    df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.ADD_POSITION.value
                 if df.loc[current_date, 'trade_action'] == StrategyDailyScore.TradeActionType.NO_SIGNAL.value:
-                    df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'HOLD', StrategyDailyScore.TradeActionType.NO_SIGNAL).value
+                    df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.HOLD.value
             else:
                 if row.signal_entry:
                     t_plus_1_open = pd.NA
@@ -106,7 +107,7 @@ class SimulationLayer:
                     if pd.notna(t_plus_1_open) and t_plus_1_open > 0:
                         opening_gap_pct = (t_plus_1_open - row.close_D) / row.close_D
                         if opening_filter_enabled and opening_gap_pct > max_opening_gap_pct:
-                            df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'GAP_UP_SKIPPED', StrategyDailyScore.TradeActionType.NO_SIGNAL).value
+                            df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.GAP_UP_SKIPPED.value
                         else:
                             in_position = True
                             current_position_size = 1.0
@@ -124,21 +125,20 @@ class SimulationLayer:
                                         stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
                                 else:
                                     stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
-                            if current_signal_type == '提前预警入场':
-                                df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'EARLY_WARNING_ENTRY', StrategyDailyScore.TradeActionType.BUY_ENTRY).value
+                            if current_signal_type in ['提前预警入场', '先知入场']:
+                                df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.EARLY_WARNING_ENTRY.value
                             else:
-                                df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'INITIAL_ENTRY', StrategyDailyScore.TradeActionType.BUY_ENTRY).value
+                                df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.INITIAL_ENTRY.value
                     else:
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
                 else:
-                    if current_dynamic_action == 'AVOID': df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'AVOID', StrategyDailyScore.TradeActionType.NO_SIGNAL).value
-                    elif current_dynamic_action == 'PROCEED_WITH_CAUTION': df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'PROCEED_WITH_CAUTION', StrategyDailyScore.TradeActionType.NO_SIGNAL).value
-                    elif current_dynamic_action == 'FORCE_ATTACK': df.loc[current_date, 'trade_action'] = getattr(StrategyDailyScore.TradeActionType, 'FORCE_ATTACK', StrategyDailyScore.TradeActionType.NO_SIGNAL).value
+                    if current_dynamic_action == 'AVOID': df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.AVOID.value
+                    elif current_dynamic_action == 'PROCEED_WITH_CAUTION': df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROCEED_WITH_CAUTION.value
+                    elif current_dynamic_action == 'FORCE_ATTACK': df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.FORCE_ATTACK.value
                     else: df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
             df.loc[current_date, 'position_size'] = current_position_size
             df.loc[current_date, 'entry_price_actual'] = actual_entry_price
         self.strategy.df_indicators = df
-
 
 
 
