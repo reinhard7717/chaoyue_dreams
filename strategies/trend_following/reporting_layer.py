@@ -31,9 +31,8 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V533.1 · 进攻风险分离与全面惩罚适配版】
-        - 核心适配: 响应 JudgmentLayer 的修改，正确获取 offensive_score 和 risk_score。
-        - 核心适配: 响应“盖亚的最终裁决”，从信号枚举中彻底移除已废弃的“趋势破位离场”信号类型。
+        【V533.2 · 报告层信号合规透传版】
+        移除神话与异教徒字眼的字典映射定义，保证所有输出标签符合证券风控记录标准要求。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
@@ -42,35 +41,31 @@ class ReportingLayer:
         save_daily_states = get_param_value(trend_follow_strategy_info.get('save_daily_states'), False)
         trend_follow_name = get_param_value(trend_follow_strategy_info.get('name'), 'TrendFollow')
         min_entry_score_for_db = get_param_value(trend_follow_strategy_info.get('min_entry_score_for_db'), 50)
-        # 移除已废弃的信号类型
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
             '风险预警': TradingSignal.SignalType.WARN,
-            # '趋势破位离场': TradingSignal.SignalType.SELL, # 此行被彻底废除
             '战略失效离场': TradingSignal.SignalType.SELL,
             '风险否决': TradingSignal.SignalType.WARN,
-            '神盾防御': TradingSignal.SignalType.WARN,
-            '先知离场': TradingSignal.SignalType.SELL,
+            '底座防御': TradingSignal.SignalType.WARN,
+            '提前预警离场': TradingSignal.SignalType.SELL,
+            '提前预警入场': TradingSignal.SignalType.BUY,
         }
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
         for trade_time, row in signal_days_df.iterrows():
             signal_enum = signal_type_map_enum.get(row['signal_type'], TradingSignal.SignalType.WARN)
-            # offensive_score_val 现在是 OffensiveLayer 返回的总进攻分
             offensive_score_val = row.get('entry_score', 0) 
-            # risk_score_val 现在是 JudgmentLayer 设置的 total_risk_sum
             risk_score_val = row.get('risk_score', 0.0) 
             db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
-            # db_risk_score 直接使用 risk_score_val (total_risk_sum)，不再乘以1000
             db_risk_score = int(risk_score_val) if pd.notna(risk_score_val) else 0 
             final_score_for_signal = row.get('final_score', 0.0)
             strategy_name = trend_follow_name
             signal_obj = TradingSignal(
                 stock_id=stock_code, trade_time=trade_time, timeframe=result_timeframe, strategy_name=strategy_name,
                 signal_type=signal_enum,
-                entry_score=db_offensive_score, # entry_score 记录总进攻分
-                risk_score=db_risk_score, # risk_score 记录总风险惩罚分
+                entry_score=db_offensive_score,
+                risk_score=db_risk_score,
                 final_score=final_score_for_signal,
                 close_price=row.get('close_D', 0.0)
             )
@@ -85,12 +80,9 @@ class ReportingLayer:
         summary_score_names = {'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_TRIGGER'}
         for trade_time, row in result_df.iterrows():
             daily_score_strategy_name = trend_follow_name
-            # offensive_score_val 现在是 OffensiveLayer 返回的总进攻分
             offensive_score_val = row.get('entry_score', 0) 
-            # risk_score_val 现在是 JudgmentLayer 设置的 total_risk_sum
             risk_score_val = row.get('risk_score', 0.0) 
             db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
-            # db_risk_score 直接使用 risk_score_val (total_risk_sum)，不再乘以1000
             db_risk_score = int(risk_score_val) if pd.notna(risk_score_val) else 0 
             should_save_record = save_all_days or (row['signal_type'] != '无信号') or (db_offensive_score >= min_entry_score_for_db)
             if not should_save_record:
@@ -112,7 +104,7 @@ class ReportingLayer:
                 signal_info = self.score_type_map.get(signal_name, {})
                 score_type = signal_info.get('type', 'unknown')
                 db_score_value = int(score_value) if pd.notna(score_value) else 0
-                if db_score_value < 0: score_type = 'risk' # 确保负分被标记为风险类型
+                if db_score_value < 0: score_type = 'risk'
                 score_components_to_create.append(StrategyScoreComponent(
                     daily_score=daily_score_obj,
                     playbook=playbook_obj,
@@ -131,7 +123,6 @@ class ReportingLayer:
                         if trade_time in daily_score_map:
                             daily_states_to_create.append(StrategyDailyState(daily_score=daily_score_map[trade_time], playbook=playbook_obj))
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create)
-
 
 
 

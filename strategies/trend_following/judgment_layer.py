@@ -11,48 +11,38 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V538.3 · 纯净分数决策版】
-        - 核心革命: 彻底取消警报系统。决策完全基于 (总进攻分 - 总风险惩罚) * confidence_damper。
-        - 核心逻辑: 不再生成或使用 alert_level 和 alert_reason。
-        - 收益: 决策流程更加纯粹和量化，避免了警报机制带来的额外复杂性。
+        【V538.4 · 决策层命名规范版】
+        - 核心重构: 移除了 Chimera (喀迈拉)、Aegis (神盾)、Gaia (盖亚) 等异教徒与神话命名。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
-        chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
+        strategy_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_STRATEGY_CONFLICT', pd.Series(0.0, index=df.index))
         dominant_signal_type = self._get_dominant_offense_type(score_details_df)
         is_reversal_day = (dominant_signal_type == 'positional')
-        dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
-        confidence_damper = 1.0 - dynamic_chimera_score
+        dynamic_conflict_score = strategy_conflict_score.where(~is_reversal_day, strategy_conflict_score * 0.5)
+        confidence_damper = 1.0 - dynamic_conflict_score
         total_offensive_score = df['entry_score']
         total_risk_sum = df['total_risk_sum']
         net_score = total_offensive_score - total_risk_sum
         df['final_score'] = net_score * confidence_damper
-        # 移除警报等级和原因的赋值，以及对 _adjudicate_risk_level 的调用
-        # df['alert_level'], df['alert_reason'] = self._adjudicate_risk_level(total_risk_sum) # 移除此行
         df['dynamic_action'] = self._get_dynamic_combat_action()
         df['risk_score'] = total_risk_sum.fillna(0.0)
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         df['signal_type'] = '无信号'
         is_score_sufficient = df['final_score'] > final_score_threshold
-        # 移除警报否决逻辑
-        # is_veto_by_alert = df['alert_level'] >= get_param_value(p_judge_common.get('veto_alert_level'), 3) # 移除此行
-        potential_buy_condition = is_score_sufficient # 不再有警报否决，直接判断分数是否足够
+        potential_buy_condition = is_score_sufficient
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        # 移除警报否决条件下的信号类型和分数归零逻辑
-        # alert_veto_condition = is_score_sufficient & is_veto_by_alert # 移除此行
-        # df.loc[alert_veto_condition, 'signal_type'] = '风险否决' # 移除此行
-        # df.loc[alert_veto_condition, 'final_score'] = 0.0 # 移除此行
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
-        gaia_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
-        is_aegis_shield_active = (gaia_bedrock_score > 0.1)
+        macro_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
+        is_macro_bottom_support_active = (macro_bedrock_score > 0.1)
         raw_tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
-        aegis_defense_condition = raw_tactical_exit_mask & is_aegis_shield_active
-        df.loc[aegis_defense_condition, 'signal_type'] = '神盾防御'
+        macro_defense_condition = raw_tactical_exit_mask & is_macro_bottom_support_active
+        df.loc[macro_defense_condition, 'signal_type'] = '底座防御'
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)

@@ -9,14 +9,11 @@ class OffensiveLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
-    def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
+def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V520.6 · 进攻风险分离与动能质量过滤适配版 & 风险项调试增强版 & 双极信号权重推断版 & 单极风险修正版】
-        - 核心重构: 将总分计算拆分为总进攻得分 (total_offensive_score) 和总风险惩罚 (total_risk_sum)。
-        - 核心增强: 对 SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM 信号引入趋势质量和趋势衰竭风险的动态阻尼器。
-        - 调试增强: 针对 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT 信号，增加详细的调试输出，以追踪其贡献值。
-        - 新增业务逻辑：对于双极信号 (bipolar)，如果 score 和 penalty_weight 只有一个存在，则推断另一个。
-        - **核心修复：修正了单极风险信号的计算逻辑，使其能够正确处理“正值代表风险”的信号。**
+        【V521.0 · 极性绝对正交解算版】
+        - 核心修复: 彻底修复了由于 if-elif 分支互斥导致的 penalty_weight 被丢弃的致命数值黑洞 BUG。
+        - 极性强压: 对所有的 penalty_weight 施加严格的 -abs() 负向锁定，确保风险项绝对不能向多头得分渗透。
         """
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
@@ -24,7 +21,7 @@ class OffensiveLayer:
         all_available_signals = self.strategy.atomic_states.copy()
         all_available_signals.update(self.strategy.playbook_states)
         total_offensive_score = pd.Series(0.0, index=df.index)
-        total_risk_sum = pd.Series(0.0, index=df.index) # 累加所有负向信号的绝对值
+        total_risk_sum = pd.Series(0.0, index=df.index)
         p_context_suppression = get_params_block(self.strategy, 'contextual_suppression_params', {})
         bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
         top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
@@ -44,20 +41,22 @@ class OffensiveLayer:
             context_role = meta.get('context_role', 'neutral')
             configured_score = meta.get('score')
             configured_penalty_weight = meta.get('penalty_weight')
-            positive_score = 0
-            penalty_weight = 0
+            positive_score = 0.0
+            penalty_weight = 0.0
             if scoring_mode == 'bipolar':
                 if configured_score is not None:
-                    positive_score = abs(configured_score)
-                    if configured_penalty_weight is None:
-                        penalty_weight = -abs(configured_score)
+                    positive_score = abs(float(configured_score))
                 elif configured_penalty_weight is not None:
-                    penalty_weight = configured_penalty_weight
-                    if configured_score is None:
-                        positive_score = abs(configured_penalty_weight)
-            else: # unipolar
-                positive_score = abs(configured_score if configured_score is not None else 0)
-                penalty_weight = configured_penalty_weight if configured_penalty_weight is not None else 0
+                    positive_score = abs(float(configured_penalty_weight))
+                if configured_penalty_weight is not None:
+                    penalty_weight = -abs(float(configured_penalty_weight))
+                elif configured_score is not None:
+                    penalty_weight = -abs(float(configured_score))
+            else:
+                if configured_score is not None:
+                    positive_score = abs(float(configured_score))
+                if configured_penalty_weight is not None:
+                    penalty_weight = -abs(float(configured_penalty_weight))
             bonus_amount_for_signal = pd.Series(0.0, index=df.index)
             if scoring_mode == 'bipolar':
                 opportunity_part = processed_signal_series.clip(lower=0)
@@ -68,17 +67,16 @@ class OffensiveLayer:
                     damper = 1.0 - suppression_factor
                     risk_part *= damper
                 bonus_amount_for_signal += risk_part * penalty_weight
-            else: # unipolar
-                if meta.get('type') == 'risk': # Unipolar risk signal
-                    # 修正逻辑：对于“高分代表风险”的单极风险信号，取其正值部分并乘以负的 penalty_weight
-                    risk_contribution_series = processed_signal_series.clip(lower=0) # 只取正值部分
+            else:
+                if meta.get('type') == 'risk':
+                    risk_contribution_series = processed_signal_series.clip(lower=0)
                     if context_role == 'top_risk':
                         suppression_factor = bottom_context_score.where(bottom_context_score >= bottom_context_threshold, 0.0)
                         damper = 1.0 - suppression_factor
                         risk_contribution_series *= damper
-                    bonus_amount_for_signal = risk_contribution_series * penalty_weight # penalty_weight 是负值，结果为负
-                else: # Unipolar opportunity or context signal
-                    unipolar_opportunity_series = processed_signal_series.clip(lower=0) # Only positive part contributes to opportunity
+                    bonus_amount_for_signal = risk_contribution_series * penalty_weight
+                else:
+                    unipolar_opportunity_series = processed_signal_series.clip(lower=0)
                     if context_role == 'bottom_opportunity':
                         suppression_factor = top_context_score.where(top_context_score >= top_context_threshold, 0.0)
                         damper = 1.0 - suppression_factor
@@ -88,7 +86,6 @@ class OffensiveLayer:
             total_risk_sum += bonus_amount_for_signal.clip(upper=0).abs()
             score_details_df[signal_name] = bonus_amount_for_signal
         return total_offensive_score.fillna(0), total_risk_sum.fillna(0), score_details_df.fillna(0)
-
 
 
 

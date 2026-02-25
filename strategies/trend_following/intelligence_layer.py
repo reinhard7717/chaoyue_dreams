@@ -66,63 +66,36 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V426.4 · 进攻风险分离与动能质量过滤适配版 & 调试标志前置版】情报层总指挥官
-        - 核心适配: 捕获 OffensiveLayer 返回的总进攻得分和总风险惩罚，并存储到 df_indicators。
-        - 核心重构: 彻底改变日内引擎的调用方式。不再依赖不存在的分钟线数据，
-                      而是直接将日线DataFrame传递给重构后的日内引擎，
-                      使其能够基于预计算的日线级日内信号进行合成与解读。
-        - 错误修复: 移除了 IntelligenceLayer 中对 calculate_context_scores 的冗余调用和对 strategy 属性的错误赋值。
-                    现在 IntelligenceLayer 仅负责生成原子状态和剧本状态，并将 OffensiveLayer 的结果存储。
-        - **新增业务逻辑：将调试标志的初始化前置，确保所有情报模块都能正确访问。**
+        【V426.5 · 命名规范化版】
+        - 核心重构: 移除了具有宗教和神话色彩的内部命名，例如“神力引擎”、“普罗米修斯神坛”。
         """
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
         self.strategy.playbook_states = {}
         self.strategy.exit_triggers = pd.DataFrame(index=df.index)
-        # --- 新增逻辑：前置调试标志的初始化 ---
-        # debug_params = get_params_block(self.strategy, 'debug_params', {})
-        # self.probes.should_probe = debug_params.get('enabled', {}).get('value', False)
-        # probe_dates_list = debug_params.get('probe_dates')
-        # if not probe_dates_list:
-        #     single_date = debug_params.get('probe_date')
-        #     if single_date:
-        #         probe_dates_list = [single_date]
-        # if probe_dates_list and isinstance(probe_dates_list, list):
-        #     self.probes.probe_dates_set = {pd.to_datetime(d).date() for d in probe_dates_list if d}
-        # else:
-        #     self.probes.probe_dates_set = set()
-        # --- 调试标志初始化结束 ---
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-        # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
-        # update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
-        # update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
-        # update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
-        # 重构日内引擎的调用逻辑
-        # try:
-        #     intraday_results = self.intraday_behavior_engine.run_intraday_diagnostics(df)
-        #     update_states(intraday_results)
-        # except Exception as e:
-        #     print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
-        # update_states(self.foundation_intel.run_foundation_analysis_command(df))
-        # chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
-        # update_states(chip_states_from_intel)
-        # update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        # update_states(self.structural_intel.diagnose_structural_states(df))
-        # update_states(self.mechanics_engine.run_dynamic_analysis_command(df))
-        # update_states(self.pattern_intel.run_pattern_analysis_command(df))
-        # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
         update_states(self.process_intel.run_process_diagnostics(df, task_type_filter=None))
-        # --- 阶段三：融合态势情报层 (Fusion & Situational Layer) ---
-        # update_states(self.fusion_intel.run_fusion_diagnostics(df))
-        # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
-        # self._ignite_relational_dynamics_engine()
-        # final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
-        # self.strategy.playbook_states.update(final_playbook_states)
-        # 修复指挥链，在所有诊断完成后部署法医探针
-        # self.deploy_forensic_probes() # 此方法现在主要负责打印探针报告，而不是设置should_probe和probe_dates_set
+        self._calculate_relational_dynamics_power()
         return self.strategy.atomic_states
+
+    def _calculate_relational_dynamics_power(self):
+        """
+        【V1.1 · 关系动力引擎规范版】
+        - 核心职责: 计算关系动力分。已废弃 stormborn (风暴降生) 等神话命名，采用标准化金融动能描述。
+        """
+        df = self.strategy.df_indicators
+        power_transfer = (self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
+        stealth_accumulation = (self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
+        winner_conviction = (self.strategy.atomic_states.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
+        loser_capitulation = (self.strategy.atomic_states.get('PROCESS_META_LOSER_CAPITULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
+        volatility_breakout_power = (power_transfer * loser_capitulation)**0.5
+        self.strategy.atomic_states['SCORE_ATOMIC_VOLATILITY_BREAKOUT_POWER'] = volatility_breakout_power.astype(np.float32)
+        stealth_accumulation_power = (stealth_accumulation * winner_conviction)**0.5
+        self.strategy.atomic_states['SCORE_ATOMIC_STEALTH_ACCUMULATION_POWER'] = stealth_accumulation_power.astype(np.float32)
+        relational_dynamics_power = np.maximum(volatility_breakout_power, stealth_accumulation_power)
+        self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 
     def deploy_forensic_probes(self):
         """
@@ -179,25 +152,6 @@ class IntelligenceLayer:
         #         self.probes._deploy_lockdown_scramble_probe(probe_date)
         # print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
         return
-
-    def _ignite_relational_dynamics_engine(self):
-        """
-        【V1.0】关系动力引擎（普罗米修斯神坛）
-        - 核心职责: 作为跨领域的通用“神力”引擎，计算“关系动力分”，为所有终极信号提供力量倍增。
-        - 架构意义: 将此通用逻辑从行为情报模块中解放出来，提升至最高指挥部，实现架构净化。
-        """
-        # print("    - [神力引擎] 正在点燃“关系动力”引擎...")
-        df = self.strategy.df_indicators
-        power_transfer = (self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
-        stealth_accumulation = (self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
-        winner_conviction = (self.strategy.atomic_states.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
-        loser_capitulation = (self.strategy.atomic_states.get('PROCESS_META_LOSER_CAPITULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
-        stormborn_power = (power_transfer * loser_capitulation)**0.5
-        self.strategy.atomic_states['SCORE_ATOMIC_STORM_BORN_POWER'] = stormborn_power.astype(np.float32)
-        still_waters_power = (stealth_accumulation * winner_conviction)**0.5
-        self.strategy.atomic_states['SCORE_ATOMIC_STILL_WATERS_POWER'] = still_waters_power.astype(np.float32)
-        relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
-        self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 
 
 

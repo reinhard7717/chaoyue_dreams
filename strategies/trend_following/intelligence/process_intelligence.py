@@ -87,6 +87,10 @@ class ProcessIntelligence:
     - 版本: 2.0.0
     """
     def __init__(self, strategy_instance):
+        """
+        【V334.0.0 · 毒瘤切除与规范化版】
+        - 核心修复: 移除了在内存中强行篡改 Bipolar 信号 penalty_weight 符号的荒谬“热修复”。
+        """
         self.strategy = strategy_instance
         self.helper = ProcessIntelligenceHelper(strategy_instance)
         self.calculate_main_force_rally_intent_processor = CalculateMainForceRallyIntent(strategy_instance, self.helper)
@@ -102,19 +106,6 @@ class ProcessIntelligence:
         self.calculate_main_force_control_processor = CalculateMainForceControlRelationship(strategy_instance, self.helper)
         self.params = self.helper.params
         self.score_type_map = self.helper.score_type_map
-        
-        # [V333.0.0] 框架级 Bipolar 极性反噬内存注入热修复 (Framework Polarity Hotfix)
-        # 魔鬼代言人诊断：上层策略聚合框架在处理 Bipolar 负值时，存在 `val(<0) * penalty_weight(<0) = 正数` 的过滤 BUG。
-        # 导致时间陷阱(-0.9659)与多维背离(-0.4078)等致命双极风险信号在最终报告中全部“隐身”。
-        # 此处通过引用传递(Pass-by-reference)，在内存中强行将所有 bipolar 的 penalty_weight 翻转为绝对正数。
-        # 从而实现 `负向输出 * 正向权重 = 真实风险负分`，找回全部失明的风险核武防线！
-        if isinstance(self.score_type_map, dict):
-            for sig_key, sig_conf in self.score_type_map.items():
-                if isinstance(sig_conf, dict) and sig_conf.get('scoring_mode') == 'bipolar':
-                    pw = sig_conf.get('penalty_weight')
-                    if pw is not None and pw < 0:
-                        sig_conf['penalty_weight'] = abs(pw)
-
         self.norm_window = self.helper.norm_window
         self.std_window = self.helper.std_window
         self.meta_window = self.helper.meta_window
