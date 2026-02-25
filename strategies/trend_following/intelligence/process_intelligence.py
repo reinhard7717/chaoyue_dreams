@@ -570,12 +570,15 @@ class ProcessIntelligence:
 
     def _apply_norm_adaptive(self, arr: np.ndarray) -> np.ndarray:
         """
-        【V327.0.0 · 截断未来函数版】
-        修改思路：摒弃原版 np.max 扫描全序列导致的未来函数泄露。采用 np.maximum.accumulate 建立时间因果屏障，仅利用截止到当天的极值推演动态标度。
+        【V328.0.0 · 静态元数据推演版】
+        用途：自适应识别底层特征的量纲(比例值[0,1]或百分比[0,100])，并平滑归一化。
+        修改要点：废除 np.maximum.accumulate 导致的动态滑窗断崖。特征的物理量纲是静态元数据，不应随时间推移发生阶跃突变。采用 99 分位数扫描全序列锁定度量衡，免疫极值脏数据，并确保同一特征的时间序列量纲绝对一致，防止三阶动力学产生无限大虚假加速度 (Jerk)。
         """
         sf=np.nan_to_num(arr,nan=0.0,posinf=0.0,neginf=0.0)
-        rolling_max=np.maximum.accumulate(np.abs(sf))
-        scale=np.where(rolling_max>2.0,100.0,1.0).astype(np.float32)
+        if len(sf)>0 and np.percentile(np.abs(sf),99)>2.0:
+            scale=100.0
+        else:
+            scale=1.0
         return np.clip(sf/scale,0.0,1.0).astype(np.float32)
 
     def _apply_hab(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
@@ -829,8 +832,9 @@ class ProcessIntelligence:
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V306.0.0】吸筹末端质变拐点
-        修改要点：引入 downtrend_strength_D 下跌趋势压制，以及 MACD/流向加速 拐点确认门控(inflection_gate)，避免死气沉沉的横盘或大跌产生高分累加导致假突破。
+        【V328.0.0 · 绝地反击阈值软化版】
+        用途：识别多日累积吸筹后，即将由量变到质变的拉升拐点。
+        修改要点：废除对 downtrend_strength_D 的刚性清零惩罚。底部吸筹拐点本身就孕育在暴跌后的深水区，原逻辑 down_penalty=0 会将深水区的真实信号无情抹杀。现将惩罚公式升级为连续线性衰减，并赋予 0.1 的底座生存权重。
         """
         method_name="_calculate_accumulation_inflection"
         required_signals=['PROCESS_META_COVERT_ACCUMULATION','PROCESS_META_DECEPTIVE_ACCUMULATION','PROCESS_META_PANIC_WASHOUT_ACCUMULATION','PROCESS_META_MAIN_FORCE_RALLY_INTENT','chip_convergence_ratio_D','price_vs_ma_21_ratio_D','flow_acceleration_intraday_D','flow_consistency_D','MA_POTENTIAL_COMPRESSION_RATE_D','MACDh_13_34_8_D','consolidation_quality_score_D','volatility_adjusted_concentration_D','downtrend_strength_D']
@@ -851,7 +855,7 @@ class ProcessIntelligence:
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
         down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
         pot=_jit_ema((covert+decept+panic)/3.0,config.get('accumulation_window',21))
-        down_penalty=np.maximum(1.0-self._apply_norm(down,50.0),0.0)
+        down_penalty=np.clip(1.0-self._apply_norm(down,100.0),0.1,1.0)
         inflection_gate=np.where((f_accel>0.0)|(macd>0.0)|(c_conv>0.5),1.0,0.1).astype(np.float32)
         core=pot*self._apply_zg(pot)*inflection_gate
         amp=1.0+(self._apply_norm(consol,100.0)+self._apply_norm(c_conv,1.0)+(1.0-np.maximum(np.tanh(self._apply_hab(df,'pma',np.abs(p_ma21-1.0),21)),0.0)*0.5)+self._apply_norm(ma_comp,1.0)+self._apply_norm(vac,100.0)+np.maximum(np.tanh(self._apply_hab(df,'fa',f_accel,13)),0.0)+self._apply_norm(f_cons,100.0)+rally+np.maximum(np.tanh(self._apply_hab(df,'md',macd,13)),0.0))/9.0
@@ -884,8 +888,9 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V306.0.0】突破加速强攻
-        修改要点：加入 downtrend_strength_D 物理防爆锁。杜绝在主跌浪中，因为极弱的盘中抽搐被误判为“有效突破”的致命失误。
+        【V328.0.0 · 连续非线性防爆版】
+        用途：诊断突破后的加速行为。
+        修改要点：消除 downtrend_strength_D 的 0 值绝对死锁，采用 100.0 为缩放阈值并挂载 10% 最小底座，维持突破引擎梯度可导，捕获深水区弱转强的初代突破。
         """
         method_name="_calculate_breakout_acceleration"
         required_signals=['breakout_quality_score_D','industry_strength_rank_D','net_mf_amount_D','flow_consistency_D','tick_abnormal_volume_ratio_D','uptrend_strength_D','T1_PREMIUM_EXPECTATION_D','HM_COORDINATED_ATTACK_D','breakout_penalty_score_D','buy_elg_amount_D','volatility_adjusted_concentration_D','amount_D','downtrend_strength_D']
@@ -905,7 +910,7 @@ class ProcessIntelligence:
         amt=self._get_safe_array(df,'amount_D',method_name=method_name)
         amt=np.where(amt==0.0,1.0,amt)
         down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
-        down_penalty=np.maximum(1.0-self._apply_norm(down,30.0),0.0)
+        down_penalty=np.clip(1.0-self._apply_norm(down,100.0),0.1,1.0)
         core=self._apply_norm(brk,100.0)*self._apply_zg(brk)
         ind_norm=self._apply_norm_adaptive(ind)
         amp=1.0+(self._apply_norm(uptrend,100.0)+ind_norm+self._apply_norm(vac,100.0)+np.maximum(np.tanh(self._apply_hab(df,'mf',mf,21)),0.0)+self._apply_norm(t1,100.0)+self._apply_norm(hm,100.0)+self._apply_norm(self._safe_div(elg,amt,0.0),0.1)+self._apply_norm(cons,100.0)+self._apply_norm(abnorm,10.0))/9.0
@@ -1312,8 +1317,9 @@ class ProcessIntelligence:
 
     def _calculate_smart_money_ignition(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V306.0.0】聪明钱协同点火
-        修改要点：加入 downtrend_strength_D 绝对压制。聪明钱绝不会在深水主跌区无脑逆势点火，屏蔽主跌浪中的随机异动或老鼠仓。
+        【V328.0.0 · 连续非线性防爆版】
+        用途：聪明钱与游资协同攻击点火诊断。
+        修改要点：修正强跌势中的惩罚 0 值污染。保留基础底座系数，让游资逆势反抽的强力动作虽然被降维，但不至于由于乘 0 而彻底错过超跌爆点的抓取。
         """
         method_name="_calculate_smart_money_ignition"
         required_signals=['HM_COORDINATED_ATTACK_D','T1_PREMIUM_EXPECTATION_D','IS_MARKET_LEADER_D','flow_acceleration_intraday_D','buy_elg_amount_D','tick_large_order_net_D','amount_D','uptrend_strength_D','STATE_BREAKOUT_CONFIRMED_D','net_energy_flow_D','market_sentiment_score_D','downtrend_strength_D']
@@ -1334,7 +1340,7 @@ class ProcessIntelligence:
         ne=self._get_safe_array(df,'net_energy_flow_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
         down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
-        down_penalty=np.maximum(1.0-self._apply_norm(down,40.0),0.0)
+        down_penalty=np.clip(1.0-self._apply_norm(down,100.0),0.1,1.0)
         core=self._apply_norm(hm,100.0)*self._apply_zg(hm)
         amp=1.0+(self._apply_norm(up,100.0)+self._apply_norm(t1,100.0)+self._apply_norm(f_acc,100.0)+self._apply_norm(self._safe_div(elg,amt,0.0),0.1)+self._apply_norm(np.maximum(self._safe_div(t_net,amt,0.0),0.0),0.1)+self._apply_norm(ne,100.0)+ldr+self._apply_norm(sent,100.0)+brk)/9.0
         raw=core*amp*down_penalty*(1.0+np.maximum(self._apply_kinematics(df,'HM_COORDINATED_ATTACK_D_scaled',hm/100.0,13),0.0))
@@ -1344,8 +1350,9 @@ class ProcessIntelligence:
 
     def _calculate_vpa_mf_coherence_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V306.0.0】量价主力相干共振
-        修改要点：加入 downtrend_strength_D 物理防爆锁。避免下跌中继的微量抽搐被错误放大为主升浪量价共振点。
+        【V328.0.0 · 连续非线性防爆版】
+        用途：量价与主力均线物理相干共振诊断。
+        修改要点：修正 down_penalty 零值死锁。确立最小边界门限 0.1，防御极端下跌带来的物理闭环感染，保护核心共振张量不被意外全灭。
         """
         method_name="_calculate_vpa_mf_coherence_resonance"
         required_signals=['MA_COHERENCE_RESONANCE_D','VPA_MF_ADJUSTED_EFF_D','MA_ACCELERATION_EMA_55_D','VPA_ACCELERATION_13D','chip_convergence_ratio_D','flow_consistency_D','volatility_adjusted_concentration_D','chip_entropy_D','downtrend_strength_D']
@@ -1360,7 +1367,7 @@ class ProcessIntelligence:
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
         c_ent=self._get_safe_array(df,'chip_entropy_D',method_name=method_name)
         down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
-        down_penalty=np.maximum(1.0-self._apply_norm(down,50.0),0.0)
+        down_penalty=np.clip(1.0-self._apply_norm(down,100.0),0.1,1.0)
         core=np.maximum(np.tanh(mc/2.0),0.0)*self._apply_zg(mc)
         amp=1.0+(np.maximum(np.tanh(ve*5.0),0.0)+self._apply_norm(cc,1.0)+self._apply_norm(fc,100.0)+self._apply_norm(vac,100.0)+np.maximum(np.tanh(ma/2.0),0.0)+np.maximum(np.tanh(va/2.0),0.0)+(1.0-self._apply_norm(c_ent,10.0)))/7.0
         raw=core*amp*down_penalty*(1.0+np.maximum(self._apply_kinematics(df,'VPA_MF_ADJUSTED_EFF_D_scaled',ve,13),0.0))
@@ -1479,8 +1486,9 @@ class ProcessIntelligence:
 
     def _calculate_ma_compression_explosion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V306.0.0】均线奇点引爆
-        修改要点：加入 downtrend_strength_D 绝对压制。由于此信号为 T0 级核心起爆点，必须物理阻断在主跌浪瀑布期由于短期均线钝化而触发的满级伪装买入信号。
+        【V328.0.0 · 连续非线性防爆版】
+        用途：多周期均线极度粘合与筹码高度密集下的绝对势能奇点引爆。
+        修改要点：修正 down_penalty 0值死锁，释放由于深跌结构中末端强力吸筹与均线纠缠产生的爆发势能。
         """
         method_name="_calculate_ma_compression_explosion"
         required_signals=['MA_POTENTIAL_COMPRESSION_RATE_D','chip_convergence_ratio_D','TURNOVER_STABILITY_INDEX_D','MACDh_13_34_8_D','energy_concentration_D','volatility_adjusted_concentration_D','close_D','downtrend_strength_D']
@@ -1497,7 +1505,7 @@ class ProcessIntelligence:
         down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
         macd_ratio=self._safe_div(macd,cls,0.0)*100.0
         ignition=np.tanh(macd_ratio/5.0)*self._apply_zg(np.maximum(macd,0.0))
-        down_penalty=np.maximum(1.0-self._apply_norm(down,40.0),0.0)
+        down_penalty=np.clip(1.0-self._apply_norm(down,100.0),0.1,1.0)
         core=self._apply_norm(ma_comp,1.0)*ignition*self._apply_zg(ma_comp)*down_penalty
         amp=1.0+(self._apply_norm(chip_conv,1.0)+self._apply_norm(to_stab,1.0)+self._apply_norm(energy_conc,100.0)+self._apply_norm(vac,100.0))/4.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'MA_POTENTIAL_COMPRESSION_RATE_D_scaled',ma_comp,13),0.0))
@@ -1601,8 +1609,9 @@ class ProcessIntelligence:
 
     def _calculate_time_asymmetry_trap(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V327.0.0 · 量子正交门控版】
-        修改思路：废除僵化的一维线性相减（早盘-午盘），防止早盘秒板、全天一字涨停的绝强龙头被误判为极其恶劣的诱多陷阱。引入收盘强度(cls_norm)做物理门控：收盘拉垮的早冲高才是真陷阱，收盘强硬的则是强分歧抢筹。
+        【V328.0.0 · 归一化流形对齐版】
+        用途：早盘与午后资金流比例严重失衡的A字型诱多陷阱防爆。
+        修改要点：修复由于直接将原始异构比例(0-100)相减导致的计算越界失真(输出溢出并导致极性压缩)。现已纠正为使用 _apply_norm_adaptive 将 morning 和 afternoon 映射至 [0,1] 空间后再行极性对冲，完美映射真实的资金引力场。
         """
         method_name="_calculate_time_asymmetry_trap"
         required_signals=['morning_flow_ratio_D','afternoon_flow_ratio_D','intraday_peak_valley_ratio_D','profit_pressure_D','CLOSING_STRENGTH_D','high_freq_flow_divergence_D','VPA_EFFICIENCY_D','net_mf_amount_D']
@@ -1616,16 +1625,18 @@ class ProcessIntelligence:
         hd=self._get_safe_array(df,'high_freq_flow_divergence_D',method_name=method_name)
         vpa=self._get_safe_array(df,'VPA_EFFICIENCY_D',method_name=method_name)
         mf=self._get_safe_array(df,'net_mf_amount_D',method_name=method_name)
+        morning_norm=self._apply_norm_adaptive(morning)
+        afternoon_norm=self._apply_norm_adaptive(afternoon)
         cls_norm=self._apply_norm_adaptive(cls_strength)
-        trap_vector=np.maximum(morning-afternoon,0.0)*(1.0-cls_norm)
-        opportunity_vector=np.maximum(afternoon-morning,0.0)*cls_norm
+        trap_vector=np.maximum(morning_norm-afternoon_norm,0.0)*(1.0-cls_norm)
+        opportunity_vector=np.maximum(afternoon_norm-morning_norm,0.0)*cls_norm
         asymmetry_dominance=opportunity_vector-trap_vector*1.5
-        core=np.where(mf<0.0,-np.abs(np.tanh(asymmetry_dominance/50.0)),np.tanh(asymmetry_dominance/50.0)).astype(np.float32)
+        core=np.where(mf<0.0,-np.abs(np.tanh(asymmetry_dominance*2.0)),np.tanh(asymmetry_dominance*2.0)).astype(np.float32)
         core=core*self._apply_zg(asymmetry_dominance)
         risk_amp=self._apply_norm(pv,10.0)+self._apply_norm(pp,100.0)+np.maximum(np.tanh(self._apply_hab(df,'hd',hd,21)),0.0)
         opp_amp=np.tanh(np.abs(vpa)*5.0)*3.0
         amp=1.0+np.where(core<0.0,risk_amp/3.0,opp_amp/2.0)
-        raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'morning_flow_ratio_D_scaled',morning/100.0,13)))
+        raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'morning_flow_ratio_D_scaled',morning_norm,13)))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'morning_flow_ratio_D':morning,'afternoon_flow_ratio_D':afternoon,'net_mf_amount_D':mf,'CLOSING_STRENGTH_D':cls_strength},calc_nodes={'trap_vector':trap_vector,'opportunity_vector':opportunity_vector,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
@@ -1695,8 +1706,9 @@ class ProcessIntelligence:
 
     def _calculate_institutional_sweep(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V326.0.0 · 净流绝对斩首版】机构特大单扫货
-        修改要点：将 mf_gate 的负向兜底从 0.1 彻底切断至 0.0。绝不允许在全局主力资金深度净流出 (net_mf_amount < 0) 的派发日，被游资左手倒右手的对倒大买单诱骗出虚假的 T0 级看多核武。
+        【V328.0.0 · 绝境反击防盲版】
+        用途：国家队与大公募机构特大单扫货共振识别。
+        修改要点：废除 `mf < 0` 时的硬性乘 0 一票否决。引入 0.1 的软缓冲底座 mf_gate，并通过连续 clipping 平滑 sweep_gate，允许系统在千股跌停极度恐慌的暴跌分歧中，精准捕获左侧抢筹的核武级信号。
         """
         method_name="_calculate_institutional_sweep"
         required_signals=['buy_elg_amount_D','buy_lg_amount_D','amount_D','tick_chip_transfer_efficiency_D','flow_consistency_D','net_mf_amount_D','flow_impact_ratio_D','market_sentiment_score_D']
@@ -1712,8 +1724,8 @@ class ProcessIntelligence:
         imp=self._get_safe_array(df,'flow_impact_ratio_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
         buy_ratio=self._safe_div(buy_elg+buy_lg*0.5,amt,0.0)
-        mf_gate=np.where(mf<0.0,0.0,1.0).astype(np.float32)
-        sweep_gate=np.where(buy_ratio>0.03,1.0,0.0).astype(np.float32)
+        mf_gate=np.where(mf<0.0,0.1,1.0).astype(np.float32)
+        sweep_gate=np.clip((buy_ratio-0.01)*50.0,0.0,1.0).astype(np.float32)
         core=self._apply_norm(buy_ratio,0.1)*self._apply_zg(buy_ratio)*mf_gate*sweep_gate
         amp=1.0+(np.maximum(np.tanh(self._apply_hab(df,'mf',mf,55)),0.0)+self._apply_norm(tr,1e6)+self._apply_norm(cons,100.0)+self._apply_norm(imp,10.0)+self._apply_norm(sent,100.0))/5.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'buy_ratio_scaled',buy_ratio*100.0,13),0.0))
