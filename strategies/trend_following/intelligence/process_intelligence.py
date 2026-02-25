@@ -478,7 +478,7 @@ class ProcessIntelligence:
 
     def _apply_zg(self, df_index: pd.Index, s: pd.Series) -> pd.Series:
         """
-        【V73.0.0 · 绝对真空防爆版】绝对零基防御门限 (Zero-Gate)
+        【V108.0.0 · 绝对真空防爆版】绝对零基防御门限 (Zero-Gate)
         用途: 强制过滤无穷小量波动，确保无实质动能时主核归零。
         修改要点: 增加 .fillna(0.0) 预处理，彻底阻断 NaN 幽灵数据被 np.where 错误判断为 False(进而泄露为 1.0 满分激活) 的系统级风险。
         """
@@ -490,7 +490,7 @@ class ProcessIntelligence:
 
     def _apply_hab(self, df: pd.DataFrame, col_name: str, s: pd.Series, w: int) -> pd.Series:
         """
-        【V73.0.0 · 工业级序列防爆版】多维HAB历史缓冲池
+        【V108.0.0 · 工业级序列防爆版】多维HAB历史缓冲池
         用途: 将绝对数值转化为相对历史存量的冲击度(Z-Score)。
         修改要点: 在 std() 后立即接 .fillna(0.0)，防止极短序列(如上市首日)产生的 NaN 击穿 1e-5 的方差正则化防线。
         """
@@ -512,7 +512,7 @@ class ProcessIntelligence:
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V73.0.0 · 工业级序列防爆版】信号衰减总线
+        【V108.0.0 · 工业级序列防爆版】信号衰减总线
         用途: 利用本地特征滚动标准差刻画相对衰变严重度，执行非线性激增阻尼。
         修改要点: 升级 local_std，在 std() 后添加 .fillna(0.0) 防爆拦截。
         """
@@ -536,6 +536,7 @@ class ProcessIntelligence:
             return {}
         signal_change=source_series.diff(1).fillna(0.0)
         decay_magnitude=signal_change.clip(upper=0.0).abs()
+        # [V108.0.0] 彻底解决除以零问题，引入统一的方差正则化模型，防爆处理
         local_std=np.sqrt(source_series.rolling(window=21,min_periods=1).std().fillna(0.0)**2 + 1e-5).fillna(1e-5)
         relative_decay=(decay_magnitude/local_std).fillna(0.0)
         decay_score=np.tanh(relative_decay*1.5).clip(0,1)
@@ -613,8 +614,9 @@ class ProcessIntelligence:
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V65.0.0 · 物理极性显式重构版】价格与散户投降背离
-        修改要点: 彻底废除底层 base_div 的黑盒依赖，采用显式的价格与套牢盘动力学极性相乘，防范极性倒置。
+        【V108.0.0 · 质量乘数绝对封板版】价格与散户投降背离
+        用途: 捕捉价格下行但套牢盘停止抵抗开始割肉的背离机会 (Opportunity)。
+        修改要点: 引入状态质量乘数 (state_magnitude)！即使割肉的加速度(t_kin)很大，如果没有庞大的带血套牢盘基数(pressure)作为能量库，反转势能也极其微弱。彻底消灭“状态致盲”。
         """
         method_name="_calculate_price_vs_capitulation_relationship"
         required_signals=['pressure_trapped_D','INTRADAY_SUPPORT_INTENT_D','intraday_low_lock_ratio_D','chip_entropy_D','volatility_adjusted_concentration_D','turnover_rate_f_D','close_D']
@@ -627,18 +629,17 @@ class ProcessIntelligence:
         vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
         turnover=self._get_safe_series(df,'turnover_rate_f_D',method_name=method_name)
         cls=self._get_safe_series(df,'close_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
-        # [V65.0.0] 显式动力学提取
         p_kin=self._apply_kinematics(df,'close_D_scaled',(cls/cls.rolling(21,min_periods=1).mean().fillna(1.0)).fillna(1.0)*10.0,13)
         t_kin=self._apply_kinematics(df,'pressure_trapped_D_scaled',pressure.fillna(0.0)*100.0,13)
-        # 散户投降机会 (价跌 p_kin<0 且 套牢盘降 t_kin<0) -> 负负得正
         opp_core=np.tanh(-p_kin.clip(upper=0))*np.tanh(-t_kin.clip(upper=0))
-        # 散户追高陷阱 (价涨 p_kin>0 且 套牢盘增 t_kin>0) -> 正正得正，加负号变风险
         risk_core=np.tanh(p_kin.clip(lower=0))*np.tanh(t_kin.clip(lower=0))
-        core=(opp_core-risk_core)*self._apply_zg(df_index,pressure)
+        # [V108.0.0 质量乘数防线] 必须要有绝对的套牢盘基数作为燃料池，否则割肉速度再快也毫无意义
+        state_magnitude=np.tanh(pressure.fillna(0.0)*100.0)
+        core=(opp_core-risk_core)*state_magnitude*self._apply_zg(df_index,pressure)
         amp=1.0+(np.tanh(self._apply_hab(df,'sup',support,34)).clip(lower=0)+self._apply_norm(low_lock,1.0)+(1.0-self._apply_norm(entropy,10.0))+self._apply_norm(vac,100.0)+(1.0-np.tanh(turnover.fillna(0.0)/10.0)))/5.0
         raw=core*amp*(1.0+np.abs(t_kin))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':pressure,'close_D':cls},calc_nodes={'p_kin':p_kin,'t_kin':t_kin,'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':pressure,'close_D':cls},calc_nodes={'p_kin':p_kin,'t_kin':t_kin,'state_magnitude':state_magnitude,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_price_efficiency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1118,7 +1119,7 @@ class ProcessIntelligence:
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V73.0.0 · 绝对物理门控收官版】力学筹码共振看跌引擎
+        【V108.0.0 · 绝对物理门控收官版】力学筹码共振看跌引擎
         用途: 测量下跌动能与筹码套牢的共振恶化（确认主跌浪趋势，发出平仓风险信号）。
         修改要点: 引入绝对物理门控 (Absolute Physical Gate)！无论底层发生何种微观看跌背离，只要宏观动能 ROC_13_D >= 0（身处绝对上涨通道），该看跌风险信号必须被物理强行抹杀并归零，彻底杜绝主升浪洗盘被系统错杀！
         """
@@ -1138,11 +1139,10 @@ class ProcessIntelligence:
         bc=self._calculate_instantaneous_relationship(df,config).fillna(0.0)
         core=(-bc).where(bc<0,0.0)*self._apply_zg(df_index,bc)
         amp=1.0+(self._apply_norm(prof,100.0)+self._apply_norm(win,100.0)+np.tanh(self._apply_hab(df,'mn',mean,13)).abs()+self._apply_norm(kurt,100.0)+self._apply_norm(vac,100.0)+self._apply_norm(down,100.0)+self._apply_norm(ent,10.0)+(1.0-self._apply_norm(sent,100.0)))/8.0
-        # [V73.0.0 终极防线] 牛市绝对一票否决权。如果 ROC >= 0，强制压死归零
+        # [V108.0.0 终极防线] 牛市绝对一票否决权。如果 ROC >= 0，将 roc_penalty 设为 0，强制压死归零
         roc_penalty=pd.Series(np.where(roc.fillna(0.0)<0.0,1.0,0.0),index=df_index)
         raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'ROC_13_D_scaled',roc.fillna(0.0)/100.0,13)))*roc_penalty
-        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0)
-        res=res.where(roc.fillna(0.0)<0.0, 0.0).astype(np.float32)
+        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
