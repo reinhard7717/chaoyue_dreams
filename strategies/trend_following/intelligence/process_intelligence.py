@@ -49,11 +49,13 @@ def _jit_rolling_std(arr: np.ndarray, window: int) -> np.ndarray:
     sum_val = 0.0
     sum_sq = 0.0
     for i in range(n):
-        sum_val += arr[i]
-        sum_sq += arr[i] * arr[i]
+        val = arr[i]
+        sum_val += val
+        sum_sq += val * val
         if i >= window:
-            sum_val -= arr[i - window]
-            sum_sq -= arr[i - window] * arr[i - window]
+            old_val = arr[i - window]
+            sum_val -= old_val
+            sum_sq -= old_val * old_val
         count = min(i + 1, window)
         if count > 1:
             mean = sum_val / count
@@ -460,6 +462,28 @@ class ProcessIntelligence:
             return {}
         return {signal_name:meta_score}
 
+    def _judge_domain_reversal(self, bipolar_domain_health: np.ndarray, config: Dict, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        domain_name=config.get('domain_name','未知领域')
+        output_bottom_name=config.get('output_bottom_reversal_name')
+        output_top_name=config.get('output_top_reversal_name')
+        df_index=df.index
+        arr=bipolar_domain_health
+        health_yesterday=np.zeros_like(arr)
+        health_yesterday[1:]=arr[:-1]
+        health_change=np.zeros_like(arr)
+        health_change[1:]=arr[1:]-arr[:-1]
+        shock=self._apply_hab(df,'reversal',health_change,13)
+        bottom_context=np.clip(1.0-health_yesterday,0.0,2.0)
+        bottom_shock=np.clip(shock,0.0,None)
+        bottom_reversal_raw=(bottom_shock*bottom_context)**1.5
+        bottom_reversal_score=np.clip(np.tanh(bottom_reversal_raw),0.0,1.0)
+        top_context=np.clip(1.0+health_yesterday,0.0,2.0)
+        top_shock=np.abs(np.clip(shock,None,0.0))
+        top_reversal_raw=(top_shock*top_context)**1.5
+        top_reversal_score=np.clip(np.tanh(top_reversal_raw),0.0,1.0)
+        self._probe_variables(method_name=f"_judge_domain_reversal ({domain_name})",df_index=df_index,raw_inputs={'bipolar_domain_health':arr},calc_nodes={'health_change':health_change,'shock':shock,'bottom_context':bottom_context,'top_context':top_context},final_result=bottom_reversal_score)
+        return {output_bottom_name:pd.Series(bottom_reversal_score,index=df_index,dtype=np.float32),output_top_name:pd.Series(top_reversal_score,index=df_index,dtype=np.float32)}
+
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         states={}
         output_names=config.get('output_names',{})
@@ -482,28 +506,6 @@ class ProcessIntelligence:
         states[risk_signal_name]=pd.Series(np.abs(np.clip(meta_score,None,0.0)),index=df.index,dtype=np.float32)
         return states
 
-    def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        domain_name=config.get('domain_name','未知领域')
-        output_bottom_name=config.get('output_bottom_reversal_name')
-        output_top_name=config.get('output_top_reversal_name')
-        df_index=df.index
-        arr=bipolar_domain_health.to_numpy(dtype=np.float32)
-        health_yesterday=np.zeros_like(arr)
-        health_yesterday[1:]=arr[:-1]
-        health_change=np.zeros_like(arr)
-        health_change[1:]=arr[1:]-arr[:-1]
-        shock=self._apply_hab(df,'reversal',health_change,13)
-        bottom_context=np.clip(1.0-health_yesterday,0.0,2.0)
-        bottom_shock=np.clip(shock,0.0,None)
-        bottom_reversal_raw=(bottom_shock*bottom_context)**1.5
-        bottom_reversal_score=np.clip(np.tanh(bottom_reversal_raw),0.0,1.0)
-        top_context=np.clip(1.0+health_yesterday,0.0,2.0)
-        top_shock=np.abs(np.clip(shock,None,0.0))
-        top_reversal_raw=(top_shock*top_context)**1.5
-        top_reversal_score=np.clip(np.tanh(top_reversal_raw),0.0,1.0)
-        self._probe_variables(method_name=f"_judge_domain_reversal ({domain_name})",df_index=df_index,raw_inputs={'bipolar_domain_health':arr},calc_nodes={'health_change':health_change,'shock':shock,'bottom_context':bottom_context,'top_context':top_context},final_result=bottom_reversal_score)
-        return {output_bottom_name:pd.Series(bottom_reversal_score,index=df_index,dtype=np.float32),output_top_name:pd.Series(top_reversal_score,index=df_index,dtype=np.float32)}
-
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
         signal_name=config.get('name')
         arr=relationship_score.to_numpy(dtype=np.float32)
@@ -524,7 +526,7 @@ class ProcessIntelligence:
                 ma_period=gate_config.get('ma_period',5)
                 ma_col=f'EMA_{ma_period}_D'
                 if ma_col in df.columns and 'close_D' in df.columns:
-                    gate_is_open=(df['close_D'].to_numpy()<df[ma_col].to_numpy()).astype(np.float32)
+                    gate_is_open=(df['close_D'].to_numpy(dtype=np.float32)<df[ma_col].to_numpy(dtype=np.float32)).astype(np.float32)
                     meta_score=meta_score*gate_is_open
         scoring_mode=self.score_type_map.get(signal_name,{}).get('scoring_mode','unipolar')
         if scoring_mode=='unipolar': meta_score=np.clip(meta_score,0.0,None)
@@ -545,52 +547,58 @@ class ProcessIntelligence:
 
     def _safe_div(self, a: np.ndarray, b: np.ndarray, fill_val: float = 0.0) -> np.ndarray:
         """【V300.0.0】极速矩阵安全除法"""
-        b_safe = np.where((b == 0.0) | np.isnan(b), 1.0, b)
-        res = a / b_safe
-        return np.where((b == 0.0) | np.isnan(b), fill_val, res).astype(np.float32)
+        mask = (b == 0.0) | np.isnan(b)
+        b_safe = np.where(mask, 1.0, b)
+        return np.where(mask, fill_val, a / b_safe).astype(np.float32)
 
     def _apply_zg(self, arr: np.ndarray) -> np.ndarray:
         """【V300.0.0】绝对零基防御门限 Numpy版"""
-        return np.where(np.abs(arr) < 1e-4, 0.0, 1.0).astype(np.float32)
+        return np.where(np.abs(np.nan_to_num(arr, nan=0.0)) < 1e-4, 0.0, 1.0).astype(np.float32)
 
     def _apply_norm(self, arr: np.ndarray, max_v: float = 100.0) -> np.ndarray:
         """【V300.0.0】线性边界防爆截断 Numpy版"""
-        return np.clip(arr / max_v, 0.0, 1.0).astype(np.float32)
+        return np.clip(np.nan_to_num(arr, nan=0.0) / max_v, 0.0, 1.0).astype(np.float32)
 
     def _apply_norm_adaptive(self, arr: np.ndarray) -> np.ndarray:
         """【V300.0.0】智能自适应标度截断 Numpy版"""
-        return np.clip(np.where(arr <= 1.0, arr / 100.0, arr), 0.0, 1.0).astype(np.float32)
+        sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        return np.clip(np.where(sf <= 1.0, sf / 100.0, sf), 0.0, 1.0).astype(np.float32)
 
     def _apply_hab(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
         """【V300.0.0】Numba 加速多维HAB历史缓冲池"""
         hab_col = f'HAB_{w}_{col_name}'
         if hab_col in df.columns:
             return np.nan_to_num(df[hab_col].to_numpy(dtype=np.float32), nan=0.0)
-        rm = _jit_rolling_mean(arr, w)
-        rs = np.sqrt(_jit_rolling_std(arr, w)**2 + 1e-5)
-        return self._safe_div(arr - rm, rs, 0.0)
+        sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        rm = _jit_rolling_mean(sf, w)
+        rs = np.sqrt(_jit_rolling_std(sf, w)**2 + 1e-5)
+        return self._safe_div(sf - rm, rs, 0.0)
 
     def _apply_kinematics(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
         """【V300.0.0】三阶动力学张量引擎 Numpy切片极速版"""
-        n = len(arr)
+        sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        n = len(sf)
         sl_series = df.get(f'SLOPE_{w}_{col_name}')
         if sl_series is not None:
             sl = np.nan_to_num(sl_series.to_numpy(dtype=np.float32), nan=0.0)
         else:
             sl = np.zeros(n, dtype=np.float32)
-            sl[w:] = (arr[w:] - arr[:-w]) / w
+            sl[w:] = (sf[w:] - sf[:-w]) / w
+            
         ac_series = df.get(f'ACCEL_{w}_{col_name}')
         if ac_series is not None:
             ac = np.nan_to_num(ac_series.to_numpy(dtype=np.float32), nan=0.0)
         else:
             ac = np.zeros(n, dtype=np.float32)
             ac[w:] = (sl[w:] - sl[:-w]) / w
+            
         jk_series = df.get(f'JERK_{w}_{col_name}')
         if jk_series is not None:
             jk = np.nan_to_num(jk_series.to_numpy(dtype=np.float32), nan=0.0)
         else:
             jk = np.zeros(n, dtype=np.float32)
             jk[w:] = (ac[w:] - ac[:-w]) / w
+            
         ts = np.where(np.abs(sl) < 1e-4, 0.0, sl) + np.where(np.abs(ac) < 1e-4, 0.0, ac) * 0.5 + np.where(np.abs(jk) < 1e-4, 0.0, jk) * 0.25
         return np.nan_to_num(np.clip(np.tanh(np.clip(ts, -20.0, 20.0) * 10.0), -1.0, 1.0), nan=0.0).astype(np.float32)
 
@@ -604,51 +612,46 @@ class ProcessIntelligence:
         source_signal_name=config.get('source_signal')
         if not source_signal_name: return {}
         df_index=df.index
-        if config.get('source_type','df')=='atomic_states': source_series=self.strategy.atomic_states.get(source_signal_name)
+        if config.get('source_type','df')=='atomic_states': 
+            source_series=self.strategy.atomic_states.get(source_signal_name)
         else:
             if source_signal_name not in df.columns: return {}
             source_series=df[source_signal_name].astype(np.float32)
         if source_series is None: return {}
-        arr=np.nan_to_num(source_series.to_numpy(),nan=0.0)
+        
+        arr=np.nan_to_num(source_series.to_numpy(dtype=np.float32),nan=0.0)
         diff_arr=np.zeros_like(arr)
         diff_arr[1:]=arr[1:]-arr[:-1]
         decay_magnitude=np.abs(np.clip(diff_arr,a_min=None,a_max=0.0))
         local_std=np.sqrt(_jit_rolling_std(arr,21)**2+1e-5)
         relative_decay=self._safe_div(decay_magnitude,local_std,0.0)
         decay_score=np.clip(np.tanh(relative_decay*1.5),0.0,1.0)
+        
         if is_debug_enabled and self.probe_dates:
             self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'source':arr},calc_nodes={'signal_change':diff_arr,'relative_decay':relative_decay},final_result=decay_score)
         return {signal_name:pd.Series(decay_score,index=df_index,dtype=np.float32)}
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
-        """
-        【V12.0.0 · 领域反转全息诊断入口】
-        摒弃孤立公理强校验，通过自适应加权机制执行柔性降级，引入公理群矩阵共振。
-        """
         domain_name = config.get('domain_name')
         axiom_configs = config.get('axioms', [])
         output_bottom_name = config.get('output_bottom_reversal_name')
         output_top_name = config.get('output_top_reversal_name')
-        if not domain_name or not axiom_configs or not output_bottom_name or not output_top_name:
-            return {}
+        if not domain_name or not axiom_configs or not output_bottom_name or not output_top_name: return {}
         df_index = df.index
-        domain_health_components = []
+        n = len(df)
+        bipolar_domain_health = np.zeros(n, dtype=np.float32)
         total_weight = 0.0
-        # 1. 动态加权矩阵坍缩
         for axiom_config in axiom_configs:
             axiom_name = axiom_config.get('name')
             axiom_weight = axiom_config.get('weight', 0.0)
-            # 柔性跳过未加载或计算失败的高阶公理信号，阻止系统雪崩
-            if axiom_name not in self.strategy.atomic_states:
-                continue
-            axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=df_index))
-            domain_health_components.append(axiom_score.fillna(0.0) * axiom_weight)
-            total_weight += abs(axiom_weight)
-        if total_weight == 0:
-            return {}
-        # 2. 领域基础健康度 (Bipolar: -1 to 1)
-        bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1).fillna(0.0).astype(np.float32)
-        # 将结果递交至审判庭 _judge_domain_reversal 进行 HAB 冲击判定
+            if axiom_name not in self.strategy.atomic_states: continue
+            axiom_score = self.strategy.atomic_states.get(axiom_name)
+            if axiom_score is not None:
+                arr = np.nan_to_num(axiom_score.to_numpy(dtype=np.float32), nan=0.0)
+                bipolar_domain_health += arr * axiom_weight
+                total_weight += abs(axiom_weight)
+        if total_weight == 0: return {}
+        bipolar_domain_health = np.clip(bipolar_domain_health / total_weight, -1.0, 1.0)
         return self._judge_domain_reversal(bipolar_domain_health, config, df)
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -833,7 +836,7 @@ class ProcessIntelligence:
         df_index=df.index
         release=self._get_safe_array(df,'pressure_release_index_D',method_name=method_name)
         trapped=self._get_safe_array(df,'pressure_trapped_D',method_name=method_name)
-        low_lock=self._get_safe_array(df,'intraday_low_lock_ratio_D',method_method_name=method_name)
+        low_lock=self._get_safe_array(df,'intraday_low_lock_ratio_D',method_name=method_name)
         absorp=self._get_safe_array(df,'absorption_energy_D',method_name=method_name)
         winner=self._get_safe_array(df,'winner_rate_D',method_name=method_name)
         down=self._get_safe_array(df,'downtrend_strength_D',method_name=method_name)
@@ -1197,38 +1200,34 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_fusion_trend_exhaustion_syndrome(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V49.0.0 · 标度统合版】趋势衰竭综合征引擎
-        用途: 诊断极端抛物线拉升后的趋势衰竭与派发共振。
-        修改要点: 统一将 profit_pressure_D 恢复为标准的 100 标度归一化；VPA严格实施极性单向整流，仅多头放量能压制预警。
-        """
         method_name="_calculate_fusion_trend_exhaustion_syndrome"
         required_signals=['STATE_PARABOLIC_WARNING_D','STATE_EMOTIONAL_EXTREME_D','PRICE_ENTROPY_D','profit_pressure_D','HM_COORDINATED_ATTACK_D','intraday_distribution_confidence_D','distribution_energy_D','chip_entropy_D','sell_elg_amount_D','amount_D','VPA_EFFICIENCY_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
-        para=self._get_safe_series(df,'STATE_PARABOLIC_WARNING_D',method_name=method_name).clip(0,1)
-        emot=self._get_safe_series(df,'STATE_EMOTIONAL_EXTREME_D',method_name=method_name).clip(0,1)
-        ent=self._get_safe_series(df,'PRICE_ENTROPY_D',method_name=method_name)
-        pres=self._get_safe_series(df,'profit_pressure_D',method_name=method_name)
-        hm=self._get_safe_series(df,'HM_COORDINATED_ATTACK_D',method_name=method_name)
-        dist_c=self._get_safe_series(df,'intraday_distribution_confidence_D',method_name=method_name)
-        dist_e=self._get_safe_series(df,'distribution_energy_D',method_name=method_name)
-        c_ent=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
-        sell_elg=self._get_safe_series(df,'sell_elg_amount_D',method_name=method_name)
-        amt=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
-        vpa=self._get_safe_series(df,'VPA_EFFICIENCY_D',method_name=method_name)
+        para=self._get_safe_array(df,'STATE_PARABOLIC_WARNING_D',method_name=method_name)
+        para=np.clip(para,0.0,1.0)
+        emot=self._get_safe_array(df,'STATE_EMOTIONAL_EXTREME_D',method_name=method_name)
+        emot=np.clip(emot,0.0,1.0)
+        ent=self._get_safe_array(df,'PRICE_ENTROPY_D',method_name=method_name)
+        pres=self._get_safe_array(df,'profit_pressure_D',method_name=method_name)
+        hm=self._get_safe_array(df,'HM_COORDINATED_ATTACK_D',method_name=method_name)
+        dist_c=self._get_safe_array(df,'intraday_distribution_confidence_D',method_name=method_name)
+        dist_e=self._get_safe_array(df,'distribution_energy_D',method_name=method_name)
+        c_ent=self._get_safe_array(df,'chip_entropy_D',method_name=method_name)
+        sell_elg=self._get_safe_array(df,'sell_elg_amount_D',method_name=method_name)
+        amt=self._get_safe_array(df,'amount_D',method_name=method_name)
+        amt=np.where(amt==0.0,1.0,amt)
+        vpa=self._get_safe_array(df,'VPA_EFFICIENCY_D',method_name=method_name)
         base_state=np.maximum(self._apply_norm(para,1.0),self._apply_norm(emot,1.0))**2
-        # [V49.0.0 标度修复] 统一使用 _apply_norm 进行 100 标度归一
         dist_force=np.maximum(self._apply_norm(pres,100.0),self._apply_norm(dist_e,100.0))
-        core=base_state*dist_force*self._apply_zg(df_index,base_state*dist_force)
-        amp=1.0+(self._apply_norm(dist_c,100.0)+np.tanh((sell_elg.fillna(0.0)/amt).fillna(0.0)*10.0)+self._apply_norm(ent,10.0)+self._apply_norm(c_ent,10.0))/4.0
-        # [V49.0.0 单向整流] 仅正向的高效拉升 VPA 才具备否决衰竭风险的资格
-        vpa_bull=np.tanh(vpa.fillna(0.0)*5.0).clip(lower=0)
-        veto=(1.0-self._apply_norm(hm,100.0)*0.9).clip(lower=0.1)*(1.0-vpa_bull*0.5)
-        raw=core*amp*veto*(1.0+self._apply_kinematics(df,'profit_pressure_D_scaled',pres.fillna(0.0)/100.0,13).clip(lower=0))
-        res=np.tanh(raw**1.5).clip(0,1).fillna(0.0).astype(np.float32)
+        core=base_state*dist_force*self._apply_zg(base_state*dist_force)
+        amp=1.0+(self._apply_norm(dist_c,100.0)+np.tanh(self._safe_div(sell_elg,amt,0.0)*10.0)+self._apply_norm(ent,10.0)+self._apply_norm(c_ent,10.0))/4.0
+        vpa_bull=np.maximum(np.tanh(vpa*5.0),0.0)
+        veto=np.maximum(1.0-self._apply_norm(hm,100.0)*0.9,0.1)*(1.0-vpa_bull*0.5)
+        raw=core*amp*veto*(1.0+np.maximum(self._apply_kinematics(df,'profit_pressure_D_scaled',pres/100.0,13),0.0))
+        res=np.clip(np.tanh(raw**1.5),0.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'STATE_PARABOLIC_WARNING_D':para,'distribution_energy_D':dist_e},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
-        return res
+        return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_dyn_vs_chip_decay_rise(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         method_name="_calculate_dyn_vs_chip_decay_rise"
@@ -1640,64 +1639,51 @@ class ProcessIntelligence:
         return res
 
     def _calculate_ma_rubber_band_reversal(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V65.0.0 · 缓存阻断收官版】均线张力极值反噬引擎
-        修改要点: 强制追加 _scaled 后缀，切断底层对未缩放原始斜率的错误缓存，恢复动力学引擎对乖离率的灰度感知。同时修复 trap_p 感光度。
-        """
         method_name="_calculate_ma_rubber_band_reversal"
         required_signals=['MA_RUBBER_BAND_EXTENSION_D','MA_POTENTIAL_TENSION_INDEX_D','ADX_14_D','profit_pressure_D','pressure_trapped_D','BIAS_21_D','reversal_prob_D','chip_entropy_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
-        ext=self._get_safe_series(df,'MA_RUBBER_BAND_EXTENSION_D',method_name=method_name)
-        tension=self._get_safe_series(df,'MA_POTENTIAL_TENSION_INDEX_D',method_name=method_name)
-        adx=self._get_safe_series(df,'ADX_14_D',method_name=method_name)
-        profit_p=self._get_safe_series(df,'profit_pressure_D',method_name=method_name)
-        trap_p=self._get_safe_series(df,'pressure_trapped_D',method_name=method_name)
-        bias=self._get_safe_series(df,'BIAS_21_D',method_name=method_name)
-        rev=self._get_safe_series(df,'reversal_prob_D',method_name=method_name)
-        c_ent=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
-        supp=1.0-np.tanh(np.maximum(adx.fillna(0.0)-35.0,0.0)/15.0)
+        ext=self._get_safe_array(df,'MA_RUBBER_BAND_EXTENSION_D',method_name=method_name)
+        tension=self._get_safe_array(df,'MA_POTENTIAL_TENSION_INDEX_D',method_name=method_name)
+        adx=self._get_safe_array(df,'ADX_14_D',method_name=method_name)
+        profit_p=self._get_safe_array(df,'profit_pressure_D',method_name=method_name)
+        trap_p=self._get_safe_array(df,'pressure_trapped_D',method_name=method_name)
+        bias=self._get_safe_array(df,'BIAS_21_D',method_name=method_name)
+        rev=self._get_safe_array(df,'reversal_prob_D',method_name=method_name)
+        c_ent=self._get_safe_array(df,'chip_entropy_D',method_name=method_name)
+        supp=1.0-np.tanh(np.maximum(adx-35.0,0.0)/15.0)
         c_ent_n=self._apply_norm(c_ent,10.0)
-        trap_norm=np.tanh(trap_p.fillna(0.0)*100.0)
-        t_base=np.tanh(ext.fillna(0.0)/10.0).clip(lower=0)*self._apply_zg(df_index,ext.clip(lower=0))
-        t_amp=1.0+(self._apply_norm(tension,100.0)+self._apply_norm(profit_p,100.0)+np.tanh(self._apply_hab(df,'bias',bias,21)).clip(lower=0)+self._apply_norm(rev,100.0)+(1.0-c_ent_n))/5.0
-        b_base=np.tanh(ext.fillna(0.0)/10.0).clip(upper=0).abs()*self._apply_zg(df_index,ext.clip(upper=0))
-        b_amp=1.0+(self._apply_norm(tension,100.0)+trap_norm+np.tanh(self._apply_hab(df,'bias',bias,21)).clip(upper=0).abs()+self._apply_norm(rev,100.0)+(1.0-c_ent_n))/5.0
-        # [V65.0.0 缓存阻断] 追加 _scaled 后缀，击穿底层错误缓存，激活真实灰度求导
-        raw=(b_base*b_amp-t_base*t_amp)*supp*(1.0+np.abs(self._apply_kinematics(df,'MA_RUBBER_BAND_EXTENSION_D_scaled',ext.fillna(0.0)/100.0,13)))
-        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
+        trap_norm=np.tanh(trap_p*100.0)
+        t_base=np.maximum(np.tanh(ext/10.0),0.0)*self._apply_zg(np.maximum(ext,0.0))
+        t_amp=1.0+(self._apply_norm(tension,100.0)+self._apply_norm(profit_p,100.0)+np.maximum(np.tanh(self._apply_hab(df,'bias',bias,21)),0.0)+self._apply_norm(rev,100.0)+(1.0-c_ent_n))/5.0
+        b_base=np.abs(np.clip(np.tanh(ext/10.0),None,0.0))*self._apply_zg(np.clip(ext,None,0.0))
+        b_amp=1.0+(self._apply_norm(tension,100.0)+trap_norm+np.abs(np.clip(np.tanh(self._apply_hab(df,'bias',bias,21)),None,0.0))+self._apply_norm(rev,100.0)+(1.0-c_ent_n))/5.0
+        raw=(b_base*b_amp-t_base*t_amp)*supp*(1.0+np.abs(self._apply_kinematics(df,'MA_RUBBER_BAND_EXTENSION_D_scaled',ext/100.0,13)))
+        res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'MA_RUBBER_BAND_EXTENSION_D':ext},calc_nodes={'top_base':t_base,'bot_base':b_base,'raw_score':raw},final_result=res)
-        return res
+        return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_geometric_trend_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V42.0.0 · 无量纲不变版】几何流形趋势共振引擎
-        用途: 通过流形曲率回归精确感知中线趋势爆发。
-        修改要点: 将绝对几何斜率 (GEOM_REG_SLOPE_D) 除以当期收盘价转化为百分比，彻底解决百元股与仙股的量纲错位。
-        """
         method_name="_calculate_geometric_trend_resonance"
         required_signals=['GEOM_REG_R2_D','GEOM_REG_SLOPE_D','GEOM_ARC_CURVATURE_D','GEOM_CHANNEL_POS_D','PRICE_FRACTAL_DIM_D','trend_confirmation_score_D','volatility_adjusted_concentration_D','close_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
-        r2=self._get_safe_series(df,'GEOM_REG_R2_D',method_name=method_name)
-        slope=self._get_safe_series(df,'GEOM_REG_SLOPE_D',method_name=method_name)
-        curv=self._get_safe_series(df,'GEOM_ARC_CURVATURE_D',method_name=method_name)
-        pos=self._get_safe_series(df,'GEOM_CHANNEL_POS_D',method_name=method_name)
-        frac=self._get_safe_series(df,'PRICE_FRACTAL_DIM_D',method_name=method_name)
-        conf=self._get_safe_series(df,'trend_confirmation_score_D',method_name=method_name)
-        vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        cls=self._get_safe_series(df,'close_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
-        # [V42.0.0 标度修复] 将绝对斜率转化为相对于收盘价的无量纲日均涨幅百分比
-        slope_ratio=(slope.fillna(0.0)/cls)*100.0
-        core=np.tanh(slope_ratio/10.0)*self._apply_norm(r2,1.0)*self._apply_zg(df_index,slope)*self._apply_zg(df_index,r2)
+        r2=self._get_safe_array(df,'GEOM_REG_R2_D',method_name=method_name)
+        slope=self._get_safe_array(df,'GEOM_REG_SLOPE_D',method_name=method_name)
+        curv=self._get_safe_array(df,'GEOM_ARC_CURVATURE_D',method_name=method_name)
+        pos=self._get_safe_array(df,'GEOM_CHANNEL_POS_D',method_name=method_name)
+        frac=self._get_safe_array(df,'PRICE_FRACTAL_DIM_D',method_name=method_name)
+        conf=self._get_safe_array(df,'trend_confirmation_score_D',method_name=method_name)
+        vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
+        cls=self._get_safe_array(df,'close_D',method_name=method_name)
+        cls=np.where(cls==0.0,1.0,cls)
+        slope_ratio=self._safe_div(slope,cls,0.0)*100.0
+        core=np.tanh(slope_ratio/10.0)*self._apply_norm(r2,1.0)*self._apply_zg(slope)*self._apply_zg(r2)
         dyn=np.tanh(self._apply_hab(df,'curv',curv,21))-(self._apply_norm(pos,1.0)-0.5)*2.0*0.3
-        amp=1.0+((1.0-self._apply_norm(frac,2.0))+self._apply_norm(conf,100.0)+dyn.clip(lower=0)+self._apply_norm(vac,100.0))/4.0
-        # 动力学引擎也必须采用无量纲比例
-        raw=core*amp*(1.0+self._apply_kinematics(df,'GEOM_REG_SLOPE_D_scaled',slope_ratio/10.0,13).clip(lower=0))
-        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
+        amp=1.0+((1.0-self._apply_norm(frac,2.0))+self._apply_norm(conf,100.0)+np.maximum(dyn,0.0)+self._apply_norm(vac,100.0))/4.0
+        raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'GEOM_REG_SLOPE_D_scaled',slope_ratio/10.0,13),0.0))
+        res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GEOM_REG_SLOPE_D':slope,'GEOM_REG_R2_D':r2},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
-        return res
-
-
+        return pd.Series(res,index=df_index,dtype=np.float32)
 
 
