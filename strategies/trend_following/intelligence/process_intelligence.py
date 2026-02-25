@@ -533,10 +533,14 @@ class ProcessIntelligence:
         return pd.Series(np.clip(meta_score,-1.0,1.0),index=df_index,dtype=np.float32)
 
     def _get_safe_array(self, df: pd.DataFrame, col_name: str, method_name: str = "") -> np.ndarray:
-        """【V300.0.0】极致数据萃取，直接返回 float32 Numpy 数组，截断 NaN 与 Inf"""
+        """
+        【V305.0.0 · 零值黑洞防御版】极致数据萃取
+        用途：提取 DataFrame 列为 Numpy 数组，同时截断 NaN 与 Inf。
+        修改要点：修复极其致命的“0值黑洞污染”。原逻辑直接将 NaN 填为 0.0，导致停牌或缺失的日线价格瞬间归零，引发动力学引擎产出几万倍的虚假加速度暴跌。现引入 ffill() 与 bfill() 维持真实的时序物理连贯性。
+        """
         if col_name not in df.columns:
             raise ValueError(f"[{method_name}] 致命数据断层: 缺失必需特征列 '{col_name}'。")
-        return np.nan_to_num(df[col_name].to_numpy(dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        return np.nan_to_num(df[col_name].ffill().bfill().to_numpy(dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
 
     def _get_atomic_array(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> np.ndarray:
         """【V300.0.0】提取原子信号为 Numpy 数组"""
@@ -561,12 +565,14 @@ class ProcessIntelligence:
 
     def _apply_norm_adaptive(self, arr: np.ndarray) -> np.ndarray:
         """
-        【V303.0.0 · 语义拨乱反正版】智能自适应标度截断 Numpy版
-        用途: 自动探测并兼容 0~1 与 0~100 两种异构数据标度，自我纠错映射至 0~1 绝对区间。
-        修改要点: 修复 numpy.where 语义反转。当绝对值大于 1.0 时才执行除以 100 的降维操作。
+        【V305.0.0 · 全局张量防撕裂版】智能自适应标度截断 Numpy版
+        用途：自动探测并兼容 0~1 与 0~100 两种异构数据标度，自我纠错映射至绝对区间。
+        修改要点：彻底废除引发灾难的 Element-wise(逐元素) np.where 判断。原逻辑会导致同一序列中略微大于 1.0 的极寒值被暴降 100 倍，而 < 1.0 的值原样保留，将原本平滑的张量拓扑结构彻底撕裂。现改为探测序列全局极值，实行统一矩阵标度降维。
         """
-        sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(np.where(np.abs(sf) > 1.0, sf / 100.0, sf), 0.0, 1.0).astype(np.float32)
+        sf=np.nan_to_num(arr,nan=0.0,posinf=0.0,neginf=0.0)
+        if len(sf)>0 and np.max(np.abs(sf))>2.0:
+            sf=sf/100.0
+        return np.clip(sf,0.0,1.0).astype(np.float32)
 
     def _apply_hab(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
         """【V300.0.0】Numba 加速多维HAB历史缓冲池"""
@@ -579,32 +585,33 @@ class ProcessIntelligence:
         return self._safe_div(sf - rm, rs, 0.0)
 
     def _apply_kinematics(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
-        """【V300.0.0】三阶动力学张量引擎 Numpy切片极速版"""
-        sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-        n = len(sf)
-        sl_series = df.get(f'SLOPE_{w}_{col_name}')
+        """
+        【V305.0.0 · 动力学因果律修复版】三阶动力学张量引擎 Numpy切片极速版
+        用途：计算底层特征的一阶、二阶、三阶运动学张量。
+        修改要点：彻底修复差分计算时的“零值脉冲污染”。原逻辑在计算高阶导数(ac/jk)时，切片直接减去了前置未初始化的 0.0 区间，凭空捏造出极其荒谬的加速跳空脉冲。现通过严格向后推移计算游标 (2w, 3w) ，保卫物理序列因果律。
+        """
+        sf=np.nan_to_num(arr,nan=0.0,posinf=0.0,neginf=0.0)
+        n=len(sf)
+        sl_series=df.get(f'SLOPE_{w}_{col_name}')
         if sl_series is not None:
-            sl = np.nan_to_num(sl_series.to_numpy(dtype=np.float32), nan=0.0)
+            sl=np.nan_to_num(sl_series.to_numpy(dtype=np.float32),nan=0.0)
         else:
-            sl = np.zeros(n, dtype=np.float32)
-            sl[w:] = (sf[w:] - sf[:-w]) / w
-            
-        ac_series = df.get(f'ACCEL_{w}_{col_name}')
+            sl=np.zeros(n,dtype=np.float32)
+            if n>w: sl[w:]=(sf[w:]-sf[:-w])/w
+        ac_series=df.get(f'ACCEL_{w}_{col_name}')
         if ac_series is not None:
-            ac = np.nan_to_num(ac_series.to_numpy(dtype=np.float32), nan=0.0)
+            ac=np.nan_to_num(ac_series.to_numpy(dtype=np.float32),nan=0.0)
         else:
-            ac = np.zeros(n, dtype=np.float32)
-            ac[w:] = (sl[w:] - sl[:-w]) / w
-            
-        jk_series = df.get(f'JERK_{w}_{col_name}')
+            ac=np.zeros(n,dtype=np.float32)
+            if n>2*w: ac[2*w:]=(sl[2*w:]-sl[w:-w])/w
+        jk_series=df.get(f'JERK_{w}_{col_name}')
         if jk_series is not None:
-            jk = np.nan_to_num(jk_series.to_numpy(dtype=np.float32), nan=0.0)
+            jk=np.nan_to_num(jk_series.to_numpy(dtype=np.float32),nan=0.0)
         else:
-            jk = np.zeros(n, dtype=np.float32)
-            jk[w:] = (ac[w:] - ac[:-w]) / w
-            
-        ts = np.where(np.abs(sl) < 1e-4, 0.0, sl) + np.where(np.abs(ac) < 1e-4, 0.0, ac) * 0.5 + np.where(np.abs(jk) < 1e-4, 0.0, jk) * 0.25
-        return np.nan_to_num(np.clip(np.tanh(np.clip(ts, -20.0, 20.0) * 10.0), -1.0, 1.0), nan=0.0).astype(np.float32)
+            jk=np.zeros(n,dtype=np.float32)
+            if n>3*w: jk[3*w:]=(ac[3*w:]-ac[2*w:-w])/w
+        ts=np.where(np.abs(sl)<1e-4,0.0,sl)+np.where(np.abs(ac)<1e-4,0.0,ac)*0.5+np.where(np.abs(jk)<1e-4,0.0,jk)*0.25
+        return np.nan_to_num(np.clip(np.tanh(np.clip(ts,-20.0,20.0)*10.0),-1.0,1.0),nan=0.0).astype(np.float32)
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         method_name="_diagnose_signal_decay"
@@ -1085,6 +1092,11 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_price_vs_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V305.0.0 · 张量相位反转修复版】价势多维背离引擎
+        用途：诊断价格位移与动能损耗的非线性背离。
+        修改要点：修复极其致命的“指鹿为马”物理符号塌缩BUG。业务契约规定顶背离(价升量缩)应输出正分风险预警，但原代码 `roc_kin - p_kin` (负减正) 输出了强负数，导致系统把崩盘前夕当做抄底良机！已全盘逆转 `kinematic_div`, `energy_div` 和 `geom_tension` 的差分矢量方向为 (Price - Energy)。
+        """
         method_name="_calculate_price_vs_momentum_divergence"
         required_signals=['close_D','ROC_13_D','VPA_EFFICIENCY_D','PRICE_ENTROPY_D','net_mf_amount_D','turnover_rate_f_D','GEOM_REG_SLOPE_D','GEOM_REG_R2_D','BIAS_21_D','GEOM_ARC_CURVATURE_D','market_sentiment_score_D','volatility_adjusted_concentration_D','amount_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1108,12 +1120,12 @@ class ProcessIntelligence:
         roc_kin=self._apply_kinematics(df,'ROC_13_D_scaled',roc/100.0,13)
         is_true_div=(np.sign(p_kin)*np.sign(roc_kin))<0
         phase_mask=np.where(is_true_div,1.0,0.2)
-        kinematic_div=(roc_kin-p_kin)*phase_mask
+        kinematic_div=(p_kin-roc_kin)*phase_mask
         c_diff=np.zeros_like(cls)
         c_diff[1:]=cls[1:]-cls[:-1]
         p_vel=np.tanh(self._safe_div(c_diff,cls,0.0)*10.0)
-        energy_div=(np.tanh(vpa*5.0)+np.tanh(self._safe_div(mf,amt,0.0)*50.0))/2.0-p_vel
-        geom_tension=(np.tanh(self._apply_hab(df,'arc',arc,21))-np.tanh(self._apply_hab(df,'bias',bias,21)))*0.5*(1.0+self._apply_norm(r2,1.0))
+        energy_div=p_vel-(np.tanh(vpa*5.0)+np.tanh(self._safe_div(mf,amt,0.0)*50.0))/2.0
+        geom_tension=(np.tanh(self._apply_hab(df,'bias',bias,21))-np.tanh(self._apply_hab(df,'arc',arc,21)))*0.5*(1.0+self._apply_norm(r2,1.0))
         raw_div=(kinematic_div*0.4+energy_div*0.3+geom_tension*0.3)
         orbit_suppression=1.0-np.tanh(np.maximum(roc-20.0,0.0)/20.0)
         core=raw_div*self._apply_zg(roc)*orbit_suppression
@@ -1572,6 +1584,11 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_institutional_structural_exit(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V305.0.0 · 抛压加速阀门解封版】机构结构性清仓预警
+        用途：计算机构恶性砸盘时的结构性断层核爆风险。
+        修改要点：修复卖出抛压加速恶化时(动力学张量斜率为正)，被 np.clip(..., None, 0.0) 强行截断屏蔽的逻辑自杀漏洞。现修正为 np.maximum(..., 0.0)，确保大单抛售加速度的致命威力能够被风控放大器精准捕获。
+        """
         method_name="_calculate_institutional_structural_exit"
         required_signals=['sell_elg_amount_D','sell_lg_amount_D','amount_D','distribution_energy_D','downtrend_strength_D','high_position_lock_ratio_90_D','chip_stability_change_5d_D','market_sentiment_score_D','price_percentile_position_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1596,7 +1613,7 @@ class ProcessIntelligence:
         lock_diff=np.zeros_like(lock)
         lock_diff[1:]=lock[1:]-lock[:-1]
         amp=1.0+(self._apply_norm(dist,100.0)+self._apply_norm(down,100.0)+np.abs(np.clip(np.tanh(self._apply_hab(df,'lkd',lock_diff,13)),None,0.0))+np.abs(np.clip(np.tanh(self._apply_hab(df,'stb',stab,13)),None,0.0))+(1.0-np.abs(np.tanh(sent/5.0))))/5.0
-        raw=core*amp*(1.0+np.abs(np.clip(self._apply_kinematics(df,'sell_ratio_scaled',sell_ratio*100.0,13),None,0.0)))
+        raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'sell_ratio_scaled',sell_ratio*100.0,13),0.0))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'sell_ratio':sell_ratio,'price_percentile_position_D':pos},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
@@ -1630,8 +1647,9 @@ class ProcessIntelligence:
 
     def _calculate_hf_algo_manipulation_risk(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V302.0.0 · 极限算力热修复版】高频算法诱骗崩塌防线
-        修改要点: 移除废弃的 df_index 传参，剥离 Pandas 逻辑。
+        【V305.0.0 · 异常流全向拦截版】高频算法诱骗崩塌防线
+        用途：拦截量化高频机器人的恶性欺骗撤单与虚假托单。
+        修改要点：修复大单异常异动飙升时(动力学张量为正)，被 np.clip(..., None, 0.0) 误杀忽略的逻辑防爆漏洞。现修正为 np.maximum(..., 0.0) 以确保高频操纵在加剧恶化时风险得分能呈非线性急剧爆发。
         """
         method_name="_calculate_hf_algo_manipulation_risk"
         required_signals=['high_freq_flow_skewness_D','high_freq_flow_kurtosis_D','large_order_anomaly_D','price_flow_divergence_D','intraday_price_distribution_skewness_D','tick_abnormal_volume_ratio_D','volatility_adjusted_concentration_D']
@@ -1646,10 +1664,9 @@ class ProcessIntelligence:
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
         skew_base=np.tanh(np.abs(skew)/50.0)
         anom_base=self._apply_norm(anom,1.0)
-        # [V302.0.0] 移除 df_index 传参
         core=skew_base*anom_base*self._apply_zg(skew_base*anom_base)
         amp=1.0+(np.maximum(np.tanh(self._apply_hab(df,'div',div,21)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'kurt',kurt,34)),0.0)+np.abs(np.tanh(self._apply_hab(df,'mis',skew-pskew,13)))+np.maximum(np.tanh(self._apply_hab(df,'abn',abn,21)),0.0)+(1.0-self._apply_norm(vac,100.0)))/5.0
-        raw=core*amp*(1.0+np.abs(np.clip(self._apply_kinematics(df,'large_order_anomaly_D_scaled',anom,13),None,0.0)))
+        raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'large_order_anomaly_D_scaled',anom,13),0.0))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'high_freq_flow_skewness_D':skew,'large_order_anomaly_D':anom},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
