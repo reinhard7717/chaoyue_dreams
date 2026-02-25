@@ -1102,9 +1102,9 @@ class ProcessIntelligence:
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.0.0】力学筹码共振看跌引擎
+        【V42.0.0 · 无量纲不变版】力学筹码共振看跌引擎
         用途: 测量下跌动能与筹码套牢的共振恶化（确认下跌趋势）。
-        修改要点: 恢复 roc < 0.0 的正确乘数逻辑，这是“共振看跌”而非“背离”。
+        修改要点: 强化对下跌通道的共振识别，仅当 ROC_13_D 明确小于 0 时输出全量风险；处于水上时衰减 70% 防止牛市回调被错杀。
         """
         method_name="_calculate_dyn_vs_chip_relationship"
         required_signals=['ROC_13_D','winner_rate_D','profit_ratio_D','chip_mean_D','chip_kurtosis_D','volatility_adjusted_concentration_D','downtrend_strength_D','chip_entropy_D','market_sentiment_score_D']
@@ -1122,8 +1122,9 @@ class ProcessIntelligence:
         bc=self._calculate_instantaneous_relationship(df,config).fillna(0.0)
         core=(-bc).where(bc<0,0.0)*self._apply_zg(df_index,bc)
         amp=1.0+(self._apply_norm(prof,100.0)+self._apply_norm(win,100.0)+np.tanh(self._apply_hab(df,'mn',mean,13)).abs()+self._apply_norm(kurt,100.0)+self._apply_norm(vac,100.0)+self._apply_norm(down,100.0)+self._apply_norm(ent,10.0)+(1.0-self._apply_norm(sent,100.0)))/8.0
-        # [V38.0.0] 共振看跌，roc < 0 时发挥全效，roc > 0 仅作弱预警
-        raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'ROC_13_D_scaled',roc.fillna(0.0)/100.0,13)))*pd.Series(np.where(roc.fillna(0.0)<0.0,1.0,0.5),index=df_index)
+        # [V42.0.0 标度修复] 如果 ROC 大于 0（价格在涨通道），打 3 折减弱看跌信号，防止强势股洗盘误报
+        roc_penalty=pd.Series(np.where(roc.fillna(0.0)<0.0,1.0,0.3),index=df_index)
+        raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'ROC_13_D_scaled',roc.fillna(0.0)/100.0,13)))*roc_penalty
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
@@ -1387,7 +1388,11 @@ class ProcessIntelligence:
         return res
 
     def _calculate_ma_compression_explosion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【V24.0.0 · 量纲强制约束版】均线奇点核爆引擎"""
+        """
+        【V42.0.0 · 无量纲不变版】均线奇点核爆引擎
+        用途: 捕捉所有均线收敛至极限后的发散爆点。
+        修改要点: MACDh 是绝对价格差，必须除以收盘价转化为百分比，彻底解脱高价股的 tanh() 永远满分饱和。
+        """
         method_name="_calculate_ma_compression_explosion"
         required_signals=['MA_POTENTIAL_COMPRESSION_RATE_D','chip_convergence_ratio_D','TURNOVER_STABILITY_INDEX_D','MACDh_13_34_8_D','energy_concentration_D','volatility_adjusted_concentration_D','close_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1398,13 +1403,13 @@ class ProcessIntelligence:
         macd=self._get_safe_series(df,'MACDh_13_34_8_D',method_name=method_name)
         energy_conc=self._get_safe_series(df,'energy_concentration_D',method_name=method_name)
         vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        cls=self._get_safe_series(df,'close_D',method_name=method_name)
-        # [V24.0.0 标度修复] 将绝对价格差 MACDh 除以 Close 转化为无量纲百分点，彻底解决仙股与百元股的标度错位
-        macd_ratio=(macd/cls.replace(0,np.nan).fillna(1.0)).fillna(0.0)*100.0
+        cls=self._get_safe_series(df,'close_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
+        # [V42.0.0 标度修复] 将绝对价格差 MACDh 除以 Close 转化为无量纲百分点
+        macd_ratio=(macd.fillna(0.0)/cls)*100.0
         ignition=np.tanh(macd_ratio/5.0)*self._apply_zg(df_index,macd.clip(lower=0))
         core=self._apply_norm(ma_comp,1.0)*ignition*self._apply_zg(df_index,ma_comp)
         amp=1.0+(self._apply_norm(chip_conv,1.0)+self._apply_norm(to_stab,1.0)+self._apply_norm(energy_conc,100.0)+self._apply_norm(vac,100.0))/4.0
-        raw=core*amp*(1.0+self._apply_kinematics(df,'MA_POTENTIAL_COMPRESSION_RATE_D',ma_comp,13).clip(lower=0))
+        raw=core*amp*(1.0+self._apply_kinematics(df,'MA_POTENTIAL_COMPRESSION_RATE_D_scaled',ma_comp,13).clip(lower=0))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'MA_POTENTIAL_COMPRESSION_RATE_D':ma_comp,'MACDh_13_34_8_D':macd},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
@@ -1438,8 +1443,9 @@ class ProcessIntelligence:
 
     def _calculate_vwap_magnetic_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.0.0】VWAP磁性黑洞引力引擎
-        修改要点: 使用 np.tanh(vwap_dev * 5.0) 释放感光度，防止偏离被抹平。
+        【V42.0.0 · 无量纲不变版】VWAP磁性黑洞引力引擎
+        用途: 诊断价格在高度乖离 VWAP 后的必然物理均值拉回引力。
+        修改要点: 修复 vwap_dev 的过度感光，将 * 5.0 改为 / 5.0，恢复正常 2%~10% 偏离区间的灰度分辨率。
         """
         method_name="_calculate_vwap_magnetic_divergence"
         required_signals=['vwap_deviation_D','reversal_prob_D','intraday_main_force_activity_D','intraday_cost_center_migration_D','volume_ratio_D','chip_entropy_D']
@@ -1451,12 +1457,12 @@ class ProcessIntelligence:
         cost_mig=self._get_safe_series(df,'intraday_cost_center_migration_D',method_name=method_name)
         vol_ratio=self._get_safe_series(df,'volume_ratio_D',method_name=method_name).fillna(1.0)
         c_ent=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
-        # [V38.0.0] 恢复敏感度，* 5.0 后传入 tanh
-        dev_base=np.tanh(vwap_dev.fillna(0.0)*5.0)
+        # [V42.0.0 标度修复] vwap_dev 为百分点数值 (如 2.2 表示 2.2%)。除以 5.0，使得 5% 的绝对偏离产生 0.76 的引力
+        dev_base=np.tanh(vwap_dev.fillna(0.0)/5.0)
         core=-1.0*dev_base*self._apply_zg(df_index,dev_base)
         mismatch=(1.0-(self._apply_norm(mf_act,100.0)*2.0-1.0)*np.sign(dev_base))*(1.0-np.tanh(self._apply_hab(df,'mig',cost_mig,21))*np.sign(dev_base))
         amp=1.0+(self._apply_norm(rev_prob,100.0)+self._apply_norm(vol_ratio,10.0)+(1.0-self._apply_norm(c_ent,10.0)))/3.0
-        raw=core*mismatch.clip(lower=0.1)*amp*(1.0+np.abs(self._apply_kinematics(df,'vwap_deviation_D_scaled',vwap_dev.fillna(0.0)*2.0,13)))
+        raw=core*mismatch.clip(lower=0.1)*amp*(1.0+np.abs(self._apply_kinematics(df,'vwap_deviation_D_scaled',vwap_dev.fillna(0.0)/5.0,13)))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'vwap_deviation_D':vwap_dev,'reversal_prob_D':rev_prob},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
@@ -1681,12 +1687,12 @@ class ProcessIntelligence:
 
     def _calculate_geometric_trend_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V34.0.0】几何流形趋势共振引擎
+        【V42.0.0 · 无量纲不变版】几何流形趋势共振引擎
         用途: 通过流形曲率回归精确感知中线趋势爆发。
-        修改要点: 强制追加 _scaled 以防几何回归斜率的极大绝对值污染求导。
+        修改要点: 将绝对几何斜率 (GEOM_REG_SLOPE_D) 除以当期收盘价转化为百分比，彻底解决百元股与仙股的量纲错位。
         """
         method_name="_calculate_geometric_trend_resonance"
-        required_signals=['GEOM_REG_R2_D','GEOM_REG_SLOPE_D','GEOM_ARC_CURVATURE_D','GEOM_CHANNEL_POS_D','PRICE_FRACTAL_DIM_D','trend_confirmation_score_D','volatility_adjusted_concentration_D']
+        required_signals=['GEOM_REG_R2_D','GEOM_REG_SLOPE_D','GEOM_ARC_CURVATURE_D','GEOM_CHANNEL_POS_D','PRICE_FRACTAL_DIM_D','trend_confirmation_score_D','volatility_adjusted_concentration_D','close_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         r2=self._get_safe_series(df,'GEOM_REG_R2_D',method_name=method_name)
@@ -1696,10 +1702,14 @@ class ProcessIntelligence:
         frac=self._get_safe_series(df,'PRICE_FRACTAL_DIM_D',method_name=method_name)
         conf=self._get_safe_series(df,'trend_confirmation_score_D',method_name=method_name)
         vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        core=np.tanh(slope.fillna(0.0)/10.0)*self._apply_norm(r2,1.0)*self._apply_zg(df_index,slope)*self._apply_zg(df_index,r2)
+        cls=self._get_safe_series(df,'close_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
+        # [V42.0.0 标度修复] 将绝对斜率转化为相对于收盘价的无量纲日均涨幅百分比
+        slope_ratio=(slope.fillna(0.0)/cls)*100.0
+        core=np.tanh(slope_ratio/10.0)*self._apply_norm(r2,1.0)*self._apply_zg(df_index,slope)*self._apply_zg(df_index,r2)
         dyn=np.tanh(self._apply_hab(df,'curv',curv,21))-(self._apply_norm(pos,1.0)-0.5)*2.0*0.3
         amp=1.0+((1.0-self._apply_norm(frac,2.0))+self._apply_norm(conf,100.0)+dyn.clip(lower=0)+self._apply_norm(vac,100.0))/4.0
-        raw=core*amp*(1.0+self._apply_kinematics(df,'GEOM_REG_SLOPE_D_scaled',slope.fillna(0.0)/10.0,13).clip(lower=0))
+        # 动力学引擎也必须采用无量纲比例
+        raw=core*amp*(1.0+self._apply_kinematics(df,'GEOM_REG_SLOPE_D_scaled',slope_ratio/10.0,13).clip(lower=0))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GEOM_REG_SLOPE_D':slope,'GEOM_REG_R2_D':r2},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
