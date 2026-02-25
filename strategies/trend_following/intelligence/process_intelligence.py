@@ -477,20 +477,28 @@ class ProcessIntelligence:
         return meta_score.clip(-1,1).fillna(0.0).astype(np.float32)
 
     def _apply_zg(self, df_index: pd.Index, s: pd.Series) -> pd.Series:
-        """【V12.0.0】绝对零基防御门限 (Zero-Gate)"""
-        return pd.Series(np.where(s.abs()<1e-4,0.0,1.0),index=df_index,dtype=np.float32)
+        """
+        【V73.0.0 · 绝对真空防爆版】绝对零基防御门限 (Zero-Gate)
+        用途: 强制过滤无穷小量波动，确保无实质动能时主核归零。
+        修改要点: 增加 .fillna(0.0) 预处理，彻底阻断 NaN 幽灵数据被 np.where 错误判断为 False(进而泄露为 1.0 满分激活) 的系统级风险。
+        """
+        return pd.Series(np.where(s.fillna(0.0).abs()<1e-4,0.0,1.0),index=df_index,dtype=np.float32)
 
     def _apply_norm(self, s: pd.Series, max_v: float=100.0) -> pd.Series:
         """【V12.0.0】线性边界防爆截断"""
         return (s.fillna(0.0)/max_v).clip(0,1).astype(np.float32)
 
     def _apply_hab(self, df: pd.DataFrame, col_name: str, s: pd.Series, w: int) -> pd.Series:
-        """【V12.0.0】多维HAB历史缓冲池 (带方差正则化防爆)"""
+        """
+        【V73.0.0 · 工业级序列防爆版】多维HAB历史缓冲池
+        用途: 将绝对数值转化为相对历史存量的冲击度(Z-Score)。
+        修改要点: 在 std() 后立即接 .fillna(0.0)，防止极短序列(如上市首日)产生的 NaN 击穿 1e-5 的方差正则化防线。
+        """
         hab_col=f'HAB_{w}_{col_name}'
         if hab_col in df.columns: return df[hab_col].fillna(0.0).astype(np.float32)
         sf=s.ffill().fillna(0.0).replace([np.inf,-np.inf],0.0)
-        rm=sf.rolling(window=w,min_periods=1).mean()
-        rs=np.sqrt(sf.rolling(window=w,min_periods=1).std()**2+1e-5)
+        rm=sf.rolling(window=w,min_periods=1).mean().fillna(0.0)
+        rs=np.sqrt(sf.rolling(window=w,min_periods=1).std().fillna(0.0)**2+1e-5)
         return ((sf-rm)/rs).fillna(0.0).astype(np.float32)
 
     def _apply_kinematics(self, df: pd.DataFrame, col_name: str, s: pd.Series, w: int) -> pd.Series:
@@ -504,8 +512,9 @@ class ProcessIntelligence:
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V65.0.0 · 方差正则化防爆版】信号衰减总线
-        修改要点: 升级 local_std 采用 np.sqrt(std**2 + 1e-5) 进行正则化，彻底杜绝一字板或停牌期间方差为 0 导致的 NaN 崩塌。
+        【V73.0.0 · 工业级序列防爆版】信号衰减总线
+        用途: 利用本地特征滚动标准差刻画相对衰变严重度，执行非线性激增阻尼。
+        修改要点: 升级 local_std，在 std() 后添加 .fillna(0.0) 防爆拦截。
         """
         method_name="_diagnose_signal_decay"
         is_debug_enabled=get_param_value(self.debug_params.get('enabled'),False) and get_param_value(self.debug_params.get('should_probe'),False)
@@ -527,7 +536,6 @@ class ProcessIntelligence:
             return {}
         signal_change=source_series.diff(1).fillna(0.0)
         decay_magnitude=signal_change.clip(upper=0.0).abs()
-        # [V65.0.0] 彻底解决除以零问题，引入统一的方差正则化模型，防爆处理
         local_std=np.sqrt(source_series.rolling(window=21,min_periods=1).std().fillna(0.0)**2 + 1e-5).fillna(1e-5)
         relative_decay=(decay_magnitude/local_std).fillna(0.0)
         decay_score=np.tanh(relative_decay*1.5).clip(0,1)
@@ -1110,8 +1118,9 @@ class ProcessIntelligence:
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V65.0.0 · 物理极性收官版】力学筹码共振看跌引擎
-        修改要点: 拨乱反正！引入牛市绝对否决权。当 ROC_13_D >= 0 时，属于主升浪洗盘，强行将风险警报彻底归零，严防被错杀。
+        【V73.0.0 · 绝对物理门控收官版】力学筹码共振看跌引擎
+        用途: 测量下跌动能与筹码套牢的共振恶化（确认主跌浪趋势，发出平仓风险信号）。
+        修改要点: 引入绝对物理门控 (Absolute Physical Gate)！无论底层发生何种微观看跌背离，只要宏观动能 ROC_13_D >= 0（身处绝对上涨通道），该看跌风险信号必须被物理强行抹杀并归零，彻底杜绝主升浪洗盘被系统错杀！
         """
         method_name="_calculate_dyn_vs_chip_relationship"
         required_signals=['ROC_13_D','winner_rate_D','profit_ratio_D','chip_mean_D','chip_kurtosis_D','volatility_adjusted_concentration_D','downtrend_strength_D','chip_entropy_D','market_sentiment_score_D']
@@ -1129,10 +1138,11 @@ class ProcessIntelligence:
         bc=self._calculate_instantaneous_relationship(df,config).fillna(0.0)
         core=(-bc).where(bc<0,0.0)*self._apply_zg(df_index,bc)
         amp=1.0+(self._apply_norm(prof,100.0)+self._apply_norm(win,100.0)+np.tanh(self._apply_hab(df,'mn',mean,13)).abs()+self._apply_norm(kurt,100.0)+self._apply_norm(vac,100.0)+self._apply_norm(down,100.0)+self._apply_norm(ent,10.0)+(1.0-self._apply_norm(sent,100.0)))/8.0
-        # [V65.0.0 极性修复] 牛市绝对否决权。如果 ROC 大于等于 0（身处上升通道），直接归 0 抹杀做空警报
+        # [V73.0.0 终极防线] 牛市绝对一票否决权。如果 ROC >= 0，强制压死归零
         roc_penalty=pd.Series(np.where(roc.fillna(0.0)<0.0,1.0,0.0),index=df_index)
         raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'ROC_13_D_scaled',roc.fillna(0.0)/100.0,13)))*roc_penalty
-        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
+        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0)
+        res=res.where(roc.fillna(0.0)<0.0, 0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'ROC_13_D':roc},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
