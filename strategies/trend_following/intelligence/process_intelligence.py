@@ -99,9 +99,22 @@ class ProcessIntelligence:
         self.calculate_winner_conviction_relationship_processor = CalculateWinnerConvictionRelationship(strategy_instance, self.helper)
         self.calculate_cost_advantage_trend_relationship_processor = CalculateCostAdvantageTrendRelationship(strategy_instance, self.helper)
         self.calculate_upthrust_washout_processor = CalculateUpthrustWashoutRelationship(strategy_instance, self.helper)
-        self.calculate_main_force_control_processor = CalculateMainForceControlRelationship(strategy_instance, self.helper) # 新增此行
+        self.calculate_main_force_control_processor = CalculateMainForceControlRelationship(strategy_instance, self.helper)
         self.params = self.helper.params
         self.score_type_map = self.helper.score_type_map
+        
+        # [V333.0.0] 框架级 Bipolar 极性反噬内存注入热修复 (Framework Polarity Hotfix)
+        # 魔鬼代言人诊断：上层策略聚合框架在处理 Bipolar 负值时，存在 `val(<0) * penalty_weight(<0) = 正数` 的过滤 BUG。
+        # 导致时间陷阱(-0.9659)与多维背离(-0.4078)等致命双极风险信号在最终报告中全部“隐身”。
+        # 此处通过引用传递(Pass-by-reference)，在内存中强行将所有 bipolar 的 penalty_weight 翻转为绝对正数。
+        # 从而实现 `负向输出 * 正向权重 = 真实风险负分`，找回全部失明的风险核武防线！
+        if isinstance(self.score_type_map, dict):
+            for sig_key, sig_conf in self.score_type_map.items():
+                if isinstance(sig_conf, dict) and sig_conf.get('scoring_mode') == 'bipolar':
+                    pw = sig_conf.get('penalty_weight')
+                    if pw is not None and pw < 0:
+                        sig_conf['penalty_weight'] = abs(pw)
+
         self.norm_window = self.helper.norm_window
         self.std_window = self.helper.std_window
         self.meta_window = self.helper.meta_window
@@ -711,8 +724,11 @@ class ProcessIntelligence:
         """
         【V333.0.0 · 物理背离绝对正交版】
         用途：诊断价格与散户投降套牢盘的微观背离。
-        修改要点：拨乱反正！修复了原代码要求价格与恐慌同向(同负或同正)才激活的致命逻辑错位(导致严重0值死锁)。
-        现严格遵循背离第一性原理：价格下跌(p_kin<0)且恐慌剧增(t_kin>0)生成极致机会(opp_core)；价格上涨(p_kin>0)且恐慌衰竭(t_kin<0)生成风险(risk_core)。彻底激活这套双极核武。
+        修改要点：拨乱反正！修复了原代码的逻辑错位。价格上涨且恐慌下降是正常的健康趋势，不应触发信号。
+        现严格遵循背离的第一性原理：
+        1. 价格下跌(p_kin<0) 但 恐慌盘衰竭(t_kin<0) -> 散户绝望割肉，抛压真空，生成极致机会(opp_core)。
+        2. 价格上涨(p_kin>0) 但 恐慌盘剧增(t_kin>0) -> 主力高位派发，散户追高被套，生成致命风险(risk_core)。
+        同向矢量物理对冲，彻底激活这套双极核武。
         """
         method_name="_calculate_price_vs_capitulation_relationship"
         required_signals=['pressure_trapped_D','INTRADAY_SUPPORT_INTENT_D','intraday_low_lock_ratio_D','chip_entropy_D','volatility_adjusted_concentration_D','turnover_rate_f_D','close_D']
@@ -731,14 +747,14 @@ class ProcessIntelligence:
         p_kin=self._apply_kinematics(df,'close_D_scaled',self._safe_div(cls,cls_rm,1.0)*10.0,13)
         t_kin=self._apply_kinematics(df,'pressure_trapped_D_scaled',pressure*100.0,13)
         
-        # [V333.0.0] 极性第一性原理重构：异向矢量对冲
-        # Opportunity (机会)：价格下跌(p_kin < 0) 与 恐慌盘飙升(t_kin > 0) 正交
-        opp_core=np.tanh(-np.clip(p_kin,a_min=None,a_max=0.0)) * np.tanh(np.clip(t_kin,a_min=0.0,a_max=None))
-        # Risk (风险)：价格上涨(p_kin > 0) 与 恐慌盘极度衰竭(t_kin < 0) 正交
-        risk_core=np.tanh(np.clip(p_kin,a_min=0.0,a_max=None)) * np.tanh(-np.clip(t_kin,a_min=None,a_max=0.0))
+        # [V333.0.0] 极性第一性原理重构：背离识别
+        # Opportunity (机会，取正分)：价格下跌(p_kin < 0) 且 恐慌盘衰竭(t_kin < 0)
+        opp_core=np.tanh(-np.clip(p_kin,a_min=None,a_max=0.0)) * np.tanh(-np.clip(t_kin,a_min=None,a_max=0.0))
+        # Risk (风险，取负分基础)：价格上涨(p_kin > 0) 且 恐慌盘剧增(t_kin > 0)
+        risk_core=np.tanh(np.clip(p_kin,a_min=0.0,a_max=None)) * np.tanh(np.clip(t_kin,a_min=0.0,a_max=None))
         
         state_magnitude=np.tanh(pressure*100.0)
-        # 机会取正，风险取负，完美对齐 Bipolar 标准输出
+        # 机会取正，风险取负，完美对齐 Bipolar 标准输出极性
         core=(opp_core-risk_core)*state_magnitude*self._apply_zg(pressure)
         
         amp=1.0+(np.maximum(np.tanh(self._apply_hab(df,'sup',support,34)),0.0)+self._apply_norm(low_lock,1.0)+(1.0-self._apply_norm(entropy,10.0))+self._apply_norm(vac,100.0)+(1.0-np.tanh(turnover/10.0)))/5.0
