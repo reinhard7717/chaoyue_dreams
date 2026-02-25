@@ -534,19 +534,22 @@ class ProcessIntelligence:
 
     def _get_safe_array(self, df: pd.DataFrame, col_name: str, method_name: str = "") -> np.ndarray:
         """
-        【V326.0.0 · 时空连贯性缝合版】极致数据萃取
-        修改要点：引入 ffill().bfill() 维持真实的时序物理连贯性，杜绝停牌或缺失的日线数据在 nan_to_num 下瞬间归零，避免在张量网络中引发虚假暴跌加速度脉冲。
+        【V327.0.0 · 因果律防泄露版】
+        修改思路：阻断 bfill() 导致的未来函数数据泄露(Lookahead Bias)。仅保留 ffill() 维持时序连贯性，对期初缺失值采用 fillna(0.0) 安全填充，彻底斩断时空穿越。
         """
         if col_name not in df.columns:
             raise ValueError(f"[{method_name}] 致命数据断层: 缺失必需特征列 '{col_name}'。")
-        return np.nan_to_num(df[col_name].ffill().bfill().to_numpy(dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        return np.nan_to_num(df[col_name].ffill().fillna(0.0).to_numpy(dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
 
     def _get_atomic_array(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> np.ndarray:
-        """【V300.0.0】提取原子信号为 Numpy 数组"""
-        score_series = self.strategy.atomic_states.get(score_name)
-        if score_series is None:
-            return np.full(len(df), default_value, dtype=np.float32)
-        return np.nan_to_num(score_series.to_numpy(dtype=np.float32), nan=default_value, posinf=default_value, neginf=default_value)
+        """
+        【V327.0.0 · 物理平滑缝合版】
+        修改思路：强制加入 ffill().fillna(default_value)，消除原子信号期初从 NaN 跃迁至有效值时产生的无穷大虚假物理加速度（Jerk），维持三阶动力学张量的绝对平滑。
+        """
+        score_series=self.strategy.atomic_states.get(score_name)
+        if score_series is None or score_series.empty:
+            return np.full(len(df),default_value,dtype=np.float32)
+        return np.nan_to_num(score_series.ffill().fillna(default_value).to_numpy(dtype=np.float32),nan=default_value,posinf=default_value,neginf=default_value)
 
     def _safe_div(self, a: np.ndarray, b: np.ndarray, fill_val: float = 0.0) -> np.ndarray:
         """
@@ -567,13 +570,13 @@ class ProcessIntelligence:
 
     def _apply_norm_adaptive(self, arr: np.ndarray) -> np.ndarray:
         """
-        【V326.0.0 · 极限算力自适应标度版】智能自适应标度鲁棒版
-        修改要点：废除极易导致拓扑坍缩的逐元素 np.where 判断。采用全局绝对极大值法，只要整条序列历史中存在超过 2.0 的真实数据，即刻判定为百分比标度进行全局统一降维，完美保全时空特征的微观连续性，且比分位数计算省算力。
+        【V327.0.0 · 截断未来函数版】
+        修改思路：摒弃原版 np.max 扫描全序列导致的未来函数泄露。采用 np.maximum.accumulate 建立时间因果屏障，仅利用截止到当天的极值推演动态标度。
         """
-        sf = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-        if len(sf) > 0 and np.max(np.abs(sf)) > 2.0:
-            sf = sf / 100.0
-        return np.clip(sf, 0.0, 1.0).astype(np.float32)
+        sf=np.nan_to_num(arr,nan=0.0,posinf=0.0,neginf=0.0)
+        rolling_max=np.maximum.accumulate(np.abs(sf))
+        scale=np.where(rolling_max>2.0,100.0,1.0).astype(np.float32)
+        return np.clip(sf/scale,0.0,1.0).astype(np.float32)
 
     def _apply_hab(self, df: pd.DataFrame, col_name: str, arr: np.ndarray, w: int) -> np.ndarray:
         """【V300.0.0】Numba 加速多维HAB历史缓冲池"""
@@ -773,8 +776,8 @@ class ProcessIntelligence:
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V303.0.0 · 语义拨乱反正版】恐慌洗盘吸筹引擎
-        修改要点: 修复 np.where 语义倒置问题。当筹码稳定性(chip_stab)大于阈值时，应保留并放行信号，而不是将其抹零。
+        【V327.0.0 · 量纲降维对齐版】
+        修改思路：修复 chip_stability_D [0,100] 与历史门控阈值 (0.2) 之间的量纲错配。引入 _apply_norm_adaptive 强制降维至 [0,1] 区间，杜绝在主跌溃散期由于量纲失效而误判为洗盘的致命漏洞。
         """
         method_name="_calculate_panic_washout_accumulation"
         required_signals=['pressure_trapped_D','intraday_low_lock_ratio_D','absorption_energy_D','intraday_trough_filling_degree_D','high_freq_flow_divergence_D','chip_rsi_divergence_D','chip_stability_D','pressure_release_index_D','tick_abnormal_volume_ratio_D','volatility_adjusted_concentration_D']
@@ -796,8 +799,8 @@ class ProcessIntelligence:
         amp=1.0+(np.tanh(release*100.0)+self._apply_norm(abnorm_vol,10.0)+self._apply_norm(low_lock,1.0)+self._apply_norm(trough_fill,100.0)+np.maximum(np.tanh(self._apply_hab(df,'hff',hff_div,21)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'cdiv',chip_div,21)),0.0)+self._apply_norm(vac,100.0))/7.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'pressure_trapped_D_scaled',panic*100.0,13),0.0))
         res_raw=np.clip(np.tanh(raw**1.5),0.0,1.0)
-        # [V303.0.0 逻辑修复] 必须满足基础筹码稳定度大门才能确认有效洗盘，将满足条件时保留信号 (res_raw)
-        res=np.where(chip_stab>config.get('historical_potential_gate',0.2), res_raw, 0.0).astype(np.float32)
+        chip_stab_norm=self._apply_norm_adaptive(chip_stab)
+        res=np.where(chip_stab_norm>config.get('historical_potential_gate',0.2),res_raw,0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':panic,'absorption_energy_D':absorption},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
@@ -940,6 +943,10 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V327.0.0 · 物理并联防死锁版】
+        修改思路：打破原有的零值连乘死锁。将微观日内派发置信度与宏观派发能量并联，同时赋予 press_core 基础的 0.5 底座权重，确保宏观获利盘巨大死压不会因为某单一微观特征缺失而惨遭 0 值抹杀。
+        """
         method_name="_calculate_profit_vs_flow_relationship"
         required_signals=['profit_pressure_D','net_mf_amount_D','profit_ratio_D','flow_consistency_D','winner_rate_D','intraday_distribution_confidence_D','STATE_PARABOLIC_WARNING_D','distribution_energy_D','sell_elg_amount_D','amount_D','pressure_profit_D','market_sentiment_score_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -958,7 +965,8 @@ class ProcessIntelligence:
         amt=np.where(amt==0.0,1.0,amt)
         marg=self._get_safe_array(df,'pressure_profit_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
-        press_core=self._apply_norm(press,100.0)*self._apply_norm(dist_conf,100.0)*self._apply_zg(press)*self._apply_zg(dist_conf)
+        dist_force=np.maximum(self._apply_norm(dist_conf,100.0),self._apply_norm(dist_eng,100.0))
+        press_core=self._apply_norm(press,100.0)*(0.5+0.5*dist_force)*self._apply_zg(press)
         press_amp=1.0+(self._apply_norm(dist_eng,100.0)+self._apply_norm(p_ratio,100.0)+self._apply_norm(self._safe_div(sell_elg,amt,0.0),0.1)+self._apply_norm(marg,100.0)+para+self._apply_norm(sent,100.0))/7.0
         press_total=press_core*press_amp*(1.0+np.maximum(self._apply_kinematics(df,'profit_pressure_D_scaled',press/100.0,13),0.0))
         mf_ratio=self._safe_div(mf,amt,0.0)
@@ -1542,8 +1550,12 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_multi_peak_avalanche_risk(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V327.0.0 · 雪崩燃料并联版】
+        修改思路：打破雪崩初期散户套牢盘极小导致的单点乘 0 瘫痪。将“获利盘死压(profit_pressure)”与“套牢盘恐慌(pressure_trapped)”组合成最大值并联燃料网络，真实还原高位断层全周期的能量倾泻。
+        """
         method_name="_calculate_multi_peak_avalanche_risk"
-        required_signals=['is_multi_peak_D','chip_divergence_ratio_D','intraday_distribution_confidence_D','downtrend_strength_D','chip_entropy_D','chip_stability_change_5d_D','volatility_adjusted_concentration_D','pressure_trapped_D']
+        required_signals=['is_multi_peak_D','chip_divergence_ratio_D','intraday_distribution_confidence_D','downtrend_strength_D','chip_entropy_D','chip_stability_change_5d_D','volatility_adjusted_concentration_D','pressure_trapped_D','profit_pressure_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         mp=np.clip(self._get_safe_array(df,'is_multi_peak_D',method_name=method_name),0.0,1.0)
@@ -1554,15 +1566,16 @@ class ProcessIntelligence:
         stab_chg=self._get_safe_array(df,'chip_stability_change_5d_D',method_name=method_name)
         vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
         trap=self._get_safe_array(df,'pressure_trapped_D',method_name=method_name)
-        trap_norm=np.tanh(trap*100.0)
+        prof_p=self._get_safe_array(df,'profit_pressure_D',method_name=method_name)
+        avalanche_fuel=np.maximum(np.tanh(trap*100.0),self._apply_norm(prof_p,100.0))
         env_risk=np.maximum(self._apply_norm(dist,100.0),self._apply_norm(down,100.0))
-        core=mp*env_risk*trap_norm*self._apply_zg(mp*env_risk)
+        core=mp*env_risk*avalanche_fuel*self._apply_zg(mp*env_risk)
         stab_diff=np.zeros_like(stab_chg)
         stab_diff[1:]=stab_chg[1:]-stab_chg[:-1]
         amp=1.0+(self._apply_norm(div,100.0)+self._apply_norm(ent,10.0)+np.abs(np.clip(np.tanh(self._apply_hab(df,'stab',stab_diff,13)),None,0.0))+(1.0-self._apply_norm(vac,100.0)))/4.0
         raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'chip_divergence_ratio_D_scaled',div/100.0,13),0.0))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'is_multi_peak_D':mp,'downtrend_strength_D':down,'pressure_trapped_D':trap},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'is_multi_peak_D':mp,'downtrend_strength_D':down,'pressure_trapped_D':trap,'profit_pressure_D':prof_p},calc_nodes={'avalanche_fuel':avalanche_fuel,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_sector_lifecycle_tailwind(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1588,30 +1601,33 @@ class ProcessIntelligence:
 
     def _calculate_time_asymmetry_trap(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V326.0.0 · 杀猪盘极性纠偏版】时间非对称陷阱
-        修改要点：彻底修复“负负得正”的逻辑自杀漏洞。摒弃 flow_sign 相乘。直接使用 np.where 极性隔离：只要主力净流出(mf<0)，无论是早盘杀还是尾盘跳水诱多(差值正负皆可)，均取其非对称程度的绝对值，施加严格的负分风险惩罚 (-1.0)。
+        【V327.0.0 · 量子正交门控版】
+        修改思路：废除僵化的一维线性相减（早盘-午盘），防止早盘秒板、全天一字涨停的绝强龙头被误判为极其恶劣的诱多陷阱。引入收盘强度(cls_norm)做物理门控：收盘拉垮的早冲高才是真陷阱，收盘强硬的则是强分歧抢筹。
         """
         method_name="_calculate_time_asymmetry_trap"
-        required_signals=['morning_flow_ratio_D','afternoon_flow_ratio_D','intraday_peak_valley_ratio_D','profit_pressure_D','closing_flow_ratio_D','high_freq_flow_divergence_D','VPA_EFFICIENCY_D','net_mf_amount_D']
+        required_signals=['morning_flow_ratio_D','afternoon_flow_ratio_D','intraday_peak_valley_ratio_D','profit_pressure_D','CLOSING_STRENGTH_D','high_freq_flow_divergence_D','VPA_EFFICIENCY_D','net_mf_amount_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         morning=self._get_safe_array(df,'morning_flow_ratio_D',method_name=method_name)
         afternoon=self._get_safe_array(df,'afternoon_flow_ratio_D',method_name=method_name)
-        closing=self._get_safe_array(df,'closing_flow_ratio_D',method_name=method_name)
+        cls_strength=self._get_safe_array(df,'CLOSING_STRENGTH_D',method_name=method_name)
         pv=self._get_safe_array(df,'intraday_peak_valley_ratio_D',method_name=method_name)
         pp=self._get_safe_array(df,'profit_pressure_D',method_name=method_name)
         hd=self._get_safe_array(df,'high_freq_flow_divergence_D',method_name=method_name)
         vpa=self._get_safe_array(df,'VPA_EFFICIENCY_D',method_name=method_name)
         mf=self._get_safe_array(df,'net_mf_amount_D',method_name=method_name)
-        afternoon_dominance=afternoon+closing*0.5-morning*1.5
-        core=np.where(mf<0.0,-np.abs(np.tanh(afternoon_dominance/100.0)),np.tanh(afternoon_dominance/100.0)).astype(np.float32)
-        core=core*self._apply_zg(afternoon_dominance)
+        cls_norm=self._apply_norm_adaptive(cls_strength)
+        trap_vector=np.maximum(morning-afternoon,0.0)*(1.0-cls_norm)
+        opportunity_vector=np.maximum(afternoon-morning,0.0)*cls_norm
+        asymmetry_dominance=opportunity_vector-trap_vector*1.5
+        core=np.where(mf<0.0,-np.abs(np.tanh(asymmetry_dominance/50.0)),np.tanh(asymmetry_dominance/50.0)).astype(np.float32)
+        core=core*self._apply_zg(asymmetry_dominance)
         risk_amp=self._apply_norm(pv,10.0)+self._apply_norm(pp,100.0)+np.maximum(np.tanh(self._apply_hab(df,'hd',hd,21)),0.0)
         opp_amp=np.tanh(np.abs(vpa)*5.0)*3.0
         amp=1.0+np.where(core<0.0,risk_amp/3.0,opp_amp/2.0)
         raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'morning_flow_ratio_D_scaled',morning/100.0,13)))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'morning_flow_ratio_D':morning,'afternoon_flow_ratio_D':afternoon,'net_mf_amount_D':mf},calc_nodes={'afternoon_dominance':afternoon_dominance,'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'morning_flow_ratio_D':morning,'afternoon_flow_ratio_D':afternoon,'net_mf_amount_D':mf,'CLOSING_STRENGTH_D':cls_strength},calc_nodes={'trap_vector':trap_vector,'opportunity_vector':opportunity_vector,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_high_pos_liquidity_squeeze(self, df: pd.DataFrame, config: Dict) -> pd.Series:
