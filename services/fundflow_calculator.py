@@ -2132,7 +2132,7 @@ class FundFlowFactorCalculator:
         版本: V2.9.1
         说明: [关键修复] 增加数值溢出保护(clip)，防止除以微小分母导致的数值爆炸
         """
-        print("[探针] 执行 _calculate_stealth_flow_indicators: Numba 单次扫描提速并增加溢出保护")
+        # print("[探针] 执行 _calculate_stealth_flow_indicators: Numba 单次扫描提速并增加溢出保护")
         metrics = {'stealth_flow_ratio': None}
         if len(df) == 0: return metrics
         small_order_threshold = 50000.0
