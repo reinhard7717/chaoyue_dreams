@@ -504,7 +504,7 @@ class ProcessIntelligence:
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V49.0.0 · 方差正则化防爆版】信号衰减总线
+        【V50.0.0 · 方差正则化防爆版】信号衰减总线
         用途: 利用本地特征滚动标准差刻画相对衰变严重度，执行非线性激增阻尼。
         修改要点: 升级 local_std 采用 np.sqrt(std**2 + 1e-5) 进行正则化，彻底杜绝一字板或停牌期间方差为 0 导致的 NaN 崩塌。
         """
@@ -528,8 +528,8 @@ class ProcessIntelligence:
             return {}
         signal_change=source_series.diff(1).fillna(0.0)
         decay_magnitude=signal_change.clip(upper=0.0).abs()
-        # [V49.0.0] 彻底解决除以零问题，引入统一的方差正则化模型
-        local_std=np.sqrt(source_series.rolling(window=21,min_periods=1).std()**2 + 1e-5).fillna(1e-5)
+        # [V50.0.0] 彻底解决除以零问题，引入统一的方差正则化模型，防爆处理
+        local_std=np.sqrt(source_series.rolling(window=21,min_periods=1).std().fillna(0.0)**2 + 1e-5).fillna(1e-5)
         relative_decay=(decay_magnitude/local_std).fillna(0.0)
         decay_score=np.tanh(relative_decay*1.5).clip(0,1)
         if is_debug_enabled and self.probe_dates:
@@ -569,9 +569,9 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.0.0】微观权力交接张量
+        【V50.0.0 · 绝对物理极性收官版】微观权力交接张量
         用途: 捕捉真实主力资金流对股价主导权的微观接管。
-        修改要点: 极性纠正。权力交接的方向应由当期绝对资金流比例的真实极性决定，而不是由历史HAB冲击决定；修复 downtrend_strength 极值阈值为 80.0。
+        修改要点: 彻底剥夺历史冲击(HAB)对主核极性的决定权！将当期资金流的物理方向(净流入/流出)作为唯一的极性标尺。
         """
         method_name="_calculate_power_transfer"
         required_signals=['net_mf_amount_D','amount_D','tick_large_order_net_D','tick_chip_transfer_efficiency_D','flow_efficiency_D','intraday_cost_center_migration_D','downtrend_strength_D','chip_concentration_ratio_D','volatility_adjusted_concentration_D','turnover_rate_f_D']
@@ -589,29 +589,29 @@ class ProcessIntelligence:
         turnover=self._get_safe_series(df,'turnover_rate_f_D',method_name=method_name)
         mf_ratio=(net_mf/amt).fillna(0.0)
         tick_ratio=(tick_large_net/amt).fillna(0.0)
-        # [V38.0.0] 极性由当期绝对量决定，使资金流的方向纯粹化；HAB 冲击剥离为振幅器 (hab_amp)
+        # [V50.0.0 核心重构] 极性完全由绝对比例决定。50.0 放大感光度，2%净流即可激活强信号。
         mf_core=np.tanh(mf_ratio*50.0)
         tick_core=np.tanh(tick_ratio*50.0)
+        absolute_core=(mf_core*0.6+tick_core*0.4)*self._apply_zg(df_index,net_mf)
         hab_amp=1.0+(np.tanh(self._apply_hab(df,'mf_r',mf_ratio,21)).abs()+np.tanh(self._apply_hab(df,'t_r',tick_ratio,21)).abs())/2.0
-        core=(mf_core*0.6+tick_core*0.4)*hab_amp*self._apply_zg(df_index,net_mf)
-        amp=1.0+(np.tanh(self._apply_hab(df,'mig',cost_migration,13)).abs()+(1.0-np.tanh(turnover.fillna(0.0)/10.0))+self._apply_norm(vac,100.0)+self._apply_norm(transfer_eff,1e6)+self._apply_norm(flow_eff,100.0))/5.0
+        core=absolute_core*hab_amp
+        amp=1.0+(np.tanh(self._apply_hab(df,'mig',cost_migration,13)).abs()+(1.0-np.tanh(turnover.fillna(0.0)/10.0))+self._apply_norm(vac,100.0)+self._apply_norm(transfer_eff,1e6)+np.abs(np.tanh(flow_eff.fillna(0.0)/5.0)))/5.0
         c_pen=np.tanh(self._apply_hab(df,'c_diff',chip_conc.diff().fillna(0.0),13))*amp
         synergy=(1.0+c_pen*np.sign(core)).clip(lower=0.1)
         raw=core*synergy*(1.0+np.abs(self._apply_kinematics(df,'mf_ratio_scaled',mf_ratio*100.0,13)))
-        # [V38.0.0] downtrend_strength_D 标度修复为 80.0
         td=pd.Series(1.0,index=df_index).mask((downtrend.fillna(0.0)>80.0)&(raw>0),0.6)
         res=(np.tanh(np.sign(raw)*(np.abs(raw)**1.5))*td).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':net_mf},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':net_mf},calc_nodes={'absolute_core':absolute_core,'hab_amp':hab_amp,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V49.0.0 · 极性拨乱反正版】价格与散户投降背离
-        用途: 捕捉价格下行但套牢盘停止抵抗开始割肉的背离机会 (底部吸筹信号)。
-        修改要点: 极性反转。当价跌且套牢盘降时 base_div 为负，必须乘以 -1 转化为正向的 Opportunity 买入信号。
+        【V50.0.0 · 物理极性显式重构版】价格与散户投降背离
+        用途: 捕捉价格下行但套牢盘停止抵抗开始割肉的背离机会 (Opportunity)。
+        修改要点: 彻底废除底层 base_div 的黑盒依赖，采用显式的价格与套牢盘动力学极性相乘，直击物理本质，防范极性指鹿为马。
         """
         method_name="_calculate_price_vs_capitulation_relationship"
-        required_signals=['pressure_trapped_D','INTRADAY_SUPPORT_INTENT_D','intraday_low_lock_ratio_D','chip_entropy_D','volatility_adjusted_concentration_D','turnover_rate_f_D']
+        required_signals=['pressure_trapped_D','INTRADAY_SUPPORT_INTENT_D','intraday_low_lock_ratio_D','chip_entropy_D','volatility_adjusted_concentration_D','turnover_rate_f_D','close_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
         pressure=self._get_safe_series(df,'pressure_trapped_D',method_name=method_name)
@@ -620,13 +620,20 @@ class ProcessIntelligence:
         entropy=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
         vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
         turnover=self._get_safe_series(df,'turnover_rate_f_D',method_name=method_name)
-        base_div=self._calculate_instantaneous_relationship(df,config).fillna(0.0)
-        # [V49.0.0 极性修复] 散户投降是买入机会，base_div 为负时必须反转为正
-        core=-base_div*np.tanh(pressure.fillna(0.0)*100.0)*self._apply_zg(df_index,pressure)
+        cls=self._get_safe_series(df,'close_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
+        # [V50.0.0] 显式动力学提取：价格波动采用滚动均值转化为无量纲比例
+        p_kin=self._apply_kinematics(df,'close_D_scaled',(cls/cls.rolling(21,min_periods=1).mean().fillna(1.0)).fillna(1.0)*10.0,13)
+        t_kin=self._apply_kinematics(df,'pressure_trapped_D_scaled',pressure.fillna(0.0)*100.0,13)
+        # 散户投降机会 (价跌 p_kin<0 且 套牢盘降 t_kin<0) -> 负负得正
+        opp_core=np.tanh(-p_kin.clip(upper=0))*np.tanh(-t_kin.clip(upper=0))
+        # 散户追高陷阱 (价涨 p_kin>0 且 套牢盘增 t_kin>0) -> 正正得正，加负号变风险
+        risk_core=np.tanh(p_kin.clip(lower=0))*np.tanh(t_kin.clip(lower=0))
+        # 绝对零基门控 (机会为正，风险为负)
+        core=(opp_core-risk_core)*self._apply_zg(df_index,pressure)
         amp=1.0+(np.tanh(self._apply_hab(df,'sup',support,34)).clip(lower=0)+self._apply_norm(low_lock,1.0)+(1.0-self._apply_norm(entropy,10.0))+self._apply_norm(vac,100.0)+(1.0-np.tanh(turnover.fillna(0.0)/10.0)))/5.0
-        raw=core*amp*(1.0+self._apply_kinematics(df,'pressure_trapped_D_scaled',pressure.fillna(0.0)*100.0,13).clip(lower=0))
+        raw=core*amp*(1.0+np.abs(t_kin))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
-        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':pressure},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
+        self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'pressure_trapped_D':pressure,'close_D':cls},calc_nodes={'p_kin':p_kin,'t_kin':t_kin,'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return res
 
     def _calculate_price_efficiency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -824,9 +831,9 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V34.0.0】资金流吸筹质变引擎
+        【V50.0.0 · 完美抛光版】资金流吸筹质变引擎
         用途: 捕捉持续资金流入后的质变起爆点。
-        修改要点: 追加 _scaled 后缀彻底阻断吸筹分的错误饱和缓存。
+        修改要点: 修复 flow_efficiency_D 及 confidence 的标度失真。
         """
         method_name="_calculate_fund_flow_accumulation_inflection"
         required_signals=['accumulation_signal_score_D','net_mf_amount_D','flow_efficiency_D','tick_large_order_net_D','intraday_accumulation_confidence_D','GAP_MOMENTUM_STRENGTH_D','STATE_GOLDEN_PIT_D','buy_lg_amount_D','amount_D','flow_persistence_minutes_D','net_energy_flow_D','chip_entropy_D']
@@ -844,9 +851,10 @@ class ProcessIntelligence:
         pers=self._get_safe_series(df,'flow_persistence_minutes_D',method_name=method_name)
         energy=self._get_safe_series(df,'net_energy_flow_D',method_name=method_name)
         c_ent=self._get_safe_series(df,'chip_entropy_D',method_name=method_name)
-        eff_norm=eff.where(eff<=1.0,eff/100.0).fillna(0.0)
+        eff_norm=np.abs(np.tanh(eff.fillna(0.0)/5.0))
+        intra_norm=intra.where(intra<=1.0,intra/100.0).fillna(0.0)
         core=self._apply_norm(acc,100.0)*self._apply_zg(df_index,acc)
-        amp=1.0+(eff_norm+self._apply_norm(intra,100.0)+self._apply_norm((buy_lg.fillna(0.0)/amt).fillna(0.0),0.1)+self._apply_norm(pers,100.0)+np.tanh(self._apply_hab(df,'l_net',l_net,21)).clip(lower=0)+np.tanh(self._apply_hab(df,'gap',gap,13)).clip(lower=0)+np.tanh(self._apply_hab(df,'eng',energy,21)).clip(lower=0)+np.tanh(self._apply_hab(df,'mf',mf,21)).clip(lower=0)+pit.fillna(0.0)*0.5+(1.0-self._apply_norm(c_ent,10.0)))/10.0
+        amp=1.0+(eff_norm+intra_norm+self._apply_norm((buy_lg.fillna(0.0)/amt).fillna(0.0),0.1)+self._apply_norm(pers,100.0)+np.tanh(self._apply_hab(df,'l_net',l_net,21)).clip(lower=0)+np.tanh(self._apply_hab(df,'gap',gap,13)).clip(lower=0)+np.tanh(self._apply_hab(df,'eng',energy,21)).clip(lower=0)+np.tanh(self._apply_hab(df,'mf',mf,21)).clip(lower=0)+pit.fillna(0.0)*0.5+(1.0-self._apply_norm(c_ent,10.0)))/10.0
         raw=core*amp*(1.0+self._apply_kinematics(df,'accumulation_signal_score_D_scaled',acc.fillna(0.0)/100.0,13).clip(lower=0))
         res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'accumulation_signal_score_D':acc,'flow_efficiency_D':eff},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
@@ -944,7 +952,7 @@ class ProcessIntelligence:
 
     def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V49.0.0 · 契约对齐版】资金领跑结构发令引擎
+        【V50.0.0 · 契约对齐版】资金领跑结构发令引擎
         用途: 捕捉结构处于弱势或起步期，但主力资金已呈现强劲领跑流入的左侧爆发点 (Opportunity)。
         修改要点: 拨乱反正！恢复提取资金净流入 (inflow_force)，并叠加滞后的弱结构进行机会共振。
         """
@@ -966,7 +974,7 @@ class ProcessIntelligence:
         amt=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
         mf_ratio=(mf/amt).fillna(0.0)
         base_div=self._calculate_instantaneous_relationship(df,config).fillna(0.0).clip(lower=0)
-        # [V49.0.0 极性修复] 资金领跑发令是一次正向机会 (Opportunity)，提取强流入(mf_ratio > 0)
+        # [V50.0.0 极性修复] 资金领跑发令是一次正向机会 (Opportunity)，提取强流入(mf_ratio > 0)
         inflow_force=np.tanh(mf_ratio*50.0).clip(lower=0)
         struct_lag=1.0-self._apply_norm(up,100.0)
         core=base_div*inflow_force*struct_lag*self._apply_zg(df_index,inflow_force)
@@ -1035,8 +1043,9 @@ class ProcessIntelligence:
 
     def _calculate_price_vs_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.0.0 · 时空对齐防爆版】价势多维背离引擎
-        修改要点: 物理极性彻底纠正！使用 13日均线偏离(p_kin) 对齐动量(roc_kin)。顶背离时(价涨量缩)必然输出负向高分(Risk=-1.0)。
+        【V50.0.0 · 极性拨乱反正版】价势多维背离引擎
+        用途: 诊断价格趋势位移与动能张量的多维非线性背离。
+        修改要点: 物理极性彻底纠正！使用 roc_kin - p_kin。顶背离时(价涨量缩)必然输出负向高分(Risk=-1.0)。
         """
         method_name="_calculate_price_vs_momentum_divergence"
         required_signals=['close_D','ROC_13_D','VPA_EFFICIENCY_D','PRICE_ENTROPY_D','net_mf_amount_D','turnover_rate_f_D','GEOM_REG_SLOPE_D','GEOM_REG_R2_D','BIAS_21_D','GEOM_ARC_CURVATURE_D','market_sentiment_score_D','volatility_adjusted_concentration_D','amount_D']
@@ -1055,11 +1064,10 @@ class ProcessIntelligence:
         arc=self._get_safe_series(df,'GEOM_ARC_CURVATURE_D',method_name=method_name)
         sent=self._get_safe_series(df,'market_sentiment_score_D',method_name=method_name)
         vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        # [V38.0.0] 时空对齐: 价格采用与 ROC 匹配的平滑基准求取趋势加速度
         cls_smooth=cls.rolling(13,min_periods=1).mean().replace(0,np.nan).fillna(1.0)
         p_kin=self._apply_kinematics(df,'close_D_scaled',(cls/cls_smooth).fillna(1.0)*10.0,13)
-        roc_kin=self._apply_kinematics(df,'ROC_13_D_scaled',roc.fillna(0.0)/10.0,13)
-        # [V38.0.0] 极性修复: 顶背离时价涨(p_kin>0)量缩(roc_kin<0) => kinematic_div < 0 (触发Bipolar风险态)
+        roc_kin=self._apply_kinematics(df,'ROC_13_D_scaled',roc.fillna(0.0)/100.0,13)
+        # [V50.0.0 极性修复] 顶背离: 价涨(p_kin>0)量缩(roc_kin<0) => kinematic_div < 0 (触发 Bipolar 风险态)
         kinematic_div=roc_kin - p_kin
         p_vel=np.tanh(pd.Series(np.where(cls.diff(1).fillna(0.0).abs()<1e-4,0.0,cls.diff(1).fillna(0.0)),index=df_index)/cls.replace(0,np.nan).fillna(1.0)*10.0)
         energy_div=(np.tanh(vpa.fillna(0.0)*5.0)+np.tanh((mf/amt).fillna(0.0)*20.0))/2.0 - p_vel
@@ -1074,9 +1082,9 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V38.0.0 · Z-Score 跨越零基防爆版】张量对冲基础单元
+        【V50.0.0 · Z-Score 跨越零基防爆版】张量对冲基础单元
         用途: 动态衡量两个信号之间的同向共识或反向背离。
-        修改要点: 废除 rolling.mean() 除法，改用 Z-Score 将异构数据安全压制到 [-3, 3] 区间进行动力学求导，防止过零爆炸。
+        修改要点: 废除 rolling.mean() 除法，改用 Z-Score (HAB) 将异构数据安全压制到 [-3, 3] 区间进行动力学求导，防止绝对值在 0 附近振荡导致的除零爆炸。
         """
         sa_name=config.get('signal_A')
         sb_name=config.get('signal_B')
@@ -1093,7 +1101,7 @@ class ProcessIntelligence:
         sb=sb.fillna(0.0)
         ca=sa.diff(1).fillna(0.0) if config.get('change_type_A','pct')=='diff' else sa.pct_change(1).replace([np.inf,-np.inf],0.0).fillna(0.0)
         cb=sb.diff(1).fillna(0.0) if config.get('change_type_B','pct')=='diff' else sb.pct_change(1).replace([np.inf,-np.inf],0.0).fillna(0.0)
-        # [V38.0.0] Z-Score 防爆平滑，杜绝资金流等过零信号导致除以极小数爆炸
+        # [V50.0.0] Z-Score 防爆平滑，杜绝资金流等过零信号导致除以极小数爆炸
         sa_z=self._apply_hab(df, f'{sa_name}_z', sa, 21)
         sb_z=self._apply_hab(df, f'{sb_name}_z', sb, 21)
         k_a=self._apply_kinematics(df,f'{sa_name}_z_scaled',sa_z/5.0,13)
@@ -1101,7 +1109,6 @@ class ProcessIntelligence:
         ma=np.tanh(self._apply_hab(df,f'{sa_name}_rel',ca,13))+k_a*0.5
         tb=np.tanh(self._apply_hab(df,f'{sb_name}_rel',cb,13))+k_b*0.5
         kf=config.get('signal_b_factor_k',1.0)
-        # (kf * tb - ma) / (kf + 1.0) 完美兼容 Top/Bottom Divergence 的物理极性
         if rel_type=='divergence': rel=(kf*tb-ma)/(kf+1.0)
         else: rel=np.sign(ma+kf*tb)*(np.abs(ma)*np.abs(tb))**0.5
         return np.tanh(np.sign(rel)*(np.abs(rel)**1.5)).clip(-1,1).fillna(0.0).astype(np.float32)
