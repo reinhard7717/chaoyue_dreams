@@ -1038,8 +1038,8 @@ class ProcessIntelligence:
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V301.0.0 · 极限算力补丁版】价资协同双向剥离
-        修改要点: 修复上一轮遗漏的 numpy 向量化改造，彻底对齐 _apply_zg 签名(移除 df_index)，并修正 numpy 的 abs 调用错误。
+        【V302.0.0 · 极限算力热修复版】价资协同双向剥离
+        修改要点: 移除废弃的 df_index 传参，全面接入 Numpy 纯算生态，解决 TypeError。
         """
         method_name="_calculate_pf_relationship"
         required_signals=['net_mf_amount_D','close_D','price_vs_ma_13_ratio_D','main_force_activity_index_D','flow_momentum_13d_D','flow_impact_ratio_D','tick_chip_transfer_efficiency_D','VPA_EFFICIENCY_D','amount_D']
@@ -1061,10 +1061,10 @@ class ProcessIntelligence:
         mf_ratio=self._safe_div(mf,amt,0.0)
         price_force=np.tanh(self._safe_div(c_diff,cls,0.0)*20.0)
         mf_force=np.tanh(mf_ratio*50.0)
-        # [V301.0.0 传参修复] 移除废弃的 df_index，严格对齐底层 Numpy 单张量签名
+        # [V302.0.0] 移除 df_index 传参，对齐 _apply_zg 签名
         core=(price_force*0.5+mf_force*0.5)*self._apply_zg(np.abs(price_force)+np.abs(mf_force))
         amp=1.0+(self._apply_norm(act,100.0)+np.maximum(np.tanh(self._apply_hab(df,'fm',fm,13)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'imp',imp,21)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'tr',tr,21)),0.0)+np.abs(np.tanh(vpa*5.0)))/5.0
-        # [V301.0.0 API修复] 移除 pandas 特有的 .abs() 调用，改为 np.abs()
+        # [V302.0.0] 剥离 pandas 的 abs 调用
         raw=core*amp*(1.0+np.abs(np.tanh(self._apply_hab(df,'pm',pm,21)))*0.5)*(1.0+np.abs(self._apply_kinematics(df,'mf_ratio_scaled',mf_ratio*100.0,13)))
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'net_mf_amount_D':mf,'close_D':cls},calc_nodes={'price_force':price_force,'mf_force':mf_force,'core':core,'amp':amp,'raw_score':raw},final_result=res)
@@ -1143,8 +1143,8 @@ class ProcessIntelligence:
 
     def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V301.0.0 · 极限算力补丁版】力学筹码共振看跌引擎
-        修改要点: 修复 numpy array 的 Pandas 特有 .where() 错误调用，并去除 df_index 传参。
+        【V302.0.0 · 极限算力热修复版】力学筹码共振看跌引擎
+        修改要点: 替换 Numpy 数组错误的 pandas .where() 语法调用，移除 _apply_zg 签名冲突。
         """
         method_name="_calculate_dyn_vs_chip_relationship"
         required_signals=['ROC_13_D','winner_rate_D','profit_ratio_D','chip_mean_D','chip_kurtosis_D','volatility_adjusted_concentration_D','downtrend_strength_D','chip_entropy_D','market_sentiment_score_D']
@@ -1160,8 +1160,8 @@ class ProcessIntelligence:
         ent=self._get_safe_array(df,'chip_entropy_D',method_name=method_name)
         sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
         bc=self._calculate_instantaneous_relationship(df,config).to_numpy(dtype=np.float32)
-        # [V301.0.0 热修复] np.where 替换 pandas 的 where，并去除 df_index 传参
-        core=np.where(bc<0, -bc, 0.0)*self._apply_zg(bc)
+        # [V302.0.0] 修正 numpy 数组 where 调用并移除 df_index
+        core=np.where(bc<0.0, -bc, 0.0)*self._apply_zg(bc)
         amp=1.0+(self._apply_norm(prof,100.0)+self._apply_norm(win,100.0)+np.abs(np.tanh(self._apply_hab(df,'mn',mean,13)))+self._apply_norm(kurt,100.0)+self._apply_norm(vac,100.0)+self._apply_norm(down,100.0)+self._apply_norm(ent,10.0)+(1.0-self._apply_norm(sent,100.0)))/8.0
         roc_penalty=np.where(roc<0.0,1.0,0.0)
         raw=core*amp*(1.0+np.abs(self._apply_kinematics(df,'ROC_13_D_scaled',roc/100.0,13)))*roc_penalty
@@ -1589,58 +1589,62 @@ class ProcessIntelligence:
 
     def _calculate_institutional_sweep(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V31.0.0】机构超大单扫货核爆引擎
-        修改要点: 恢复 10% 的高门槛扫货满分标度。
+        【V302.0.0 · 极限算力热修复版】机构超大单扫货核爆引擎
+        修改要点: 移除废弃的 df_index 传参，全面接入 Numpy 纯算生态。
         """
         method_name="_calculate_institutional_sweep"
         required_signals=['buy_elg_amount_D','buy_lg_amount_D','amount_D','tick_chip_transfer_efficiency_D','flow_consistency_D','net_mf_amount_D','flow_impact_ratio_D','market_sentiment_score_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
-        buy_elg=self._get_safe_series(df,'buy_elg_amount_D',method_name=method_name)
-        buy_lg=self._get_safe_series(df,'buy_lg_amount_D',method_name=method_name)
-        amt=self._get_safe_series(df,'amount_D',method_name=method_name).replace(0,np.nan).fillna(1.0)
-        tr=self._get_safe_series(df,'tick_chip_transfer_efficiency_D',method_name=method_name)
-        cons=self._get_safe_series(df,'flow_consistency_D',method_name=method_name)
-        mf=self._get_safe_series(df,'net_mf_amount_D',method_name=method_name)
-        imp=self._get_safe_series(df,'flow_impact_ratio_D',method_name=method_name)
-        sent=self._get_safe_series(df,'market_sentiment_score_D',method_name=method_name)
-        buy_ratio=((buy_elg.fillna(0.0)+buy_lg.fillna(0.0)*0.5)/amt).fillna(0.0)
-        # [V31.0.0] 恢复 0.1(10%) 满分标度
-        core=self._apply_norm(buy_ratio,0.1)*self._apply_zg(df_index,buy_ratio)
-        amp=1.0+(np.tanh(self._apply_hab(df,'mf',mf,55)).clip(lower=0)+self._apply_norm(tr,1e6)+self._apply_norm(cons,100.0)+self._apply_norm(imp,10.0)+self._apply_norm(sent,100.0))/5.0
-        # [V31.0.0] 动力学防爆
-        raw=core*amp*(1.0+self._apply_kinematics(df,'buy_ratio',buy_ratio*100.0,13).clip(lower=0))
-        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
+        buy_elg=self._get_safe_array(df,'buy_elg_amount_D',method_name=method_name)
+        buy_lg=self._get_safe_array(df,'buy_lg_amount_D',method_name=method_name)
+        amt=self._get_safe_array(df,'amount_D',method_name=method_name)
+        amt=np.where(amt==0.0,1.0,amt)
+        tr=self._get_safe_array(df,'tick_chip_transfer_efficiency_D',method_name=method_name)
+        cons=self._get_safe_array(df,'flow_consistency_D',method_name=method_name)
+        mf=self._get_safe_array(df,'net_mf_amount_D',method_name=method_name)
+        imp=self._get_safe_array(df,'flow_impact_ratio_D',method_name=method_name)
+        sent=self._get_safe_array(df,'market_sentiment_score_D',method_name=method_name)
+        buy_ratio=self._safe_div(buy_elg+buy_lg*0.5,amt,0.0)
+        # [V302.0.0] 移除 df_index 传参
+        core=self._apply_norm(buy_ratio,0.1)*self._apply_zg(buy_ratio)
+        amp=1.0+(np.maximum(np.tanh(self._apply_hab(df,'mf',mf,55)),0.0)+self._apply_norm(tr,1e6)+self._apply_norm(cons,100.0)+self._apply_norm(imp,10.0)+self._apply_norm(sent,100.0))/5.0
+        raw=core*amp*(1.0+np.maximum(self._apply_kinematics(df,'buy_ratio_scaled',buy_ratio*100.0,13),0.0))
+        res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'buy_elg_amount_D':buy_elg,'net_mf_amount_D':mf},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
-        return res
+        return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_hf_algo_manipulation_risk(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V31.0.0】高频算法诱骗崩塌防线
-        修改要点: 偏度极易达到 20，分母设为 50 以保留灰度特征。
+        【V302.0.0 · 极限算力热修复版】高频算法诱骗崩塌防线
+        修改要点: 移除废弃的 df_index 传参，剥离 Pandas 逻辑。
         """
         method_name="_calculate_hf_algo_manipulation_risk"
         required_signals=['high_freq_flow_skewness_D','high_freq_flow_kurtosis_D','large_order_anomaly_D','price_flow_divergence_D','intraday_price_distribution_skewness_D','tick_abnormal_volume_ratio_D','volatility_adjusted_concentration_D']
         self._validate_required_signals(df,required_signals,method_name)
         df_index=df.index
-        skew=self._get_safe_series(df,'high_freq_flow_skewness_D',method_name=method_name)
-        kurt=self._get_safe_series(df,'high_freq_flow_kurtosis_D',method_name=method_name)
-        anom=self._get_safe_series(df,'large_order_anomaly_D',method_name=method_name)
-        div=self._get_safe_series(df,'price_flow_divergence_D',method_name=method_name)
-        pskew=self._get_safe_series(df,'intraday_price_distribution_skewness_D',method_name=method_name)
-        abn=self._get_safe_series(df,'tick_abnormal_volume_ratio_D',method_name=method_name)
-        vac=self._get_safe_series(df,'volatility_adjusted_concentration_D',method_name=method_name)
-        # [V31.0.0] 偏度极易达到 20，分母设为 50 以保留灰度特征
-        skew_base=np.tanh(skew.fillna(0.0).abs()/50.0)
+        skew=self._get_safe_array(df,'high_freq_flow_skewness_D',method_name=method_name)
+        kurt=self._get_safe_array(df,'high_freq_flow_kurtosis_D',method_name=method_name)
+        anom=self._get_safe_array(df,'large_order_anomaly_D',method_name=method_name)
+        div=self._get_safe_array(df,'price_flow_divergence_D',method_name=method_name)
+        pskew=self._get_safe_array(df,'intraday_price_distribution_skewness_D',method_name=method_name)
+        abn=self._get_safe_array(df,'tick_abnormal_volume_ratio_D',method_name=method_name)
+        vac=self._get_safe_array(df,'volatility_adjusted_concentration_D',method_name=method_name)
+        skew_base=np.tanh(np.abs(skew)/50.0)
         anom_base=self._apply_norm(anom,1.0)
-        core=skew_base*anom_base*self._apply_zg(df_index,skew_base*anom_base)
-        amp=1.0+(np.tanh(self._apply_hab(df,'div',div,21)).clip(lower=0)+np.tanh(self._apply_hab(df,'kurt',kurt,34)).clip(lower=0)+np.tanh(self._apply_hab(df,'mis',skew.fillna(0.0)-pskew.fillna(0.0),13)).abs()+np.tanh(self._apply_hab(df,'abn',abn,21)).clip(lower=0)+(1.0-self._apply_norm(vac,100.0)))/5.0
-        raw=core*amp*(1.0+self._apply_kinematics(df,'large_order_anomaly_D',anom,13).clip(upper=0).abs())
-        res=np.tanh(np.sign(raw)*(np.abs(raw)**1.5)).clip(0,1).fillna(0.0).astype(np.float32)
+        # [V302.0.0] 移除 df_index 传参
+        core=skew_base*anom_base*self._apply_zg(skew_base*anom_base)
+        amp=1.0+(np.maximum(np.tanh(self._apply_hab(df,'div',div,21)),0.0)+np.maximum(np.tanh(self._apply_hab(df,'kurt',kurt,34)),0.0)+np.abs(np.tanh(self._apply_hab(df,'mis',skew-pskew,13)))+np.maximum(np.tanh(self._apply_hab(df,'abn',abn,21)),0.0)+(1.0-self._apply_norm(vac,100.0)))/5.0
+        raw=core*amp*(1.0+np.abs(np.clip(self._apply_kinematics(df,'large_order_anomaly_D_scaled',anom,13),None,0.0)))
+        res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),0.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'high_freq_flow_skewness_D':skew,'large_order_anomaly_D':anom},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
-        return res
+        return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_ma_rubber_band_reversal(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V302.0.0 · 极限算力热修复版】均线张力极值反噬引擎
+        修改要点: 移除废弃的 df_index 传参，剥离 Pandas 逻辑。
+        """
         method_name="_calculate_ma_rubber_band_reversal"
         required_signals=['MA_RUBBER_BAND_EXTENSION_D','MA_POTENTIAL_TENSION_INDEX_D','ADX_14_D','profit_pressure_D','pressure_trapped_D','BIAS_21_D','reversal_prob_D','chip_entropy_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1656,8 +1660,10 @@ class ProcessIntelligence:
         supp=1.0-np.tanh(np.maximum(adx-35.0,0.0)/15.0)
         c_ent_n=self._apply_norm(c_ent,10.0)
         trap_norm=np.tanh(trap_p*100.0)
+        # [V302.0.0] 移除 df_index 传参
         t_base=np.maximum(np.tanh(ext/10.0),0.0)*self._apply_zg(np.maximum(ext,0.0))
         t_amp=1.0+(self._apply_norm(tension,100.0)+self._apply_norm(profit_p,100.0)+np.maximum(np.tanh(self._apply_hab(df,'bias',bias,21)),0.0)+self._apply_norm(rev,100.0)+(1.0-c_ent_n))/5.0
+        # [V302.0.0] 移除 df_index 传参
         b_base=np.abs(np.clip(np.tanh(ext/10.0),None,0.0))*self._apply_zg(np.clip(ext,None,0.0))
         b_amp=1.0+(self._apply_norm(tension,100.0)+trap_norm+np.abs(np.clip(np.tanh(self._apply_hab(df,'bias',bias,21)),None,0.0))+self._apply_norm(rev,100.0)+(1.0-c_ent_n))/5.0
         raw=(b_base*b_amp-t_base*t_amp)*supp*(1.0+np.abs(self._apply_kinematics(df,'MA_RUBBER_BAND_EXTENSION_D_scaled',ext/100.0,13)))
@@ -1666,6 +1672,10 @@ class ProcessIntelligence:
         return pd.Series(res,index=df_index,dtype=np.float32)
 
     def _calculate_geometric_trend_resonance(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V302.0.0 · 极限算力热修复版】几何流形趋势共振引擎
+        修改要点: 移除废弃的 df_index 传参，剥离 Pandas 逻辑。
+        """
         method_name="_calculate_geometric_trend_resonance"
         required_signals=['GEOM_REG_R2_D','GEOM_REG_SLOPE_D','GEOM_ARC_CURVATURE_D','GEOM_CHANNEL_POS_D','PRICE_FRACTAL_DIM_D','trend_confirmation_score_D','volatility_adjusted_concentration_D','close_D']
         self._validate_required_signals(df,required_signals,method_name)
@@ -1680,6 +1690,7 @@ class ProcessIntelligence:
         cls=self._get_safe_array(df,'close_D',method_name=method_name)
         cls=np.where(cls==0.0,1.0,cls)
         slope_ratio=self._safe_div(slope,cls,0.0)*100.0
+        # [V302.0.0] 移除 df_index 传参
         core=np.tanh(slope_ratio/10.0)*self._apply_norm(r2,1.0)*self._apply_zg(slope)*self._apply_zg(r2)
         dyn=np.tanh(self._apply_hab(df,'curv',curv,21))-(self._apply_norm(pos,1.0)-0.5)*2.0*0.3
         amp=1.0+((1.0-self._apply_norm(frac,2.0))+self._apply_norm(conf,100.0)+np.maximum(dyn,0.0)+self._apply_norm(vac,100.0))/4.0
@@ -1687,5 +1698,4 @@ class ProcessIntelligence:
         res=np.clip(np.tanh(np.sign(raw)*(np.abs(raw)**1.5)),-1.0,1.0)
         self._probe_variables(method_name=method_name,df_index=df_index,raw_inputs={'GEOM_REG_SLOPE_D':slope,'GEOM_REG_R2_D':r2},calc_nodes={'core':core,'amp':amp,'raw_score':raw},final_result=res)
         return pd.Series(res,index=df_index,dtype=np.float32)
-
 
