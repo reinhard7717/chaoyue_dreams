@@ -453,10 +453,16 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["风控层_杠杆(火箭重力释放版)"] = {"Apparent_Strength": apparent_strength, "Tension_Multiplier": tension_multiplier, "Release_Multiplier": release_multiplier, "Final_Leverage": final_lev}
         return final_lev
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, lv_score: pd.Series, context: Dict, activity_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V50.1.0 · 奇点共振完美版 - 状态机热修复】
+        - 职责: 深度融合传统、结构与生态分，执行陷阱击穿与极性吞噬。
+        - 修复: 补全 s_state 上下文解包，防止 NameError 导致战术引擎熔断。
+        """
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
         m_market = context['market']
+        s_state = context['state']
         profit = s_struct.get('profit_ratio', pd.Series(0.0, index=traditional_score.index)).clip(lower=0.0)
         winner = s_struct.get('winner_rate', pd.Series(0.0, index=traditional_score.index)).clip(lower=0.0)
         trapped = s_struct.get('pressure_trapped', pd.Series(0.0, index=traditional_score.index)).clip(lower=0.0)
