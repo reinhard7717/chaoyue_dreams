@@ -10,10 +10,10 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateMainForceControlRelationship:
     """
-    【V50.0.0 · 主力控盘全息量子决策系统 · 奇点共振与物理量纲校准版】
+    【V52.0.0 · 主力控盘全息量子决策系统 · 非对称生态阻力与加法陷阱张量版】
     PROCESS_META_MAIN_FORCE_CONTROL
-    - 核心职责: 计算“主力控盘”的专属关系分数，修复极性吞噬误伤悖论，引入穿甲弹与反重力机制。
-    - 版本: 50.0.0
+    - 核心职责: 计算“主力控盘”的专属关系分数，根除第三象限踩踏悖论与双重否定死锁。
+    - 版本: 52.0.0
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -58,7 +58,7 @@ class CalculateMainForceControlRelationship:
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
         if probe_ts:
-            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V50.0.0 (奇点共振完美版)")
+            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V52.0.0 (非对称生态与陷阱张量版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
         if hasattr(self, '_validate_arsenal_signals'):
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
@@ -183,7 +183,8 @@ class CalculateMainForceControlRelationship:
             "golden_pit": _golden_pit,
             "breakout_confirmed": self._get_safe_series(df, 'STATE_BREAKOUT_CONFIRMED_D', 0.0),
             "emotional_extreme": self._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0),
-            "parabolic_warning": self._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
+            "parabolic_warning": self._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0),
+            "breakout_penalty": self._get_safe_series(df, 'breakout_penalty_score_D', 0.0)
         }
         ema_system = {
             "ema_13": self._get_safe_series(df, 'EMA_13_D', market_raw['close']),
@@ -192,7 +193,7 @@ class CalculateMainForceControlRelationship:
         if _temp_debug_values is not None:
             _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {"Close": market_raw['close'], "Smart_Synergy": funds_raw['smart_synergy'], "Closing_Strength": sentiment_raw['closing_strength'], "Emotional_Extreme": state_raw['emotional_extreme']}
         if probe_ts:
-            print(f"[探针] V50.0.0 物理总线挂载完成。全量引入收盘微观强度与状态极值边界。")
+            print(f"[探针] V52.0.0 物理总线挂载完成。全量系统激活，引入非对称生态极性阻力。")
         return {"market": market_raw, "funds": funds_raw, "structure": structure_raw, "sentiment": sentiment_raw, "state": state_raw, "ema": ema_system}
     def _calculate_lotka_volterra_model(self, df: pd.DataFrame, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series]:
         f = context['funds']
@@ -208,22 +209,23 @@ class CalculateMainForceControlRelationship:
         dy_std = self._get_robust_noise_floor(dy)
         dx_z = dx / dx_std
         dy_z = dy / dy_std
-        lv_net_force = dx_z - dy_z
+        lv_net_force_array = np.where(dx_z >= 0.0, dx_z - dy_z, dx_z - np.abs(dy_z))
+        lv_net_force = pd.Series(lv_net_force_array, index=index).astype(np.float32)
         lv_tension = np.sqrt(dx_z**2 + dy_z**2).astype(np.float32)
         lv_score = np.tanh(lv_net_force * 2.0).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["逻辑层_LV生态博弈(净力模型)"] = {"Predator_Force_Z": dx_z, "Prey_Resistance_Z": dy_z, "LV_Net_Force": lv_net_force, "LV_Ecological_Tension": lv_tension, "Final_LV_Score": lv_score}
+            _temp_debug_values["逻辑层_LV生态博弈(非对称净力)"] = {"Predator_Force_Z": dx_z, "Prey_Resistance_Z": dy_z, "LV_Net_Force": lv_net_force, "LV_Ecological_Tension": lv_tension, "Final_LV_Score": lv_score}
         return lv_score, lv_tension
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
         full_chain = [
             ("1. 物理层 (Raw Arsenal Data)", "1. 物理层 (Raw Arsenal Data)"),
             ("主力平均价格(HAB版)", "2. 原子层 (Weighted Cost Calc)"),
-            ("逻辑层_LV生态博弈(净力模型)", "3. 逻辑层 - 洛特卡-沃尔泰拉博弈"),
+            ("逻辑层_LV生态博弈(非对称净力)", "3. 逻辑层 - 洛特卡-沃尔泰拉博弈"),
             ("组件_传统控盘(柔性梯度版)", "4. 逻辑层 - 传统控盘 (Fibonacci Resonance)"),
             ("组件_成本优势(Harmonic版)", "5. 逻辑层 - 成本优势 (Harmonic Oscillator)"),
             ("组件_净活动(V50穿甲弹版)", "6. 逻辑层 - 资金动力学 (Armor-Piercing Flows)"),
             ("归一化处理", "7. 转换层 (MTF & Normalization)"),
-            ("融合_动力学(陷阱击穿版)", "8. 决策层 - 深度融合 (Shannon-VPA Fusion)"),
+            ("融合_动力学(陷阱张量版)", "8. 决策层 - 深度融合 (Shannon-VPA Fusion)"),
             ("风控层_杠杆(火箭重力释放版)", "9. 风控层 (Rocket & Gravity Leverage)"),
             ("最终结果", "10. 输出层 (Final Signal)")
         ]
@@ -235,9 +237,10 @@ class CalculateMainForceControlRelationship:
                 for sub_key, val in data_map.items():
                     v_print = val.loc[probe_ts] if isinstance(val, pd.Series) and probe_ts in val.index else val
                     if isinstance(v_print, pd.Series): v_print = np.nan
-                    warn_tag = " [!] 极性全向反转触发" if (isinstance(v_print, float) and "Trap_Inversion_Factor" in sub_key and v_print < 0.0) else ""
+                    warn_tag = " [!] 负压张量释放" if (isinstance(v_print, float) and "Trap_Force" in sub_key and v_print < -0.5) else ""
                     warn_tag = " [!] 杠杆加速释放" if (isinstance(v_print, float) and "Release_Multiplier" in sub_key and v_print > 2.0) else warn_tag
                     warn_tag = " [!] 友军共振豁免" if (isinstance(v_print, float) and "Effective_Structure" in sub_key and v_print < 0.0) else warn_tag
+                    warn_tag = " [!] 视盲坍缩(黑洞引力)" if (isinstance(v_print, float) and "LV_Net_Force" in sub_key and v_print < -2.0) else warn_tag
                     if isinstance(v_print, (float, np.floating)):
                         debug_output[f"        {sub_key}: {v_print:.4f}{warn_tag}"] = ""
                     else:
@@ -337,7 +340,9 @@ class CalculateMainForceControlRelationship:
         raw_vector = (norm_tick * 0.4 + norm_smart * 0.4 + norm_macro * 0.2) * quality_scalar * skew_gain * act_scalar
         hab_34 = f.get('hab_net_mf_34', pd.Series(0.0, index=index))
         hab_density = (hab_34 / (circ_mv + 1e-6)) * 1000.0
-        armor_melting = np.exp(-np.maximum(0.0, np.abs(raw_vector) - 2.0))
+        raw_vector_std = self._get_robust_noise_floor(raw_vector)
+        armor_threshold = raw_vector_std * 1.5
+        armor_melting = np.exp(-np.maximum(0.0, np.abs(raw_vector) - armor_threshold))
         effective_hab = hab_density * armor_melting
         impact_strength = raw_vector / (np.abs(effective_hab) + 1.0)
         is_washout_buffer = (hab_density > 5.0) & (raw_vector < 0.0) & (raw_vector > -3.0)
@@ -362,7 +367,7 @@ class CalculateMainForceControlRelationship:
         safe_raw = raw_score.astype(np.float64)
         final_score = (safe_raw / np.sqrt(1.0 + np.square(safe_raw))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["组件_净活动(V50穿甲弹版)"] = {"Raw_Vector": raw_vector, "Armor_Melting": armor_melting, "Impact_Strength": impact_strength, "Z_Vel": z_vel, "Final_Activity_Score": final_score}
+            _temp_debug_values["组件_净活动(V50穿甲弹版)"] = {"Raw_Vector": raw_vector, "Armor_Threshold": armor_threshold, "Armor_Melting": armor_melting, "Impact_Strength": impact_strength, "Z_Vel": z_vel, "Final_Activity_Score": final_score}
         return final_score
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         ema = context['ema']
@@ -430,10 +435,12 @@ class CalculateMainForceControlRelationship:
         entropy_damping = np.exp(-2.0 * np.power(effective_disorder, 2))
         ind_scalar = np.tanh((20.0 - ind_rank) / 10.0) * 0.2
         risk_penalty = pd.Series(0.0, index=index).mask(rev_prob > 80.0, 0.8).mask(div_str > 80.0, 0.6).mask(para_warning > 50.0, 0.6)
+        breakout_penalty = s_state.get('breakout_penalty', pd.Series(0.0, index=index)).ffill().fillna(0.0)
+        penalty_factor = pd.Series(0.0, index=index).mask(breakout_penalty > 50.0, 0.5)
         apparent_strength = np.maximum(np.abs(traditional_score), np.abs(fused_score))
         base_lev = 1.0 + (apparent_strength / np.sqrt(1.0 + np.square(apparent_strength))) * 5.0 
         tension_multiplier = 1.0 + np.tanh(lv_tension / 3.0).clip(0.0, 1.5) * np.abs(lv_score)
-        lev_step1 = base_lev * entropy_damping * tension_multiplier * np.maximum(0.1, (1.0 - kinetic_penalty - risk_penalty))
+        lev_step1 = base_lev * entropy_damping * tension_multiplier * np.maximum(0.1, (1.0 - kinetic_penalty - risk_penalty - penalty_factor))
         state_bonus = pd.Series(0.0, index=index).mask(is_leader, 0.5).mask(is_pit, 0.3)
         attack_bonus = pd.Series(0.0, index=index).mask(smart_attack > 0.5, 0.4)
         premium_bonus = (t1_premium / 100.0).clip(0.0, 0.5)
@@ -453,11 +460,6 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["风控层_杠杆(火箭重力释放版)"] = {"Apparent_Strength": apparent_strength, "Tension_Multiplier": tension_multiplier, "Release_Multiplier": release_multiplier, "Final_Leverage": final_lev}
         return final_lev
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, lv_score: pd.Series, context: Dict, activity_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
-        """
-        【V50.1.0 · 奇点共振完美版 - 状态机热修复】
-        - 职责: 深度融合传统、结构与生态分，执行陷阱击穿与极性吞噬。
-        - 修复: 补全 s_state 上下文解包，防止 NameError 导致战术引擎熔断。
-        """
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
@@ -477,10 +479,10 @@ class CalculateMainForceControlRelationship:
         w_trad_base = (1.0 / (1.0 + np.exp(-0.15 * (adx - 30.0)))).clip(0.3, 0.7)
         bull_trap_intensity = np.clip(traditional_score, 0.0, 1.0) * np.clip(-activity_score, 0.0, 1.0)
         bear_trap_intensity = np.clip(-traditional_score, 0.0, 1.0) * np.clip(activity_score, 0.0, 1.0)
-        trap_inversion_factor = 1.0 - 4.5 * bull_trap_intensity - 4.5 * bear_trap_intensity
-        w_trad_adjusted = w_trad_base * np.maximum(0.2, 1.0 - bull_trap_intensity * 0.8)
+        trap_force = (-4.5 * bull_trap_intensity * np.abs(traditional_score)) + (4.5 * bear_trap_intensity * np.abs(traditional_score))
+        w_trad_adjusted = w_trad_base * np.maximum(0.2, 1.0 - (bull_trap_intensity + bear_trap_intensity) * 0.8)
         raw_base_score = (traditional_score * w_trad_adjusted + structural_score * (1.0 - w_trad_adjusted) + lv_score * 0.3) * cost_modifier
-        base_score = raw_base_score * trap_inversion_factor
+        base_score = raw_base_score + trap_force
         turnover = s_sent.get('turnover', pd.Series(1.0, index=traditional_score.index)).replace(0.0, np.nan).fillna(1.0)
         locking_gain = 1.0 + np.tanh((hab_density * 100.0) / (turnover / 3.0)).clip(-0.5, 0.8)
         slope_stab, accel_stab, _ = self._apply_kinematics_with_threshold_gate(stability, (5, 3, 3))
@@ -504,7 +506,7 @@ class CalculateMainForceControlRelationship:
         safe_raw = raw_final.astype(np.float64)
         final_fused = (safe_raw / np.sqrt(1.0 + np.square(safe_raw))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["融合_动力学(陷阱击穿版)"] = {"Squeeze_Score": squeeze_score, "Trap_Inversion_Factor": trap_inversion_factor, "Final_Fused_Score": final_fused}
+            _temp_debug_values["融合_动力学(陷阱张量版)"] = {"Squeeze_Score": squeeze_score, "Trap_Force": trap_force, "Final_Fused_Score": final_fused}
         return final_fused
     def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
         s_struct = context['structure']
@@ -551,7 +553,8 @@ class CalculateMainForceControlRelationship:
             'game_intensity_D', 'chip_divergence_ratio_D', 'T1_PREMIUM_EXPECTATION_D',
             'CLOSING_STRENGTH_D', 'chip_kurtosis_D', 'high_freq_flow_skewness_D',
             'intraday_main_force_activity_D', 'GAP_MOMENTUM_STRENGTH_D',
-            'STATE_EMOTIONAL_EXTREME_D', 'STATE_BREAKOUT_CONFIRMED_D', 'STATE_PARABOLIC_WARNING_D'
+            'STATE_EMOTIONAL_EXTREME_D', 'STATE_BREAKOUT_CONFIRMED_D', 'STATE_PARABOLIC_WARNING_D',
+            'breakout_penalty_score_D'
         ]
         if not self.helper._validate_required_signals(df, required_physical_raw, method_name):
             if probe_ts:
@@ -560,7 +563,6 @@ class CalculateMainForceControlRelationship:
                 self._print_debug_info(debug_output)
             return False
         return True
-
 
 
 
