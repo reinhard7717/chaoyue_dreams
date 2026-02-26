@@ -1,5 +1,5 @@
 # strategies/trend_following/intelligence/process/calculate_split_order_accumulation.py
-# 拆单吸筹强度计算器 已完成 deepThink
+# 拆单吸筹强度计算器 已完成DeepThink
 import json
 import os
 import pandas as pd
@@ -114,7 +114,7 @@ class CalculateSplitOrderAccumulation:
         self.process_params = self.helper.params
 
     def _setup_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp], Dict]:
-        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
+        is_debug_enabled_for_method = False # get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
         if is_debug_enabled_for_method and self.helper.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
