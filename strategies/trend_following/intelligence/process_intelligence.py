@@ -133,7 +133,7 @@ class ProcessIntelligence:
         统一管理调试探针。新增了针对 numpy.ndarray 和纯数值的强兼容防御，
         确保即使底层释放了无索引张量，探针仍能精准定轨输出，杜绝执行中断。
         """
-        is_debug=get_param_value(self.debug_params.get('enabled'),False) and get_param_value(self.debug_params.get('should_probe'),False)
+        is_debug=False #get_param_value(self.debug_params.get('enabled'),False) and get_param_value(self.debug_params.get('should_probe'),False)
         if not is_debug or not self.probe_dates:
             return
         probe_dates_dt=[pd.to_datetime(d).tz_localize(None).normalize() for d in self.probe_dates]
