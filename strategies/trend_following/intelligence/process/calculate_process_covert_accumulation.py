@@ -9,20 +9,19 @@ from strategies.trend_following.utils import get_param_value, _robust_geometric_
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateProcessCovertAccumulation:
     """
-    【V10.0.0 · 工业级最终形态版 (Industrial Final Form)】
+    【v10.1.0 · 数学闭环与静默告警消除版 (Mathematical Closure & Silent Warning Patch)】
     PROCESS_META_COVERT_ACCUMULATION
     用途：计算隐蔽吸筹信号，精准识别主力在缩量、恐慌环境下的微观非对称收集行为。
-    本次修改/确认要点：
-    1. 极性否决 (Polarity Veto)：修正核爆门控的致命 'OR' 逻辑漏洞。强制要求 t_stealth > 0.45，从物理底层封杀“天量派发断头铡刀”被误认为“隐蔽吸筹”的灾难级假阳性。
-    2. 溢出免疫 (Overflow Armor)：在 _custom_norm 的 Sigmoid 与数学运算前，强行引入 np.clip(z, -20.0, 20.0) 安全阀，彻底杜绝极端停牌复牌行情下的 RuntimeWarning(overflow) 内存溢出毒化。
-    3. 数学收敛：探针已证实对数杠杆补偿与平方根跃迁放大的数学推演绝对精准无瑕疵，彻底终结 0 值连乘死锁，算力流完美闭环。
-    废弃方法说明：无新增废弃方法，继续维持 V9.5 确立的定向指纹微积分制导框架。
+    本次修改要点：
+    1. 消除隐性内存告警：在计算密度对数杠杆时，原 np.log1p(den - 15.0) 虽有 np.where 保护，但 Numpy 机制会全量运算导致抛出 RuntimeWarning(invalid value)。现升级为 np.log1p(np.maximum(den - 15.0, 0.0))，彻底消除运行期隐性异常，保障大规模集群回测安全。
+    2. 数学收敛终极确权：确认张量融合（0.2偏置垫、开方核爆放大、极性门控）与实盘探针完美闭环，无 0 值死锁，无标度灾难。
+    废弃方法说明：无。底层动力学制导与时间单向膜机制已被确立为最终稳态标准。
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
         self.helper = helper_instance
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        print(" ====== CalculateProcessCovertAccumulation V10.0.0 ======")
+        print(" ====== CalculateProcessCovertAccumulation v10.1.0 ======")
         is_debug = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
         if is_debug and self.helper.probe_dates:
@@ -163,7 +162,8 @@ class CalculateProcessCovertAccumulation:
         jk_sth = self._custom_norm(df.get('JERK_8_stealth_flow_ratio_D', pd.Series(0.0, index=df.index)), asc=True, method='tanh', centered=True)
         raw_t = (s1 * 0.10 + s2 * 0.10 + s3 * 0.12 + s4 * 0.10 + s5 * 0.12 + s6 * 0.08 + s7 * 0.12 + hab_impact * 0.08 + hab_net * 0.10 + jk_sth * 0.08).clip(1e-4, 1.0)
         den = temp_vals.get('stealth_density', pd.Series(0.0, index=df.index))
-        bonus = pd.Series(np.where(den > 15.0, np.log1p(den - 15.0) * 0.08, 0.0), index=df.index)
+        # v10.1.0 引入 np.maximum 物理阻断 Numpy 底层全量计算导致的隐形 RuntimeWarning 内存告警
+        bonus = pd.Series(np.where(den > 15.0, np.log1p(np.maximum(den - 15.0, 0.0)) * 0.08, 0.0), index=df.index)
         t = (raw_t + bonus).clip(1e-4, 1.0)
         temp_vals["T_STEALTH"] = t
         return t
@@ -206,7 +206,7 @@ class CalculateProcessCovertAccumulation:
         prod_val = float(prod.iloc[-1]) if len(prod) > 0 else 0.0
         final_val = float(folded.iloc[-1]) if len(folded) > 0 else 0.0
         solid_val = bool(is_solid.iloc[-1]) if len(is_solid) > 0 else False
-        print(f"DEBUG_PROBE:FusionIgnited_V10.0.0|Raw={prod_val:.4f}|Final={final_val:.4f}|Solid={solid_val}")
+        print(f"DEBUG_PROBE:FusionIgnited_v10.1.0|Raw={prod_val:.4f}|Final={final_val:.4f}|Solid={solid_val}")
         return folded
     def _apply_signal_latch(self, score: pd.Series, t1: pd.Series, t2: pd.Series, t3: pd.Series, idx: pd.Index, temp_vals: Dict) -> pd.Series:
         comp = pd.concat([t1, t2, t3], axis=1)
@@ -222,7 +222,7 @@ class CalculateProcessCovertAccumulation:
         latched_series = pd.Series(latched_vals, index=idx, dtype='float32').clip(0.0, 1.0)
         core_lck = bool(latched_states[-1] > 0) if len(latched_states) > 0 else False
         last_score = float(latched_series.iloc[-1]) if len(latched_series) > 0 else 0.0
-        print(f"DEBUG_PROBE:LatchFinal_V10.0.0|CoreLock={core_lck}|LastVal={last_score:.4f}")
+        print(f"DEBUG_PROBE:LatchFinal_v10.1.0|CoreLock={core_lck}|LastVal={last_score:.4f}")
         return latched_series
     @staticmethod
     @jit(nopython=True, cache=True)
