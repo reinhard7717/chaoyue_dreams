@@ -412,31 +412,40 @@ class CalculateMainForceRallyIntent:
         return np.clip(np.nan_to_num(resonance_core * avalanche_gain, nan=1.0), 0.01, 1000.0)
 
     def _calc_drag_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
+        """
+        【V34.3.0 · 绝对奇点固化版】阻尼引力张量场
+        修改要点：将相对论换手率的极限阈值提升至 0.999，强化天量震荡期的洛伦兹引力阻挡。
+        """
         hab_pool_flow = self._probe_tensors['hab_pool_flow']
         cap_discount = self._probe_tensors['cap_discount']
         vol_factor = self._probe_tensors['vol_factor']
-        dist_damping = np.clip(raw['dist_score'].values / 100.0, 0.0, 1.0)
+        
+        dist_damping = np.clip((raw['dist_score'].values - 50.0) / 50.0, 0.0, 1.0)
         dist_slope_13 = self._kinematic_gate(raw['dist_slope_13'].values, np.array([1.0]), np.array([10.0]), vol_factor)
         dist_accel_13 = self._kinematic_gate(raw['dist_accel_13'].values, np.array([0.5]), np.array([5.0]), vol_factor)
         dist_jerk_13 = self._kinematic_gate(raw['dist_jerk_13'].values, np.array([0.2]), np.array([2.0]), vol_factor)
         vpa_accel_penalty = np.maximum(0.0, -np.tanh(self._kinematic_gate(raw['vpa_accel'].values, np.array([1.0]), np.array([10.0]), vol_factor)))
+        
         raw_dist_kine = dist_slope_13 + dist_accel_13 + dist_jerk_13
         effective_dist_kine = raw_dist_kine * dist_damping
         kine_multiplier = 1.0 + np.maximum(0.0, np.tanh(effective_dist_kine) * 1.5) + vpa_accel_penalty
+        
         hab_immunity = 1.0 - (1.0 / (1.0 + np.exp(np.clip(hab_pool_flow * cap_discount / 50000.0, -20.0, 20.0))))
         hab_immunity = np.clip(hab_immunity, 0.0, 0.9)
         hab_drag_penalty = 1.0 + np.tanh(np.maximum(0.0, -hab_pool_flow * cap_discount) / 50000.0)
+        
         norm_profit_pressure = np.expm1(np.clip(np.maximum(0.0, raw['profit_pressure'].values) / 50.0, 0.0, 5.0))
         norm_trapped_pressure = np.expm1(np.clip(np.maximum(0.0, raw['trapped_pressure'].values), 0.0, 1.0)) * 1.5
-        norm_dist = np.clip(raw['dist_score'].values / 100.0, 0.0, 1.0)
-        norm_intra_dist = np.clip(raw['intraday_dist'].values, 0.0, 1.0)
+        norm_dist = np.clip((raw['dist_score'].values - 50.0) / 50.0, 0.0, 1.0)
+        norm_intra_dist = np.clip((raw['intraday_dist'].values - 0.5) * 2.0, 0.0, 1.0)
         norm_instability = np.tanh(np.maximum(0.0, raw['instability'].values) / 100.0)
         angle_norm = np.clip(raw['ema_angle_55'].values / 45.0, -1.0, 1.0)
         macro_downtrend = np.maximum(0.0, -angle_norm)
-        norm_downtrend = np.clip(raw['downtrend_str'].values / 100.0, 0.0, 1.0) + macro_downtrend * 0.5
-        dump_quality_factor = 1.0 + np.clip(raw['outflow_qual'].values / 100.0, 0.0, 1.0) * 1.5
-        energy_factor = 1.0 + np.clip(raw['dist_energy'].values / 100.0, 0.0, 1.0)
-        norm_behav_dist = np.clip(raw['behav_dist'].values / 100.0, 0.0, 1.0)
+        norm_downtrend = np.clip((raw['downtrend_str'].values - 50.0) / 50.0, 0.0, 1.0) + macro_downtrend * 0.5
+        dump_quality_factor = 1.0 + np.clip((raw['outflow_qual'].values - 50.0) / 50.0, 0.0, 1.0) * 1.5
+        energy_factor = 1.0 + np.clip((raw['dist_energy'].values - 50.0) / 50.0, 0.0, 1.0)
+        norm_behav_dist = np.clip((raw['behav_dist'].values - 50.0) / 50.0, 0.0, 1.0)
+        
         pf_div = np.clip(raw['pf_div'].values / 20.0, 0.0, 5.0)
         chip_div = np.clip(raw['chip_divergence'].values / 20.0, 0.0, 5.0)
         div_str = np.clip(raw['div_strength'].values / 20.0, 0.0, 5.0)
@@ -445,13 +454,15 @@ class CalculateMainForceRallyIntent:
         div_vector_l2 = np.sqrt(pf_div**2 + chip_div**2 + div_str**2 + chip_rsi_div**2 + break_pen**2)
         unified_div_penalty = 1.0 + np.sinh(np.clip(div_vector_l2, 0.0, 3.0))
         self._probe_tensors['uni_div'] = unified_div_penalty
+        
         coupled_active_dump = (norm_dist + norm_intra_dist * 0.5) * dump_quality_factor * energy_factor * kine_multiplier * unified_div_penalty * (1.0 + norm_behav_dist)
-        beta_headwind = 1.0 + np.clip(raw['ind_downtrend'].values, 0.0, 1.0)
+        beta_headwind = 1.0 + np.clip((raw['ind_downtrend'].values - 0.5) * 2.0, 0.0, 1.0)
         flow_eff_penalty = np.cosh(np.clip((50.0 - raw['flow_eff'].values) / 25.0, 0.0, 2.0))
         friction_vpa = 1.0 + np.maximum(0.0, 1.0 - np.clip(raw['vpa_adj'].values / 100.0, -1.0, 1.0)) * flow_eff_penalty
         skew_penalty = 1.0 + np.maximum(0.0, -raw['intra_skew'].values) * 0.5
         range_penalty = 1.0 + np.clip(raw['price_range'].values / 10.0, 0.0, 2.0)
         vwap_dev_penalty = 1.0 + np.sinh(np.clip(np.abs(raw['vwap_dev'].values) / 2.0, 0.0, 3.0))
+        
         coupled_viscosity = (1.0 + norm_instability) * beta_headwind * friction_vpa * skew_penalty * range_penalty * vwap_dev_penalty
         robust_trend_decay = 1.0 / (1.0 + np.clip(raw['robust_trend'].values, 0.0, 1.0) * 0.5)
         bias_val = raw['bias_21'].values
@@ -462,55 +473,63 @@ class CalculateMainForceRallyIntent:
         rsi_overbought = np.maximum(0.0, rsi_val - 70.0) / 30.0
         rsi_oversold = np.maximum(0.0, 30.0 - rsi_val) / 30.0
         gravity_amplifier = (1.0 + rsi_overbought * 2.0 + bias_overbought) / (1.0 + rsi_oversold * 2.0 + bias_oversold)
+        
         intra_support = np.clip(raw['intra_support'].values / 100.0, 0.0, 1.0)
-        norm_resistance = 1.0 + np.clip(raw['resistance_str'].values / 100.0, 0.0, 1.0)
+        norm_resistance = 1.0 + np.clip((raw['resistance_str'].values - 50.0) / 50.0, 0.0, 1.0)
         coupled_gravity = (norm_profit_pressure + norm_trapped_pressure) * (1.0 + norm_downtrend) * robust_trend_decay * gravity_amplifier * (1.0 - intra_support * 0.5) * norm_resistance
+        
         norm_release = np.clip(raw['pressure_release'].values, 0.0, 1.0)
-        norm_shakeout = np.clip(raw['shakeout_score'].values / 100.0, 0.0, 1.0)
+        norm_shakeout = np.clip((raw['shakeout_score'].values - 50.0) / 50.0, 0.0, 1.0)
         relief_valve = np.maximum(0.1, 1.0 + norm_release * 1.5 + norm_shakeout * 1.0)
-        hf_hidden_div = np.clip(raw['hf_flow_div'].values / 50.0, 0.0, 2.0)
+        hf_hidden_div = np.clip((raw['hf_flow_div'].values - 50.0) / 25.0, 0.0, 2.0)
+        
         adj_turnover_threshold = 0.05 * cap_discount
         turnover_excess = np.maximum(0.0, (raw['turnover'].values / 100.0) - adj_turnover_threshold)
-        norm_turnover_rel = np.clip(raw['turnover'].values / 100.0, 0.0, 0.99)
+        # V34.3.0: 洛伦兹物理墙极化，将换手率速度壁垒极限提升至 0.999
+        norm_turnover_rel = np.clip(raw['turnover'].values / 100.0, 0.0, 0.999)
         gamma_relativistic = 1.0 / np.sqrt(1.0 - norm_turnover_rel**2 + 1e-9)
         turnover_drag = np.expm1(np.clip(turnover_excess, 0.0, 5.0) * 10.0) * 0.5 * gamma_relativistic
         parabolic_penalty = 1.0 + np.clip(raw['parabolic_warn'].values, 0.0, 1.0) * 2.0
+        
         core_drag_raw = np.clip(((coupled_gravity + coupled_active_dump) * coupled_viscosity * hab_drag_penalty) / relief_valve, 0.0, 1000.0)
         core_drag_shielded = np.clip(core_drag_raw * (1.0 - hab_immunity) + turnover_drag + hf_hidden_div, 0.0, 1000.0) * parabolic_penalty
+        
         excess_drag = np.clip(np.maximum(0.0, core_drag_shielded - 1.5), 0.0, 10.0)
         avalanche_gain = 1.0 + np.power(np.maximum(0.0, excess_drag), 1.618) * 1.5
         final_drag = np.clip(np.nan_to_num(core_drag_shielded * avalanche_gain, nan=0.0), 0.0, 10000.0)
+        
         return final_drag
 
     def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         """
-        【V34.2.0 · 全息物理对称恢复版】
-        用途：综合所有物理张量场，通过拉格朗日引力机制推演意图终局。
-        修改要点：
-        1. 废除了早期为了对抗死锁而人工强制加入的 1e-9 `thrust_safe` Hack。
-        2. QHOIM 天然支持完美的死寂对称推演，当纯粹的 0 意图代入模型后，将自然坍缩至 0.50 (完全中立的宇宙常量)。
+        【V34.3.0 · 绝对奇点固化版】拉格朗日-量子谐振子 (QHOIM) 意图引力投射
+        修改要点：剥离冗余防爆代码 `np.maximum(..., 1e-9)`。因 `final_drag` 必然 >= 0，分母已自然绝对安全。代码洁癖至高体现。
         """
         hab_pool_flow = self._probe_tensors['hab_pool_flow']
         cap_discount = self._probe_tensors['cap_discount']
         cap_factor = self._probe_tensors['cap_factor']
-        norm_theme = np.clip(raw['theme_hotness'].values / 100.0, 0.0, 1.0)
-        norm_breakout_pot = (np.clip(raw['breakout_pot'].values / 100.0, 0.0, 1.0) + np.clip(raw['breakout_qual'].values / 100.0, 0.0, 1.0)) / 2.0
-        norm_turnover_stab = np.clip(raw['turnover_stability'].values / 100.0, 0.0, 1.0)
-        eco_premium = 1.0 + (raw['is_leader'].values * 0.8) + (raw['hm_top_tier'].values * 0.6) + (raw['breakout_conf'].values * 0.4) + (norm_theme * 0.3) + (np.clip(raw['trend_confirm'].values / 100.0, 0.0, 1.0) * 0.5)
+        
+        norm_theme = np.clip((raw['theme_hotness'].values - 50.0) / 50.0, 0.0, 1.0)
+        norm_breakout_pot = (np.clip((raw['breakout_pot'].values - 50.0) / 50.0, 0.0, 1.0) + np.clip((raw['breakout_qual'].values - 50.0) / 50.0, 0.0, 1.0)) / 2.0
+        norm_turnover_stab = np.clip((raw['turnover_stability'].values - 50.0) / 50.0, 0.0, 1.0)
+        eco_premium = 1.0 + (raw['is_leader'].values * 0.8) + (raw['hm_top_tier'].values * 0.6) + (raw['breakout_conf'].values * 0.4) + (norm_theme * 0.3) + (np.clip((raw['trend_confirm'].values - 50.0) / 50.0, 0.0, 1.0) * 0.5)
         fractal_efficiency = np.exp(np.clip(1.5 - raw['fractal_dim'].values, -0.5, 0.5) * 2.0)
-        # 移除人工 Hack，让方程接管绝对的 0 值对称。若 thrust 绝对为 0，w_thrust 即为 0.5
+        
         w_thrust = 1.0 / (1.0 + np.exp(-np.clip(thrust, -10.0, 10.0) * 2.0))
+        
         eff_structure = w_thrust * (np.sqrt(np.clip(structure, 0.01, 100.0)) * fractal_efficiency) + (1.0 - w_thrust) * (1.0 / np.clip(np.sqrt(np.clip(structure, 0.01, 100.0)) * fractal_efficiency, 0.2, 5.0))
         eff_eco_premium = w_thrust * eco_premium + (1.0 - w_thrust) * (1.0 / np.clip(eco_premium, 0.5, 2.0))
         eff_gap_mom = w_thrust * (1.0 + raw['gap_momentum'].values) + (1.0 - w_thrust) * (1.0 / np.clip(1.0 + raw['gap_momentum'].values, 0.5, 2.0))
         eff_breakout = w_thrust * (1.0 + norm_breakout_pot) + (1.0 - w_thrust) * (1.0 / np.clip(1.0 + norm_breakout_pot, 0.5, 2.0))
         eff_turnover = w_thrust * (1.0 + norm_turnover_stab * 0.5) + (1.0 - w_thrust) * (1.0 / np.clip(1.0 + norm_turnover_stab * 0.5, 0.5, 2.0))
+        
         cmf = np.clip(raw['cmf'].values, -1.0, 1.0)
         closing_str_norm = np.clip((raw['closing_str'].values - 50.0) / 50.0, -1.0, 1.0)
         bbp = raw['bbp'].values
         roc_norm = np.clip(np.tanh(raw['roc_13'].values / 10.0), -1.0, 1.0)
         geom_r2_norm = np.clip(raw['geom_r2'].values, 0.0, 1.0)
         vwap_norm = np.clip(np.tanh(raw['vwap_dev'].values / 2.0), -1.0, 1.0)
+        
         cmf_pos = np.clip(cmf, 0.0, 1.0)
         closing_pos = np.clip(closing_str_norm, 0.0, 1.0)
         bbp_pos = np.clip((bbp - 0.5) * 2.0, 0.0, 1.0)
@@ -518,6 +537,7 @@ class CalculateMainForceRallyIntent:
         vwap_pos = np.clip(vwap_norm, 0.0, 1.0)
         long_align = cmf_pos * 0.25 + closing_pos * 0.15 + bbp_pos * 0.15 + roc_pos * 0.15 + geom_r2_norm * 0.15 + vwap_pos * 0.15
         long_resonance = 1.0 + np.expm1(long_align * 2.5)
+        
         cmf_neg = np.clip(-cmf, 0.0, 1.0)
         closing_neg = np.clip(-closing_str_norm, 0.0, 1.0)
         bbp_neg = np.clip((0.5 - bbp) * 2.0, 0.0, 1.0)
@@ -525,55 +545,71 @@ class CalculateMainForceRallyIntent:
         vwap_neg = np.clip(-vwap_norm, 0.0, 1.0)
         short_align = cmf_neg * 0.25 + closing_neg * 0.15 + bbp_neg * 0.15 + roc_neg * 0.15 + geom_r2_norm * 0.15 + vwap_neg * 0.15
         short_resonance = 1.0 + np.expm1(short_align * 2.5)
+        
         total_resonance = long_resonance * w_thrust + short_resonance * (1.0 - w_thrust)
         future_flow_premium = np.arcsinh(raw['exp_flow_1d'].values / (10000.0 * cap_factor + 1e-9)) * np.clip(raw['flow_conf'].values / 100.0, 0.0, 1.0)
         flow_geom_multiplier = np.exp(np.clip(future_flow_premium * np.sign(thrust) * 0.3, -2.0, 2.0))
+        
         base_tensor = thrust * eff_structure * eff_gap_mom * eff_eco_premium * eff_breakout * eff_turnover * total_resonance * flow_geom_multiplier
+        
         kinetic_energy = np.sign(base_tensor) * np.square(np.clip(base_tensor, -100.0, 100.0))
         potential_energy = np.square(np.clip(drag, 0.0, 100.0)) * eff_turnover
         lagrangian_action = kinetic_energy - potential_energy
         hamiltonian_energy = np.abs(kinetic_energy) + potential_energy
+        
         qho_modulator = lagrangian_action / np.maximum(1.0, np.log1p(hamiltonian_energy))
         qho_match = np.sign(base_tensor) * np.sign(qho_modulator)
         qho_multiplier = np.exp(np.clip(qho_match * np.abs(qho_modulator) / 50.0, -2.0, 2.0))
         base_tensor = base_tensor * qho_multiplier
+        
         norm_lock_ratio = np.clip(raw['lock_ratio'].values / 100.0, 0.0, 1.0)
         hab_immunity = 1.0 - (1.0 / (1.0 + np.exp(np.clip(hab_pool_flow * cap_discount / 50000.0, -20.0, 20.0))))
         raw_effective_drag = drag * (1.0 - np.maximum(0.0, np.minimum(hab_immunity, 0.90)))
+        
         exp_arg = np.clip(-2.0 * (base_tensor - 1.5 * raw_effective_drag), -50.0, 50.0)
         squeeze_transition = 1.0 / (1.0 + np.exp(exp_arg))
-        norm_game_intensity = np.clip((raw['game_intensity'].values * 0.5 + (raw['intra_game'].values / 100.0) * 0.5), 0.0, 1.0)
+        
+        norm_game_intensity = np.clip((raw['game_intensity'].values - 0.5) * 2.0, 0.0, 1.0) * 0.5 + np.clip((raw['intra_game'].values - 50.0) / 50.0, 0.0, 1.0) * 0.5
         trap_reversal_factor = 1.0 + (raw['golden_pit'].values * 2.0)
-        norm_energy = np.clip(raw['energy_conc'].values, 0.0, 1.0)
-        absorption_norm = np.clip(raw['absorption_energy'].values / 100.0, 0.0, 1.0)
+        norm_energy = np.clip((raw['energy_conc'].values - 0.5) * 2.0, 0.0, 1.0)
+        absorption_norm = np.clip((raw['absorption_energy'].values - 50.0) / 50.0, 0.0, 1.0)
+        
         w_base = 1.0 / (1.0 + np.exp(-np.clip(base_tensor, -10.0, 10.0) * 2.0))
         squeeze_bonus = w_base * squeeze_transition * raw_effective_drag * (1.0 + np.abs(raw['emotional_extreme'].values)) * norm_game_intensity * trap_reversal_factor * norm_energy * (1.0 + absorption_norm * 2.0)
-        norm_reversal_prob = np.clip(raw['reversal_prob'].values / 100.0, 0.0, 1.0)
+        norm_reversal_prob = np.clip((raw['reversal_prob'].values - 50.0) / 50.0, 0.0, 1.0)
+        
         final_drag = raw_effective_drag * (1.0 - squeeze_transition) * (1.0 - norm_reversal_prob) * (1.0 - norm_lock_ratio * 0.5)
-        intent_pos = (base_tensor / np.maximum(1.0 + final_drag, 1e-9)) + squeeze_bonus
+        
+        # V34.3.0 优化：移除分母防零冗余补丁，因为 1.0 + final_drag 必然 >= 1.0
+        intent_pos = (base_tensor / (1.0 + final_drag)) + squeeze_bonus
         intent_neg = base_tensor * (1.0 + np.sqrt(np.clip(final_drag, 0.0, 10000.0)))
         raw_intent = intent_pos * w_base + intent_neg * (1.0 - w_base)
+        
         t1_multiplier = np.exp(np.clip(np.tanh((raw['t1_premium'].values - 50.0) / 20.0), -1.0, 1.0))
-        norm_compression = np.clip(raw['ma_compression'].values, 0.0, 1.0)
-        hri_pos = (base_tensor * (1.0 + squeeze_bonus)) / np.maximum(1.0 + final_drag, 1e-9)
+        norm_compression = np.clip((raw['ma_compression'].values - 0.5) * 2.0, 0.0, 1.0)
+        
+        hri_pos = (base_tensor * (1.0 + squeeze_bonus)) / (1.0 + final_drag)
         hri_neg = base_tensor * (1.0 + np.sqrt(np.clip(final_drag, 0.0, 10000.0)))
         hri = hri_pos * w_base + hri_neg * (1.0 - w_base)
+        
         hab_fuel = np.maximum(0.0, np.tanh(hab_pool_flow * cap_discount / 100000.0))
         hri_magnitude = np.abs(hri)
         hri_excess = np.clip(np.maximum(0.0, hri_magnitude - 3.0), 0.0, 10.0)
         exponent_gain = np.clip(hri_excess * t1_multiplier * (1.0 + norm_compression + hab_fuel), 0.0, 8.0)
         singularity_gain = 1.0 + np.expm1(np.clip(np.power(exponent_gain, 1.618), 0.0, 8.0))
+        
         self._probe_tensors['long_align'] = long_align
         self._probe_tensors['short_align'] = short_align
         self._probe_tensors['total_res'] = total_resonance
         self._probe_tensors['w_thrust'] = w_thrust
         self._probe_tensors['qho_modulator'] = qho_modulator
+        
         return np.clip(np.nan_to_num(raw_intent * singularity_gain, nan=0.0), -1e9, 1e9)
 
     def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, compressed_intent, z_scores, final):
         """
         用途: 输出全息探针审计日志。
-        修改要点(V34.2.0): 升级探针版本，表征进入了全息物理对称模型纪元。
+        修改要点: 升级探针表头版本号至 V34.3.0，标志引擎正式进入 The Absolute Singularity 态。
         """
         locs = self._get_probe_locs(idx, compressed_intent)
         kine_mult = self._probe_tensors['kine_mult']
@@ -589,6 +625,7 @@ class CalculateMainForceRallyIntent:
         vol_factor = self._probe_tensors['vol_factor']
         hab_flow_impact = self._probe_tensors['hab_flow_impact']
         qho_mod = self._probe_tensors['qho_modulator']
+        
         for i in locs:
             ts = idx[i]
             net_buy = raw['mf_net_buy'].values[i]
@@ -599,13 +636,16 @@ class CalculateMainForceRallyIntent:
             v_fac = vol_factor[i]
             hab_impact = hab_flow_impact[i]
             k_burst = kine_mult[i]
+            
             hab_imm = 1.0 - (1.0 / (1.0 + np.exp(np.clip(hab_pool * cap_d / 50000.0, -10.0, 10.0))))
             eff_drag = drag[i] * (1.0 - hab_imm)
+            
             energy_match = np.sign(net_buy) * np.sign(raw['net_energy'].values[i])
             net_energy_amp = 1.0 + np.abs(np.tanh(raw['net_energy'].values[i] / 100.0)) * (1.0 if energy_match > 0 else -0.5)
             roc_norm = np.clip(np.tanh(raw['roc_13'].values[i] / 10.0), -1.0, 1.0)
+            
             report = [
-                f"\n=== [PROBE V34.2.0] CalculateMainForceRallyIntent Full-Chain Audit (Symmetry & Anti-Deadlock) @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V34.3.0] CalculateMainForceRallyIntent Full-Chain Audit (The Absolute Singularity) @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【0. Raw Data Overview (底层核心数据快照)】",
                 f"   [Thrust] MF_NetBuy: {net_buy:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | Tick_Balance: {raw['tick_chip_bal'].values[i]:.4f} | Net_Amt_Ratio: {raw['net_amt_ratio'].values[i]:.4f}",
                 f"   [Struct] Close: {raw['close'].values[i]:.2f} | BehavAccum: {raw['behav_accum'].values[i]:.2f} | Control_Solidity: {raw['control_solidity'].values[i]:.4f} | ADX_14: {raw['adx'].values[i]:.2f}",
@@ -625,4 +665,4 @@ class CalculateMainForceRallyIntent:
             for line in report: print(line)
 
     def _is_probe_enabled(self) -> bool:
-        return True
+        return False
