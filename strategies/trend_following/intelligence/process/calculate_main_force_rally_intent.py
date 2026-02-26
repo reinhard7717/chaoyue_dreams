@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple
 from strategies.trend_following.utils import get_param_value
+
 class CalculateMainForceRallyIntent:
     """
     PROCESS_META_MAIN_FORCE_RALLY_INTENT
@@ -23,16 +24,28 @@ class CalculateMainForceRallyIntent:
         self.probe_dates = self.helper.probe_dates
         self._probe_cache = []
         self._probe_tensors = {}
+
     def _kinematic_gate(self, val: np.ndarray, threshold: np.ndarray, scale: np.ndarray, vol_factor: np.ndarray = 1.0) -> np.ndarray:
         val_clean = np.nan_to_num(val, nan=0.0)
         adj_threshold = threshold * vol_factor
         active_val = np.sign(val_clean) * np.maximum(0.0, np.abs(val_clean) - adj_threshold)
         return np.tanh(active_val / (scale + 1e-9))
+
     def _absolute_manifold_projection(self, tensor: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         z_scores = tensor / 4.0
         final_scores = 1.0 / (1.0 + np.exp(np.clip(-z_scores, -20.0, 20.0)))
         return final_scores, z_scores
+
     def _get_neutral_defaults(self) -> Dict[str, float]:
+        """
+        【V34.2.0 · 绝对零基防多头偏倚版】
+        用途：为所有输入张量提供安全的缺失默认值。
+        修改要点：
+        1. 修复了“默认值假阳性污染”漏洞。将 chip_flow_int, breakout_chip 等强度类指标彻底剥离 
+           50.0 假象池，强行移入 zero_keys，确保数据缺失时绝对死寂。
+        2. 将 adx 的物理缺失默认值独立剥离定义为 20.0 (趋势分界底噪)。
+        3. 显式列出所有微积分斜率的 zero_keys 键位，摒弃系统的隐式字典默认值。
+        """
         defaults = {k: 0.0 for k in self._get_required_column_map().keys()}
         score_keys = [
             'pushing_score', 'winner_rate', 'peak_conc', 'accumulation_score', 
@@ -44,8 +57,7 @@ class CalculateMainForceRallyIntent:
             'foundation_strength', 'cons_accum', 'closing_str', 'rsi', 'intra_support',
             'turnover_intensity', 'vol_adj_conc', 'uptrend_str', 'behav_accum', 'behav_dist',
             'absorption_energy', 'flow_conf', 'tick_cluster', 'intra_game', 'resistance_str', 
-            'flow_eff', 'breakout_qual', 'chip_flow_int', 'abs_change_str', 'flow_cluster',
-            'breakout_chip', 'adx'
+            'flow_eff', 'breakout_qual', 'abs_change_str', 'flow_cluster'
         ]
         for k in score_keys: defaults[k] = 50.0
         ratio_keys = [
@@ -61,8 +73,17 @@ class CalculateMainForceRallyIntent:
             'exp_flow_1d', 'div_strength', 'up_slope_13', 'up_accel_13', 'bias_slope_5', 
             'consol_duration', 'chip_rsi_div', 'flow_z', 'vwap_dev', 'roc_13', 'hf_skew', 'hf_kurt', 
             'vpa_accel', 'ema_angle_55', 'break_penalty', 'avg_net_13d', 'avg_net_21d', 
-            'avg_net_34d', 'avg_net_55d', 'cfi_slope_13', 'adx_slope_13', 'adx_accel_13', 'tc_bal_slope_13',
-            'net_amt_ratio'
+            'avg_net_34d', 'avg_net_55d', 'net_amt_ratio', 
+            # V34.2.0 新增: 将强度类微观张量彻底封控于极寒防御区
+            'chip_flow_int', 'breakout_chip',
+            # 显式声明所有微积分衍生键位
+            'tick_net_slope_13', 'tick_net_accel_13', 'tick_net_jerk_13',
+            'pushing_slope_13', 'pushing_accel_13', 'pushing_jerk_13',
+            'ctrl_slope_13', 'ctrl_accel_13', 'ctrl_jerk_13',
+            'mf_slope_13', 'mf_accel_13', 'mf_jerk_13',
+            'dist_slope_13', 'dist_accel_13', 'dist_jerk_13',
+            'cmf_slope_13', 'cmf_accel_13', 'cfi_slope_13', 'tc_bal_slope_13',
+            'adx_slope_13', 'adx_accel_13', 'conc_slope', 'winner_accel'
         ]
         for k in zero_keys: defaults[k] = 0.0
         defaults['hab_structure'] = 0.6
@@ -80,7 +101,9 @@ class CalculateMainForceRallyIntent:
         defaults['circ_mv'] = 500000.0
         defaults['price_range'] = 5.0
         defaults['price_entropy'] = 1.0
+        defaults['adx'] = 20.0
         return defaults
+
     def _load_data(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         data = {}
         col_map = self._get_required_column_map()
@@ -95,6 +118,7 @@ class CalculateMainForceRallyIntent:
         if 'close' in data: data['close'] = data['close'].ffill().fillna(1.0)
         if 'cost_avg' in data and 'close' in data: data['cost_avg'] = data['cost_avg'].replace(0.0, np.nan).ffill().fillna(data['close'])
         return data
+
     def _get_required_column_map(self) -> Dict[str, str]:
         return {
             'close': 'close_D', 'cost_avg': 'cost_50pct_D', 'mf_net_buy': 'net_mf_amount_D',
@@ -170,6 +194,7 @@ class CalculateMainForceRallyIntent:
             'cfi_slope_13': 'SLOPE_13_chip_flow_intensity_D', 'adx_slope_13': 'SLOPE_13_ADX_14_D',
             'adx_accel_13': 'ACCEL_13_ADX_14_D', 'tc_bal_slope_13': 'SLOPE_13_tick_chip_balance_ratio_D'
         }
+
     def _get_probe_locs(self, idx: pd.Index, target_tensor: np.ndarray = None) -> List[int]:
         locs = set()
         if self.probe_dates:
@@ -188,6 +213,7 @@ class CalculateMainForceRallyIntent:
         count = len(idx)
         if count > 0: locs.update([0, count - 1])
         return sorted(list(locs))
+
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         self._probe_cache = []
         self._probe_tensors = {}
@@ -221,7 +247,15 @@ class CalculateMainForceRallyIntent:
         if self._is_probe_enabled(): 
             self._generate_probe_report(idx, raw, thrust, structure, drag, raw_intent_clean, compressed_intent, z_scores, final_scores)
         return pd.Series(final_scores, index=idx, dtype=np.float32)
+
     def _calc_thrust_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
+        """
+        【V34.2.0 · 动能极化清洗版】
+        用途：计算主力多头/空头的初始物理推力。
+        修改要点：
+        1. 简化了 fused_net_flow 的代数开销。
+        2. 修正 tick_chip_bal 比例极化强度：利用 abs(x - 0.5) * 2 将默认 0.5 的“死水状态”物理清洗为 0.0 推力，彻底阻断了平盘期的中性伪动能注入。
+        """
         hab_pool_flow = self._probe_tensors['hab_pool_flow']
         hab_pool_net_avg = self._probe_tensors['hab_pool_net_avg']
         hab_vol_impact = self._probe_tensors['hab_vol_impact']
@@ -250,14 +284,17 @@ class CalculateMainForceRallyIntent:
         cmf_accel = self._kinematic_gate(raw['cmf_accel_13'].values, np.array([0.01]), np.array([0.1]), vol_factor)
         cfi_slope = self._kinematic_gate(raw['cfi_slope_13'].values, np.array([0.5]), np.array([5.0]), vol_factor)
         tc_bal_slope = self._kinematic_gate(raw['tc_bal_slope_13'].values, np.array([0.05]), np.array([0.5]), vol_factor)
-        fused_net_flow = mf_net_buy + tick_large_net * 0.5 + np.sign(exp_flow) * np.abs(exp_flow) * 0.2
+        # 优化点：直接标量相加，消除 np.sign(x)*np.abs(x) 冗余运算
+        fused_net_flow = mf_net_buy + tick_large_net * 0.5 + exp_flow * 0.2
         hab_flow_impact = np.arcsinh(np.where(np.abs(hab_pool_flow) > 1.0, (fused_net_flow * cap_discount) / (np.abs(hab_pool_flow) / 23.8 + 1e-9), 0.0))
         net_shock_intensity = np.tanh(fused_net_flow / (np.abs(hab_pool_net_avg) + 1e-9))
         self._probe_tensors['hab_flow_impact'] = hab_flow_impact
         synergy_multiplier = 1.0 + np.maximum(0.0, hm_synergy / 100.0)
         energy_match = np.sign(fused_net_flow) * np.sign(net_energy)
         net_energy_amp = 1.0 + np.abs(np.tanh(net_energy / 100.0)) * np.where(energy_match > 0, 1.0, -0.5)
-        micro_structure_bonus = 1.0 + np.clip(raw['chip_flow_int'].values / 100.0, 0.0, 1.0) * np.maximum(0.0, cfi_slope) + np.clip(raw['tick_chip_bal'].values, 0.0, 1.0) * np.maximum(0.0, tc_bal_slope)
+        # 优化点：提取极化失衡强度，防止在 0.5 中性默认值时注入伪动能
+        tc_bal_intensity = np.abs(np.clip(raw['tick_chip_bal'].values, 0.0, 1.0) - 0.5) * 2.0
+        micro_structure_bonus = 1.0 + np.clip(raw['chip_flow_int'].values / 100.0, 0.0, 1.0) * np.maximum(0.0, cfi_slope) + tc_bal_intensity * np.maximum(0.0, tc_bal_slope)
         macro_base = fused_net_flow * net_energy_amp * synergy_multiplier * (1.0 + np.tanh(np.abs(hab_flow_impact))) * (1.0 + np.abs(net_shock_intensity) * 0.5) * micro_structure_bonus
         norm_macro_base = np.sign(macro_base) * np.log1p(np.abs(macro_base) / (1000.0 * cap_factor + 1e-9))
         macro_damping = np.tanh(np.abs(fused_net_flow) / (10000.0 * cap_factor + 1e-9))
@@ -306,6 +343,7 @@ class CalculateMainForceRallyIntent:
         self._probe_tensors['kine_mult'] = kinematic_multiplier
         self._probe_tensors['micro_mult'] = micro_multiplier
         return np.clip(np.nan_to_num(base_final_thrust * nonlinear_gain, nan=0.0), -1000.0, 1000.0)
+
     def _calc_structure_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         hab_vol_impact = self._probe_tensors['hab_vol_impact']
         vol_factor = self._probe_tensors['vol_factor']
@@ -372,6 +410,7 @@ class CalculateMainForceRallyIntent:
         excess_res = np.clip(np.maximum(0.0, resonance_core - 1.5), 0.0, 5.0)
         avalanche_gain = 1.0 + np.power(np.maximum(0.0, excess_res), 1.618) * 1.5
         return np.clip(np.nan_to_num(resonance_core * avalanche_gain, nan=1.0), 0.01, 1000.0)
+
     def _calc_drag_component(self, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
         hab_pool_flow = self._probe_tensors['hab_pool_flow']
         cap_discount = self._probe_tensors['cap_discount']
@@ -442,7 +481,15 @@ class CalculateMainForceRallyIntent:
         avalanche_gain = 1.0 + np.power(np.maximum(0.0, excess_drag), 1.618) * 1.5
         final_drag = np.clip(np.nan_to_num(core_drag_shielded * avalanche_gain, nan=0.0), 0.0, 10000.0)
         return final_drag
+
     def _calc_tensor_synthesis(self, thrust: np.ndarray, structure: np.ndarray, drag: np.ndarray, raw: Dict[str, np.ndarray], idx: pd.Index) -> np.ndarray:
+        """
+        【V34.2.0 · 全息物理对称恢复版】
+        用途：综合所有物理张量场，通过拉格朗日引力机制推演意图终局。
+        修改要点：
+        1. 废除了早期为了对抗死锁而人工强制加入的 1e-9 `thrust_safe` Hack。
+        2. QHOIM 天然支持完美的死寂对称推演，当纯粹的 0 意图代入模型后，将自然坍缩至 0.50 (完全中立的宇宙常量)。
+        """
         hab_pool_flow = self._probe_tensors['hab_pool_flow']
         cap_discount = self._probe_tensors['cap_discount']
         cap_factor = self._probe_tensors['cap_factor']
@@ -451,8 +498,8 @@ class CalculateMainForceRallyIntent:
         norm_turnover_stab = np.clip(raw['turnover_stability'].values / 100.0, 0.0, 1.0)
         eco_premium = 1.0 + (raw['is_leader'].values * 0.8) + (raw['hm_top_tier'].values * 0.6) + (raw['breakout_conf'].values * 0.4) + (norm_theme * 0.3) + (np.clip(raw['trend_confirm'].values / 100.0, 0.0, 1.0) * 0.5)
         fractal_efficiency = np.exp(np.clip(1.5 - raw['fractal_dim'].values, -0.5, 0.5) * 2.0)
-        thrust_safe = np.where(np.abs(thrust) < 1e-9, np.where(thrust < 0, -1e-9, 1e-9), thrust)
-        w_thrust = 1.0 / (1.0 + np.exp(-np.clip(thrust_safe, -10.0, 10.0) * 2.0))
+        # 移除人工 Hack，让方程接管绝对的 0 值对称。若 thrust 绝对为 0，w_thrust 即为 0.5
+        w_thrust = 1.0 / (1.0 + np.exp(-np.clip(thrust, -10.0, 10.0) * 2.0))
         eff_structure = w_thrust * (np.sqrt(np.clip(structure, 0.01, 100.0)) * fractal_efficiency) + (1.0 - w_thrust) * (1.0 / np.clip(np.sqrt(np.clip(structure, 0.01, 100.0)) * fractal_efficiency, 0.2, 5.0))
         eff_eco_premium = w_thrust * eco_premium + (1.0 - w_thrust) * (1.0 / np.clip(eco_premium, 0.5, 2.0))
         eff_gap_mom = w_thrust * (1.0 + raw['gap_momentum'].values) + (1.0 - w_thrust) * (1.0 / np.clip(1.0 + raw['gap_momentum'].values, 0.5, 2.0))
@@ -480,8 +527,8 @@ class CalculateMainForceRallyIntent:
         short_resonance = 1.0 + np.expm1(short_align * 2.5)
         total_resonance = long_resonance * w_thrust + short_resonance * (1.0 - w_thrust)
         future_flow_premium = np.arcsinh(raw['exp_flow_1d'].values / (10000.0 * cap_factor + 1e-9)) * np.clip(raw['flow_conf'].values / 100.0, 0.0, 1.0)
-        flow_geom_multiplier = np.exp(np.clip(future_flow_premium * np.sign(thrust_safe) * 0.3, -2.0, 2.0))
-        base_tensor = thrust_safe * eff_structure * eff_gap_mom * eff_eco_premium * eff_breakout * eff_turnover * total_resonance * flow_geom_multiplier
+        flow_geom_multiplier = np.exp(np.clip(future_flow_premium * np.sign(thrust) * 0.3, -2.0, 2.0))
+        base_tensor = thrust * eff_structure * eff_gap_mom * eff_eco_premium * eff_breakout * eff_turnover * total_resonance * flow_geom_multiplier
         kinetic_energy = np.sign(base_tensor) * np.square(np.clip(base_tensor, -100.0, 100.0))
         potential_energy = np.square(np.clip(drag, 0.0, 100.0)) * eff_turnover
         lagrangian_action = kinetic_energy - potential_energy
@@ -522,7 +569,12 @@ class CalculateMainForceRallyIntent:
         self._probe_tensors['w_thrust'] = w_thrust
         self._probe_tensors['qho_modulator'] = qho_modulator
         return np.clip(np.nan_to_num(raw_intent * singularity_gain, nan=0.0), -1e9, 1e9)
+
     def _generate_probe_report(self, idx, raw, thrust, structure, drag, raw_intent, compressed_intent, z_scores, final):
+        """
+        用途: 输出全息探针审计日志。
+        修改要点(V34.2.0): 升级探针版本，表征进入了全息物理对称模型纪元。
+        """
         locs = self._get_probe_locs(idx, compressed_intent)
         kine_mult = self._probe_tensors['kine_mult']
         micro_mult = self._probe_tensors['micro_mult']
@@ -553,7 +605,7 @@ class CalculateMainForceRallyIntent:
             net_energy_amp = 1.0 + np.abs(np.tanh(raw['net_energy'].values[i] / 100.0)) * (1.0 if energy_match > 0 else -0.5)
             roc_norm = np.clip(np.tanh(raw['roc_13'].values[i] / 10.0), -1.0, 1.0)
             report = [
-                f"\n=== [PROBE V34.1.0] CalculateMainForceRallyIntent Full-Chain Audit (Tick_Bal & Anti-Deadlock) @ {ts.strftime('%Y-%m-%d')} ===",
+                f"\n=== [PROBE V34.2.0] CalculateMainForceRallyIntent Full-Chain Audit (Symmetry & Anti-Deadlock) @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【0. Raw Data Overview (底层核心数据快照)】",
                 f"   [Thrust] MF_NetBuy: {net_buy:.2f} | Tick_Large_Net: {raw['tick_large_net'].values[i]:.2f} | Tick_Balance: {raw['tick_chip_bal'].values[i]:.4f} | Net_Amt_Ratio: {raw['net_amt_ratio'].values[i]:.4f}",
                 f"   [Struct] Close: {raw['close'].values[i]:.2f} | BehavAccum: {raw['behav_accum'].values[i]:.2f} | Control_Solidity: {raw['control_solidity'].values[i]:.4f} | ADX_14: {raw['adx'].values[i]:.2f}",
@@ -571,5 +623,6 @@ class CalculateMainForceRallyIntent:
             ]
             self._probe_cache.extend(report)
             for line in report: print(line)
+
     def _is_probe_enabled(self) -> bool:
         return True

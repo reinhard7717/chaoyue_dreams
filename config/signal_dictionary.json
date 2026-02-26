@@ -3,7 +3,6 @@
         "说明": "【V6.0.0 · 绝对非对称博弈版】已全面引入 T0(奇点/毁灭) -> T1(战役) -> T2(战术) -> T3(基底) 的指数级阶梯打分机制。彻底解决多头信号累加覆盖致命风险的对称性系统灾难。",
 
         "__SECTION_1__": "========== T0 级：绝对统治域（毁灭风险 / 奇点爆破） ==========",
-        
         "PROCESS_META_INSTITUTIONAL_STRUCTURAL_EXIT": {
             "cn_name": "【T0核武】机构结构性清仓",
             "category": "过程层-风险",
@@ -421,7 +420,6 @@
         },
 
         "__SECTION_5__": "========== 原子级反转公理 (基底中的基底，提供最基础支持) ==========",
-        
         "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL": {"cn_name": "【原子反转】基础底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
         "PROCESS_META_FOUNDATION_TOP_REVERSAL": {"cn_name": "【原子反转】基础顶部反转", "category": "过程层-风险", "type": "risk", "penalty_weight": -300, "scoring_mode": "unipolar"},
         "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL": {"cn_name": "【原子反转】结构底部反转", "category": "过程层-机会", "type": "opportunity", "score": 200, "scoring_mode": "unipolar"},
