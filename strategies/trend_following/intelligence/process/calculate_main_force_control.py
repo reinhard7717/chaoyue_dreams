@@ -10,10 +10,10 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateMainForceControlRelationship:
     """
-    【V44.0.0 · 主力控盤全息量子決策系統 · 相空間連續可導與防死鎖版】
+    【V46.0.0 · 主力控盘全息量子决策系统 · 无未来函数与张量反转版】
     PROCESS_META_MAIN_FORCE_CONTROL
-    - 核心职责: 計算“主力控盤”的專屬關係分數。
-    - 版本: 44.0.0
+    - 核心职责: 计算“主力控盘”的专属关系分数，防御诱多陷阱与未来函数。
+    - 版本: 46.0.0
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -35,17 +35,21 @@ class CalculateMainForceControlRelationship:
             return pd.Series(current_default_value, index=df.index, dtype=np.float32)
         series = df[col_name].astype(np.float32)
         return series.ffill().fillna(current_default_value)
+    def _get_robust_noise_floor(self, s: pd.Series, window_std=21) -> pd.Series:
+        roll_std = s.abs().rolling(window=window_std, min_periods=5).std().ffill().fillna(0.0)
+        exp_med = s.abs().expanding(min_periods=5).median().ffill().fillna(1e-5)
+        return np.maximum(roll_std, exp_med) + 1e-5
     def _apply_kinematics_with_threshold_gate(self, series: pd.Series, periods: tuple) -> Tuple[pd.Series, pd.Series, pd.Series]:
         p_slope, p_accel, p_jerk = periods
         slope = series.diff(p_slope).ffill().fillna(0.0)
-        noise_floor_slope = np.maximum(slope.abs().rolling(window=21, min_periods=5).std().ffill().fillna(0.0), slope.abs().quantile(0.5)) * 0.5 + 1e-5
-        slope_gated = slope * np.tanh(np.abs(slope) / noise_floor_slope)
+        noise_slope = self._get_robust_noise_floor(slope) * 0.5
+        slope_gated = slope * np.tanh(np.abs(slope) / noise_slope)
         accel = slope_gated.diff(p_accel).ffill().fillna(0.0)
-        noise_floor_accel = np.maximum(accel.abs().rolling(window=21, min_periods=5).std().ffill().fillna(0.0), accel.abs().quantile(0.5)) * 0.5 + 1e-5
-        accel_gated = accel * np.tanh(np.abs(accel) / noise_floor_accel)
+        noise_accel = self._get_robust_noise_floor(accel) * 0.5
+        accel_gated = accel * np.tanh(np.abs(accel) / noise_accel)
         jerk = accel_gated.diff(p_jerk).ffill().fillna(0.0)
-        noise_floor_jerk = np.maximum(jerk.abs().rolling(window=21, min_periods=5).std().ffill().fillna(0.0), jerk.abs().quantile(0.5)) * 0.5 + 1e-5
-        jerk_gated = jerk * np.tanh(np.abs(jerk) / noise_floor_jerk)
+        noise_jerk = self._get_robust_noise_floor(jerk) * 0.5
+        jerk_gated = jerk * np.tanh(np.abs(jerk) / noise_jerk)
         return slope_gated, accel_gated, jerk_gated
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         method_name = "calculate_main_force_control_relationship"
@@ -54,11 +58,11 @@ class CalculateMainForceControlRelationship:
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
         if probe_ts:
-            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V44.0.0 (相空間連續可導版)")
+            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V46.0.0 (张量反转防御版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
         if hasattr(self, '_validate_arsenal_signals'):
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
-                print(f"[熔断] {method_name}: 關鍵軍械庫信號缺失，策略強制終止。")
+                print(f"[熔断] {method_name}: 关键军械库信号缺失，策略强制终止。")
                 return pd.Series(0.0, index=df.index, dtype=np.float32)
         control_context = self._get_raw_control_signals(df, method_name, _temp_debug_values, probe_ts)
         hab_prices_result = self._calculate_main_force_avg_prices(control_context, df.index, _temp_debug_values)
@@ -67,14 +71,21 @@ class CalculateMainForceControlRelationship:
              return pd.Series(0.0, index=df.index, dtype=np.float32)
         scores_cost_advantage = self._calculate_main_force_cost_advantage_score(control_context, df.index, hab_prices_result, _temp_debug_values)
         scores_net_activity = self._calculate_main_force_net_activity_score(control_context, df.index, config, method_name, _temp_debug_values)
-        scores_lv_ecology = self._calculate_lotka_volterra_model(df, control_context, df.index, _temp_debug_values)
+        scores_lv_ecology, lv_tension = self._calculate_lotka_volterra_model(df, control_context, df.index, _temp_debug_values)
         norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down = self._normalize_components(df, control_context, scores_traditional, config, method_name, _temp_debug_values)
         fused_control_score = self._fuse_control_scores(norm_traditional, norm_structural, scores_lv_ecology, control_context, scores_net_activity, _temp_debug_values)
-        control_leverage = self._calculate_control_leverage_model(df.index, fused_control_score, scores_net_activity, norm_flow, scores_cost_advantage, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down, control_context, _temp_debug_values)
+        control_leverage = self._calculate_control_leverage_model(df.index, fused_control_score, scores_net_activity, norm_flow, scores_cost_advantage, lv_tension, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down, control_context, _temp_debug_values)
         kinematic_thrust = np.sign(scores_net_activity) * np.power(np.abs(scores_net_activity) + 1e-6, 1.2) * control_leverage
-        raw_final_score = (fused_control_score * 0.35) + (kinematic_thrust * 0.65)
-        final_control_score = np.tanh(raw_final_score).astype(np.float32)
-        _temp_debug_values["最终结果"] = {"Net_Activity (Vector)": scores_net_activity, "Control_Leverage (Dynamic)": control_leverage, "Kinematic_Thrust": kinematic_thrust, "Fused_Structure": fused_control_score, "Cost_Advantage": scores_cost_advantage, "Lotka_Volterra_Score": scores_lv_ecology, "Final_Score": final_control_score}
+        is_hollow = (fused_control_score > 0.0) & (kinematic_thrust < 0.0)
+        effective_structure = fused_control_score.copy()
+        effective_structure = effective_structure.mask(is_hollow, fused_control_score * np.maximum(0.0, 1.0 - np.abs(kinematic_thrust) * 2.0))
+        fractal_dim = control_context['structure'].get('fractal_dim', pd.Series(1.5, index=df.index))
+        trend_confidence = 1.0 - ((fractal_dim - 1.2) / 0.6).clip(0.0, 1.0)
+        w_struct = 0.2 + 0.6 * trend_confidence
+        w_act = 1.0 - w_struct
+        raw_final_score = (effective_structure * w_struct) + (kinematic_thrust * w_act)
+        final_control_score = (raw_final_score / np.sqrt(1.0 + np.square(raw_final_score))).astype(np.float32)
+        _temp_debug_values["最终结果"] = {"Net_Activity (Vector)": scores_net_activity, "Control_Leverage (Dynamic)": control_leverage, "Kinematic_Thrust": kinematic_thrust, "Fused_Structure": fused_control_score, "Effective_Structure": effective_structure, "Dynamic_Struct_Weight": w_struct, "Lotka_Volterra_Score": scores_lv_ecology, "Final_Score": final_control_score}
         if probe_ts:
             self._calculate_main_force_control_relationship_debug_output(debug_output, _temp_debug_values, method_name, probe_ts)
         return final_control_score
@@ -174,9 +185,9 @@ class CalculateMainForceControlRelationship:
         if _temp_debug_values is not None:
             _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {"Close": market_raw['close'], "Smart_Synergy": funds_raw['smart_synergy'], "High_Pos_Lock": structure_raw['high_pos_lock'], "Emotional_Extreme": state_raw['emotional_extreme']}
         if probe_ts:
-            print(f"[探针] V44.0.0 物理总线挂载完成。建立单向时间膜 (ffill)，挂载高维矢量张量。")
+            print(f"[探针] V46.0.0 物理总线挂载完成。消除一切未来函数，建立安全时间单向膜。")
         return {"market": market_raw, "funds": funds_raw, "structure": structure_raw, "sentiment": sentiment_raw, "state": state_raw, "ema": ema_system}
-    def _calculate_lotka_volterra_model(self, df: pd.DataFrame, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
+    def _calculate_lotka_volterra_model(self, df: pd.DataFrame, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series]:
         f = context['funds']
         m = context['market']
         s = context['structure']
@@ -186,28 +197,27 @@ class CalculateMainForceControlRelationship:
         prey = s['pressure_trapped'].ffill().fillna(50.0)
         dx = predator_flow.rolling(5, min_periods=2).mean().diff(3).ffill().fillna(0.0) / circ_mv * 1000.0
         dy = prey.diff(3).ffill().fillna(0.0)
-        dx_std = np.maximum(dx.rolling(21, min_periods=5).std().ffill().fillna(1e-5), dx.abs().quantile(0.5) + 1e-5)
-        dy_std = np.maximum(dy.rolling(21, min_periods=5).std().ffill().fillna(1e-5), dy.abs().quantile(0.5) + 1e-5)
+        dx_std = self._get_robust_noise_floor(dx)
+        dy_std = self._get_robust_noise_floor(dy)
         dx_z = dx / dx_std
         dy_z = dy / dy_std
-        phase_angle = np.arctan2(dy_z, dx_z)
-        hunting_intensity = np.sqrt(dx_z**2 + dy_z**2)
-        lv_phase_multiplier = np.cos(phase_angle + np.pi / 4.0)
-        lv_score = (lv_phase_multiplier * np.tanh(hunting_intensity / 2.0)).astype(np.float32)
+        lv_net_force = dx_z - dy_z
+        lv_tension = np.sqrt(dx_z**2 + dy_z**2).astype(np.float32)
+        lv_score = np.tanh(lv_net_force).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["逻辑层_LV生态博弈"] = {"Phase_Angle": phase_angle.mean(), "LV_Phase_Multiplier": lv_phase_multiplier.mean(), "Final_LV_Score": lv_score}
-        return lv_score
+            _temp_debug_values["逻辑层_LV生态博弈(净力模型)"] = {"Predator_Force_Z": dx_z, "Prey_Resistance_Z": dy_z, "LV_Net_Force": lv_net_force, "LV_Ecological_Tension": lv_tension, "Final_LV_Score": lv_score}
+        return lv_score, lv_tension
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
         full_chain = [
-            ("原料数据快照", "1. 物理层 (Raw Arsenal Data)"),
+            ("1. 物理层 (Raw Arsenal Data)", "1. 物理层 (Raw Arsenal Data)"),
             ("主力平均价格(HAB版)", "2. 原子层 (Weighted Cost Calc)"),
-            ("逻辑层_LV生态博弈", "3. 逻辑层 - 洛特卡-沃尔泰拉博弈"),
-            ("组件_传统控盘(时空版)", "4. 逻辑层 - 传统控盘 (Fibonacci Resonance)"),
+            ("逻辑层_LV生态博弈(净力模型)", "3. 逻辑层 - 洛特卡-沃尔泰拉博弈"),
+            ("组件_传统控盘(柔性梯度版)", "4. 逻辑层 - 传统控盘 (Fibonacci Resonance)"),
             ("组件_成本优势(Harmonic版)", "5. 逻辑层 - 成本优势 (Harmonic Oscillator)"),
-            ("组件_净活动(V44矢量逆零基版)", "6. 逻辑层 - 资金动力学 (Kinematic Flows)"),
+            ("组件_净活动(V46矢量逆零基版)", "6. 逻辑层 - 资金动力学 (Kinematic Flows)"),
             ("归一化处理", "7. 转换层 (MTF & Normalization)"),
-            ("融合_动力学(极性裁决版)", "8. 决策层 - 深度融合 (Shannon-VPA Fusion)"),
-            ("风控层_杠杆(非对称释放版)", "9. 风控层 (Asymmetric Leverage)"),
+            ("融合_动力学(陷阱反转版)", "8. 决策层 - 深度融合 (Shannon-VPA Fusion)"),
+            ("风控层_杠杆(张量扩张版)", "9. 风控层 (Asymmetric Leverage & Tension)"),
             ("最终结果", "10. 输出层 (Final Signal)")
         ]
         print(f"[探针] 正在捕获全链路数据快照 @ {probe_ts}")
@@ -218,7 +228,8 @@ class CalculateMainForceControlRelationship:
                 for sub_key, val in data_map.items():
                     v_print = val.loc[probe_ts] if isinstance(val, pd.Series) and probe_ts in val.index else val
                     if isinstance(v_print, pd.Series): v_print = np.nan
-                    warn_tag = " [!] 状态激变" if (isinstance(v_print, float) and abs(v_print - 1.0) < 0.0001 and "Score" in sub_key) else ""
+                    warn_tag = " [!] 极性反转触发" if (isinstance(v_print, float) and "Trap_Inversion_Factor" in sub_key and v_print < 0.0) else ""
+                    warn_tag = " [!] 梯度激变/饱和" if (isinstance(v_print, float) and abs(v_print - 1.0) < 0.0001 and "Score" in sub_key) else warn_tag
                     if isinstance(v_print, (float, np.floating)):
                         debug_output[f"        {sub_key}: {v_print:.4f}{warn_tag}"] = ""
                     else:
@@ -247,7 +258,7 @@ class CalculateMainForceControlRelationship:
         hab_cost_sell_21 = hab_cost_sell_21.mask(unit_mismatch, cyq_avg_cost)
         log_cost = np.arcsinh(hab_cost_buy_21)
         slope_clean, accel_clean, jerk_clean = self._apply_kinematics_with_threshold_gate(log_cost, (13, 8, 5))
-        slope_std = np.maximum(slope_clean.rolling(252, min_periods=21).std().ffill().fillna(0.1), slope_clean.abs().quantile(0.5)).clip(lower=0.01)
+        slope_std = self._get_robust_noise_floor(slope_clean)
         norm_slope = np.tanh(slope_clean / (slope_std * 1.5))
         norm_accel = np.tanh(accel_clean / (slope_std * 1.5))
         circ_mv = m.get('circ_mv', pd.Series(1e8, index=index))
@@ -260,7 +271,7 @@ class CalculateMainForceControlRelationship:
         final_sell_price = (hab_cost_sell_21 * flow_weight + cyq_avg_cost * static_weight)
         result = {"unit_mismatch": unit_mismatch.any(), "avg_buy": final_buy_price, "avg_sell": final_sell_price, "buy_slope": slope_clean, "buy_accel": accel_clean, "buy_jerk": jerk_clean, "kinematic_power": kinematic_power, "shadow_cost": cyq_avg_cost}
         if _temp_debug_values is not None:
-            _temp_debug_values["主力平均价格(HAB版)"] = {"HAB_Cost_21": hab_cost_buy_21.mean(), "Kinematic_Power": kinematic_power.mean()}
+            _temp_debug_values["主力平均价格(HAB版)"] = {"HAB_Cost_21": hab_cost_buy_21, "Kinematic_Power": kinematic_power}
         return result
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, hab_prices: Dict, _temp_debug_values: Dict) -> pd.Series:
         m = context['market']
@@ -292,12 +303,13 @@ class CalculateMainForceControlRelationship:
         is_jailbreak = (pressure_trapped > 60.0) & (driving_force > 0.3) & (accel_cost > 0.0)
         profit_ratio = s.get('profit_ratio', pd.Series(50.0, index=index))
         gamma = pd.Series(1.0, index=index).mask((profit_ratio > 90.0) & (damped_score > 0.0), 0.7)
-        final_score = np.sign(damped_score) * np.power(np.abs(damped_score), gamma) + (is_jailbreak.astype(np.float32) * 0.4)
-        entropy_penalty = pd.Series(1.0, index=index).mask((score_order < 0.2) & (final_score > 0.0), 0.5)
-        final_score = (final_score * entropy_penalty).clip(-1.0, 1.0)
+        raw_final_score = np.sign(damped_score) * np.power(np.abs(damped_score), gamma) + (is_jailbreak.astype(np.float32) * 0.4)
+        entropy_penalty = pd.Series(1.0, index=index).mask((score_order < 0.2) & (raw_final_score > 0.0), 0.5)
+        raw_final_score = raw_final_score * entropy_penalty
+        final_score = (raw_final_score / np.sqrt(1.0 + np.square(raw_final_score))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["组件_成本优势(Harmonic版)"] = {"Net_Force": net_force.mean(), "Final_Cost_Score": final_score}
-        return final_score.astype(np.float32)
+            _temp_debug_values["组件_成本优势(Harmonic版)"] = {"Net_Force": net_force, "Final_Cost_Score": final_score}
+        return final_score
     def _calculate_main_force_net_activity_score(self, context: Dict, index: pd.Index, config: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
         f = context['funds']
         m = context['market']
@@ -320,8 +332,7 @@ class CalculateMainForceControlRelationship:
         buffered_vector = impact_strength * inertia_dampener
         velocity, accel, jerk = self._apply_kinematics_with_threshold_gate(buffered_vector, (13, 8, 5))
         def _adaptive_tanh(s_val: pd.Series, scale=2.0):
-            roll_std = s_val.rolling(252, min_periods=21).std().ffill().fillna(s_val.std()).replace(0.0, 0.1)
-            robust_std = np.maximum(roll_std, s_val.abs().quantile(0.5)).replace(0.0, 0.1)
+            robust_std = self._get_robust_noise_floor(s_val)
             return np.tanh(s_val / (robust_std * scale))
         z_vel = _adaptive_tanh(velocity, 2.0)
         z_acc = _adaptive_tanh(accel, 1.5)
@@ -332,10 +343,11 @@ class CalculateMainForceControlRelationship:
         base_energy = (z_vel * 0.4 + z_acc * 0.4 + z_jrk * 0.2)
         final_energy = base_energy * eff_multiplier
         gain_exponent = pd.Series(1.0, index=index).mask((final_energy > 0.0) & (smart_attack > 0.5), 1.4)
-        final_score = (np.sign(final_energy) * np.power(np.abs(final_energy), gain_exponent)).clip(-1.0, 1.0)
+        raw_score = np.sign(final_energy) * np.power(np.abs(final_energy), gain_exponent)
+        final_score = (raw_score / np.sqrt(1.0 + np.square(raw_score))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["组件_净活动(V44矢量逆零基版)"] = {"Impact_Strength": impact_strength.mean(), "Final_Activity_Score": final_score}
-        return final_score.astype(np.float32)
+            _temp_debug_values["组件_净活动(V46矢量逆零基版)"] = {"Impact_Strength": impact_strength, "Final_Activity_Score": final_score}
+        return final_score
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         ema = context['ema']
         s_struct = context['structure']
@@ -355,7 +367,7 @@ class CalculateMainForceControlRelationship:
         jerk = jerk * 100.0
         hab_slope_34 = slope.rolling(window=34, min_periods=21).sum().ffill().fillna(0.0)
         inertia_protection = pd.Series(1.0, index=index).mask((hab_slope_34 > 5.0) & (accel < 0.0) & (accel > -0.5), 0.5)
-        base_vol = np.maximum(slope.rolling(252, min_periods=21).std().ffill().fillna(slope.std()), slope.abs().quantile(0.5)).replace(0.0, 0.1)
+        base_vol = self._get_robust_noise_floor(slope)
         entropy_scalar = (entropy / 3.0).clip(0.5, 2.0)
         adaptive_denom = base_vol * entropy_scalar
         z_slope = np.tanh(slope / (adaptive_denom * 2.0))
@@ -367,14 +379,15 @@ class CalculateMainForceControlRelationship:
         fractal_mult = pd.Series(1.0, index=index).mask(fractal_dim < 1.3, 1.2).mask(fractal_dim > 1.7, 0.8)
         kurtosis_gain = 1.0 + np.tanh(kurtosis / 10.0).clip(0.0, 0.5)
         raw_final = (base_score * resonance_mult * fractal_mult * kurtosis_gain) + gap_bonus
-        final_score = raw_final.clip(-1.0, 1.0)
+        final_score = (raw_final / np.sqrt(1.0 + np.square(raw_final))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["组件_传统控盘(时空版)"] = {"HAB_Slope_34": hab_slope_34.mean(), "Final_Trad_Score": final_score}
-        return final_score.astype(np.float32)
-    def _calculate_control_leverage_model(self, index: pd.Index, fused_score: pd.Series, net_activity_score: pd.Series, norm_flow: pd.Series, cost_score: pd.Series, norm_t0_buy: pd.Series, norm_t0_sell: pd.Series, norm_vwap_up: pd.Series, norm_vwap_down: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
+            _temp_debug_values["组件_传统控盘(柔性梯度版)"] = {"HAB_Slope_34": hab_slope_34, "Final_Trad_Score": final_score}
+        return final_score
+    def _calculate_control_leverage_model(self, index: pd.Index, fused_score: pd.Series, net_activity_score: pd.Series, norm_flow: pd.Series, cost_score: pd.Series, lv_tension: pd.Series, norm_t0_buy: pd.Series, norm_t0_sell: pd.Series, norm_vwap_up: pd.Series, norm_vwap_down: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
+        s_state = context['state']
         chip_ent = s_struct.get('chip_entropy', pd.Series(100.0, index=index)).ffill().fillna(100.0)
         price_ent = s_struct.get('price_entropy', pd.Series(4.0, index=index)).ffill().fillna(4.0)
         rev_prob = s_sent.get('reversal_prob', pd.Series(0.0, index=index)).ffill().fillna(0.0)
@@ -384,6 +397,7 @@ class CalculateMainForceControlRelationship:
         ind_rank = s_sent.get('industry_rank', pd.Series(50.0, index=index)).ffill().fillna(50.0)
         smart_attack = f_funds.get('smart_attack', pd.Series(0.0, index=index)).ffill().fillna(0.0)
         t1_premium = s_sent.get('t1_premium', pd.Series(0.0, index=index)).ffill().fillna(0.0)
+        breakout_penalty = s_state.get('breakout_penalty', pd.Series(0.0, index=index)).ffill().fillna(0.0)
         norm_chip_ent = (chip_ent / 80.0).clip(0.0, 1.5)
         norm_price_ent = ((price_ent - 1.5) / 2.5).clip(0.0, 1.5)
         raw_disorder = (norm_chip_ent * 0.6 + norm_price_ent * 0.4)
@@ -395,21 +409,24 @@ class CalculateMainForceControlRelationship:
         entropy_damping = np.exp(-2.0 * np.power(effective_disorder, 2))
         ind_scalar = np.tanh((20.0 - ind_rank) / 10.0) * 0.2
         risk_penalty = pd.Series(0.0, index=index).mask(rev_prob > 80.0, 0.8).mask(div_str > 80.0, 0.6)
-        base_lev = 1.0 + np.tanh(np.abs(fused_score.clip(-1.0, 1.0)) * 2.5) * 5.0 
-        lev_step1 = base_lev * entropy_damping * np.maximum(0.1, (1.0 - kinetic_penalty - risk_penalty))
+        penalty_factor = pd.Series(0.0, index=index).mask(breakout_penalty > 50.0, 0.5)
+        base_lev = 1.0 + (np.abs(fused_score) / np.sqrt(1.0 + np.square(fused_score))) * 5.0 
+        tension_multiplier = 1.0 + np.tanh(lv_tension / 5.0).clip(0.0, 1.0) * 0.5
+        lev_step1 = base_lev * entropy_damping * tension_multiplier * np.maximum(0.1, (1.0 - kinetic_penalty - risk_penalty - penalty_factor))
         state_bonus = pd.Series(0.0, index=index).mask(is_leader, 0.5).mask(is_pit, 0.3)
         attack_bonus = pd.Series(0.0, index=index).mask(smart_attack > 0.5, 0.4)
         premium_bonus = (t1_premium / 100.0).clip(0.0, 0.5)
         raw_final_lev = lev_step1 * (1.0 + ind_scalar + state_bonus + attack_bonus + premium_bonus)
         is_bullish = net_activity_score >= 0.0
         is_divergence = (fused_score * net_activity_score) < 0.0
-        bear_release = np.clip(np.abs(net_activity_score) * 3.0, 0.5, 2.5)
-        final_lev = raw_final_lev.copy()
-        final_lev = final_lev.mask(is_divergence & ~is_bullish, raw_final_lev.clip(upper=2.5))
-        final_lev = final_lev.mask(~is_divergence & ~is_bullish, raw_final_lev * bear_release)
-        final_lev = final_lev.clip(0.1, 12.0)
+        bear_release = np.clip(np.abs(net_activity_score) * 4.0, 1.0, 4.0)
+        unbounded_lev = raw_final_lev.copy()
+        unbounded_lev = unbounded_lev.mask(is_divergence & ~is_bullish, raw_final_lev * bear_release)
+        unbounded_lev = unbounded_lev.mask(is_divergence & is_bullish, raw_final_lev.clip(upper=2.0))
+        unbounded_lev = unbounded_lev.mask(~is_divergence & ~is_bullish, raw_final_lev * bear_release)
+        final_lev = 12.0 * np.tanh(unbounded_lev / 12.0)
         if _temp_debug_values is not None:
-            _temp_debug_values["风控层_杠杆(非对称释放版)"] = {"Effective_Disorder": effective_disorder.mean(), "Final_Leverage": final_lev}
+            _temp_debug_values["风控层_杠杆(张量扩张版)"] = {"Effective_Disorder": effective_disorder, "Tension_Multiplier": tension_multiplier, "Final_Leverage": final_lev}
         return final_lev
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, lv_score: pd.Series, context: Dict, activity_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
         s_struct = context['structure']
@@ -428,11 +445,12 @@ class CalculateMainForceControlRelationship:
         hab_density = (hab_55 / (m_market.get('circ_mv', pd.Series(1e8, index=traditional_score.index)) + 1e-6))
         hab_shield = np.tanh(hab_density * 30.0).clip(0.0, 1.0)
         adx = s_sent.get('adx_14', pd.Series(20.0, index=traditional_score.index))
-        w_trad = (1.0 / (1.0 + np.exp(-0.15 * (adx - 30.0)))).clip(0.3, 0.7)
-        raw_base_score = (traditional_score * w_trad + structural_score * (1.0 - w_trad) + lv_score * 0.3) * cost_modifier
-        divergence_intensity = np.clip(raw_base_score, 0.0, 1.0) * np.clip(-activity_score, 0.0, 1.0)
-        divergence_penalty = 1.0 - divergence_intensity * 0.8
-        base_score = raw_base_score * divergence_penalty
+        w_trad_base = (1.0 / (1.0 + np.exp(-0.15 * (adx - 30.0)))).clip(0.3, 0.7)
+        bull_trap_intensity = np.clip(traditional_score, 0.0, 1.0) * np.clip(-activity_score, 0.0, 1.0)
+        w_trad_adjusted = w_trad_base * (1.0 - bull_trap_intensity * 0.8)
+        raw_base_score = (traditional_score * w_trad_adjusted + structural_score * (1.0 - w_trad_adjusted) + lv_score * 0.3) * cost_modifier
+        trap_inversion_factor = 1.0 - 2.5 * bull_trap_intensity
+        base_score = raw_base_score * trap_inversion_factor
         turnover = s_sent.get('turnover', pd.Series(1.0, index=traditional_score.index)).replace(0.0, np.nan).fillna(1.0)
         locking_gain = 1.0 + np.tanh((hab_density * 100.0) / (turnover / 3.0)).clip(-0.5, 0.8)
         slope_stab, accel_stab, _ = self._apply_kinematics_with_threshold_gate(stability, (5, 3, 3))
@@ -453,15 +471,15 @@ class CalculateMainForceControlRelationship:
         raw_final = base_score * locking_gain * (1.0 + (stab_kine * 0.2)) * entropy_penalty * sm_gate
         is_golden_pit = s_state.get('golden_pit', pd.Series(0.0, index=traditional_score.index)) > 0.0
         raw_final = raw_final.mask(is_golden_pit & (raw_final < 0.0), raw_final * 0.5)
-        final_fused = np.tanh(np.sign(raw_final) * np.power(np.abs(raw_final), 1.5)).astype(np.float32)
+        final_fused = (raw_final / np.sqrt(1.0 + np.square(raw_final))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["融合_动力学(极性裁决版)"] = {"Squeeze_Score": squeeze_score.mean(), "Divergence_Penalty": divergence_penalty.mean(), "Final_Fused_Score": final_fused}
+            _temp_debug_values["融合_动力学(陷阱反转版)"] = {"Squeeze_Score": squeeze_score, "Trap_Inversion_Factor": trap_inversion_factor, "Final_Fused_Score": final_fused}
         return final_fused
     def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
-        std_trad = np.maximum(scores_traditional.rolling(window=252, min_periods=21).std().ffill().fillna(1.0), scores_traditional.abs().quantile(0.5)).replace(0.0, 1.0)
+        std_trad = self._get_robust_noise_floor(scores_traditional).replace(0.0, 1.0)
         norm_traditional = np.tanh(scores_traditional / (std_trad * 1.5))
         stability = s_struct.get('chip_stability', pd.Series(50.0, index=df.index))
         slope_5 = (stability - stability.shift(5).ffill().fillna(50.0)) / 5.0
@@ -485,7 +503,9 @@ class CalculateMainForceControlRelationship:
             return None
         probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
         for date in reversed(df.index):
-            if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
+            ts = pd.to_datetime(date)
+            ts_naive = ts.tz_localize(None) if ts.tz is not None else ts
+            if ts_naive.normalize() in probe_dates_dt:
                 return date
         return None
     def _validate_arsenal_signals(self, df: pd.DataFrame, config: Dict, method_name: str, debug_output: Dict, probe_ts: pd.Timestamp) -> bool:
@@ -509,6 +529,11 @@ class CalculateMainForceControlRelationship:
                 self._print_debug_info(debug_output)
             return False
         return True
+
+
+
+
+
 
 
 
