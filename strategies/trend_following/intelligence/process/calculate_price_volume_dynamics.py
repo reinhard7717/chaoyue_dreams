@@ -211,7 +211,7 @@ def _numba_lotka_volterra_phase(predator, prey, window=21):
     return out
 @jit(nopython=True)
 def _numba_rolling_norm_preserve_sign(data, window=21):
-    """V2.0.2 · 零点锚定极性归一化算子：彻底解决均值漂移(Z-score Drift)导致的下跌趋势伪阳性死锁"""
+    """V2.0.3 · 零点锚定极性归一化算子：彻底解决均值漂移(Z-score Drift)导致的下跌趋势伪阳性死锁，用Max归一化强制保留真实零轴极性"""
     n = len(data)
     out = np.zeros(n, dtype=np.float32)
     for i in range(window - 1, n):
@@ -219,17 +219,15 @@ def _numba_rolling_norm_preserve_sign(data, window=21):
         max_abs = np.max(np.abs(slice_data)) + 1e-9
         out[i] = np.tanh((data[i] / max_abs) * 2.0)
     return out
-
 @jit(nopython=True)
-def _numba_quantum_harmonic_oscillator(price, vwap, slope_vwap, window=21):
-    """V2.0.2 · 量子谐振子势垒测度：保留能量极性方向，修复高位暴跌被平方消除极性导致的量子态满分坍缩"""
+def _numba_quantum_harmonic_oscillator(price, vwap, price_slope, window=21):
+    """V2.0.3 · 量子谐振子引力场：以价格瞬时斜率替代滞后的VWAP斜率，捕捉真实动能极性，强制修复高位暴跌被平方消除极性导致的量子态满分坍缩BUG"""
     n = len(price)
     energy = np.zeros(n, dtype=np.float32)
     for i in range(n):
         bias = (price[i] - vwap[i]) / (vwap[i] + 1e-9)
         potential = 0.5 * (bias ** 2) * np.sign(bias)
-        v_vel = slope_vwap[i] / (vwap[i] + 1e-9)
-        kinetic = 0.5 * (v_vel ** 2) * np.sign(v_vel)
+        kinetic = 0.5 * (price_slope[i] ** 2) * np.sign(price_slope[i])
         energy[i] = potential + kinetic
     return energy
 
@@ -402,7 +400,7 @@ class CalculatePriceVolumeDynamics:
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V2.0.2 · 全局动力学总线：修复几何0值污染，启动非对称极性共轭倒置律，彻底斩断乘法陷阱造成的灾难级倒钩伤害"""
+        """V2.0.3 · 全局动力学总线：引入结构性崩塌断路器，激活极性共轭倒置律，消灭环境乘数成为反向帮凶的逻辑悖论"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
@@ -429,6 +427,8 @@ class CalculatePriceVolumeDynamics:
         scores['sector_decay'] = self._calculate_sector_overflow_decay(raw, df_index, method_name)
         scores['access'] = self._calculate_entry_accessibility_score(raw, df_index, method_name)
         unadjusted = scores['physical'].values * 0.45 + s_geo * 0.20 + scores['vwap'].values * 0.35
+        structural_collapse = (raw['pct_change_D'].values.astype(np.float32) < -0.015) & (raw['HAB_SHOCK_13_SMART_MONEY'].values.astype(np.float32) < -0.5)
+        unadjusted = np.where(structural_collapse, -np.abs(unadjusted) - 2.0, unadjusted)
         global_factor = (np.maximum(scores['inertia'].values, 0.1) * np.maximum(scores['perm'].values, 0.1) * np.maximum(scores['entropy'].values, 0.1) * np.maximum(scores['fractal'].values, 0.1) * np.maximum(scores['hmm'].values, 0.1) * np.maximum(scores['chip'].values, 0.1) * np.maximum(scores['micro'].values, 0.1) * np.maximum(scores['reflex'].values, 0.1) * np.maximum(scores['wyckoff'].values, 0.1) * np.maximum(scores['risk'].values, 0.1) * np.maximum(scores['decay'].values, 0.1) * np.maximum(scores['sector_mod'].values, 0.1) * np.maximum(scores['vol_gamma'].values, 0.1) * np.maximum(scores['sector_decay'].values, 0.1) * np.maximum(scores['access'].values, 0.1))
         final_vals = np.where(unadjusted > 0, unadjusted * global_factor, unadjusted * (1.0 / (global_factor + 1e-9)))
         final_score = pd.Series(final_vals, index=df_index, dtype=np.float32).clip(-5.0, 6.0)
@@ -450,28 +450,36 @@ class CalculatePriceVolumeDynamics:
             except Exception: pass
 
     def _calculate_power_transfer_raw_score(self, df_index: pd.Index, raw: Dict[str, pd.Series], method_name: str) -> pd.Series:
-        """V2.0.2 · 物理动力引擎：直连真实主力净流 net_mf_amount_D，引入极性绝对锚定归一化，解决冲量均值漂移"""
+        """V2.0.3 · 物理动力引擎：引入 0 阶极性强制接管，打破均值漂移与匀速坠崖 0 值死锁，修复 HAB Shock 负向惩罚倒钩"""
         vol_adj = raw['BBW_21_2.0_D'].values.astype(np.float32)
         tc_values = raw['trade_count_D'].values.astype(np.float32)
         tc_means, _ = _numba_fast_rolling_dynamics(tc_values, np.array([21], dtype=np.int64))
         roll_tc = np.where(np.abs(tc_means[0]) < 1e-9, 1.0, tc_means[0]).astype(np.float32)
-        j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_mf_amount_D'].values.astype(np.float32), vol_adj, (tc_values / roll_tc).astype(np.float32))
-        a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_net_mf_amount_D'].values.astype(np.float32), vol_adj, (tc_values / roll_tc).astype(np.float32))
-        raw_impulse = (j_c * 0.45 + a_c * 0.55).astype(np.float32)
+        conf = (tc_values / roll_tc).astype(np.float32)
+        s_c = _numba_adaptive_denoise_dynamics(raw['SLOPE_5_net_mf_amount_D'].values.astype(np.float32), vol_adj, conf)
+        a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_net_mf_amount_D'].values.astype(np.float32), vol_adj, conf)
+        j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_mf_amount_D'].values.astype(np.float32), vol_adj, conf)
+        mf_val = raw['net_mf_amount_D'].values.astype(np.float32)
+        mf_norm = _numba_rolling_norm_preserve_sign(mf_val, 21)
+        raw_impulse = (mf_norm * 0.40 + s_c * 0.30 + a_c * 0.20 + j_c * 0.10).astype(np.float32)
         norm_imp = _numba_rolling_norm_preserve_sign(raw_impulse, 21)
+        norm_imp = np.where((mf_val < 0) & (norm_imp > 0), -norm_imp, norm_imp)
         comp_factor = np.where(raw['price_percentile_position_D'].values.astype(np.float32) < 0.2, 1.2, np.where(raw['price_percentile_position_D'].values.astype(np.float32) > 0.8, 0.8, 1.0)).astype(np.float32)
         comp_imp = norm_imp * comp_factor
         _, f_slopes = _numba_fast_rolling_dynamics(raw['net_mf_amount_D'].values.astype(np.float32), np.array([3, 5, 8, 13, 21], dtype=np.int64))
         mcv = np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10], dtype=np.float32), f_slopes.astype(np.float32))
         mcv_norm = _numba_rolling_norm_preserve_sign(mcv, 21)
+        mcv_norm = np.where((mf_val < 0) & (mcv_norm > 0), -mcv_norm, mcv_norm)
         mcv_weight = np.where((comp_imp > 0) & (mcv_norm < 0), 0.0, 0.35).astype(np.float32)
         imp_weight = 0.60 + (0.35 - mcv_weight)
         mass_m = np.clip(np.log1p(np.abs(raw['HAB_STOCK_21_SMART_MONEY'].values.astype(np.float32))) / 10.0, 0.8, 1.3).astype(np.float32)
         mass_v = np.clip(np.log1p(raw['HAB_STOCK_21_VOLUME'].values.astype(np.float32)) / 7.0, 0.8, 1.3).astype(np.float32)
         final_mass = np.where(mass_m <= 0.81, mass_v, mass_m).astype(np.float32)
         shock_sm = raw['HAB_SHOCK_21_SMART_MONEY'].values.astype(np.float32)
-        shock_mult = np.where(shock_sm < -0.5, np.exp(shock_sm), np.clip(1.0 + np.tanh(shock_sm) * 0.3 + np.tanh(raw['HAB_SHOCK_21_VOLUME'].values.astype(np.float32)) * 0.1, 0.5, 2.0)).astype(np.float32)
-        return pd.Series(((comp_imp * 2.0 * imp_weight + mcv_norm * mcv_weight) * final_mass * shock_mult).astype(np.float32), index=df_index, dtype=np.float32)
+        vol_shock = raw['HAB_SHOCK_21_VOLUME'].values.astype(np.float32)
+        shock_mult = np.where(shock_sm < -0.2, np.clip(1.0 + np.abs(shock_sm) + np.abs(vol_shock) * 0.2, 1.0, 5.0), np.clip(1.0 + np.tanh(shock_sm) * 0.3 + np.tanh(vol_shock) * 0.1, 0.5, 2.0)).astype(np.float32)
+        base_score = comp_imp * 2.0 * imp_weight + mcv_norm * mcv_weight
+        return pd.Series((base_score * final_mass * shock_mult).astype(np.float32), index=df_index, dtype=np.float32).clip(-5.0, 5.0)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V2.0.0 · 溢价回吐风险：引入宏观超买极值防爆惩罚"""
@@ -654,21 +662,27 @@ class CalculatePriceVolumeDynamics:
         return pd.Series((1.0 + base_bonus) * np.maximum(jerk_bonus, 0.1) * np.maximum(stability_mult, 0.1) * np.maximum(penalty, 0.1), index=df_index, dtype=np.float32).clip(0.6, 2.5)
 
     def _calculate_vwap_propulsion_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V2.0.2 · VWAP 推进力：解除死锁下限，拥抱真实向下抛压引力，并承接极化量子势能"""
-        vwap_slope = pd.Series(raw['VWAP_D'].values.astype(np.float32), index=df_index).diff(3).fillna(0).values.astype(np.float32) / 3.0
-        norm_propulsion = np.clip(_numba_rolling_norm_preserve_sign(vwap_slope, 21) * 3.0, -3.0, 3.0)
-        propulsion_score = (np.tanh(norm_propulsion * 0.8) * 1.5).astype(np.float32)
-        bias = (raw['close_D'].values.astype(np.float32) - raw['VWAP_D'].values.astype(np.float32)) / (raw['VWAP_D'].values.astype(np.float32) + 1e-9)
+        """V2.0.3 · VWAP 推进力引力场：剥夺滞后 VWAP 均线斜率极性决定权，引入瞬时价格速度(price_slope)主导量子势垒穿透"""
+        vwap = raw['VWAP_D'].values.astype(np.float32)
+        close = raw['close_D'].values.astype(np.float32)
+        price_slope = pd.Series(close, index=df_index).diff(3).fillna(0).values.astype(np.float32) / 3.0
+        norm_propulsion = np.clip(_numba_rolling_norm_preserve_sign(price_slope, 21) * 3.0, -3.0, 3.0)
+        bias = (close - vwap) / (vwap + 1e-9)
+        instant_collapse = (bias < -0.015) & (price_slope < 0)
+        instant_polarity = np.where(instant_collapse, -1.0, np.where((bias > 0.015) & (price_slope > 0), 1.0, np.sign(norm_propulsion)))
+        propulsion_score = (np.tanh(np.abs(norm_propulsion) * 0.8) * 1.5 * instant_polarity).astype(np.float32)
         bias_penalty = np.where(np.abs(bias) > 0.08, 0.8, 1.0).astype(np.float32)
-        kinematic_boost = np.where(raw['ACCEL_5_VWAP_D'].values.astype(np.float32) * np.sign(propulsion_score) > 0, 1.3, 1.0).astype(np.float32)
-        thickness_bonus = np.clip(raw['ACCUM_21_ABOVE_VWAP'].values.astype(np.float32) / 10.0, 0.8, 1.4).astype(np.float32)
-        qho_energy = _numba_quantum_harmonic_oscillator(raw['close_D'].values.astype(np.float32), raw['VWAP_D'].values.astype(np.float32), vwap_slope, 21)
+        kinematic_boost = np.where(raw['ACCEL_5_close_D'].values.astype(np.float32) * instant_polarity > 0, 1.3, 1.0).astype(np.float32)
+        days_above = raw['ACCUM_21_ABOVE_VWAP'].values.astype(np.float32)
+        thickness_bonus = np.where(propulsion_score > 0, np.clip(days_above / 10.0, 0.8, 1.4), np.clip((21.0 - days_above) / 10.0, 0.8, 1.4)).astype(np.float32)
+        qho_energy = _numba_quantum_harmonic_oscillator(close, vwap, price_slope, 21)
         qho_norm = _numba_rolling_norm_preserve_sign(qho_energy, 21)
-        qho_resonance = np.clip(1.0 + qho_norm * np.sign(propulsion_score), 0.5, 2.0).astype(np.float32)
-        return pd.Series((propulsion_score * np.maximum(bias_penalty, 0.1) * np.maximum(kinematic_boost, 0.1) * np.maximum(thickness_bonus, 0.1) * np.maximum(qho_resonance, 0.1)).astype(np.float32), index=df_index, dtype=np.float32).clip(-3.5, 3.5)
+        qho_resonance = np.clip(1.0 + np.abs(qho_norm) * 0.5 * instant_polarity, 0.5, 2.0).astype(np.float32)
+        final_score = propulsion_score * bias_penalty * kinematic_boost * thickness_bonus * qho_resonance
+        return pd.Series(final_score.astype(np.float32), index=df_index, dtype=np.float32).clip(-5.0, 5.0)
 
     def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], scores: Dict[str, pd.Series], final_score: float, unadjusted: np.ndarray, global_factor: np.ndarray):
-        """V2.0.2 · 全息探针极点侦测：修复大额底仓导致 Health Score 溢出爆表的缩放污染，展示真实中枢极性测度"""
+        """V2.0.3 · 全息探针极点侦测：真实映射重力场与极性反演日志，剔除失效健康度算法"""
         if probe_ts not in raw['close_D'].index: return
         idx = raw['close_D'].index.get_loc(probe_ts)
         w_s, w_l = int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[0]), int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1])
@@ -677,9 +691,9 @@ class CalculatePriceVolumeDynamics:
         jerk_z = raw_jerk.values[idx] / jerk_std
         smart_shock = raw['HAB_SHOCK_21_SMART_MONEY'].values[idx]
         vol_shock = raw['HAB_SHOCK_21_VOLUME'].values[idx]
-        health_score = np.clip(50.0 + unadjusted[idx] * 20.0 + smart_shock * 15.0, 0, 100)
-        status_str = "主升蓄势" if health_score > 60 else ("危机雪崩" if health_score < 40 else "高位分歧")
-        print(f"\n{'='*30} [全息动力学与量子物理场探针 V2.0.2 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
+        health_score = np.clip(50.0 + final_score * 10.0, 0, 100)
+        status_str = "主升发散" if health_score > 60 else ("深渊雪崩" if health_score < 40 else "高位分歧")
+        print(f"\n{'='*30} [全息动力学与量子物理场探针 V2.0.3 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
         print(f"【自适应边界】市值窗口: 短周期 {w_s}d / 长周期 {w_l}d")
         print(f"【基础物理学】收盘: {raw['close_D'].values[idx]:.2f} | VWAP: {raw['VWAP_D'].values[idx]:.2f} | 换手: {raw['turnover_rate_f_D'].values[idx]:.2f}%")
         print(f"【HAB 冲击缓冲池】")
@@ -690,17 +704,16 @@ class CalculatePriceVolumeDynamics:
         print(f"  ├─ 趋势定海神针 (ADX/MACDh/CMF): {raw['ADX_14_D'].values[idx]:.1f} / {raw['MACDh_13_34_8_D'].values[idx]:.4f} / {raw['CMF_21_D'].values[idx]:.3f}")
         print(f"  ├─ 微观吸筹潜行: 隐秘={raw['stealth_flow_ratio_D'].values[idx]:.2f} | 异动大单={raw['tick_large_order_net_D'].values[idx]:.2f}")
         print(f"  └─ 阻尼极限测试: 套牢盘压制={raw['pressure_trapped_D'].values[idx]:.3f} | 博弈烈度={raw['game_intensity_D'].values[idx]:.3f}")
-        print(f"【健康度与引擎分输出 (极性反演已生效)】")
+        print(f"【健康度与引擎分输出 (全域重载：极性反转与 0值死锁已清除)】")
         print(f"  ★ 无量纲体检评分: {health_score:.1f} ({status_str}) | 瞬时脉冲Z: {jerk_z:.2f}σ")
-        print(f"  ★ 极性状态: {'[向下派发雪崩]' if unadjusted[idx] < 0 else '[向上突破势能]'} | 基础向量: {unadjusted[idx]:.4f}")
-        print(f"  ★ 极性共轭倒置: 原始环境乘数 {global_factor[idx]:.4f}x -> 倒置裂变后 {(1.0 / (global_factor[idx] + 1e-9) if unadjusted[idx] < 0 else global_factor[idx]):.4f}x")
-        print(f"  [物理中枢] 物理:{scores['physical'].values[idx]:.3f} | 几何(免0值污染):{scores['geo'].values[idx]:.3f} | VWAP(极化QHO):{scores['vwap'].values[idx]:.3f}")
+        print(f"  ★ 极性状态: {'[向下派发雪崩]' if unadjusted[idx] < 0 else '[向上突破势能]'} | 绝对基础向量: {unadjusted[idx]:.4f}")
+        print(f"  ★ 极性共轭倒置: 原始环境乘数 {global_factor[idx]:.4f}x -> 共轭核爆裂变 {(1.0 / (global_factor[idx] + 1e-9) if unadjusted[idx] < 0 else global_factor[idx]):.4f}x")
+        print(f"  [物理中枢] 物理:{scores['physical'].values[idx]:.3f} | 几何(免0值):{scores['geo'].values[idx]:.3f} | VWAP(瞬时重载QHO):{scores['vwap'].values[idx]:.3f}")
         print(f"  [基底结构] 筹码:{scores['chip'].values[idx]:.3f} | 熵序:{scores['entropy'].values[idx]:.3f} | 威科夫:{scores['wyckoff'].values[idx]:.3f}")
         print(f"  [微观战术] 攻击(LV捕食):{scores['micro'].values[idx]:.3f} | 反身:{scores['reflex'].values[idx]:.3f} | 渗透:{scores['perm'].values[idx]:.3f}")
         print(f"{'-'*85}")
-        print(f" >>> PROCESS_META_POWER_TRANSFER 最终全域共轭极化总分: {final_score:.4f}")
+        print(f" >>> PROCESS_META_POWER_TRANSFER 最终全域共轭裂变总分: {final_score:.4f}")
         print(f"{'='*85}\n")
-
 
 
 
