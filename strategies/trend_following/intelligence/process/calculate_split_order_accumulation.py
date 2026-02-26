@@ -1,544 +1,276 @@
-# strategies\trend_following\intelligence\process\calculate_split_order_accumulation.py
+# strategies/trend_following/intelligence/process/calculate_split_order_accumulation.py
 # 拆单吸筹强度计算器 已完成 deepThink
+import json
+import os
 import pandas as pd
 import numpy as np
-from typing import Dict, Tuple, Optional
-from strategies.trend_following.utils import get_params_block, get_param_value, _robust_geometric_mean
+from numba import jit, float64, int64
+from typing import Dict, List, Optional, Any, Tuple
+from strategies.trend_following.utils import get_param_value
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
-
+@jit(nopython=True)
+def _numba_robust_dynamics(data, win=5, abs_threshold=1e-4, change_threshold=1e-5):
+    """V8.0.0 · 鲁棒动力学算子 (引入 Tanh Threshold Gate 防止零基粉碎)"""
+    n = len(data)
+    slope = np.zeros(n, dtype=np.float32)
+    accel = np.zeros(n, dtype=np.float32)
+    jerk = np.zeros(n, dtype=np.float32)
+    clean_data = np.copy(data).astype(np.float32)
+    for i in range(n):
+        if np.abs(clean_data[i]) < abs_threshold: clean_data[i] = 0.0
+    for i in range(win, n):
+        delta = clean_data[i] - clean_data[i-win]
+        norm_delta = 0.0 if np.abs(delta) < change_threshold else np.tanh(np.abs(delta) / (change_threshold * 10.0 + 1e-9)) * delta
+        slope[i] = norm_delta / win
+    for i in range(win, n):
+        delta_s = slope[i] - slope[i-1]
+        norm_s = 0.0 if np.abs(delta_s) < (change_threshold / 5.0) else np.tanh(np.abs(delta_s) / (change_threshold + 1e-9)) * delta_s
+        accel[i] = norm_s
+    for i in range(win, n):
+        delta_a = accel[i] - accel[i-1]
+        norm_a = 0.0 if np.abs(delta_a) < (change_threshold / 25.0) else np.tanh(np.abs(delta_a) / (change_threshold / 5.0 + 1e-9)) * delta_a
+        jerk[i] = norm_a
+    return slope, accel, jerk
+@jit(nopython=True)
+def _numba_rolling_robust_norm(data, window=21):
+    """V8.0.0 · 零点锚定极性归一化算子 (Zero-Centered MAD)"""
+    n = len(data)
+    out = np.zeros(n, dtype=np.float32)
+    for i in range(window - 1, n):
+        slice_data = data[i - window + 1 : i + 1]
+        median = np.median(slice_data)
+        mad = np.median(np.abs(slice_data - median)) + 1e-4
+        out[i] = np.tanh((data[i] - median) / (mad * 3.0)) * 3.0
+    return out
+@jit(nopython=True)
+def _numba_power_law_activation(x, power=1.5, leak=0.1):
+    """V8.0.0 · 幂律极化泄露算子"""
+    n = len(x)
+    out = np.zeros(n, dtype=np.float32)
+    for i in range(n):
+        out[i] = x[i] ** power if x[i] > 0 else - (np.abs(x[i]) ** power) * leak
+    return out
+@jit(nopython=True)
+def _numba_hab_impact(data, windows):
+    """V8.0.0 · HAB 历史累积与冲击强度算子"""
+    n = len(data)
+    num_wins = len(windows)
+    hab_stock = np.zeros((num_wins, n), dtype=np.float32)
+    shock_intensity = np.zeros((num_wins, n), dtype=np.float32)
+    for w_idx in range(num_wins):
+        w = windows[w_idx]
+        for i in range(w, n):
+            stock = 0.0
+            for j in range(i - w, i): stock += np.abs(data[j])
+            hab_stock[w_idx, i] = stock
+            avg_stock = stock / w
+            shock_intensity[w_idx, i] = data[i] / (avg_stock + 1e-5)
+    return hab_stock, shock_intensity
+@jit(nopython=True)
+def _numba_hawkes_process(events, decay_rate=0.2):
+    """V8.0.0 · 霍克斯过程自激算子"""
+    n = len(events)
+    intensity = np.zeros(n, dtype=np.float32)
+    curr_intensity = 0.0
+    for i in range(n):
+        curr_intensity = curr_intensity * np.exp(-decay_rate) + events[i]
+        intensity[i] = curr_intensity
+    return intensity
+@jit(nopython=True)
+def _numba_langevin_dynamics(data, window=21):
+    """V8.0.0 · 朗之万动力学漂移与扩散算子"""
+    n = len(data)
+    drift = np.zeros(n, dtype=np.float32)
+    diffusion = np.zeros(n, dtype=np.float32)
+    for i in range(window, n):
+        diffs = np.empty(window, dtype=np.float32)
+        for j in range(window): diffs[j] = data[i - window + j + 1] - data[i - window + j]
+        drift[i] = np.mean(diffs)
+        diffusion[i] = np.std(diffs) + 1e-5
+    return drift, diffusion
+@jit(nopython=True)
+def _numba_quantum_tunneling(kinetic, potential, mass=1.0):
+    """V8.0.0 · 量子隧穿概率算子"""
+    n = len(kinetic)
+    prob = np.zeros(n, dtype=np.float32)
+    for i in range(n):
+        E, V = kinetic[i], potential[i]
+        if E >= V: prob[i] = 1.0
+        else: prob[i] = np.exp(-2.0 * np.sqrt(2.0 * mass * (V - E + 1e-5)))
+    return prob
 class CalculateSplitOrderAccumulation:
-    """
-    PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY
-    拆单吸筹强度
-    【V5.1.0 · 微观动力学势场与探针裸露版】
-    - 理论升级：A股算法拆单呈现显著的高频碎化特征。基于此构建“微观拆单动能（Tick聚类、高频偏度/峰度、单笔均值萎缩）”与“吸筹势垒（筹码熵降、均线势能压缩）”的相空间动力学模型。
-    - 数据净化：剔除原依赖中缺失的资金指标，严丝合缝对齐380项底层军械库原生因子。
-    - 破除防御：全量移除 fillna(0) 与极小值平滑掩盖，允许极值、断层表现为 NaN，倒逼底层数据管线治理。
-    - 全息探针：将原料张量、衍生特征、动能势垒乘积至最终校准Gamma全部压入探针字典树输出。
-    """
-    def __init__(self, strategy_instance, helper: ProcessIntelligenceHelper):
-        """【V5.1.0】初始化计算器，加载相空间张量配置。"""
+    """PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 拆单吸筹计算引擎"""
+    def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
-        self.helper = helper
-        self.params = self.helper.params
-        self.debug_params = self.helper.debug_params
-        self.probe_dates = self.helper.probe_dates
-        p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_weights'), {})
-        self.actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-
-    def _internal_normalize(self, series: pd.Series, mode: str = 'unipolar', window: int = 60) -> pd.Series:
-        """【V5.1.0】绝对量纲归一化，剔除平滑常数，暴露0极差导致的NaN断层。"""
-        if series.empty: return series
-        if mode == 'bipolar':
-            roll_mean = series.rolling(window=window, min_periods=1).mean()
-            roll_std = series.rolling(window=window, min_periods=1).std()
-            return np.tanh(((series - roll_mean) / roll_std) * 0.5)
-        elif mode == 'rank':
-            return series.rolling(window=window, min_periods=1).rank(pct=True)
-        elif mode == 'reverse_absolute':
-            return 1.0 - series
-        elif mode == 'raw_clip':
-            return series.clip(0, 1)
-        else:
-            roll_min = series.rolling(window=window, min_periods=1).min()
-            roll_max = series.rolling(window=window, min_periods=1).max()
-            return (series - roll_min) / (roll_max - roll_min)
-
-    def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """【V5.1.0】直连军械库原生因子，不进行任何兜底填充。"""
-        raw_columns = [
-            'stealth_flow_ratio_D', 'tick_clustering_index_D', 'high_freq_flow_skewness_D',
-            'high_freq_flow_kurtosis_D', 'amount_D', 'trade_count_D', 'chip_convergence_ratio_D',
-            'intraday_chip_entropy_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'behavior_accumulation_D',
-            'VPA_MF_ADJUSTED_EFF_D', 'market_sentiment_score_D', 'TURNOVER_STABILITY_INDEX_D',
-            'tick_data_quality_score_D', 'STATE_PARABOLIC_WARNING_D', 'IS_MARKET_LEADER_D'
-        ]
-        return {col: self.helper._get_safe_series(df, col, np.nan, method_name=method_name) for col in raw_columns}
-
-    def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【A股量化策略五维共振引擎】主计算总管线 V10.0.0
-        实现全息动能、引力势垒、极化门槛、相空间折叠与防爆衰竭校准的全数据流贯通。
-        """
-        method_name = "calculate_split_order_accumulation"
-        is_debug = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
+        self.helper = helper_instance
+        self.process_params = self.helper.params
+    def _setup_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp], Dict]:
+        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
-        if is_debug and self.probe_dates:
-            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
+        if is_debug_enabled_for_method and self.helper.probe_dates:
+            probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
             for date in reversed(df.index):
                 if pd.to_datetime(date).tz_localize(None).normalize() in probe_dates_dt:
                     probe_ts = date
                     break
+        if probe_ts is None: is_debug_enabled_for_method = False
+        _temp_debug_values = {}
+        if is_debug_enabled_for_method and probe_ts:
+            _temp_debug_values[f"--- {method_name} 诊断详情 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
+        return is_debug_enabled_for_method, probe_ts, _temp_debug_values
+    def _validate_all_required_signals(self, df: pd.DataFrame, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> bool:
+        base_req = ['close_D', 'volume_D', 'turnover_rate_f_D', 'pct_change_D', 'tick_clustering_index_D', 'high_freq_flow_skewness_D', 'high_freq_flow_kurtosis_D', 'stealth_flow_ratio_D', 'tick_abnormal_volume_ratio_D', 'chip_convergence_ratio_D', 'intraday_chip_entropy_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'hidden_accumulation_intensity_D', 'VPA_MF_ADJUSTED_EFF_D', 'price_flow_divergence_D', 'pressure_trapped_D', 'STATE_PARABOLIC_WARNING_D', 'IS_MARKET_LEADER_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 'large_order_anomaly_D']
+        return self.helper._validate_required_signals(df, base_req, method_name)
+    def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
+        raw_cols = ['close_D', 'volume_D', 'turnover_rate_f_D', 'pct_change_D', 'tick_clustering_index_D', 'high_freq_flow_skewness_D', 'high_freq_flow_kurtosis_D', 'stealth_flow_ratio_D', 'tick_abnormal_volume_ratio_D', 'chip_convergence_ratio_D', 'intraday_chip_entropy_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'hidden_accumulation_intensity_D', 'VPA_MF_ADJUSTED_EFF_D', 'price_flow_divergence_D', 'pressure_trapped_D', 'STATE_PARABOLIC_WARNING_D', 'IS_MARKET_LEADER_D', 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 'large_order_anomaly_D']
+        raw_signals = {}
+        for col in raw_cols:
+            if col in df.columns: raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
+            else: raw_signals[col] = pd.Series(0.0, index=df.index, dtype=np.float32)
+        if raw_signals['pct_change_D'].abs().max() > 0.5: raw_signals['pct_change_D'] *= np.float32(0.01)
+        if raw_signals['turnover_rate_f_D'].max() > 1.5: raw_signals['turnover_rate_f_D'] *= np.float32(0.01)
+        hab_windows = np.array([13, 21, 34, 55], dtype=np.int32)
+        hab_targets = ['stealth_flow_ratio_D', 'hidden_accumulation_intensity_D', 'tick_clustering_index_D']
+        prefix_map = ['STEALTH', 'HIDDEN_ACCUM', 'TICK_CLUS']
+        for target, prefix in zip(hab_targets, prefix_map):
+            stock, shock = _numba_hab_impact(raw_signals[target].values.astype(np.float32), hab_windows)
+            for i, w in enumerate([13, 21, 34, 55]):
+                raw_signals[f'HAB_STOCK_{w}_{prefix}'] = pd.Series(stock[i], index=df.index, dtype=np.float32)
+                raw_signals[f'HAB_SHOCK_{w}_{prefix}'] = pd.Series(shock[i], index=df.index, dtype=np.float32)
+        drift, diffusion = _numba_langevin_dynamics(raw_signals['hidden_accumulation_intensity_D'].values.astype(np.float32), 21)
+        raw_signals['LANGEVIN_DRIFT_ACCUM'] = pd.Series(drift, index=df.index, dtype=np.float32)
+        raw_signals['LANGEVIN_DIFF_ACCUM'] = pd.Series(diffusion, index=df.index, dtype=np.float32)
+        threshold_map = {'tick_clustering_index_D': (0.01, 0.005), 'stealth_flow_ratio_D': (0.01, 0.005), 'hidden_accumulation_intensity_D': (0.01, 0.005), 'intraday_chip_entropy_D': (0.01, 0.005)}
+        fib_wins = [3, 5, 8, 13, 21]
+        for col, (abs_th, chg_th) in threshold_map.items():
+            if col in raw_signals:
+                base_vals = raw_signals[col].values
+                for win in fib_wins:
+                    s, a, j = _numba_robust_dynamics(base_vals, win=win, abs_threshold=abs_th, change_threshold=chg_th)
+                    raw_signals[f"SLOPE_{win}_{col}"] = pd.Series(s, index=df.index, dtype=np.float32)
+                    raw_signals[f"ACCEL_{win}_{col}"] = pd.Series(a, index=df.index, dtype=np.float32)
+                    raw_signals[f"JERK_{win}_{col}"] = pd.Series(j, index=df.index, dtype=np.float32)
+        return raw_signals
+    def _calculate_kinetic_energy(self, raw: Dict[str, pd.Series], df_index: pd.Index) -> pd.Series:
+        hawkes = _numba_hawkes_process(np.clip(raw['tick_clustering_index_D'].values.astype(np.float32), 0.0, None), 0.2)
+        hawkes_z = _numba_rolling_robust_norm(hawkes, 21)
+        skew_z = _numba_rolling_robust_norm(raw['high_freq_flow_skewness_D'].values, 21)
+        kurt_z = _numba_rolling_robust_norm(raw['high_freq_flow_kurtosis_D'].values, 21)
+        stealth_z = _numba_rolling_robust_norm(raw['stealth_flow_ratio_D'].values, 21)
+        vpa = _numba_rolling_robust_norm(raw['VPA_MF_ADJUSTED_EFF_D'].values, 21)
+        w_stealth = np.clip(1.0 + vpa * 0.2, 0.5, 1.5).astype(np.float32)
+        base_ke = (hawkes_z * 0.35 + skew_z * 0.15 + kurt_z * 0.15 + stealth_z * 0.35 * w_stealth).astype(np.float32)
+        accel_bonus = np.where(raw['ACCEL_5_stealth_flow_ratio_D'].values > 0, 0.5, 0.0).astype(np.float32)
+        jerk_bonus = np.where(raw['JERK_3_stealth_flow_ratio_D'].values > 0.5, 0.3, 0.0).astype(np.float32)
+        ke = _numba_rolling_robust_norm(base_ke + accel_bonus + jerk_bonus, 21)
+        return pd.Series(ke, index=df_index, dtype=np.float32)
+    def _calculate_potential_barrier(self, raw: Dict[str, pd.Series], df_index: pd.Index) -> pd.Series:
+        conv_z = _numba_rolling_robust_norm(raw['chip_convergence_ratio_D'].values, 21)
+        ent_z = _numba_rolling_robust_norm(raw['intraday_chip_entropy_D'].values, 21)
+        comp_z = _numba_rolling_robust_norm(raw['MA_POTENTIAL_COMPRESSION_RATE_D'].values, 21)
+        trap_z = _numba_rolling_robust_norm(raw['pressure_trapped_D'].values, 21)
+        base_pb = (comp_z * 0.3 + conv_z * 0.3 - ent_z * 0.2 + trap_z * 0.2).astype(np.float32)
+        pct = raw['pct_change_D'].values
+        break_penalty = np.where(pct < -0.05, 1.0, 0.0).astype(np.float32)
+        pb = _numba_rolling_robust_norm(base_pb + break_penalty, 21)
+        return pd.Series(pb, index=df_index, dtype=np.float32)
+    def _calculate_hab_langevin(self, raw: Dict[str, pd.Series], df_index: pd.Index) -> pd.Series:
+        shock_stealth = raw['HAB_SHOCK_21_STEALTH'].values
+        shock_hidden = raw['HAB_SHOCK_21_HIDDEN_ACCUM'].values
+        drift = raw['LANGEVIN_DRIFT_ACCUM'].values
+        diffusion = raw['LANGEVIN_DIFF_ACCUM'].values
+        snr = drift / (diffusion + 1e-9)
+        snr_z = _numba_rolling_robust_norm(snr, 21)
+        combined = (shock_stealth * 0.3 + shock_hidden * 0.4 + snr_z * 0.3).astype(np.float32)
+        return pd.Series(_numba_rolling_robust_norm(combined, 21), index=df_index, dtype=np.float32)
+    def _calculate_anti_spoofing_penalty(self, raw: Dict[str, pd.Series], df_index: pd.Index) -> pd.Series:
+        div_z = _numba_rolling_robust_norm(raw['price_flow_divergence_D'].values, 21)
+        turn = raw['turnover_rate_f_D'].values
+        turn_ma = pd.Series(turn).rolling(21).mean().replace(0, 1e-9).values.astype(np.float32)
+        turn_ratio = turn / turn_ma
+        pct = raw['pct_change_D'].values
+        is_spoofing = (div_z > 1.5) & (turn_ratio > 2.0) & (pct < 0)
+        is_dist = (raw['stealth_flow_ratio_D'].values < 0) & (pct < -0.03) & (raw['pressure_trapped_D'].values > 0.8)
+        sm_div = raw['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'].values > 0.8
+        large_anomaly = raw['large_order_anomaly_D'].values > 0.8
+        penalty = np.where(is_spoofing | is_dist | sm_div | large_anomaly, 0.1, 1.0).astype(np.float32)
+        return pd.Series(penalty, index=df_index, dtype=np.float32)
+    def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        method_name = "calculate_split_order_accumulation"
+        is_debug, probe_ts, debug_output = self._setup_debug_info(df, method_name)
         df_index = df.index
-        config_params = config.get('split_order_accumulation_params', {})
-        raw_signals = self._get_raw_signals(df, method_name)
-        ke_series, ke_debug = self._calculate_kinetic_energy(df, df_index, config_params)
-        pb_series, pb_debug = self._calculate_potential_barrier(df, df_index, config_params)
-        baseline, baseline_debug = self._calculate_dynamic_baseline(df, df_index, config_params)
-        holo_score, holo_debug = self._calculate_holographic_validation(df, ke_series, pb_series, df_index, config_params)
-        final_output, calib_debug = self._apply_calibration_and_warning(df, holo_score, baseline, df_index, config_params)
-        if probe_ts is not None:
-            debug_dict = {
-                "1.原始物理量场(Raw_Signals)": {k: v.loc[probe_ts] if probe_ts in v.index else np.nan for k, v in raw_signals.items()},
-                "2.拆单动能张量(Kinetic_Energy)": {k: v.loc[probe_ts] if probe_ts in v.index else np.nan for k, v in ke_debug.items()},
-                "3.吸筹势垒张量(Potential_Barrier)": {k: v.loc[probe_ts] if probe_ts in v.index else np.nan for k, v in pb_debug.items()},
-                "4.极化基准面(Dynamic_Baseline)": {k: v.loc[probe_ts] if probe_ts in v.index else np.nan for k, v in baseline_debug.items()},
-                "5.相空间做功(Holographic_Work)": {k: v.loc[probe_ts] if probe_ts in v.index else np.nan for k, v in holo_debug.items()},
-                "6.免疫防爆校准(Calibration_Warning)": {k: v.loc[probe_ts] if probe_ts in v.index else np.nan for k, v in calib_debug.items()}
-            }
-            debug_output = {f"--- {method_name} V10.0.0 满级五维共振物理引擎探针 @ {probe_ts.strftime('%Y-%m-%d')} ---": ""}
-            self._print_debug_info(method_name, probe_ts, debug_output, debug_dict, final_output)
-        return final_output.astype(np.float32)
-
-    def _calculate_kinetic_energy(self, df: pd.DataFrame, df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
-        """
-        【A股量化策略五维共振引擎】_calculate_kinetic_energy 全息重构版
-        严格执行七步级联逻辑：全息哨兵交叉验证、多阶微分运动学、HAB存量记忆反身性衰减、
-        非线性相变指数增益、动态张量融合与一票否决、Regime环境自适应、反身性免疫与代码硬化。
-        """
-        eps = 1e-6
-        emo_extreme = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
-        chip_game = self.helper._get_safe_series(df, 'intraday_chip_game_index_D', 0.0)
-        turnover_stab = self.helper._get_safe_series(df, 'TURNOVER_STABILITY_INDEX_D', 0.0)
-        vpa_eff = self.helper._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0)
-        coord_attack = self.helper._get_safe_series(df, 'HM_COORDINATED_ATTACK_D', 0.0)
-        geom_r2 = self.helper._get_safe_series(df, 'GEOM_REG_R2_D', 0.0)
-        validated_vpa = (vpa_eff * coord_attack * (1.0 + geom_r2)).fillna(0.0).astype(np.float32)
-        flow_cluster = self.helper._get_safe_series(df, 'flow_cluster_intensity_D', 0.0)
-        tick_cluster = self.helper._get_safe_series(df, 'tick_clustering_index_D', 0.0)
-        def _compute_kinematics(series: pd.Series) -> pd.Series:
-            k_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-            for w in [5, 13, 21, 34, 55]:
-                roll_std_0 = series.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                slope = series.diff(w).fillna(0.0) / roll_std_0
-                roll_std_1 = slope.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                accel = slope.diff(w).fillna(0.0) / roll_std_1
-                roll_std_2 = accel.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                jerk = accel.diff(w).fillna(0.0) / roll_std_2
-                k_score += (slope * 0.5 + accel * 0.3 + jerk * 0.2) * (1.0 / 5.0)
-            return k_score
-        kin_cluster = _compute_kinematics(tick_cluster)
-        kin_flow = _compute_kinematics(flow_cluster)
-        kinematic_score = (np.tanh(kin_cluster * 0.5 + kin_flow * 0.5) * 0.5 + 0.5).fillna(0.0).astype(np.float32)
-        net_amount = self.helper._get_safe_series(df, 'net_amount_D', 0.0)
-        days_peak = self.helper._get_safe_series(df, 'days_since_last_peak_D', 0.0).clip(lower=0.0)
-        hab_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        for w in [13, 21, 34, 55]:
-            r_mean = net_amount.rolling(window=w, min_periods=1).mean().fillna(0.0)
-            r_std = net_amount.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-            breakout = (net_amount > (r_mean + 1.5 * r_std)).astype(np.float32)
-            hab_score += np.where(breakout > 0.0, 1.0, 0.5)
-        hab_score = (hab_score / 4.0).astype(np.float32)
-        time_decay = (1.0 / np.log1p(days_peak + 1.0)).astype(np.float32)
-        hab_memory = (hab_score * time_decay).fillna(0.0).astype(np.float32)
-        winner_rate = self.helper._get_safe_series(df, 'winner_rate_D', 0.5)
-        turnover_rate = self.helper._get_safe_series(df, 'turnover_rate_f_D', 0.0)
-        winner_nl = (1.0 / (1.0 + np.exp(-10.0 * (winner_rate - 0.5)))).astype(np.float32)
-        turnover_ma = turnover_rate.rolling(window=21, min_periods=1).mean().fillna(0.0) + eps
-        turnover_nl = np.tanh(turnover_rate / turnover_ma).astype(np.float32)
-        phase_energy = (winner_nl * 0.5 + turnover_nl * 0.5).astype(np.float32)
-        resonance_trigger = (kinematic_score > 0.85) & (phase_energy > 0.85) & (chip_game > 0.85)
-        phase_multiplier = np.where(resonance_trigger, np.exp(1.5), 1.0).astype(np.float32)
-        flow_cons = self.helper._get_safe_series(df, 'flow_consistency_D', 0.0)
-        price_flow_div = self.helper._get_safe_series(df, 'price_flow_divergence_D', 0.0)
-        large_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', 0.0)
-        dyn_weight_kin = np.where(flow_cons < 0.3, 0.4, 1.0).astype(np.float32)
-        veto_trigger = (large_anomaly > 0.8) | (price_flow_div > 0.8)
-        veto_penalty = np.where(veto_trigger, 0.4, 1.0).astype(np.float32)
-        trend_stage = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
-        vol_adj_conc = self.helper._get_safe_series(df, 'volatility_adjusted_concentration_D', 0.0)
-        interact_mult = np.where((turnover_stab > 0.7) & (coord_attack > 0.7), 1.5, np.where((turnover_stab < 0.3) | (coord_attack < 0.3), 0.8, 1.0)).astype(np.float32)
-        regime_factor = np.where(trend_stage > 0.6, 1.2, np.where(trend_stage < 0.3, vol_adj_conc * 1.5, 1.0)).astype(np.float32)
-        conflict_smooth = (1.0 / (1.0 + price_flow_div.clip(lower=0.0))).astype(np.float32)
-        rev_prob = self.helper._get_safe_series(df, 'reversal_prob_D', 0.0)
-        parab_warn = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
-        val_score = self.helper._get_safe_series(df, 'validation_score_D', 100.0)
-        reflexivity_imm = np.exp(-1.5 * (rev_prob * 0.6 + parab_warn * 0.4 + emo_extreme * 0.2)).astype(np.float32)
-        emergency_stop = np.where(val_score < 40.0, 0.0, 1.0).astype(np.float32)
-        raw_tensor = (kinematic_score * dyn_weight_kin * 0.4 + hab_memory * 0.3 + phase_energy * 0.3)
-        raw_tensor = raw_tensor * validated_vpa.clip(0.5, 1.5)
-        final_kinetic = (raw_tensor * phase_multiplier * interact_mult * regime_factor * veto_penalty * conflict_smooth * reflexivity_imm * emergency_stop)
-        final_kinetic = final_kinetic.fillna(0.0).clip(-1.0, 1.0).astype(np.float32)
-        debug_dict = {
-            "validated_vpa": validated_vpa,
-            "kinematic_score": kinematic_score,
-            "hab_memory": hab_memory,
-            "phase_energy": phase_energy,
-            "phase_multiplier": pd.Series(phase_multiplier, index=df_index).astype(np.float32),
-            "dyn_weight_kin": pd.Series(dyn_weight_kin, index=df_index).astype(np.float32),
-            "veto_penalty": pd.Series(veto_penalty, index=df_index).astype(np.float32),
-            "interact_mult": pd.Series(interact_mult, index=df_index).astype(np.float32),
-            "regime_factor": pd.Series(regime_factor, index=df_index).astype(np.float32),
-            "conflict_smooth": pd.Series(conflict_smooth, index=df_index).astype(np.float32),
-            "reflexivity_imm": pd.Series(reflexivity_imm, index=df_index).astype(np.float32),
-            "emergency_stop": pd.Series(emergency_stop, index=df_index).astype(np.float32),
-            "final_kinetic": final_kinetic
-        }
-        return final_kinetic, debug_dict
-
-    def _calculate_potential_barrier(self, df: pd.DataFrame, df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
-        """
-        【A股量化策略五维共振引擎】_calculate_potential_barrier 全息重构版
-        严格执行七步级联逻辑：全息哨兵交叉验证、多阶微分运动学、HAB存量记忆反身性衰减、
-        非线性相变指数增益、动态张量融合与一票否决、Regime环境自适应、反身性免疫与代码硬化。
-        """
-        eps = 1e-6
-        chip_conv = self.helper._get_safe_series(df, 'chip_convergence_ratio_D', 0.0)
-        chip_stab = self.helper._get_safe_series(df, 'chip_stability_D', 0.0)
-        intra_consol = self.helper._get_safe_series(df, 'intraday_chip_consolidation_degree_D', 0.0)
-        ma_comp = self.helper._get_safe_series(df, 'MA_POTENTIAL_COMPRESSION_RATE_D', 0.0)
-        support_str = self.helper._get_safe_series(df, 'support_strength_D', 0.0)
-        golden_pit = self.helper._get_safe_series(df, 'STATE_GOLDEN_PIT_D', 0.0)
-        chip_game = self.helper._get_safe_series(df, 'intraday_chip_game_index_D', 0.0)
-        validated_conv = (chip_conv * chip_stab * (1.0 + intra_consol)).fillna(0.0).astype(np.float32)
-        validated_comp = (ma_comp * support_str).fillna(0.0).astype(np.float32)
-        def _compute_kinematics(series: pd.Series) -> pd.Series:
-            k_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-            for w in [5, 13, 21, 34, 55]:
-                roll_std_0 = series.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                slope = series.diff(w).fillna(0.0) / roll_std_0
-                roll_std_1 = slope.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                accel = slope.diff(w).fillna(0.0) / roll_std_1
-                roll_std_2 = accel.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                jerk = accel.diff(w).fillna(0.0) / roll_std_2
-                k_score += (slope * 0.5 + accel * 0.3 + jerk * 0.2) * 0.2
-            return k_score
-        kin_conv = _compute_kinematics(validated_conv)
-        kin_comp = _compute_kinematics(validated_comp)
-        kinematic_barrier = (np.tanh(kin_conv * 0.5 + kin_comp * 0.5) * 0.5 + 0.5).fillna(0.0).astype(np.float32)
-        net_amount = self.helper._get_safe_series(df, 'net_amount_D', 0.0)
-        days_peak = self.helper._get_safe_series(df, 'days_since_last_peak_D', 0.0).clip(lower=0.0)
-        hab_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        for w in [13, 21, 34, 55]:
-            r_mean = net_amount.rolling(window=w, min_periods=1).mean().fillna(0.0)
-            r_std = net_amount.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-            breakout = (net_amount > (r_mean + 1.5 * r_std)).astype(np.float32)
-            hab_score += pd.Series(np.where(breakout > 0.0, 1.0, 0.5), index=df_index).astype(np.float32)
-        hab_score = (hab_score / 4.0).astype(np.float32)
-        time_decay = (1.0 / np.log1p(days_peak + 1.0)).astype(np.float32)
-        hab_memory = (hab_score * time_decay).fillna(0.0).astype(np.float32)
-        winner_rate = self.helper._get_safe_series(df, 'winner_rate_D', 0.5)
-        turnover_rate = self.helper._get_safe_series(df, 'turnover_rate_f_D', 0.0)
-        winner_nl = (1.0 / (1.0 + np.exp(-10.0 * (winner_rate - 0.5)))).astype(np.float32)
-        turnover_ma = turnover_rate.rolling(window=21, min_periods=1).mean().fillna(0.0) + eps
-        turnover_nl = np.tanh(turnover_rate / turnover_ma).astype(np.float32)
-        phase_energy = (winner_nl * 0.5 + turnover_nl * 0.5).astype(np.float32)
-        resonance_trigger = (kinematic_barrier > 0.85) & (hab_memory > 0.85) & (golden_pit > 0.5)
-        phase_multiplier = pd.Series(np.where(resonance_trigger, np.exp(1.5), 1.0), index=df_index).astype(np.float32)
-        flow_cons = self.helper._get_safe_series(df, 'flow_consistency_D', 0.0)
-        price_flow_div = self.helper._get_safe_series(df, 'price_flow_divergence_D', 0.0)
-        large_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', 0.0)
-        dyn_weight_base = pd.Series(np.where(flow_cons < 0.3, 0.5, 1.0), index=df_index).astype(np.float32)
-        veto_trigger = (large_anomaly > 0.8) | (price_flow_div > 0.8)
-        veto_penalty = pd.Series(np.where(veto_trigger, 0.4, 1.0), index=df_index).astype(np.float32)
-        trend_stage = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
-        vol_adj_conc = self.helper._get_safe_series(df, 'volatility_adjusted_concentration_D', 0.0)
-        interact_mult = pd.Series(np.where((chip_stab > 0.7) & (chip_game > 0.7), 1.5, np.where((chip_stab < 0.3) | (chip_game < 0.3), 0.8, 1.0)), index=df_index).astype(np.float32)
-        regime_factor = pd.Series(np.where(trend_stage < 0.3, vol_adj_conc * 1.5, np.where(trend_stage > 0.6, 0.8, 1.0)), index=df_index).astype(np.float32)
-        conflict_smooth = (1.0 / (1.0 + price_flow_div.clip(lower=0.0))).astype(np.float32)
-        rev_prob = self.helper._get_safe_series(df, 'reversal_prob_D', 0.0)
-        parab_warn = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
-        emo_extreme = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
-        val_score = self.helper._get_safe_series(df, 'validation_score_D', 100.0)
-        reflexivity_imm = np.exp(-1.5 * (rev_prob * 0.5 + parab_warn * 0.3 + emo_extreme * 0.2)).astype(np.float32)
-        emergency_stop = pd.Series(np.where(val_score < 40.0, 0.0, 1.0), index=df_index).astype(np.float32)
-        raw_tensor = (kinematic_barrier * dyn_weight_base * 0.4 + hab_memory * 0.4 + phase_energy * 0.2)
-        final_barrier = (raw_tensor * phase_multiplier * interact_mult * regime_factor * veto_penalty * conflict_smooth * reflexivity_imm * emergency_stop)
-        final_barrier = final_barrier.fillna(0.0).clip(-1.0, 1.0).astype(np.float32)
-        debug_dict = {
-            "validated_conv": validated_conv,
-            "validated_comp": validated_comp,
-            "kinematic_barrier": kinematic_barrier,
-            "hab_memory": hab_memory,
-            "phase_energy": phase_energy,
-            "phase_multiplier": phase_multiplier,
-            "dyn_weight_base": dyn_weight_base,
-            "veto_penalty": veto_penalty,
-            "interact_mult": interact_mult,
-            "regime_factor": regime_factor,
-            "conflict_smooth": conflict_smooth,
-            "reflexivity_imm": reflexivity_imm,
-            "emergency_stop": emergency_stop,
-            "final_barrier": final_barrier
-        }
-        return final_barrier, debug_dict
-
-    def _calculate_dynamic_baseline(self, df: pd.DataFrame, df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
-        """
-        【PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY - 环境极化基准面 V8.1.0】
-        严格执行七步级联逻辑：全息哨兵交叉验证、多阶微分运动学、HAB存量记忆反身性衰减、
-        非线性相变指数增益、动态张量融合与一票否决、Regime环境自适应、反身性免疫与代码硬化。
-        基准面(Baseline)物理意义：信号放行门槛。越低代表环境越优越，越高代表环境恶劣执行物理隔绝。
-        """
-        eps = 1e-6
-        base_baseline = get_param_value(config.get('dynamic_efficiency_baseline_params', {}).get('base_baseline'), 0.15)
-        sentiment = self.helper._get_safe_series(df, 'market_sentiment_score_D', 0.5)
-        entropy = self.helper._get_safe_series(df, 'intraday_chip_entropy_D', 0.5)
-        emo_extreme = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
-        geom_r2 = self.helper._get_safe_series(df, 'GEOM_REG_R2_D', 0.0)
-        chip_game = self.helper._get_safe_series(df, 'intraday_chip_game_index_D', 0.0)
-        turnover_stab = self.helper._get_safe_series(df, 'TURNOVER_STABILITY_INDEX_D', 0.0)
-        val_sentiment = (sentiment * (1.0 - emo_extreme * 0.5) * (0.5 + turnover_stab * 0.5)).fillna(0.0).astype(np.float32)
-        val_chaos = (entropy * chip_game * (1.0 - geom_r2 * 0.5)).fillna(0.0).astype(np.float32)
-        def _compute_kinematics(series: pd.Series) -> pd.Series:
-            k_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-            for w in [5, 13, 21, 34, 55]:
-                r_std_0 = series.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                slope = series.diff(w).fillna(0.0) / r_std_0
-                r_std_1 = slope.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                accel = slope.diff(w).fillna(0.0) / r_std_1
-                r_std_2 = accel.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                jerk = accel.diff(w).fillna(0.0) / r_std_2
-                k_score += (slope * 0.5 + accel * 0.3 + jerk * 0.2) * 0.2
-            return k_score
-        kin_sentiment = _compute_kinematics(val_sentiment)
-        kin_chaos = _compute_kinematics(val_chaos)
-        net_amount = self.helper._get_safe_series(df, 'net_amount_D', 0.0)
-        days_peak = self.helper._get_safe_series(df, 'days_since_last_peak_D', 0.0).clip(lower=0.0)
-        hab_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        for w in [13, 21, 34, 55]:
-            r_mean = net_amount.rolling(window=w, min_periods=1).mean().fillna(0.0)
-            r_std = net_amount.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-            breakout = (net_amount > (r_mean + 1.5 * r_std)).astype(np.float32)
-            hab_score += pd.Series(np.where(breakout > 0.0, 1.0, 0.5), index=df_index).astype(np.float32)
-        hab_score = (hab_score / 4.0).astype(np.float32)
-        time_decay = (1.0 / np.log1p(days_peak + 1.0)).astype(np.float32)
-        hab_memory = (hab_score * time_decay).fillna(0.0).astype(np.float32)
-        winner_rate = self.helper._get_safe_series(df, 'winner_rate_D', 0.5)
-        turnover_rate = self.helper._get_safe_series(df, 'turnover_rate_f_D', 0.0)
-        winner_nl = (1.0 / (1.0 + np.exp(-10.0 * (winner_rate - 0.5)))).astype(np.float32)
-        turnover_ma = turnover_rate.rolling(window=21, min_periods=1).mean().fillna(0.0) + eps
-        turnover_nl = np.tanh(turnover_rate / turnover_ma).astype(np.float32)
-        phase_energy = (winner_nl * 0.5 + turnover_nl * 0.5).astype(np.float32)
-        resonance_trigger = (kin_sentiment > 0.85) & (hab_memory > 0.85) & (phase_energy > 0.85)
-        phase_multiplier = pd.Series(np.where(resonance_trigger, np.exp(-1.5), 1.0), index=df_index).astype(np.float32)
-        flow_cons = self.helper._get_safe_series(df, 'flow_consistency_D', 0.0)
-        dyn_weight_sent = pd.Series(np.where(flow_cons < 0.3, 0.3, 0.7), index=df_index).astype(np.float32)
-        dyn_weight_chaos = pd.Series(np.where(flow_cons < 0.3, 0.7, 0.3), index=df_index).astype(np.float32)
-        large_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', 0.0)
-        price_flow_div = self.helper._get_safe_series(df, 'price_flow_divergence_D', 0.0)
-        sm_divergence = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0)
-        veto_trigger = (large_anomaly > 0.8) | (price_flow_div > 0.8) | (sm_divergence > 0.8)
-        veto_penalty = pd.Series(np.where(veto_trigger, 2.0, 1.0), index=df_index).astype(np.float32)
-        trend_stage = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
-        vol_adj_conc = self.helper._get_safe_series(df, 'volatility_adjusted_concentration_D', 0.0)
-        hm_attack = self.helper._get_safe_series(df, 'HM_COORDINATED_ATTACK_D', 0.0)
-        regime_factor = pd.Series(np.where(trend_stage > 0.6, 0.8, np.where(trend_stage < 0.3, 1.0 + vol_adj_conc * 0.5, 1.0)), index=df_index).astype(np.float32)
-        interact_mult = pd.Series(np.where((turnover_stab > 0.7) & (hm_attack > 0.7), 0.8, np.where((turnover_stab < 0.3) & (hm_attack > 0.7), 1.5, 1.0)), index=df_index).astype(np.float32)
-        conflict_smooth = (1.0 + price_flow_div.clip(lower=0.0)).astype(np.float32)
-        rev_prob = self.helper._get_safe_series(df, 'reversal_prob_D', 0.0)
-        parab_warn = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
-        reflexivity_imm = np.exp(1.5 * (rev_prob * 0.6 + parab_warn * 0.4 + emo_extreme * 0.2)).astype(np.float32)
-        val_score = self.helper._get_safe_series(df, 'validation_score_D', 100.0)
-        emergency_stop = pd.Series(np.where(val_score < 40.0, 1.0, 0.0), index=df_index).astype(np.float32)
-        sentiment_impact = pd.Series(np.where(kin_sentiment > 0.0, -kin_sentiment * 0.15, np.abs(kin_sentiment) * 0.1), index=df_index).astype(np.float32)
-        chaos_impact = (kin_chaos * 0.2).astype(np.float32)
-        hab_impact = (-hab_memory * 0.1).astype(np.float32)
-        shift = (sentiment_impact * dyn_weight_sent + chaos_impact * dyn_weight_chaos + hab_impact).astype(np.float32)
-        baseline_raw = (base_baseline * (1.0 + np.tanh(shift)) * phase_multiplier * regime_factor * interact_mult * veto_penalty * conflict_smooth * reflexivity_imm).astype(np.float32)
-        dynamic_baseline = pd.Series(np.where(emergency_stop == 1.0, 1.0, baseline_raw), index=df_index)
-        final_baseline = dynamic_baseline.fillna(1.0).clip(0.01, 1.0).astype(np.float32)
-        debug_dict = {
-            "val_sentiment": val_sentiment,
-            "val_chaos": val_chaos,
-            "kin_sentiment": kin_sentiment,
-            "kin_chaos": kin_chaos,
-            "hab_memory": hab_memory,
-            "phase_energy": phase_energy,
-            "phase_multiplier": phase_multiplier,
-            "dyn_weight_sent": dyn_weight_sent,
-            "dyn_weight_chaos": dyn_weight_chaos,
-            "veto_penalty": veto_penalty,
-            "regime_factor": regime_factor,
-            "interact_mult": interact_mult,
-            "reflexivity_imm": reflexivity_imm,
-            "emergency_stop": emergency_stop,
-            "final_baseline": final_baseline
-        }
-        return final_baseline, debug_dict
-
-    def _calculate_holographic_validation(self, df: pd.DataFrame, ke_series: pd.Series, pb_series: pd.Series, df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
-        """
-        【PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY - 全息验证做功 V9.0.0】
-        严格执行七步级联逻辑：全息哨兵交叉验证、多阶微分运动学、HAB存量记忆反身性衰减、
-        非线性相变指数增益、动态张量融合与一票否决、Regime环境自适应、反身性免疫与代码硬化。
-        """
-        eps = 1e-6
-        emo_extreme = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
-        large_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', 0.0)
-        chip_game = self.helper._get_safe_series(df, 'intraday_chip_game_index_D', 0.0)
-        flow_cluster = self.helper._get_safe_series(df, 'flow_cluster_intensity_D', 0.0)
-        turnover_stab = self.helper._get_safe_series(df, 'TURNOVER_STABILITY_INDEX_D', 0.0)
-        geom_r2 = self.helper._get_safe_series(df, 'GEOM_REG_R2_D', 0.0)
-        coord_attack = self.helper._get_safe_series(df, 'HM_COORDINATED_ATTACK_D', 0.0)
-        vpa_eff = self.helper._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.0)
-        validated_vpa = (vpa_eff * (0.5 + geom_r2 * 0.5) * (0.5 + coord_attack * 0.5)).fillna(0.0).astype(np.float32)
-        val_ke = (ke_series * (0.5 + flow_cluster * 0.5)).fillna(0.0).astype(np.float32)
-        val_pb = (pb_series * (0.5 + turnover_stab * 0.5)).fillna(0.0).astype(np.float32)
-        def _compute_kinematics(series: pd.Series) -> pd.Series:
-            k_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-            for w in [5, 13, 21, 34, 55]:
-                r_std_0 = series.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                slope = series.diff(w).fillna(0.0) / r_std_0
-                r_std_1 = slope.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                accel = slope.diff(w).fillna(0.0) / r_std_1
-                r_std_2 = accel.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                jerk = accel.diff(w).fillna(0.0) / r_std_2
-                k_score += (slope * 0.5 + accel * 0.3 + jerk * 0.2) * 0.2
-            return k_score
-        kin_ke = _compute_kinematics(val_ke)
-        kin_pb = _compute_kinematics(val_pb)
-        kin_vpa = _compute_kinematics(validated_vpa)
-        kinematic_holo = (np.tanh(kin_ke * 0.4 + kin_pb * 0.4 + kin_vpa * 0.2) * 0.5 + 0.5).fillna(0.0).astype(np.float32)
-        net_amount = self.helper._get_safe_series(df, 'net_amount_D', 0.0)
-        days_peak = self.helper._get_safe_series(df, 'days_since_last_peak_D', 0.0).clip(lower=0.0)
-        hab_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        for w in [13, 21, 34, 55]:
-            r_mean = net_amount.rolling(window=w, min_periods=1).mean().fillna(0.0)
-            r_std = net_amount.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-            breakout = (net_amount > (r_mean + 1.5 * r_std)).astype(np.float32)
-            hab_score += pd.Series(np.where(breakout > 0.0, 1.0, 0.5), index=df_index).astype(np.float32)
-        hab_score = (hab_score / 4.0).astype(np.float32)
-        time_decay = (1.0 / np.log1p(days_peak + 1.0)).astype(np.float32)
-        hab_memory = (hab_score * time_decay).fillna(0.0).astype(np.float32)
-        winner_rate = self.helper._get_safe_series(df, 'winner_rate_D', 0.5)
-        turnover_rate = self.helper._get_safe_series(df, 'turnover_rate_f_D', 0.0)
-        winner_nl = (1.0 / (1.0 + np.exp(-10.0 * (winner_rate - 0.5)))).astype(np.float32)
-        turnover_ma = turnover_rate.rolling(window=21, min_periods=1).mean().fillna(0.0) + eps
-        turnover_nl = np.tanh(turnover_rate / turnover_ma).astype(np.float32)
-        phase_energy = (winner_nl * 0.5 + turnover_nl * 0.5).astype(np.float32)
-        resonance_trigger = (kinematic_holo > 0.85) & (phase_energy > 0.85) & (coord_attack > 0.85)
-        phase_multiplier = pd.Series(np.where(resonance_trigger, np.exp(1.5), 1.0), index=df_index).astype(np.float32)
-        flow_cons = self.helper._get_safe_series(df, 'flow_consistency_D', 0.0)
-        sm_div = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0)
-        price_flow_div = self.helper._get_safe_series(df, 'price_flow_divergence_D', 0.0)
-        dyn_w_ke = pd.Series(np.where(flow_cons < 0.3, 0.2, 0.5), index=df_index).astype(np.float32)
-        dyn_w_pb = pd.Series(np.where(flow_cons < 0.3, 0.8, 0.5), index=df_index).astype(np.float32)
-        veto_trigger = (sm_div > 0.8) | (large_anomaly > 0.8) | (price_flow_div > 0.8)
-        veto_penalty = pd.Series(np.where(veto_trigger, 0.4, 1.0), index=df_index).astype(np.float32)
-        trend_stage = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
-        vol_adj_conc = self.helper._get_safe_series(df, 'volatility_adjusted_concentration_D', 0.0)
-        interact_mult = pd.Series(np.where((val_pb > 0.7) & (val_ke > 0.7), 1.5, np.where(((val_pb > 0.7) & (val_ke < 0.3)) | ((val_pb < 0.3) & (val_ke > 0.7)), 0.8, 1.0)), index=df_index).astype(np.float32)
-        regime_factor = pd.Series(np.where(trend_stage < 0.3, vol_adj_conc * 1.5, np.where(trend_stage > 0.6, 1.2, 1.0)), index=df_index).astype(np.float32)
-        conflict_smooth = (1.0 / (1.0 + price_flow_div.clip(lower=0.0))).astype(np.float32)
-        rev_prob = self.helper._get_safe_series(df, 'reversal_prob_D', 0.0)
-        parab_warn = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
-        val_score = self.helper._get_safe_series(df, 'validation_score_D', 100.0)
-        reflexivity_imm = np.exp(-1.5 * (rev_prob * 0.6 + parab_warn * 0.4 + emo_extreme * 0.2)).astype(np.float32)
-        emergency_stop = pd.Series(np.where(val_score < 40.0, 0.0, 1.0), index=df_index).astype(np.float32)
-        raw_holo = (kinematic_holo * dyn_w_ke * val_ke + kinematic_holo * dyn_w_pb * val_pb + hab_memory * 0.2 + phase_energy * 0.2).astype(np.float32)
-        final_holo = (raw_holo * phase_multiplier * interact_mult * regime_factor * veto_penalty * conflict_smooth * reflexivity_imm * emergency_stop)
-        final_holo = final_holo.fillna(0.0).clip(-1.0, 1.0).astype(np.float32)
-        debug_dict = {
-            "validated_vpa": validated_vpa,
-            "kinematic_holo": kinematic_holo,
-            "hab_memory": hab_memory,
-            "phase_energy": phase_energy,
-            "phase_multiplier": phase_multiplier,
-            "dyn_w_ke": dyn_w_ke,
-            "dyn_w_pb": dyn_w_pb,
-            "veto_penalty": veto_penalty,
-            "interact_mult": interact_mult,
-            "regime_factor": regime_factor,
-            "conflict_smooth": conflict_smooth,
-            "reflexivity_imm": reflexivity_imm,
-            "emergency_stop": emergency_stop,
-            "final_holo": final_holo
-        }
-        return final_holo, debug_dict
-
-    def _apply_calibration_and_warning(self, df: pd.DataFrame, holo_score: pd.Series, baseline: pd.Series, df_index: pd.Index, config: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
-        """
-        【PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY - 终极校准与反身性防御 V10.0.0】
-        严格执行七步级联逻辑：全息哨兵交叉验证、多阶微分运动学、HAB存量记忆反身性衰减、
-        非线性相变指数增益、动态张量融合与一票否决、Regime环境自适应、反身性免疫与代码硬化。
-        """
-        eps = 1e-6
-        data_qual = self.helper._get_safe_series(df, 'tick_data_quality_score_D', 1.0)
-        turn_stab = self.helper._get_safe_series(df, 'TURNOVER_STABILITY_INDEX_D', 0.5)
-        emo_extreme = self.helper._get_safe_series(df, 'STATE_EMOTIONAL_EXTREME_D', 0.0)
-        large_anomaly = self.helper._get_safe_series(df, 'large_order_anomaly_D', 0.0)
-        pf_div = self.helper._get_safe_series(df, 'price_flow_divergence_D', 0.0)
-        sm_div = self.helper._get_safe_series(df, 'SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D', 0.0)
-        validated_sm_div = (sm_div * (0.5 + emo_extreme * 0.5 + (1.0 - turn_stab) * 0.5)).fillna(0.0).astype(np.float32)
-        validated_pf_div = (pf_div * (0.5 + emo_extreme * 0.5 + (1.0 - data_qual) * 0.5)).fillna(0.0).astype(np.float32)
-        def _compute_kinematics(series: pd.Series) -> pd.Series:
-            k_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-            for w in [5, 13, 21, 34, 55]:
-                r_std_0 = series.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                slope = series.diff(w).fillna(0.0) / r_std_0
-                r_std_1 = slope.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                accel = slope.diff(w).fillna(0.0) / r_std_1
-                r_std_2 = accel.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-                jerk = accel.diff(w).fillna(0.0) / r_std_2
-                k_score += (slope * 0.5 + accel * 0.3 + jerk * 0.2) * 0.2
-            return k_score
-        kin_sm_div = _compute_kinematics(validated_sm_div)
-        kin_pf_div = _compute_kinematics(validated_pf_div)
-        kin_risk = (np.tanh(kin_sm_div * 0.5 + kin_pf_div * 0.5)).clip(lower=0.0).fillna(0.0).astype(np.float32)
-        sell_lg = self.helper._get_safe_series(df, 'sell_lg_amount_D', 0.0)
-        days_peak = self.helper._get_safe_series(df, 'days_since_last_peak_D', 0.0).clip(lower=0.0)
-        hab_risk_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        for w in [13, 21, 34, 55]:
-            r_mean = sell_lg.rolling(window=w, min_periods=1).mean().fillna(0.0)
-            r_std = sell_lg.rolling(window=w, min_periods=1).std().fillna(0.0) + eps
-            breakout = (sell_lg > (r_mean + 1.5 * r_std)).astype(np.float32)
-            hab_risk_score += pd.Series(np.where(breakout > 0.0, 1.0, 0.5), index=df_index).astype(np.float32)
-        hab_risk_score = (hab_risk_score / 4.0).astype(np.float32)
-        time_decay = (1.0 / np.log1p(days_peak + 1.0)).astype(np.float32)
-        hab_risk_mem = (hab_risk_score * time_decay).fillna(0.0).astype(np.float32)
-        winner_rate = self.helper._get_safe_series(df, 'winner_rate_D', 0.5)
-        turnover_rate = self.helper._get_safe_series(df, 'turnover_rate_f_D', 0.0)
-        winner_nl = (1.0 / (1.0 + np.exp(-10.0 * (winner_rate - 0.5)))).astype(np.float32)
-        turnover_ma = turnover_rate.rolling(window=21, min_periods=1).mean().fillna(0.0) + eps
-        turnover_nl = np.tanh(turnover_rate / turnover_ma).astype(np.float32)
-        phase_overheat = (winner_nl * 0.5 + turnover_nl * 0.5).astype(np.float32)
-        risk_resonance = (kin_risk > 0.85) & (hab_risk_mem > 0.85) & (phase_overheat > 0.85)
-        risk_explosion = pd.Series(np.where(risk_resonance, np.exp(1.5), 1.0), index=df_index).astype(np.float32)
-        flow_cons = self.helper._get_safe_series(df, 'flow_consistency_D', 0.0)
-        dyn_w_risk = pd.Series(np.where(flow_cons < 0.3, 1.5, 0.8), index=df_index).astype(np.float32)
-        veto_trigger = (large_anomaly > 0.85) | (sm_div > 0.85) | (kin_risk > 0.85)
-        veto_penalty = pd.Series(np.where(veto_trigger, 0.4, 1.0), index=df_index).astype(np.float32)
-        trend_stage = self.helper._get_safe_series(df, 'STATE_TRENDING_STAGE_D', 0.0)
-        vol_adj_conc = self.helper._get_safe_series(df, 'volatility_adjusted_concentration_D', 0.0)
-        regime_risk_factor = pd.Series(np.where(trend_stage > 0.6, 0.7, np.where(trend_stage < 0.3, 1.0 + vol_adj_conc * 0.5, 1.0)), index=df_index).astype(np.float32)
-        conflict_smooth = (1.0 / (1.0 + pf_div.clip(lower=0.0))).astype(np.float32)
-        rev_prob = self.helper._get_safe_series(df, 'reversal_prob_D', 0.0)
-        parab_warn = self.helper._get_safe_series(df, 'STATE_PARABOLIC_WARNING_D', 0.0)
-        reflexivity_imm = np.exp(-1.5 * (rev_prob * 0.6 + parab_warn * 0.4)).astype(np.float32)
-        val_score = self.helper._get_safe_series(df, 'validation_score_D', 100.0)
-        emergency_stop = pd.Series(np.where(val_score < 40.0, 0.0, 1.0), index=df_index).astype(np.float32)
-        calibrated_base = (holo_score - baseline).fillna(0.0).astype(np.float32)
-        base_penalty = ((1.0 - turn_stab) * 0.2 + (1.0 - data_qual) * 0.2).astype(np.float32)
-        raw_exponent = (1.0 - calibrated_base + base_penalty + kin_risk * dyn_w_risk + hab_risk_mem * 0.5).astype(np.float32)
-        adjusted_exponent = (raw_exponent * regime_risk_factor * risk_explosion).clip(0.1, 10.0).astype(np.float32)
-        sign_base = np.sign(calibrated_base).astype(np.float32)
-        abs_base = np.abs(calibrated_base).astype(np.float32)
-        base_calibrated = (sign_base * (abs_base ** adjusted_exponent)).astype(np.float32)
-        final_adjusted = (base_calibrated * veto_penalty * conflict_smooth * reflexivity_imm * emergency_stop).fillna(0.0).clip(-1.0, 1.0).astype(np.float32)
-        debug_dict = {
-            "validated_sm_div": validated_sm_div,
-            "kin_risk": kin_risk,
-            "hab_risk_mem": hab_risk_mem,
-            "phase_overheat": phase_overheat,
-            "risk_explosion": risk_explosion,
-            "dyn_w_risk": dyn_w_risk,
-            "veto_penalty": veto_penalty,
-            "regime_risk_factor": regime_risk_factor,
-            "conflict_smooth": conflict_smooth,
-            "reflexivity_imm": reflexivity_imm,
-            "adjusted_exponent": adjusted_exponent,
-            "emergency_stop": emergency_stop,
-            "final_adjusted": final_adjusted
-        }
-        return final_adjusted, debug_dict
-
-    def _print_debug_info(self, method_name: str, probe_ts: pd.Timestamp, debug_output: Dict, debug_dict: Dict, final_score: pd.Series):
-        """【V5.1.0】极客化无损打印，真实映射矩阵断点。"""
-        for section, values in debug_dict.items():
-            debug_output[f"  -> [{section}]"] = ""
-            for k, v in values.items():
-                debug_output[f"      {k}: {v}"] = ""
-        debug_output[f"  => 拆单吸筹微观动能最终输出: {final_score.loc[probe_ts] if probe_ts in final_score.index else np.nan}"] = ""
-        self.helper._print_debug_output(debug_output)
+        if not self._validate_all_required_signals(df, method_name, is_debug, probe_ts): return pd.Series(0.0, index=df_index, dtype=np.float32)
+        raw = self._get_raw_signals(df, method_name)
+        ke = self._calculate_kinetic_energy(raw, df_index)
+        pb = self._calculate_potential_barrier(raw, df_index)
+        hl = self._calculate_hab_langevin(raw, df_index)
+        penalty = self._calculate_anti_spoofing_penalty(raw, df_index)
+        ke_val = np.clip(1.0 + ke.values * 0.5, 0.1, 3.0)
+        pb_val = np.clip(1.0 - pb.values * 0.5, 0.1, 3.0) 
+        tunnel_prob = _numba_quantum_tunneling(ke_val, np.clip(pb.values, 0.1, 3.0), mass=1.0)
+        tunnel_val = np.clip(tunnel_prob * 3.0, 0.1, 3.0)
+        hl_val = np.clip(1.0 + hl.values * 0.5, 0.1, 3.0)
+        num_dim = 4.0
+        geom_mean = np.power(np.clip(ke_val * pb_val * tunnel_val * hl_val, 1e-20, None), 1.0/num_dim).astype(np.float32)
+        arith_mean = ((ke_val + pb_val + tunnel_val + hl_val) / num_dim).astype(np.float32)
+        matrix_scores = np.vstack([ke_val, pb_val, tunnel_val, hl_val])
+        min_dim_score = np.min(matrix_scores, axis=0)
+        collapse_penalty = np.where(min_dim_score < 0.5, np.clip((min_dim_score / 0.5) ** 2, 0.01, 1.0), 1.0).astype(np.float32)
+        blend = (0.7 * geom_mean + 0.3 * arith_mean) * collapse_penalty * penalty.values
+        centered = blend - 1.0
+        activated = _numba_power_law_activation(centered, power=1.5, leak=0.1)
+        parabolic = raw['STATE_PARABOLIC_WARNING_D'].values > 0.5
+        is_leader = raw['IS_MARKET_LEADER_D'].values > 0.5
+        fatal_trap = parabolic & (~is_leader)
+        final_vals = np.where(fatal_trap, 0.0, np.clip(activated * 0.5 + 0.5, 0.0, 1.0)).astype(np.float32)
+        final_score = pd.Series(final_vals, index=df_index, dtype=np.float32)
+        self._persist_hab_state(raw, df_index, method_name)
+        if is_debug and probe_ts in df_index:
+            self._print_full_chain_probe(probe_ts, raw, ke, pb, hl, tunnel_prob, penalty, blend, min_dim_score, collapse_penalty, activated, fatal_trap, final_score)
+        return final_score
+    def _persist_hab_state(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str):
+        if len(df_index) == 0: return
+        last_idx, last_ts = -1, df_index[-1]
+        hab_snapshot = {"timestamp": last_ts.strftime('%Y-%m-%d'), "updated_at": pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'), "metrics": {}}
+        for key, series in raw.items():
+            if any(p in key for p in ['HAB_STOCK_', 'HAB_SHOCK_']): hab_snapshot["metrics"][key] = float(series.values[last_idx])
+        self.latest_hab_state = hab_snapshot
+        if hasattr(self.helper, 'update_shared_state'):
+            try: self.helper.update_shared_state('HAB_SPLIT_ACCUM', hab_snapshot)
+            except Exception: pass
+    def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], ke: pd.Series, pb: pd.Series, hl: pd.Series, tunnel_prob: np.ndarray, penalty: pd.Series, blend: np.ndarray, min_dim: np.ndarray, collapse: np.ndarray, activated: np.ndarray, fatal_trap: np.ndarray, final_score: pd.Series):
+        idx = raw['close_D'].index.get_loc(probe_ts)
+        tc = raw['tick_clustering_index_D'].values[idx]
+        stealth = raw['stealth_flow_ratio_D'].values[idx]
+        ent = raw['intraday_chip_entropy_D'].values[idx]
+        div = raw['price_flow_divergence_D'].values[idx]
+        drift = raw['LANGEVIN_DRIFT_ACCUM'].values[idx]
+        diff = raw['LANGEVIN_DIFF_ACCUM'].values[idx]
+        snr = drift / (diff + 1e-9)
+        is_fatal = fatal_trap[idx]
+        is_leader = raw['IS_MARKET_LEADER_D'].values[idx] > 0.5
+        status_str = "核按钮级派发/分歧" if is_fatal else ("👑龙头强锁" if is_leader else "正常状态")
+        print(f"\n{'='*30} [全息拆单吸筹微观探针 V8.0.0 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
+        print(f"【底层张量场】")
+        print(f"  ├─ 聚类算法碎单(Tick Clustering): {tc:.4f}")
+        print(f"  ├─ 隐秘潜行占比(Stealth Ratio): {stealth:.4f}")
+        print(f"  ├─ 筹码熵序收敛(Intraday Entropy): {ent:.4f}")
+        print(f"  └─ 价流背离防爆(Price-Flow Div): {div:.4f}")
+        print(f"【高维物理测度与模型】")
+        print(f"  ├─ 霍克斯动能张量(Hawkes Kinetic): {ke.values[idx]:.4f}σ")
+        print(f"  ├─ 势垒压力张量(Potential Barrier): {pb.values[idx]:.4f}σ")
+        print(f"  ├─ 量子隧穿渗透率(Quantum Tunneling): {tunnel_prob[idx]*100:.1f}%")
+        print(f"  └─ 朗之万漂移与扩散(Langevin SNR): Drift={drift:.4f} | Diff={diff:.4f} | SNR={snr:.2f}")
+        print(f"【HAB全域存量冲击池】")
+        print(f"  ├─ 隐蔽吸筹21日冲击波: {raw['HAB_SHOCK_21_HIDDEN_ACCUM'].values[idx]:.4f}x")
+        print(f"  └─ 潜行流21日冲击波: {raw['HAB_SHOCK_21_STEALTH'].values[idx]:.4f}x")
+        print(f"【AG-Blend 全息压缩与防爆坍缩网】")
+        print(f"  ├─ 原始虚假繁荣锁(Anti-Spoofing): {penalty.values[idx]:.2f}x")
+        print(f"  ├─ 短板侦测(Min Dim): {min_dim[idx]:.4f} -> 触发木桶坍缩倍率: {collapse[idx]:.4f}x")
+        print(f"  ├─ 算术-几何混合均值(AG-Blend): {blend[idx]:.4f}")
+        print(f"  └─ 幂律极化激活(Power Law Activation): {activated[idx]:.4f}")
+        print(f"【信号最终输出 (Unipolar 0.0 - 1.0)】")
+        print(f"  ★ 状态标签: {status_str}")
+        print(f"{'-'*85}")
+        print(f" >>> PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 最终绝对吸筹烈度: {final_score.values[idx]:.4f}")
+        print(f"{'='*85}\n")

@@ -1,7 +1,5 @@
 # strategies/trend_following/intelligence/process/calculate_price_volume_dynamics.py
-# 价格和成交量的动态变化 已完成
-# strategies/trend_following/intelligence/process/calculate_price_volume_dynamics.py
-# 价格和成交量的动态变化 已完成
+# 价格和成交量的动态变化 已完成DeepThink
 import json
 import os
 import pandas as pd
@@ -268,7 +266,7 @@ class CalculatePriceVolumeDynamics:
         self.process_params = self.helper.params
         self.std_window = self.helper.std_window
     def _setup_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp], Dict]:
-        is_debug_enabled_for_method = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
+        is_debug_enabled_for_method = False #get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
         probe_ts = None
         if is_debug_enabled_for_method and self.helper.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]

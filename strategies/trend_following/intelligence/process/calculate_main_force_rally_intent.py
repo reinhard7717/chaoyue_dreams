@@ -1,5 +1,5 @@
 # 文件: strategies/trend_following/intelligence/process/calculate_main_force_rally_intent.py
-# 版本: V34.1.0 · 真理之镜微观校准版 (Tick级筹码平衡平替 & QHOIM防爆)
+# 版本: V34.1.0 · 真理之镜微观校准版 (Tick级筹码平衡平替 & QHOIM防爆) 已完成DeepThink
 # 说明: 修正底层未注册信号 main_force_buy_ofi_D，平替为 tick_chip_balance_ratio_D，确保系统微观结构物理完整性。
 import pandas as pd
 import numpy as np
