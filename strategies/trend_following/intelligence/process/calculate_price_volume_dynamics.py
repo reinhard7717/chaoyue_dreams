@@ -211,13 +211,13 @@ def _numba_lotka_volterra_phase(predator, prey, window=21):
     return out
 @jit(nopython=True)
 def _numba_rolling_norm_preserve_sign(data, window=21):
-    """V2.1.0 · 零点锚定极性归一化算子：新增 1e-4 噪音阻尼底限，解决微小波动期间因 max_abs 过小导致的噪音无限放大 BUG"""
+    """V3.1.0 · 零点锚定极性归一化算子：采用 Zero-Centered MAD (零中心绝对偏离) 替代 max_abs，消灭单日极端极值点(Outlier)导致的 20天灵敏度致盲死穴"""
     n = len(data)
     out = np.zeros(n, dtype=np.float32)
     for i in range(window - 1, n):
         slice_data = data[i - window + 1 : i + 1]
-        max_abs = np.max(np.abs(slice_data)) + 1e-4
-        out[i] = np.tanh((data[i] / max_abs) * 2.0)
+        mad_0 = np.mean(np.abs(slice_data)) + 1e-4
+        out[i] = np.tanh((data[i] / mad_0) * 1.5)
     return out
 @jit(nopython=True)
 def _numba_quantum_harmonic_oscillator(price, vwap, price_slope, window=21):
@@ -291,74 +291,47 @@ class CalculatePriceVolumeDynamics:
         return get_param_value(config.get('price_volume_dynamics_params'), {})
 
     def _validate_all_required_signals(self, df: pd.DataFrame, pvd_params: Dict, mtf_slope_accel_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> bool:
-        """V2.0.0 · 核心防爆验证：新增 7 大高维军械库数据校验"""
-        fib_windows = [3, 5, 8, 13, 21, 34, 55]
-        dynamic_base_cols = [
-            'net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D',
-            'volume_D', 'pct_change_D', 'close_D', 'market_sentiment_score_D', 'industry_strength_rank_D', 'turnover_rate_f_D', 'trade_count_D',
-            'net_mf_amount_D', 'pressure_trapped_D', 'stealth_flow_ratio_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D'
-        ]
-        base_required = [
-            'close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D', 'up_limit_D', 'down_limit_D', 'closing_flow_intensity_D',
-            'T1_PREMIUM_EXPECTATION_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 'VPA_EFFICIENCY_D', 'GEOM_ARC_CURVATURE_D',
-            'GEOM_REG_R2_D', 'turnover_rate_f_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'price_percentile_position_D',
-            'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'cost_50pct_D',
-            'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'trade_count_D', 'market_sentiment_score_D', 'industry_strength_rank_D',
-            'industry_rank_accel_D', 'net_mf_amount_D', 'pressure_trapped_D', 'stealth_flow_ratio_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'tick_large_order_net_D',
-            'intraday_main_force_activity_D', 'CMF_21_D', 'game_intensity_D', 'hidden_accumulation_intensity_D'
-        ]
-        dynamic_required = [f"{p}_{w}_{c}" for c in dynamic_base_cols for w in [3, 5, 8, 13, 21] for p in ['SLOPE', 'ACCEL', 'JERK']]
+        """V3.1.0 · 核心防爆验证：新增四大高阶攻防状态核武（龙头霸权、抛物线预警、主力VPA效率、均线相干性）"""
+        fib_windows = [3, 5, 8, 13, 21]
+        dynamic_base_cols = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'volume_D', 'pct_change_D', 'close_D', 'market_sentiment_score_D', 'industry_strength_rank_D', 'turnover_rate_f_D', 'trade_count_D', 'net_mf_amount_D', 'pressure_trapped_D', 'stealth_flow_ratio_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D']
+        base_required = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D', 'up_limit_D', 'down_limit_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 'VPA_EFFICIENCY_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'turnover_rate_f_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'price_percentile_position_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'cost_50pct_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'trade_count_D', 'market_sentiment_score_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'net_mf_amount_D', 'pressure_trapped_D', 'stealth_flow_ratio_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'CMF_21_D', 'game_intensity_D', 'hidden_accumulation_intensity_D', 'IS_MARKET_LEADER_D', 'STATE_PARABOLIC_WARNING_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D']
+        dynamic_required = [f"{p}_{w}_{c}" for c in dynamic_base_cols for w in fib_windows for p in ['SLOPE', 'ACCEL', 'JERK']]
         all_required = base_required + dynamic_required
         return self.helper._validate_required_signals(df, all_required, method_name)
 
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V3.0.0 · 原料加载层：新增[全局统一状态机]。融合换手率、大单流出与HAB冲击构建全域熔断 Flag，彻底消除唯跌幅论盲区"""
+        """V3.1.0 · 原料加载层：深度挖掘军械库引入四大核武，补全拉高诱多陷阱 FLAG_RALLY_DISTRIBUTION 构建终极天网 FLAG_FATAL_TRAP"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
         has_mv_col = 'circ_mv_D' in df.columns
-        if has_mv_col:
-            base_cols.append('circ_mv_D')
+        if has_mv_col: base_cols.append('circ_mv_D')
         struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D', 'pressure_trapped_D']
-        tech_cols = [
-            'SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D',
-            'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D',
-            'industry_strength_rank_D', 'industry_rank_accel_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D',
-            'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'CMF_21_D',
-            'hidden_accumulation_intensity_D', 'game_intensity_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'net_mf_amount_D', 'stealth_flow_ratio_D'
-        ]
+        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'CMF_21_D', 'hidden_accumulation_intensity_D', 'game_intensity_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'net_mf_amount_D', 'stealth_flow_ratio_D', 'IS_MARKET_LEADER_D', 'STATE_PARABOLIC_WARNING_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D']
         for col in base_cols + struct_cols + tech_cols:
             if col not in df.columns: raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
             raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
-        if raw_signals['pct_change_D'].abs().max() > 1.0:
-            raw_signals['pct_change_D'] *= np.float32(0.01)
-        if raw_signals['turnover_rate_f_D'].max() > 2.0:
-            raw_signals['turnover_rate_f_D'] *= np.float32(0.01)
-        if raw_signals['winner_rate_D'].max() > 1.1:
-            raw_signals['winner_rate_D'] *= np.float32(0.01)
-        if has_mv_col:
-            raw_signals['circ_mv_D'] = raw_signals['circ_mv_D'] * np.float32(10000.0)
+        if raw_signals['pct_change_D'].abs().max() > 1.0: raw_signals['pct_change_D'] *= np.float32(0.01)
+        if raw_signals['turnover_rate_f_D'].max() > 2.0: raw_signals['turnover_rate_f_D'] *= np.float32(0.01)
+        if raw_signals['winner_rate_D'].max() > 1.1: raw_signals['winner_rate_D'] *= np.float32(0.01)
+        if has_mv_col: raw_signals['circ_mv_D'] = raw_signals['circ_mv_D'] * np.float32(10000.0)
         valid_mv = raw_signals.get('circ_mv_D', pd.Series([0], dtype=np.float32))
         valid_mv = valid_mv[valid_mv > 1e7]
         avg_mv = valid_mv.median() if len(valid_mv) > 0 else 0.0
         w_s, w_l = 13, 21
         if avg_mv > 0:
-            if avg_mv < 50e8:
-                w_s, w_l = 8, 13
-            elif avg_mv > 500e8:
-                w_s, w_l = 21, 34
+            if avg_mv < 50e8: w_s, w_l = 8, 13
+            elif avg_mv > 500e8: w_s, w_l = 21, 34
         raw_signals['META_HAB_WINDOWS'] = pd.Series([w_s, w_l], index=df.index[:2], dtype=np.float32)
         raw_vwap = (raw_signals['amount_D'] / (raw_signals['volume_D'] + 1e-9)).fillna(raw_signals['close_D'])
         r_c, r_v = raw_signals['close_D'].values[-60:], raw_vwap.values[-60:]
         v_m, s_f = r_v > 0, np.float32(1.0)
         if np.any(v_m):
             m_r = np.median(r_v[v_m] / r_c[v_m])
-            if m_r < 0.5 or m_r > 2.0:
-                s_f = np.float32(10.0 ** (-np.round(np.log10(m_r))))
+            if m_r < 0.5 or m_r > 2.0: s_f = np.float32(10.0 ** (-np.round(np.log10(m_r))))
         raw_signals['VWAP_D'] = (raw_vwap * s_f).astype(np.float32)
         sm_v = raw_signals['SMART_MONEY_HM_NET_BUY_D'].values
-        if np.sum(np.abs(sm_v)) < 1e-5:
-            sm_v = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).values
+        if np.sum(np.abs(sm_v)) < 1e-5: sm_v = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).values
         hab_windows = np.array([13, 21, 34, 55], dtype=np.int32)
         hab_stock_sm, shock_sm = _numba_hab_impact(raw_signals['net_mf_amount_D'].values.astype(np.float32), hab_windows)
         hab_stock_vol, shock_vol = _numba_hab_impact(raw_signals['volume_D'].values.astype(np.float32), hab_windows)
@@ -389,18 +362,21 @@ class CalculatePriceVolumeDynamics:
         sm_shock = raw_signals['HAB_SHOCK_13_SMART_MONEY'].values.astype(np.float32)
         pct = raw_signals['pct_change_D'].values.astype(np.float32)
         sm_hm = raw_signals['SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32)
+        close = raw_signals['close_D'].values.astype(np.float32)
+        up_limit = raw_signals['up_limit_D'].values.astype(np.float32)
         flow_collapse = (sm_shock < -0.3) & ((tick_net < 0) | (mf_amount < 0) | (sm_hm < 0))
-        raw_signals['FLAG_STAGNANT_DISTRIBUTION'] = pd.Series(np.where((turn > 0.15) & (pct < 0.02) & flow_collapse, 1.0, 0.0).astype(np.float32), index=df.index)
-        raw_signals['FLAG_PRICE_CRASH'] = pd.Series(np.where((pct < -0.04) & flow_collapse, 1.0, 0.0).astype(np.float32), index=df.index)
-        threshold_map = {
-            'net_amount_rate_D': (0.01, 0.005), 'winner_rate_D': (0.01, 0.005), 'SMART_MONEY_HM_NET_BUY_D': (10, 10), 
-            'VPA_EFFICIENCY_D': (0.01, 0.01), 'BBW_21_2.0_D': (0.001, 0.0001), 'THEME_HOTNESS_SCORE_D': (0.1, 0.1), 
-            'chip_entropy_D': (0.01, 0.001), 'volume_D': (100, 10), 'pct_change_D': (0.0001, 0.0001), 'close_D': (0.1, 0.01), 
-            'market_sentiment_score_D': (0.1, 0.1), 'industry_strength_rank_D': (0.001, 0.001), 'turnover_rate_f_D': (0.01, 0.01), 
-            'trade_count_D': (10, 5), 'VWAP_D': (0.1, 0.01), 'closing_flow_ratio_D': (0.01, 0.01), 'net_mf_amount_D': (10000, 5000), 
-            'pressure_trapped_D': (0.01, 0.005), 'stealth_flow_ratio_D': (0.01, 0.005), 'tick_large_order_net_D': (10000, 5000), 
-            'intraday_main_force_activity_D': (1.0, 0.5), 'ADX_14_D': (0.5, 0.5), 'MACDh_13_34_8_D': (0.01, 0.005)
-        }
+        stagnant_dist = (turn > 0.15) & (pct >= -0.04) & (pct <= 0.02) & flow_collapse
+        price_crash = (pct < -0.04) & flow_collapse
+        rally_dist = (turn > 0.10) & (pct > 0.02) & (tick_net < -10000) & (mf_amount < 0) & (sm_shock < -0.3)
+        raw_signals['FLAG_STAGNANT_DISTRIBUTION'] = pd.Series(np.where(stagnant_dist, 1.0, 0.0).astype(np.float32), index=df.index)
+        raw_signals['FLAG_PRICE_CRASH'] = pd.Series(np.where(price_crash, 1.0, 0.0).astype(np.float32), index=df.index)
+        raw_signals['FLAG_RALLY_DISTRIBUTION'] = pd.Series(np.where(rally_dist, 1.0, 0.0).astype(np.float32), index=df.index)
+        raw_signals['FLAG_FATAL_TRAP'] = pd.Series(np.where(stagnant_dist | price_crash | rally_dist, 1.0, 0.0).astype(np.float32), index=df.index)
+        is_limit_up = close >= up_limit * 0.995
+        ignition = (pct > 0.05) & (mf_amount > 0) & (sm_shock > 0.5)
+        raw_signals['FLAG_LIMIT_UP'] = pd.Series(np.where(is_limit_up, 1.0, 0.0).astype(np.float32), index=df.index)
+        raw_signals['FLAG_IGNITION'] = pd.Series(np.where(ignition, 1.0, 0.0).astype(np.float32), index=df.index)
+        threshold_map = {'net_amount_rate_D': (0.01, 0.005), 'winner_rate_D': (0.01, 0.005), 'SMART_MONEY_HM_NET_BUY_D': (10, 10), 'VPA_EFFICIENCY_D': (0.01, 0.01), 'BBW_21_2.0_D': (0.001, 0.0001), 'THEME_HOTNESS_SCORE_D': (0.1, 0.1), 'chip_entropy_D': (0.01, 0.001), 'volume_D': (100, 10), 'pct_change_D': (0.0001, 0.0001), 'close_D': (0.1, 0.01), 'market_sentiment_score_D': (0.1, 0.1), 'industry_strength_rank_D': (0.001, 0.001), 'turnover_rate_f_D': (0.01, 0.01), 'trade_count_D': (10, 5), 'VWAP_D': (0.1, 0.01), 'closing_flow_ratio_D': (0.01, 0.01), 'net_mf_amount_D': (10000, 5000), 'pressure_trapped_D': (0.01, 0.005), 'stealth_flow_ratio_D': (0.01, 0.005), 'tick_large_order_net_D': (10000, 5000), 'intraday_main_force_activity_D': (1.0, 0.5), 'ADX_14_D': (0.5, 0.5), 'MACDh_13_34_8_D': (0.01, 0.005), 'VPA_MF_ADJUSTED_EFF_D': (0.01, 0.01), 'MA_COHERENCE_RESONANCE_D': (0.01, 0.01)}
         fib_wins = [3, 5, 8, 13, 21]
         for col, (abs_th, chg_th) in threshold_map.items():
             if col in raw_signals:
@@ -413,7 +389,7 @@ class CalculatePriceVolumeDynamics:
         return raw_signals
 
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V3.0.0 · 全局动力学总线：基于全域状态机的多维并联熔断系统，无死角引爆极性共轭裂变"""
+        """V3.1.0 · 全局动力学总线：中央集权执行 FLAG_FATAL_TRAP，一键剥夺所有结构分；引入 3D Holographic Compression 击碎多头连乘几何衰减死锁"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
@@ -439,15 +415,18 @@ class CalculatePriceVolumeDynamics:
         scores['vol_gamma'] = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name)
         scores['sector_decay'] = self._calculate_sector_overflow_decay(raw, df_index, method_name)
         scores['access'] = self._calculate_entry_accessibility_score(raw, df_index, method_name)
+        fatal_trap = raw['FLAG_FATAL_TRAP'].values > 0.5
+        for key in ['inertia', 'perm', 'entropy', 'fractal', 'hmm', 'chip', 'micro', 'reflex', 'wyckoff', 'risk', 'decay', 'sector_mod', 'vol_gamma', 'sector_decay', 'access']:
+            scores[key] = pd.Series(np.where(fatal_trap, 0.1, scores[key].values).astype(np.float32), index=df_index, dtype=np.float32)
         unadjusted = scores['physical'].values * 0.45 + s_geo * 0.20 + scores['vwap'].values * 0.35
-        structural_collapse = (raw['FLAG_PRICE_CRASH'].values > 0.5) | (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5)
-        unadjusted = np.where(structural_collapse, -np.abs(unadjusted) - 2.0, unadjusted)
-        global_factor = (np.maximum(scores['inertia'].values, 0.1) * np.maximum(scores['perm'].values, 0.1) * np.maximum(scores['entropy'].values, 0.1) * np.maximum(scores['fractal'].values, 0.1) * np.maximum(scores['hmm'].values, 0.1) * np.maximum(scores['chip'].values, 0.1) * np.maximum(scores['micro'].values, 0.1) * np.maximum(scores['reflex'].values, 0.1) * np.maximum(scores['wyckoff'].values, 0.1) * np.maximum(scores['risk'].values, 0.1) * np.maximum(scores['decay'].values, 0.1) * np.maximum(scores['sector_mod'].values, 0.1) * np.maximum(scores['vol_gamma'].values, 0.1) * np.maximum(scores['sector_decay'].values, 0.1) * np.maximum(scores['access'].values, 0.1))
+        unadjusted = np.where(fatal_trap, -np.abs(unadjusted) - 2.0, unadjusted).astype(np.float32)
+        global_factor_raw = (np.maximum(scores['inertia'].values, 0.1) * np.maximum(scores['perm'].values, 0.1) * np.maximum(scores['entropy'].values, 0.1) * np.maximum(scores['fractal'].values, 0.1) * np.maximum(scores['hmm'].values, 0.1) * np.maximum(scores['chip'].values, 0.1) * np.maximum(scores['micro'].values, 0.1) * np.maximum(scores['reflex'].values, 0.1) * np.maximum(scores['wyckoff'].values, 0.1) * np.maximum(scores['risk'].values, 0.1) * np.maximum(scores['decay'].values, 0.1) * np.maximum(scores['sector_mod'].values, 0.1) * np.maximum(scores['vol_gamma'].values, 0.1) * np.maximum(scores['sector_decay'].values, 0.1) * np.maximum(scores['access'].values, 0.1))
+        global_factor = np.power(global_factor_raw, 1.0 / 3.0).astype(np.float32)
         inv_factor = np.clip(1.0 / (global_factor + 1e-9), 0.1, 5.0)
         final_vals = np.where(unadjusted > 0, unadjusted * global_factor, unadjusted * inv_factor)
         final_score = pd.Series(final_vals, index=df_index, dtype=np.float32).clip(-5.0, 6.0)
         self._persist_hab_state(raw, df_index, method_name)
-        if is_debug and probe_ts in df_index: self._print_full_chain_probe(probe_ts, raw, scores, final_score.loc[probe_ts], unadjusted, global_factor)
+        if is_debug and probe_ts in df_index: self._print_full_chain_probe(probe_ts, raw, scores, final_score.loc[probe_ts], unadjusted, global_factor, global_factor_raw)
         return final_score
 
     def _persist_hab_state(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str):
@@ -496,13 +475,21 @@ class CalculatePriceVolumeDynamics:
         return pd.Series((base_score * final_mass * shock_mult).astype(np.float32), index=df_index, dtype=np.float32).clip(-5.0, 5.0)
 
     def _calculate_premium_reversal_risk(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V2.0.0 · 溢价回吐风险：引入宏观超买极值防爆惩罚"""
+        """V3.1.0 · 溢价回吐风险：引入[抛物线死亡预警]左侧阻尼，并在主升点火与涨停期绝对赦免风险倒钩"""
         turnover = raw['turnover_rate_f_D'].values.astype(np.float32)
         exhaustion_rate = np.clip(turnover / pd.Series(turnover, index=df_index).rolling(21).max().replace(0, 1.0).values.astype(np.float32), 0.0, 1.5).astype(np.float32)
         hab_risk_norm = np.where(raw['ACCUM_13_CLOSING_FLOW'].values.astype(np.float32) > pd.Series(raw['closing_flow_ratio_D'].values.astype(np.float32), index=df_index).rolling(13).mean().replace(0, 0.1).values.astype(np.float32) * 13 * 1.5, 1.25, 1.0).astype(np.float32)
         pressure_penalty = np.where(raw['pressure_trapped_D'].values.astype(np.float32) > 0.5, 1.2, 1.0).astype(np.float32)
-        reversal_pressure = raw['closing_flow_ratio_D'].values.astype(np.float32) * raw['STATE_EMOTIONAL_EXTREME_D'].values.astype(np.float32) * exhaustion_rate * hab_risk_norm * pressure_penalty
-        return pd.Series(1.0 - reversal_pressure * 0.4, index=df_index, dtype=np.float32).clip(0.5, 1.0)
+        parabolic_risk = raw['STATE_PARABOLIC_WARNING_D'].values.astype(np.float32)
+        t1_premium = raw['T1_PREMIUM_EXPECTATION_D'].values.astype(np.float32)
+        parabolic_mult = np.where(parabolic_risk > 0.5, 2.0, 1.0).astype(np.float32)
+        t1_exhaustion = np.where((t1_premium > 0.8) & (exhaustion_rate > 1.0), 1.5, 1.0).astype(np.float32)
+        reversal_pressure = raw['closing_flow_ratio_D'].values.astype(np.float32) * raw['STATE_EMOTIONAL_EXTREME_D'].values.astype(np.float32) * exhaustion_rate * hab_risk_norm * pressure_penalty * parabolic_mult * t1_exhaustion
+        base_risk = 1.0 - reversal_pressure * 0.4
+        is_ignition = raw['FLAG_IGNITION'].values > 0.5
+        is_limit_up = raw['FLAG_LIMIT_UP'].values > 0.5
+        risk_adjustment = np.where(is_ignition | is_limit_up, np.maximum(base_risk, 1.2), base_risk).astype(np.float32)
+        return pd.Series(risk_adjustment, index=df_index).clip(0.1, 1.5)
 
     def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V2.0.0 · 日内衰减：引入吸筹极点抵消崩塌"""
@@ -522,7 +509,7 @@ class CalculatePriceVolumeDynamics:
         return pd.Series((0.8 + impulse_factor * 0.4) * persistence * leadership_bonus * rank_pulse, index=df_index, dtype=np.float32).clip(0.6, 2.2)
 
     def _calculate_volatility_clustering_adjustment(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V3.0.0 · 波动率聚集惩罚与伽马增益：挂钩全域状态机，剥夺向下发散或滞涨派发时的幸存者偏差评分"""
+        """V3.1.0 · 波动率聚集惩罚与伽马增益：剥离冗余判定交由主线天网控制"""
         bbw_z = _numba_rolling_norm_preserve_sign(raw['BBW_21_2.0_D'].values.astype(np.float32), 21) * 3.0
         is_squeeze = (bbw_z < -1.0)
         vcp_ignite = np.where(is_squeeze & (raw['ACCEL_5_BBW_21_2.0_D'].values.astype(np.float32) > 0), 1.4, 1.0).astype(np.float32)
@@ -532,8 +519,7 @@ class CalculatePriceVolumeDynamics:
         adj = np.where(is_squeeze & (raw['JERK_3_close_D'].values.astype(np.float32) > 0), 1.5 * vcp_ignite * squeeze_bonus, adj)
         adj = np.where(is_squeeze & (raw['JERK_3_close_D'].values.astype(np.float32) < 0), 0.5, adj)
         final_score = adj * trap
-        fatal_trap = (raw['FLAG_PRICE_CRASH'].values > 0.5) | (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5) | ((bbw_z > 1.5) & (raw['SLOPE_5_close_D'].values.astype(np.float32) < -0.01))
-        return pd.Series(np.where(fatal_trap, 0.1, final_score).astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 2.5)
+        return pd.Series(final_score.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 2.5)
 
     def _calculate_sector_overflow_decay(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         """V2.0.0 · 熵增雪崩：引入分形混沌耗散测度"""
@@ -562,22 +548,23 @@ class CalculatePriceVolumeDynamics:
         return pd.Series(b_f * d_b * regime_bias * realization_ratio, index=df_index, dtype=np.float32)
 
     def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V3.0.0 · 分形相干效率：挂钩ADX趋势活力与全域状态机，消灭高位横盘震荡被数学分形误判为高持久度特征的死穴"""
+        """V3.1.0 · 分形相干效率：接入[均线物理相干性]，解决独立分形系统在暴力洗盘期的空间失真盲点，剥离冗余熔断"""
         f_all = _numba_fractal_dimension(np.vstack((raw['close_D'].values.astype(np.float32), raw['volume_D'].values.astype(np.float32))), window=21)
         h_p, h_v = (2.0 - f_all[0]).astype(np.float32), (2.0 - f_all[1]).astype(np.float32)
         gap_z = _numba_rolling_norm_preserve_sign(np.abs(h_p - h_v), 21) * 3.0
         res_score = np.clip(1.2 - np.abs(gap_z) * 0.2, 0.5, 1.3).astype(np.float32)
-        is_super_trend = (h_p > 0.8) & (raw['ADX_14_D'].values.astype(np.float32) > 25.0) & (raw['FLAG_PRICE_CRASH'].values < 0.5) & (raw['FLAG_STAGNANT_DISTRIBUTION'].values < 0.5)
+        is_super_trend = (h_p > 0.8) & (raw['ADX_14_D'].values.astype(np.float32) > 25.0)
         res_score = np.where(is_super_trend, 1.2, res_score).astype(np.float32)
         struct_stab = _numba_rolling_accumulation(np.where(h_p > 0.55, 1.0, 0.0).astype(np.float32), int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1]))
         adx_gate = np.clip(raw['ADX_14_D'].values.astype(np.float32) / 20.0, 0.5, 1.5).astype(np.float32)
-        final = res_score * np.clip(struct_stab / 15.0, 0.9, 1.3).astype(np.float32) * adx_gate
+        ma_coherence = raw['MA_COHERENCE_RESONANCE_D'].values.astype(np.float32)
+        ma_boost = np.clip(1.0 + _numba_rolling_norm_preserve_sign(ma_coherence, 21) * 0.3, 0.7, 1.3).astype(np.float32)
+        final = res_score * np.clip(struct_stab / 15.0, 0.9, 1.3).astype(np.float32) * adx_gate * ma_boost
         final_series = pd.Series(np.where((h_p > 0.55) & (pd.Series(h_p, index=df_index).diff(5).fillna(0).values.astype(np.float32) > 0), final * 1.2, final), index=df_index, dtype=np.float32)
-        fatal_trap = (raw['FLAG_PRICE_CRASH'].values > 0.5) | (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5)
-        return pd.Series(np.where(fatal_trap, 0.1, final_series.values).astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 2.5)
+        return pd.Series(final_series.values.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 2.5)
 
     def _calculate_chip_lock_efficiency(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V3.0.0 · 筹码锁定效率：同步全局状态机，剥夺高换手暴跌或滞涨派发产生的虚假历史锁仓高分"""
+        """V3.1.0 · 筹码锁定效率：剥离冗余判定交由主线天网控制"""
         high_win_days = raw['ACCUM_13_HIGH_WINNER'].values.astype(np.float32)
         c_50 = np.where(raw['cost_50pct_D'].values.astype(np.float32) == 0, raw['close_D'].values.astype(np.float32), raw['cost_50pct_D'].values.astype(np.float32))
         eff_win = np.maximum(raw['winner_rate_D'].values.astype(np.float32), np.maximum(np.where((raw['close_D'].values.astype(np.float32) > c_50), 0.6, 0.0).astype(np.float32), np.clip(high_win_days / 13.0, 0.0, 1.0) * 0.8))
@@ -588,12 +575,10 @@ class CalculatePriceVolumeDynamics:
         k_bonus = 1.0 + np.where((raw['ACCEL_5_winner_rate_D'].values.astype(np.float32) > 0) & (raw['ACCEL_5_turnover_rate_f_D'].values.astype(np.float32) < 0), 0.3, 0.0).astype(np.float32) + np.where(raw['JERK_3_winner_rate_D'].values.astype(np.float32) > 0.1, 0.2, 0.0).astype(np.float32)
         deep_lock_mult = np.where(high_win_days > 10, 1.5, np.where(high_win_days > 5, 1.2, 1.0)).astype(np.float32)
         final_chip = eff_win * lock_factor * k_bonus * deep_lock_mult * (0.8 + (raw['close_D'].values.astype(np.float32) > c_50).astype(np.float32) * 0.2)
-        chip_migration_collapse = (raw['FLAG_PRICE_CRASH'].values > 0.5) | (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5)
-        final_chip = np.where(chip_migration_collapse, 0.1, final_chip).astype(np.float32)
         return pd.Series(final_chip, index=df_index, dtype=np.float32).clip(0.1, 2.5)
 
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V3.0.0 · 微观矢量攻击阵列：引入Tick级一票否决与全域状态机，粉碎主力托盘派发的吸筹伪装"""
+        """V3.1.0 · 微观矢量攻击阵列：剥离冗余判定交由主线天网控制"""
         e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values).astype(np.float32)
         l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values).astype(np.float32)
         t_a = (raw['amount_D'].values + 1e-9).astype(np.float32)
@@ -613,20 +598,22 @@ class CalculatePriceVolumeDynamics:
         tick_bonus = np.clip(1.0 + tick_norm * 0.3, 0.5, 1.3).astype(np.float32)
         stealth_bonus = np.clip(1.0 + _numba_rolling_norm_preserve_sign(raw['stealth_flow_ratio_D'].values.astype(np.float32), 21) * 0.2, 0.8, 1.2).astype(np.float32)
         final_score = adjusted_base * np.maximum(sync_score, 0.1) * np.maximum(jerk_bonus, 0.1) * np.maximum(lv_bonus, 0.1) * np.maximum(tick_bonus, 0.1) * np.maximum(stealth_bonus, 0.1)
-        fatal_trap = (raw['FLAG_PRICE_CRASH'].values > 0.5) | (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5) | ((tick_net < -20000) & (tick_norm < -1.5))
-        return pd.Series(np.where(fatal_trap, 0.1, final_score).astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 3.0)
+        return pd.Series(final_score.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 3.0)
 
     def _calculate_vpa_elasticity_reflexivity(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V2.0.0 · 流体反身性"""
+        """V3.1.0 · 流体反身性：集成[主力调节量价效率]，让单纯的相对弹性拥有主力意志的背书，剥离内部熔断"""
         current_elasticity = np.abs(raw['pct_change_D'].values.astype(np.float32)) / (np.abs(pd.Series(raw['volume_D'].values, index=df_index).pct_change().fillna(0).values.astype(np.float32)) + 0.1)
         ela_median = pd.Series(current_elasticity, index=df_index).rolling(21).median().replace(0, 0.01).values.astype(np.float32)
         score = np.clip(np.tanh(current_elasticity / ela_median - 0.8) + 0.5, 0.5, 1.8).astype(np.float32)
         hab_score = np.clip(raw['ACCUM_13_ELASTICITY'].values.astype(np.float32) / (ela_median * 13.0 + 1e-9), 0.8, 1.4).astype(np.float32)
         slope_bonus = np.where(pd.Series(current_elasticity, index=df_index).diff(3).fillna(0).values.astype(np.float32) > 0, 1.2, 1.0).astype(np.float32)
-        return pd.Series(score * np.maximum(slope_bonus, 0.1) * np.maximum(hab_score, 0.1), index=df_index, dtype=np.float32).clip(0.5, 2.5)
+        vpa_adj = raw['VPA_MF_ADJUSTED_EFF_D'].values.astype(np.float32)
+        vpa_boost = np.clip(1.0 + _numba_rolling_norm_preserve_sign(vpa_adj, 21) * 0.4, 0.6, 1.5).astype(np.float32)
+        final_score = score * np.maximum(slope_bonus, 0.1) * np.maximum(hab_score, 0.1) * vpa_boost
+        return pd.Series(final_score.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 2.5)
 
     def _calculate_wyckoff_breakout_quality(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V3.0.0 · 威科夫突破：接入全局状态机，识别高换手低振幅的隐蔽出货，终结 VCP 假突破得分"""
+        """V3.1.0 · 威科夫突破：剥离冗余判定交由主线天网控制"""
         high = raw['high_D'].values.astype(np.float32)
         low = raw['low_D'].values.astype(np.float32)
         close = raw['close_D'].values.astype(np.float32)
@@ -647,14 +634,11 @@ class CalculatePriceVolumeDynamics:
         is_explosive = (jerk_z > 1.5)
         base_q = np.where(is_breakout & is_explosive, 1.6, np.where(is_breakout, 0.9, 0.0)).astype(np.float32)
         prep_q = np.where((tr_slope < 0) & (tr_accel > -0.01), 1.1, 0.9).astype(np.float32)
-        fatal_illusion = (raw['FLAG_PRICE_CRASH'].values > 0.5) | (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5)
-        quality = np.where(fatal_illusion, 0.1, np.maximum(base_q, prep_q)).astype(np.float32)
-        quality_mult = np.where(fatal_illusion, 0.5, quality_mult).astype(np.float32)
-        final_score = pd.Series(quality * np.where((tr_slope < 0), 1.3, 1.0).astype(np.float32) * quality_mult, index=df_index, dtype=np.float32).clip(0.1, 2.5)
+        final_score = pd.Series(np.maximum(base_q, prep_q) * np.where((tr_slope < 0), 1.3, 1.0).astype(np.float32) * quality_mult, index=df_index, dtype=np.float32).clip(0.1, 2.5)
         return final_score
 
     def _calculate_trend_inertia_momentum(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V3.0.0 · 趋势运动学：接入全局状态机，触发滞涨派发熔断时瞬间坍缩，摧毁震荡出货时的趋势惯性假象"""
+        """V3.1.0 · 趋势运动学：内部冗余熔断代码剥离，严格执行 DRY (Don't Repeat Yourself) 准则"""
         ma5 = raw['close_D'].rolling(5).mean().fillna(0).values.astype(np.float32)
         ma21 = raw['close_D'].rolling(21).mean().fillna(0).values.astype(np.float32)
         ma55 = raw['close_D'].rolling(55).mean().fillna(0).values.astype(np.float32)
@@ -669,32 +653,37 @@ class CalculatePriceVolumeDynamics:
         consistency_bonus = np.clip(pos_days / 15.0, 0.8, 1.25).astype(np.float32)
         r2_vals = raw['GEOM_REG_R2_D'].values.astype(np.float32)
         final_inertia = alignment * np.maximum(kinematic_score, 0.1) * np.maximum(consistency_bonus, 0.1) * np.maximum((0.6 + np.clip(r2_vals, 0.0, 1.0) * 0.4), 0.1) * np.maximum(adx_bonus, 0.1) * np.maximum(macd_bonus, 0.1)
-        distribution_veto = (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5) | (raw['FLAG_PRICE_CRASH'].values > 0.5)
-        final_inertia = np.where(distribution_veto, 0.1, final_inertia).astype(np.float32)
         return pd.Series(final_inertia, index=df_index, dtype=np.float32).clip(0.1, 2.5)
 
     def _calculate_market_permeability_index(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V2.0.0 · 市场渗透率：整合博弈烈度共振"""
+        """V3.1.0 · 市场渗透率：赋予真龙[龙头霸权绝对特权]，点火主升浪时免疫情绪饱和衰减，令乘数起飞"""
         sent_rank = _numba_rolling_rank(raw['market_sentiment_score_D'].values, 21)
-        perm = np.where((sent_rank < 0.2) & (raw['ACCEL_5_market_sentiment_score_D'].values > 0), 1.3, np.where((sent_rank > 0.8) & (raw['ACCEL_5_market_sentiment_score_D'].values > 0), 0.7, 1.0)).astype(np.float32)
+        accel = raw['ACCEL_5_market_sentiment_score_D'].values
+        is_ignition = raw['FLAG_IGNITION'].values > 0.5
+        is_leader = raw['IS_MARKET_LEADER_D'].values.astype(np.float32) > 0.5
+        perm = np.where((sent_rank < 0.2) & (accel > 0), 1.3, np.where((sent_rank > 0.8) & (accel > 0) & (is_ignition | is_leader), 1.4, np.where((sent_rank > 0.8) & (accel > 0), 0.7, 1.0))).astype(np.float32)
         acc_sent = raw['ACCUM_13_SENTIMENT'].values
-        saturation_decay = np.where(acc_sent > pd.Series(acc_sent, index=df_index).rolling(21).median().fillna(0).values * 1.5, 0.8, 1.0).astype(np.float32)
+        saturation_decay = np.where((acc_sent > pd.Series(acc_sent, index=df_index).rolling(21).median().fillna(0).values * 1.5) & (~is_ignition) & (~is_leader), 0.8, 1.0).astype(np.float32)
         bonus = np.where(raw['JERK_3_industry_strength_rank_D'].values < -2.0, 1.3, np.where(raw['industry_strength_rank_D'].values < 0.1, 1.1, 0.9)).astype(np.float32)
-        game_z = _numba_rolling_zscore_tanh(raw['game_intensity_D'].values.astype(np.float32), 21)
+        game_z = _numba_rolling_norm_preserve_sign(raw['game_intensity_D'].values.astype(np.float32), 21) * 3.0
         game_boost = np.clip(1.0 + game_z * 0.2, 0.8, 1.2).astype(np.float32)
-        return pd.Series(perm * np.maximum(bonus, 0.1) * np.maximum(saturation_decay, 0.1) * np.maximum(game_boost, 0.1), index=df_index, dtype=np.float32).clip(0.5, 2.0)
+        leader_boost = np.where(is_leader, 1.5, 1.0).astype(np.float32)
+        final_perm = perm * np.maximum(bonus, 0.1) * np.maximum(saturation_decay, 0.1) * np.maximum(game_boost, 0.1) * leader_boost
+        return pd.Series(final_perm, index=df_index, dtype=np.float32).clip(0.1, 2.5)
 
     def _calculate_entry_accessibility_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V2.0.0 · 入场可获得性：引入 CMF 蔡金资金流量池"""
+        """V3.1.0 · 入场可获得性：彻底颠覆底层逻辑，将[涨停封死买不到]从惩罚降权转变为物理势能的最高额奖励(1.5x)，剥离冗余判定"""
         rel_liq = raw['turnover_rate_f_D'].values.astype(np.float32) / pd.Series(raw['turnover_rate_f_D'].values.astype(np.float32), index=df_index).rolling(21).mean().replace(0, 0.1).values.astype(np.float32)
         base_access = np.where(rel_liq < 0.5, 0.4 + rel_liq * 0.5, np.where(rel_liq <= 2.5, 1.0, np.clip(2.5/rel_liq, 0.5, 1.0))).astype(np.float32)
-        limit_penalty = np.where(raw['close_D'].values.astype(np.float32) >= raw['up_limit_D'].values.astype(np.float32) * 0.999, 0.2 + 0.3 * (1.0 - np.clip(raw['closing_flow_intensity_D'].values.astype(np.float32), 0.0, 1.0)), 1.0).astype(np.float32)
-        congestion = np.where((raw['ACCEL_5_trade_count_D'].values.astype(np.float32) > 0.1) & (raw['ACCUM_5_LIQUIDITY_LOCK'].values.astype(np.float32) >= 3), 0.6, 1.0).astype(np.float32)
+        is_limit_up = raw['FLAG_LIMIT_UP'].values > 0.5
+        limit_penalty = np.where(is_limit_up, 1.5, np.where(raw['close_D'].values.astype(np.float32) >= raw['up_limit_D'].values.astype(np.float32) * 0.999, 0.2 + 0.3 * (1.0 - np.clip(raw['closing_flow_intensity_D'].values.astype(np.float32), 0.0, 1.0)), 1.0)).astype(np.float32)
+        congestion = np.where((raw['ACCEL_5_trade_count_D'].values.astype(np.float32) > 0.1) & (raw['ACCUM_5_LIQUIDITY_LOCK'].values.astype(np.float32) >= 3) & (~is_limit_up), 0.6, 1.0).astype(np.float32)
         cmf_bonus = np.clip(1.0 + raw['CMF_21_D'].values.astype(np.float32), 0.8, 1.2).astype(np.float32)
-        return pd.Series(base_access * np.maximum(limit_penalty, 0.1) * np.maximum(congestion, 0.1) * np.maximum(cmf_bonus, 0.1), index=df_index, dtype=np.float32).clip(0.1, 1.5)
+        access = base_access * np.maximum(limit_penalty, 0.1) * np.maximum(congestion, 0.1) * np.maximum(cmf_bonus, 0.1)
+        return pd.Series(access.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 1.8)
 
     def _calculate_entropic_ordering_bonus(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V3.0.0 · 熵减有序性：接入全局状态机，彻底粉碎主力高位震荡派发导致散户套牢一致性而被误判为良性熵减的死亡陷阱"""
+        """V3.1.0 · 熵减有序性：剥离内部冗余熔断判定，交由主线天网控制"""
         s5 = raw['SLOPE_5_chip_entropy_D'].values.astype(np.float32)
         a5 = raw['ACCEL_5_chip_entropy_D'].values.astype(np.float32)
         j3 = raw['JERK_3_chip_entropy_D'].values.astype(np.float32)
@@ -708,22 +697,17 @@ class CalculatePriceVolumeDynamics:
         stab_ratio = ent_stab / 21.0
         stability_mult = np.clip(stab_ratio * 2.0, 0.8, 1.4).astype(np.float32)
         penalty = np.where((pct > 0) & (s5 > 0), 0.7, 1.0).astype(np.float32)
-        fatal_trap = (raw['FLAG_PRICE_CRASH'].values > 0.5) | (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5)
-        base_bonus = np.where(fatal_trap, 0.0, base_bonus).astype(np.float32)
-        stability_mult = np.where(fatal_trap, 0.5, stability_mult).astype(np.float32)
-        penalty = np.where(fatal_trap, 0.1, penalty).astype(np.float32)
         final_factor = pd.Series((1.0 + base_bonus) * jerk_bonus * stability_mult * penalty, index=df_index, dtype=np.float32).clip(0.1, 2.5)
         return final_factor
 
     def _calculate_vwap_propulsion_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V3.0.0 · VWAP 推进力量子场：强制由 T0 瞬时速度全权接管，摧毁滞后均线斜率带来的正向满分假象"""
+        """V3.1.0 · VWAP 量子引力场：剥离内部冗余熔断代码，交由主线天网统一执行坍缩剥夺"""
         vwap = raw['VWAP_D'].values.astype(np.float32)
         close = raw['close_D'].values.astype(np.float32)
         pct_change = raw['pct_change_D'].values.astype(np.float32)
         norm_propulsion = np.clip(_numba_rolling_norm_preserve_sign(pct_change, 21) * 3.0, -3.0, 3.0)
         bias = (close - vwap) / (vwap + 1e-9)
-        instant_collapse = (raw['FLAG_PRICE_CRASH'].values > 0.5) | (raw['FLAG_STAGNANT_DISTRIBUTION'].values > 0.5)
-        instant_polarity = np.where(instant_collapse, -1.0, np.where((bias > 0.015) & (pct_change > 0.04), 1.0, np.sign(norm_propulsion)))
+        instant_polarity = np.where((bias < -0.015) & (pct_change < -0.04), -1.0, np.where((bias > 0.015) & (pct_change > 0.04), 1.0, np.sign(norm_propulsion)))
         propulsion_score = (np.tanh(np.abs(norm_propulsion) * 0.8) * 1.5 * instant_polarity).astype(np.float32)
         bias_penalty = np.where(np.abs(bias) > 0.08, 0.8, 1.0).astype(np.float32)
         kinematic_boost = np.where(raw['ACCEL_5_close_D'].values.astype(np.float32) * instant_polarity > 0, 1.3, 1.0).astype(np.float32)
@@ -735,8 +719,8 @@ class CalculatePriceVolumeDynamics:
         final_score = propulsion_score * bias_penalty * kinematic_boost * thickness_bonus * qho_resonance
         return pd.Series(final_score.astype(np.float32), index=df_index, dtype=np.float32).clip(-5.0, 5.0)
 
-    def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], scores: Dict[str, pd.Series], final_score: float, unadjusted: np.ndarray, global_factor: np.ndarray):
-        """V3.0.0 · 全息探针极点侦测：全域状态机同步日志，揭示真实的高位滞涨派发熔断网络与受控裂变倍数"""
+    def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], scores: Dict[str, pd.Series], final_score: float, unadjusted: np.ndarray, global_factor: np.ndarray, global_factor_raw: np.ndarray):
+        """V3.1.0 · 全息探针极点侦测：全景展示降维压缩算子与多头主升点火状态机，透视真正的物理杠杆"""
         if probe_ts not in raw['close_D'].index: return
         idx = raw['close_D'].index.get_loc(probe_ts)
         w_s, w_l = int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[0]), int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1])
@@ -746,12 +730,18 @@ class CalculatePriceVolumeDynamics:
         smart_shock = raw['HAB_SHOCK_21_SMART_MONEY'].values[idx]
         vol_shock = raw['HAB_SHOCK_21_VOLUME'].values[idx]
         health_score = np.clip(50.0 + final_score * 10.0, 0, 100)
+        is_rally_dist = raw['FLAG_RALLY_DISTRIBUTION'].values[idx] > 0.5
         is_stagnant_dist = raw['FLAG_STAGNANT_DISTRIBUTION'].values[idx] > 0.5
         is_crash = raw['FLAG_PRICE_CRASH'].values[idx] > 0.5
-        status_str = "核按钮级深渊" if is_crash else ("滞涨派发绞肉机" if is_stagnant_dist else ("主升发散" if health_score > 60 else "高位分歧"))
+        is_ignition = raw['FLAG_IGNITION'].values[idx] > 0.5
+        is_limit_up = raw['FLAG_LIMIT_UP'].values[idx] > 0.5
+        is_leader = raw['IS_MARKET_LEADER_D'].values[idx] > 0.5
+        is_parabolic = raw['STATE_PARABOLIC_WARNING_D'].values[idx] > 0.5
+        is_fatal = is_rally_dist or is_stagnant_dist or is_crash
+        status_str = "拉高出货诱多" if is_rally_dist else ("滞涨派发绞肉机" if is_stagnant_dist else ("核按钮级深渊" if is_crash else ("👑绝对龙头主升浪" if is_leader else ("🚀主升点火" if is_ignition else ("⚠️抛物线预警" if is_parabolic else ("健康发散" if health_score > 60 else "分歧震荡"))))))
         inv_f = np.clip(1.0 / (global_factor[idx] + 1e-9), 0.1, 5.0)
         actual_multiplier = inv_f if unadjusted[idx] < 0 else global_factor[idx]
-        print(f"\n{'='*30} [全息动力学与量子物理场探针 V3.0.0 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
+        print(f"\n{'='*30} [全息动力学与量子物理场探针 V3.1.0 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
         print(f"【自适应边界】市值窗口: 短周期 {w_s}d / 长周期 {w_l}d")
         print(f"【基础物理学】收盘: {raw['close_D'].values[idx]:.2f} | T0瞬时速度: {raw['pct_change_D'].values[idx]*100:.2f}% | 换手: {raw['turnover_rate_f_D'].values[idx]*100:.2f}%")
         print(f"【HAB 冲击缓冲池】")
@@ -759,20 +749,22 @@ class CalculatePriceVolumeDynamics:
         print(f"  ├─ 主力冲击强度 (13/21d Shock): {raw['HAB_SHOCK_13_SMART_MONEY'].values[idx]:.4f}x / {smart_shock:.4f}x")
         print(f"  └─ 成交量冲击强度 (13/21d Shock): {raw['HAB_SHOCK_13_VOLUME'].values[idx]:.4f}x / {vol_shock:.4f}x")
         print(f"【高维引擎与物理场测度】")
-        print(f"  ├─ 趋势定海神针 (ADX/MACDh/CMF): {raw['ADX_14_D'].values[idx]:.1f} / {raw['MACDh_13_34_8_D'].values[idx]:.4f} / {raw['CMF_21_D'].values[idx]:.3f}")
-        print(f"  ├─ 微观吸筹潜行: 隐秘={raw['stealth_flow_ratio_D'].values[idx]:.2f} | 异动大单={raw['tick_large_order_net_D'].values[idx]:.2f}")
-        print(f"  └─ 阻尼极限测试: 套牢盘压制={raw['pressure_trapped_D'].values[idx]:.3f} | 博弈烈度={raw['game_intensity_D'].values[idx]:.3f}")
-        print(f"【健康度与引擎分输出 (防爆机制：全域状态机同步坍缩生效)】")
+        print(f"  ├─ 趋势神针 (ADX/MACDh/CMF): {raw['ADX_14_D'].values[idx]:.1f} / {raw['MACDh_13_34_8_D'].values[idx]:.4f} / {raw['CMF_21_D'].values[idx]:.3f}")
+        print(f"  ├─ 微观潜行与异动: 隐秘={raw['stealth_flow_ratio_D'].values[idx]:.2f} | 异动大单={raw['tick_large_order_net_D'].values[idx]:.2f}")
+        print(f"  └─ 绝对特权与极限压制: 龙头霸权={'[激活]' if is_leader else '关闭'} | 抛物线死劫={'[报警]' if is_parabolic else '安全'} | 涨停封死={'[锁定]' if is_limit_up else '未封'}")
+        print(f"【多头爆发降维引擎 (突破过敏与几何诅咒已根除)】")
+        print(f"  └─ 三维全息压缩 (Dimensional Compounding): 原始15维暴乘 {global_factor_raw[idx]:.6f} -> 降维提纯后杠杆 {global_factor[idx]:.4f}x")
+        print(f"【健康度与引擎分输出 (中央集权天网机制：DRY 代码全域同步坍缩)】")
         print(f"  ★ 无量纲体检评分: {health_score:.1f} ({status_str}) | 瞬时脉冲Z: {jerk_z:.2f}σ")
-        print(f"  ★ 极性状态: {'[向下派发雪崩]' if unadjusted[idx] < 0 else '[向上突破势能]'} | 绝对基础向量: {unadjusted[idx]:.4f}")
-        print(f"  ★ 极性共轭倒置: 原始环境乘数 {global_factor[idx]:.4f}x -> 受控核爆裂变 {actual_multiplier:.4f}x")
+        print(f"  ★ 极性状态: {'[深渊坠落/派发]' if unadjusted[idx] < 0 else '[主升向上势能]'} | 绝对基础向量: {unadjusted[idx]:.4f}")
+        print(f"  ★ 真实物理杠杆: {'极性共轭裂变(乘数倒置)' if unadjusted[idx] < 0 else '正向引力放大'} -> {actual_multiplier:.4f}x")
+        tag = "(天网剥夺)" if is_fatal else ""
         print(f"  [物理中枢] 物理:{scores['physical'].values[idx]:.3f} | 几何(免0值):{scores['geo'].values[idx]:.3f} | VWAP(QHO势能):{scores['vwap'].values[idx]:.3f}")
-        print(f"  [基底结构] 筹码(同步熔断):{scores['chip'].values[idx]:.3f} | 熵序(同步熔断):{scores['entropy'].values[idx]:.3f} | 威科夫(同步熔断):{scores['wyckoff'].values[idx]:.3f} | 惯性(同步熔断):{scores['inertia'].values[idx]:.3f}")
-        print(f"  [微观战术] 攻击(Tick阻断):{scores['micro'].values[idx]:.3f} | 分形(ADX定序):{scores['fractal'].values[idx]:.3f} | 伽马(发散惩罚):{scores['vol_gamma'].values[idx]:.3f}")
+        print(f"  [基底结构] 筹码{tag}:{scores['chip'].values[idx]:.3f} | 熵序{tag}:{scores['entropy'].values[idx]:.3f} | 威科夫{tag}:{scores['wyckoff'].values[idx]:.3f} | 惯性{tag}:{scores['inertia'].values[idx]:.3f}")
+        print(f"  [微观战术] 攻击{tag}:{scores['micro'].values[idx]:.3f} | 分形{tag}:{scores['fractal'].values[idx]:.3f} | 渗透(龙头特权){tag}:{scores['perm'].values[idx]:.3f} | 风险(涨停赦免){tag}:{scores['risk'].values[idx]:.3f}")
         print(f"{'-'*85}")
-        print(f" >>> PROCESS_META_POWER_TRANSFER 最终全域受控裂变总分: {final_score:.4f}")
+        print(f" >>> PROCESS_META_POWER_TRANSFER 最终全息量子纠缠总分: {final_score:.4f}")
         print(f"{'='*85}\n")
-
 
 
 
