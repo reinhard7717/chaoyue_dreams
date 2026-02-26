@@ -10,27 +10,27 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateMainForceControlRelationship:
     """
-    【V54.0.0 · 主力控盘全息量子决策系统 · 极性感知与拓扑平滑版】
+    【V56.0.0 · 主力控盘全息量子决策系统 · 终极拓扑防爆版】
     PROCESS_META_MAIN_FORCE_CONTROL
-    - 核心职责: 计算“主力控盘”的专属关系分数，根除极性倒置惩罚，引入换手半衰期与拓扑连续生态模型。
-    - 版本: 54.0.0
+    - 核心职责: 计算“主力控盘”专属关系分数，根除极性反噬、0值死锁与未来函数，搭载全域代数软饱和。
+    - 版本: 56.0.0
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
-        """【修改要点】初始化处理器，挂载参数与探针配置。"""
+        """【用途】初始化主力控盘处理器，挂载策略上下文参数矩阵与探针配置。"""
         self.strategy = strategy_instance
         self.helper = helper_instance
         self.params = self.helper.params
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
     def _print_debug_info(self, debug_output: Dict):
-        """【修改要点】统一打印调试信息，保持日志清洁。"""
+        """【用途】统一格式化打印探针诊断信息，维持黑盒日志的高度清洁与可追踪性。"""
         for key, value in debug_output.items():
             if value:
                 print(f"{key}: {value}")
             else:
                 print(key)
     def _get_safe_series(self, df: pd.DataFrame, col_name: str, default_value: float = 0.0, method_name: str = "") -> pd.Series:
-        """【修改要点】安全读取序列，处理NaN与断层，结合 neutral_nan_defaults 业务极值兜底防爆。"""
+        """【用途】安全加载底层物理军械数据。内置断层自愈防空洞，结合 neutral_nan_defaults 注入业务中性极值兜底。"""
         process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         neutral_nan_defaults = process_params.get('neutral_nan_defaults', {})
         current_default_value = neutral_nan_defaults.get(col_name, default_value)
@@ -39,14 +39,14 @@ class CalculateMainForceControlRelationship:
         series = df[col_name].astype(np.float32)
         return series.ffill().fillna(current_default_value)
     def _get_robust_noise_floor(self, s: pd.Series, window_std=21, window_med=252) -> pd.Series:
-        """【修改要点】构建绝对单向时间膜底噪：利用向后滚动的标准差与中位数，彻底根除包含未来数据的全局分位数污染。"""
+        """【用途/安全】绝对单向时间膜底噪萃取器：废止引发前瞻偏差的全局quantile，采用向后滚动的标准差与扩展中位数，100%封印未来函数。"""
         roll_std = s.abs().rolling(window=window_std, min_periods=3).std().ffill().fillna(0.0)
         roll_med = s.abs().rolling(window=window_med, min_periods=3).median().ffill()
         exp_med = s.abs().expanding(min_periods=1).median().ffill().fillna(1e-5)
         final_med = roll_med.fillna(exp_med)
         return np.maximum(roll_std, final_med) + 1e-5
     def _apply_kinematics_with_threshold_gate(self, series: pd.Series, periods: tuple) -> Tuple[pd.Series, pd.Series, pd.Series]:
-        """【修改要点】执行带自适应底噪门限的动力学微积分(Slope, Accel, Jerk)，阻断零基陷阱放大随机游走噪音。"""
+        """【用途】动力学导数矩阵发生器：计算Slope/Accel/Jerk微积分。注入自适应阈值门限(Tanh)，湮灭无穷小量的随机游走噪音。"""
         p_slope, p_accel, p_jerk = periods
         slope = series.diff(p_slope).ffill().fillna(0.0)
         noise_slope = self._get_robust_noise_floor(slope) * 0.5
@@ -59,14 +59,14 @@ class CalculateMainForceControlRelationship:
         jerk_gated = jerk * np.tanh(np.abs(jerk) / noise_jerk)
         return slope_gated, accel_gated, jerk_gated
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【修改要点】全局量子调度器：聚合全息上下文，驱动物理组件引擎，执行极性吞噬与代数软饱和。"""
+        """【用途】五层金字塔决策系统最高调度总线：融合传统控盘、净活动力与LV生态，执行非线性极性吞噬与软饱和降维投影。"""
         method_name = "calculate_main_force_control_relationship"
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
         _temp_debug_values = {} 
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
         if probe_ts:
-            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V54.0.0 (极性感知与换手半衰期版)")
+            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V56.0.0 (终极拓扑防爆版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
         if hasattr(self, '_validate_arsenal_signals'):
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
@@ -104,14 +104,14 @@ class CalculateMainForceControlRelationship:
             self._calculate_main_force_control_relationship_debug_output(debug_output, _temp_debug_values, method_name, probe_ts)
         return final_control_score
     def _get_control_parameters(self, config: Dict) -> Tuple[Dict, Dict]:
-        """【修改要点】获取 MTF 斜率和加速度的时间周期与权重分配。"""
+        """【用途】参数解码：提取多时间框架(MTF)斜率和加速度的斐波那契计算周期与共振权重。"""
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         return actual_mtf_weights, mtf_slope_accel_weights
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
-        """【修改要点】全息物理总线映射：引入换手率半衰期衰减模型，彻底废除刻舟求剑的固定存量记忆。"""
+        """【用途/修复】全息物理总线挂载：自动校准换手率量纲漂移，应用指数衰减方程建立具有记忆半衰期的HAB存量护盾。"""
         market_raw = {
             "close": self._get_safe_series(df, 'close_D', 0.0),
             "amount": self._get_safe_series(df, 'amount_D', 0.0),
@@ -146,8 +146,10 @@ class CalculateMainForceControlRelationship:
             "hab_net_mf_13": None, "hab_net_mf_21": None, "hab_net_mf_34": None, "hab_net_mf_55": None
         }
         turnover_rate = market_raw["turnover_rate"].replace(0.0, np.nan).ffill().fillna(1.0)
-        t_rate_pct = np.where(turnover_rate < 2.0, turnover_rate * 100.0, turnover_rate)
-        t_rate_pct_s = pd.Series(t_rate_pct, index=df.index)
+        t_max_expanding = turnover_rate.expanding(min_periods=1).max().ffill().fillna(1.0)
+        t_scale = pd.Series(1.0, index=df.index).mask(t_max_expanding <= 1.0, 100.0)
+        t_rate_pct_s = (turnover_rate * t_scale).clip(0.01, 200.0)
+        market_raw["turnover_rate"] = t_rate_pct_s 
         def _calc_hab_with_decay(flow_s: pd.Series, t_rate_s: pd.Series, window: int) -> pd.Series:
             cum_flow = flow_s.rolling(window=window, min_periods=max(1, int(window*0.3))).sum().shift(1).ffill().fillna(0.0)
             cum_turnover = t_rate_s.rolling(window=window, min_periods=max(1, int(window*0.3))).sum().shift(1).ffill().fillna(window * 1.0)
@@ -188,7 +190,7 @@ class CalculateMainForceControlRelationship:
             "industry_rank": self._get_safe_series(df, 'industry_strength_rank_D', 50.0),
             "reversal_prob": self._get_safe_series(df, 'reversal_prob_D', 0.0),
             "divergence_strength": self._get_safe_series(df, 'divergence_strength_D', 0.0),
-            "turnover": turnover_rate,
+            "turnover": t_rate_pct_s,
             "adx_14": self._get_safe_series(df, 'ADX_14_D', 20.0),
             "market_leader": _market_leader,
             "golden_pit": _golden_pit,
@@ -212,15 +214,18 @@ class CalculateMainForceControlRelationship:
         if _temp_debug_values is not None:
             _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {"Close": market_raw['close'], "Chip_Flow_Intensity": funds_raw['chip_flow_intensity'], "Closing_Strength": sentiment_raw['closing_strength'], "Emotional_Extreme": state_raw['emotional_extreme']}
         if probe_ts:
-            print(f"[探针] V54.0.0 物理总线挂载完成。全量系统激活，实施HAB换手率半衰期衰减。")
+            print(f"[探针] V56.0.0 物理总线挂载完成。全息火力系统上线，HAB换手率半衰期模型就绪。")
         return {"market": market_raw, "funds": funds_raw, "structure": structure_raw, "sentiment": sentiment_raw, "state": state_raw, "ema": ema_system}
     def _calculate_lotka_volterra_model(self, df: pd.DataFrame, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series]:
-        """【修改要点】消灭 np.where 导致的 0 轴奇异激变，利用 Tanh 构建物理力场连续过渡模型。"""
+        """【用途】洛特卡-沃尔泰拉生态博弈运算：搭载 Z-Score 量纲自适应转换，及拓扑连续状态混合器，粉碎第三象限多杀多异变。"""
         f = context['funds']
         m = context['market']
         s = context['structure']
         circ_mv = m['circ_mv'].replace(0.0, np.nan).ffill().fillna(1e8)
-        flow_quality = np.tanh(f.get('chip_flow_intensity', pd.Series(50.0, index=index)) / 50.0).clip(0.5, 1.5)
+        raw_intensity = f.get('chip_flow_intensity', pd.Series(50.0, index=index))
+        intensity_median = raw_intensity.expanding(min_periods=1).median().ffill().fillna(50.0)
+        intensity_std = raw_intensity.expanding(min_periods=1).std().ffill().replace(0.0, 1.0).fillna(1.0)
+        flow_quality = (1.0 + np.tanh((raw_intensity - intensity_median) / (intensity_std + 1e-5)) * 0.5).clip(0.5, 1.5)
         predator_flow = (f.get('net_mf_calibrated', pd.Series(0.0, index=index)) + f.get('smart_synergy', pd.Series(0.0, index=index)) + f.get('hm_top_tier', pd.Series(0.0, index=index))) * flow_quality
         predator_flow = predator_flow.ffill().fillna(0.0)
         prey = s.get('pressure_trapped', pd.Series(50.0, index=index)).ffill().fillna(50.0)
@@ -239,14 +244,14 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["逻辑层_LV生态博弈(拓扑平滑态)"] = {"Predator_Force_Z": dx_z, "Prey_Resistance_Z": dy_z, "Regime_Weight": regime_w, "LV_Net_Force": lv_net_force, "LV_Ecological_Tension": lv_tension, "Final_LV_Score": lv_score}
         return lv_score, lv_tension
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
-        """【修改要点】格式化输出全链路调试探针，捕捉软饱和与极性修复快照。"""
+        """【用途】全链路探针诊断字典格式化输出，保障十层金字塔的极性倒置与陷阱崩塌快照透明度。"""
         full_chain = [
             ("1. 物理层 (Raw Arsenal Data)", "1. 物理层 (Raw Arsenal Data)"),
             ("主力平均价格(HAB版)", "2. 原子层 (Weighted Cost Calc)"),
             ("逻辑层_LV生态博弈(拓扑平滑态)", "3. 逻辑层 - 洛特卡-沃尔泰拉博弈"),
             ("组件_传统控盘(柔性梯度版)", "4. 逻辑层 - 传统控盘 (Fibonacci Resonance)"),
             ("组件_成本优势(Harmonic版)", "5. 逻辑层 - 成本优势 (Harmonic Oscillator)"),
-            ("组件_净活动(V54穿甲弹版)", "6. 逻辑层 - 资金动力学 (Armor-Piercing Flows)"),
+            ("组件_净活动(V56穿甲弹版)", "6. 逻辑层 - 资金动力学 (Armor-Piercing Flows)"),
             ("归一化处理", "7. 转换层 (MTF & Normalization)"),
             ("融合_动力学(极性感知版)", "8. 决策层 - 深度融合 (Polarity-Aware Fusion)"),
             ("风控层_杠杆(火箭重力释放版)", "9. 风控层 (Rocket & Gravity Leverage)"),
@@ -262,15 +267,17 @@ class CalculateMainForceControlRelationship:
                     if isinstance(v_print, pd.Series): v_print = np.nan
                     warn_tag = " [!] 负压张量释放" if (isinstance(v_print, float) and "Trap_Force" in sub_key and v_print < -0.5) else ""
                     warn_tag = " [!] 杠杆加速释放" if (isinstance(v_print, float) and "Release_Multiplier" in sub_key and v_print > 2.0) else warn_tag
+                    warn_tag = " [!] 博弈烈度增压" if (isinstance(v_print, float) and "Game_Intensity_Amp" in sub_key and v_print > 1.2) else warn_tag
                     warn_tag = " [!] 幽灵变量熔接" if (isinstance(v_print, float) and "Ghost_Wiring_Bonus" in sub_key and v_print > 0.1) else warn_tag
-                    warn_tag = " [!] 视盲坍缩(黑洞引力)" if (isinstance(v_print, float) and "LV_Net_Force" in sub_key and v_print < -2.0) else warn_tag
+                    warn_tag = " [!] 高位锁仓激活" if (isinstance(v_print, float) and "High_Pos_Lock_Norm" in sub_key and v_print > 0.5) else warn_tag
+                    warn_tag = " [!] 重力加速辅助" if (isinstance(v_print, float) and "Gravity_Assist" in sub_key and v_print > 1.1) else warn_tag
                     if isinstance(v_print, (float, np.floating)):
                         debug_output[f"        {sub_key}: {v_print:.4f}{warn_tag}"] = ""
                     else:
                         debug_output[f"        {sub_key}: {v_print}"] = ""
         self._print_debug_info(debug_output)
     def _calculate_main_force_avg_prices(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
-        """【修改要点】利用 HAB 动态校准 VWAP 极端量纲背离，实施量子隧穿纠正。"""
+        """【用途】基于防未来函数 HAB 强度的 VWAP 平滑均价计算，应用量子隧穿矫正因子过滤大盘股极值量纲背离。"""
         m = context['market']
         f = context['funds']
         s = context['structure']
@@ -305,8 +312,9 @@ class CalculateMainForceControlRelationship:
         circ_mv = m.get('circ_mv', pd.Series(1e8, index=index))
         smart_bias = np.tanh((f.get('smart_synergy', pd.Series(0.0, index=index)) / (circ_mv + 1e-6)) * 1000.0)
         raw_power = norm_slope * 0.5 + norm_accel * 0.3 + smart_bias * 0.2
-        kinematic_power = np.sign(raw_power) * np.power(np.abs(raw_power), 1.2).clip(-1.0, 1.0)
-        flow_weight = np.tanh(turnover / 2.0).clip(0.2, 0.8)
+        safe_raw_power = (np.sign(raw_power) * np.power(np.abs(raw_power), 1.2)).astype(np.float64)
+        kinematic_power = (safe_raw_power / np.sqrt(1.0 + np.square(safe_raw_power))).astype(np.float32)
+        flow_weight = np.tanh(turnover / 10.0).clip(0.2, 0.8) 
         static_weight = 1.0 - flow_weight
         final_buy_price = (hab_cost_buy_21 * flow_weight + cyq_avg_cost * static_weight) * (1.0 + smart_bias * 0.02)
         final_sell_price = (hab_cost_sell_21 * flow_weight + cyq_avg_cost * static_weight)
@@ -315,7 +323,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["主力平均价格(HAB版)"] = {"VWAP_Correction": correction_factor.mean(), "HAB_Cost_21": hab_cost_buy_21, "Kinematic_Power": kinematic_power}
         return result
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, hab_prices: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """【修改要点】利用受迫阻尼振子计算筹码重心牵引力，代数软压缩消除饱和。"""
+        """【用途】胡克定律受迫阻尼谐振子模型。计算筹码重心的牵引回归力，使用全域代数软饱和替换生硬截断防爆。"""
         m = context['market']
         s = context['structure']
         f = context['funds']
@@ -357,7 +365,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["组件_成本优势(Harmonic版)"] = {"Net_Force": net_force, "Final_Cost_Score": final_score}
         return final_score
     def _calculate_main_force_net_activity_score(self, context: Dict, index: pd.Index, config: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
-        """【修改要点】合成复合净动能，实施穿甲弹(Armor-Piercing)机制熔毁存量伪装。"""
+        """【用途】计算多维资金合力微观净动能，实施 Armor-Piercing 穿甲弹机制，利用指数函数动态熔毁对倒引发的虚假存量护甲。"""
         f = context['funds']
         m = context['market']
         s_sent = context['sentiment']
@@ -400,10 +408,10 @@ class CalculateMainForceControlRelationship:
         safe_raw = raw_score.astype(np.float64)
         final_score = (safe_raw / np.sqrt(1.0 + np.square(safe_raw))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["组件_净活动(V54穿甲弹版)"] = {"Raw_Vector": raw_vector, "Armor_Threshold": armor_threshold, "Armor_Melting": armor_melting, "Impact_Strength": impact_strength, "Z_Vel": z_vel, "Final_Activity_Score": final_score}
+            _temp_debug_values["组件_净活动(V56穿甲弹版)"] = {"Raw_Vector": raw_vector, "Armor_Threshold": armor_threshold, "Armor_Melting": armor_melting, "Impact_Strength": impact_strength, "Z_Vel": z_vel, "Final_Activity_Score": final_score}
         return final_score
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
-        """【修改要点】时空均线流形张力计算，保持柔性代数饱和避免高位截断瞎眼。"""
+        """【用途】传统均线流形结构多维张力推演。应用全域代数软饱和替换截断，避免极端趋势偏导数消失瞎眼(Gradient Vanishing)。"""
         ema = context['ema']
         s_struct = context['structure']
         f_funds = context['funds']
@@ -442,7 +450,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["组件_传统控盘(柔性梯度版)"] = {"HAB_Slope_34": hab_slope_34, "Final_Trad_Score": final_score}
         return final_score
     def _calculate_control_leverage_model(self, index: pd.Index, traditional_score: pd.Series, fused_score: pd.Series, net_activity_score: pd.Series, norm_flow: pd.Series, cost_score: pd.Series, lv_tension: pd.Series, lv_score: pd.Series, norm_t0_buy: pd.Series, norm_t0_sell: pd.Series, norm_vwap_up: pd.Series, norm_vwap_down: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """【修改要点】彻底唤醒微观幽灵变量(norm_t0_buy等)熔接入不对称杠杆，激发火箭升空与重力反转。"""
+        """【用途】非线性风控杠杆拓扑网络调配。引入微观盘口幽灵意图熔接与博弈烈度增压，追加杀跌Gravity Assist重力势能加速器。"""
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
@@ -459,6 +467,7 @@ class CalculateMainForceControlRelationship:
         t1_premium = s_sent.get('t1_premium', pd.Series(0.0, index=index)).ffill().fillna(0.0)
         breakout_confirmed = s_state.get('breakout_confirmed', pd.Series(0.0, index=index)).ffill().fillna(0.0)
         para_warning = s_state.get('parabolic_warning', pd.Series(0.0, index=index)).ffill().fillna(0.0)
+        game_intensity = s_sent.get('game_intensity', pd.Series(50.0, index=index))
         norm_chip_ent = (chip_ent / 80.0).clip(0.0, 1.5)
         norm_price_ent = ((price_ent - 1.5) / 2.5).clip(0.0, 1.5)
         raw_disorder = (norm_chip_ent * 0.6 + norm_price_ent * 0.4)
@@ -491,17 +500,21 @@ class CalculateMainForceControlRelationship:
         divergence_intensity = np.maximum(bull_trap_intensity, bear_trap_intensity)
         breakout_resonance = np.clip(traditional_score, 0.0, 1.0) * np.clip(net_activity_score, 0.0, 1.0)
         intraday_pulse_multiplier = 1.0 + norm_vwap_up * 0.5 + norm_vwap_down * 0.5
-        gravity_release = 1.0 + np.square(divergence_intensity) * 30.0 * intraday_pulse_multiplier
-        rocket_release = 1.0 + np.square(breakout_resonance) * (breakout_confirmed > 0.0).astype(np.float32) * 15.0 * intraday_pulse_multiplier
+        game_median = game_intensity.expanding(min_periods=1).median().ffill().fillna(50.0)
+        game_std = game_intensity.expanding(min_periods=1).std().ffill().replace(0.0, 1.0).fillna(1.0)
+        game_amp = 1.0 + np.tanh((game_intensity - game_median) / (game_std + 1e-5)).clip(0.0, 1.0) * 0.5
+        gravity_release = 1.0 + np.square(divergence_intensity) * 30.0 * intraday_pulse_multiplier * game_amp
+        rocket_release = 1.0 + np.square(breakout_resonance) * (breakout_confirmed > 0.0).astype(np.float32) * 15.0 * intraday_pulse_multiplier * game_amp
         release_multiplier = np.maximum(gravity_release, rocket_release)
         anti_gravity = pd.Series(1.0, index=index).mask((bias_55 < -0.15) & is_bullish, 1.0 + np.abs(bias_55) * 10.0)
-        unbounded_lev = raw_final_lev * release_multiplier * anti_gravity
+        gravity_assist = pd.Series(1.0, index=index).mask((bias_55 > 0.15) & ~is_bullish, 1.0 + np.abs(bias_55) * 10.0)
+        unbounded_lev = raw_final_lev * release_multiplier * anti_gravity * gravity_assist
         final_lev = 15.0 * np.tanh(unbounded_lev / 15.0)
         if _temp_debug_values is not None:
-            _temp_debug_values["风控层_杠杆(火箭重力释放版)"] = {"Apparent_Strength": apparent_strength, "Ghost_Wiring_Bonus": ghost_wiring_bonus, "Release_Multiplier": release_multiplier, "Final_Leverage": final_lev}
+            _temp_debug_values["风控层_杠杆(火箭重力释放版)"] = {"Apparent_Strength": apparent_strength, "Ghost_Wiring_Bonus": ghost_wiring_bonus, "Game_Intensity_Amp": game_amp, "Release_Multiplier": release_multiplier, "Gravity_Assist": gravity_assist, "Final_Leverage": final_lev}
         return final_lev
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, lv_score: pd.Series, context: Dict, activity_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
-        """【修改要点】极性感知张量合成：颠覆式修复极性倒置问题，若基础分为负，熵增等惩罚因子转为放大空头。"""
+        """【用途】极性感知高维特征融合。运用加法陷阱张量实现动能物理相加，极性翻转逻辑强行转化高熵惩罚为空头倍增引力。"""
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
@@ -511,6 +524,7 @@ class CalculateMainForceControlRelationship:
         winner = s_struct.get('winner_rate', pd.Series(0.0, index=traditional_score.index)).clip(lower=0.0)
         trapped = s_struct.get('pressure_trapped', pd.Series(0.0, index=traditional_score.index)).clip(lower=0.0)
         stability = s_struct.get('chip_stability', pd.Series(50.0, index=traditional_score.index))
+        high_pos_lock = s_struct.get('high_pos_lock', pd.Series(0.0, index=traditional_score.index))
         squeeze_raw = np.power((profit + winner) * 0.5, 1.5) - np.power(trapped, 1.5)
         squeeze_score = np.tanh(squeeze_raw / 500.0)
         hab_55 = f_funds.get('hab_net_mf_55', pd.Series(0.0, index=traditional_score.index))
@@ -530,7 +544,10 @@ class CalculateMainForceControlRelationship:
         cost_modifier = cost_modifier.mask(base_score >= 0.0, 1.0 + (squeeze_score * 0.4))
         cost_modifier = cost_modifier.mask(base_score < 0.0, 1.0 / np.maximum(0.5, 1.0 + (squeeze_score * 0.4)))
         turnover = s_sent.get('turnover', pd.Series(1.0, index=traditional_score.index)).replace(0.0, np.nan).fillna(1.0)
-        locking_gain = 1.0 + np.tanh((hab_density * 100.0) / (turnover / 3.0)).clip(-0.5, 0.8)
+        lock_median = high_pos_lock.expanding(min_periods=1).median().ffill().fillna(0.0)
+        lock_std = high_pos_lock.expanding(min_periods=1).std().ffill().replace(0.0, 1.0).fillna(1.0)
+        norm_lock = (np.tanh((high_pos_lock - lock_median) / (lock_std + 1e-5)) * 0.5 + 0.5).clip(0.0, 1.0)
+        locking_gain = 1.0 + np.tanh((hab_density * 100.0) / (turnover / 3.0)).clip(-0.5, 0.8) + (norm_lock * 0.2)
         locking_multiplier = pd.Series(1.0, index=traditional_score.index)
         locking_multiplier = locking_multiplier.mask(base_score >= 0.0, locking_gain)
         locking_multiplier = locking_multiplier.mask(base_score < 0.0, 1.0 / np.maximum(0.5, locking_gain))
@@ -565,10 +582,10 @@ class CalculateMainForceControlRelationship:
         safe_raw = raw_final.astype(np.float64)
         final_fused = (safe_raw / np.sqrt(1.0 + np.square(safe_raw))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["融合_动力学(极性感知版)"] = {"Squeeze_Score": squeeze_score, "Trap_Force": trap_force, "Entropy_Multiplier": entropy_multiplier, "Final_Fused_Score": final_fused}
+            _temp_debug_values["融合_动力学(极性感知版)"] = {"High_Pos_Lock_Norm": norm_lock, "Trap_Force": trap_force, "Entropy_Multiplier": entropy_multiplier, "Final_Fused_Score": final_fused}
         return final_fused
     def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
-        """【修改要点】将分散量纲通过S型函数降维映射至中性区间，并修复 pushing_score 的 100 倍错位污染。"""
+        """【用途】非线性归一化分量转换矩阵。运用代数软饱和及自适应底噪映射至中性边界。"""
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
@@ -592,7 +609,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["归一化处理"] = {"structural_mtf_norm": norm_structural, "t0_buy_boost": norm_t0_buy}
         return norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down
     def _get_probe_timestamp(self, df: pd.DataFrame, is_debug: bool) -> Optional[pd.Timestamp]:
-        """【修改要点】精准返回探针挂载快照时间戳。"""
+        """【用途】探针时钟解析器，安全对齐快照锚点时间。"""
         if not is_debug or not self.probe_dates:
             return None
         probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.probe_dates]
@@ -603,7 +620,7 @@ class CalculateMainForceControlRelationship:
                 return date
         return None
     def _validate_arsenal_signals(self, df: pd.DataFrame, config: Dict, method_name: str, debug_output: Dict, probe_ts: pd.Timestamp) -> bool:
-        """【修改要点】核心守门员：执行绝对的字段校验，防范挂载脱机与字典断联。"""
+        """【用途/安全】最高级别军械库守门员：执行严格的特征挂载校验，抵御源数据断联宕机与物理链路静默降维。"""
         required_physical_raw = [
             'close_D', 'amount_D', 'pct_change_D', 'turnover_rate_D', 'circ_mv_D',
             'buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D', 'sell_lg_amount_D',
