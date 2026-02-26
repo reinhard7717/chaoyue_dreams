@@ -22,7 +22,7 @@ class CalculateProcessCovertAccumulation:
         """
         method_name = "_calculate_process_covert_accumulation"
         print(" ====== CalculateProcessCovertAccumulation V9.0.0 ======")
-        is_debug = get_param_value(self.helper.debug_params.get('enabled'), False) and get_param_value(self.helper.debug_params.get('should_probe'), False)
+        is_debug = True
         probe_ts = None
         if is_debug and self.helper.probe_dates:
             probe_dates_dt = [pd.to_datetime(d).normalize() for d in self.helper.probe_dates]
