@@ -1,5 +1,7 @@
 # strategies/trend_following/intelligence/process/calculate_price_volume_dynamics.py
 # 价格和成交量的动态变化 已完成
+# strategies/trend_following/intelligence/process/calculate_price_volume_dynamics.py
+# 价格和成交量的动态变化 已完成
 import json
 import os
 import pandas as pd
@@ -12,7 +14,7 @@ from strategies.trend_following.intelligence.process.price_volume_modules.calcul
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 @jit(nopython=True)
 def _numba_fractal_dimension(flows, window=21):
-    """V7.0.0 · 分形维数算子"""
+    """V7.0.1 · 分形维数算子"""
     n_series = len(flows)
     n_len = len(flows[0])
     out = np.ones((n_series, n_len), dtype=np.float32) * 1.5
@@ -50,7 +52,7 @@ def _numba_fractal_dimension(flows, window=21):
     return out
 @jit(nopython=True)
 def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.05):
-    """V7.0.0 · 自适应去噪算子"""
+    """V7.0.1 · 自适应去噪算子"""
     n = len(data)
     est = np.zeros(n)
     p = np.zeros(n)
@@ -75,7 +77,7 @@ def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.
     return est
 @jit(nopython=True)
 def _numba_power_activation(x, alpha=0.01, gain=1.5):
-    """V7.0.0 · 非对称动力学激活算子"""
+    """V7.0.1 · 非对称动力学激活算子"""
     res = np.zeros_like(x)
     for i in range(len(x)):
         if x[i] > 0:
@@ -85,7 +87,7 @@ def _numba_power_activation(x, alpha=0.01, gain=1.5):
     return res
 @jit(nopython=True)
 def _numba_power_law_activation(x, power=1.5, leak=0.1):
-    """V7.0.0 · 幂律极化泄露算子"""
+    """V7.0.1 · 幂律极化泄露算子"""
     n = len(x)
     out = np.zeros(n, dtype=np.float32)
     for i in range(n):
@@ -96,7 +98,7 @@ def _numba_power_law_activation(x, power=1.5, leak=0.1):
     return out
 @jit(nopython=True)
 def _numba_rolling_robust_norm(data, window=21):
-    """V7.0.0 · 零点锚定极性归一化算子 (Zero-Centered MAD)"""
+    """V7.0.1 · 零点锚定极性归一化算子 (Zero-Centered MAD)"""
     n = len(data)
     out = np.zeros(n, dtype=np.float32)
     for i in range(window - 1, n):
@@ -107,7 +109,7 @@ def _numba_rolling_robust_norm(data, window=21):
     return out
 @jit(nopython=True)
 def _numba_fast_rolling_dynamics(data, windows):
-    """V7.0.0 · Numba 原生多尺度动力学算子"""
+    """V7.0.1 · Numba 原生多尺度动力学算子"""
     n = len(data)
     num_wins = len(windows)
     means = np.zeros((num_wins, n))
@@ -122,7 +124,7 @@ def _numba_fast_rolling_dynamics(data, windows):
     return means, slopes
 @jit(nopython=True)
 def _numba_hmm_regime_probability(flow_n, vol_n, price_n, vwap_dist_n):
-    """V7.0.0 · HMM 体制概率算子"""
+    """V7.0.1 · HMM 体制概率算子"""
     n = len(flow_n)
     markup_probs = np.zeros(n, dtype=np.float32)
     centroid_acc = np.array([1.0, -0.5, -0.2, -0.5], dtype=np.float32)
@@ -140,7 +142,7 @@ def _numba_hmm_regime_probability(flow_n, vol_n, price_n, vwap_dist_n):
     return markup_probs
 @jit(nopython=True)
 def _numba_robust_dynamics(data, win=5, abs_threshold=1e-4, change_threshold=1e-5):
-    """V7.0.0 · 鲁棒动力学算子 (引入 Tanh Threshold Gate 防止零基粉碎)"""
+    """V7.0.1 · 鲁棒动力学算子 (引入 Tanh Threshold Gate 防止零基粉碎)"""
     n = len(data)
     slope = np.zeros(n, dtype=np.float32)
     accel = np.zeros(n, dtype=np.float32)
@@ -173,7 +175,7 @@ def _numba_robust_dynamics(data, win=5, abs_threshold=1e-4, change_threshold=1e-
     return slope, accel, jerk
 @jit(nopython=True)
 def _numba_rolling_accumulation(data, window=13):
-    """V7.0.0 · 滚动累积算子"""
+    """V7.0.1 · 滚动累积算子"""
     n = len(data)
     res = np.zeros(n, dtype=np.float32)
     for i in range(window, n):
@@ -184,7 +186,7 @@ def _numba_rolling_accumulation(data, window=13):
     return res
 @jit(nopython=True)
 def _numba_rolling_rank(arr, window):
-    """V7.0.0 · Numba 滚动排名算子"""
+    """V7.0.1 · Numba 滚动排名算子"""
     n = len(arr)
     out = np.empty(n, dtype=np.float32)
     out[:] = np.nan
@@ -198,7 +200,7 @@ def _numba_rolling_rank(arr, window):
     return out
 @jit(nopython=True)
 def _numba_hab_impact(data, windows):
-    """V7.0.0 · HAB 历史累积与冲击强度全域感知缓冲器"""
+    """V7.0.1 · HAB 历史累积与冲击强度全域感知缓冲器"""
     n = len(data)
     num_wins = len(windows)
     hab_stock = np.zeros((num_wins, n), dtype=np.float32)
@@ -215,7 +217,7 @@ def _numba_hab_impact(data, windows):
     return hab_stock, shock_intensity
 @jit(nopython=True)
 def _numba_langevin_dynamics(price, window=21):
-    """V7.0.0 · 朗之万动力学漂移与扩散算子"""
+    """V7.0.1 · 朗之万动力学漂移与扩散算子"""
     n = len(price)
     drift = np.zeros(n, dtype=np.float32)
     diffusion = np.zeros(n, dtype=np.float32)
@@ -228,7 +230,7 @@ def _numba_langevin_dynamics(price, window=21):
     return drift, diffusion
 @jit(nopython=True)
 def _numba_lotka_volterra_phase(predator, prey, window=21):
-    """V7.0.0 · Lotka-Volterra 捕食者-猎物相空间角动量算子"""
+    """V7.0.1 · Lotka-Volterra 捕食者-猎物相空间角动量算子"""
     n = len(predator)
     out = np.zeros(n, dtype=np.float32)
     for i in range(1, n):
@@ -238,7 +240,7 @@ def _numba_lotka_volterra_phase(predator, prey, window=21):
     return out
 @jit(nopython=True)
 def _numba_quantum_harmonic_oscillator(price, vwap, price_slope, window=21):
-    """V7.0.0 · 量子谐振子引力场"""
+    """V7.0.1 · 量子谐振子引力场"""
     n = len(price)
     energy = np.zeros(n, dtype=np.float32)
     for i in range(n):
@@ -249,7 +251,7 @@ def _numba_quantum_harmonic_oscillator(price, vwap, price_slope, window=21):
     return energy
 @jit(nopython=True)
 def _numba_navier_stokes_viscosity(pressure_trapped, cost_volatility, flow_persistence, window=21):
-    """V7.0.0 · Navier-Stokes 订单流运动学粘滞度算子"""
+    """V7.0.1 · Navier-Stokes 订单流运动学粘滞度算子"""
     n = len(pressure_trapped)
     viscosity = np.zeros(n, dtype=np.float32)
     for i in range(n):
@@ -286,11 +288,11 @@ class CalculatePriceVolumeDynamics:
     def _get_pvd_params(self, config: Dict) -> Dict:
         return get_param_value(config.get('price_volume_dynamics_params'), {})
     def _validate_all_required_signals(self, df: pd.DataFrame, pvd_params: Dict, mtf_slope_accel_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> bool:
-        """V7.0.0 · 核心防爆验证：融合微观与流体力学高价值新维度拦截器"""
+        """V7.0.1 · 核心防爆验证：融合微观与流体力学高价值新维度拦截器"""
         base_required = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 'VPA_EFFICIENCY_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'turnover_rate_f_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'price_percentile_position_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'cost_50pct_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'trade_count_D', 'market_sentiment_score_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'net_mf_amount_D', 'pressure_trapped_D', 'stealth_flow_ratio_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'CMF_21_D', 'game_intensity_D', 'hidden_accumulation_intensity_D', 'IS_MARKET_LEADER_D', 'STATE_PARABOLIC_WARNING_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D', 'intraday_distribution_confidence_D', 'price_flow_divergence_D', 'profit_pressure_D', 'tick_clustering_index_D', 'PRICE_ENTROPY_D', 'intraday_cost_center_volatility_D', 'flow_persistence_minutes_D', 'tick_abnormal_volume_ratio_D', 'uptrend_strength_D', 'circ_mv_D']
         return self.helper._validate_required_signals(df, base_required, method_name)
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V7.0.0 · 原料加载层：贯通高频结构特征与宏观筹码势垒，扩容全量 HAB 冲击池"""
+        """V7.0.1 · 原料加载层：贯通高频结构特征与宏观筹码势垒，扩容全量 HAB 冲击池"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
         base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D', 'circ_mv_D', 'up_limit_D', 'down_limit_D']
@@ -646,7 +648,7 @@ class CalculatePriceVolumeDynamics:
         lubricant_bonus = np.where((adx > 25) & (viscosity_norm < 0), 1.2, 1.0).astype(np.float32)
         return pd.Series(viscosity_drag_factor * lubricant_bonus, index=df_index, dtype=np.float32).clip(0.1, 2.5)
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V7.0.0 · 全局动力学总线：引入算术-几何混合全息压缩 (AG-Blend)，建立短板坍缩防爆墙"""
+        """V7.0.1 · 全局动力学总线：修复探针标量错误，优化 1e-20 连乘底限防爆墙"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
@@ -692,7 +694,7 @@ class CalculatePriceVolumeDynamics:
             v = scores[key].values
             geom_product *= v
             arith_sum += v
-        geom_mean = np.power(np.clip(geom_product, 1e-15, None), 1.0 / num_dim)
+        geom_mean = np.power(np.clip(geom_product, 1e-20, None), 1.0 / num_dim)
         arith_mean = arith_sum / num_dim
         blend_factor = 0.7 * geom_mean + 0.3 * arith_mean
         matrix_scores = np.vstack([scores[k].values for k in keys_eval + ['risk', 'decay']])
@@ -739,7 +741,7 @@ class CalculatePriceVolumeDynamics:
         actual_multiplier = inv_f if unadjusted[idx] < 0 else global_factor[idx]
         drift, diffusion = _numba_langevin_dynamics(raw['close_D'].values.astype(np.float32), 21)
         snr = drift[idx] / (diffusion[idx] + 1e-9)
-        print(f"\n{'='*30} [全息动力学与量子物理场探针 V7.0.0 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
+        print(f"\n{'='*30} [全息动力学与量子物理场探针 V7.0.1 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
         print(f"【自适应边界】市值窗口: 短周期 {w_s}d / 长周期 {w_l}d")
         print(f"【基础物理学】收盘: {raw['close_D'].values[idx]:.2f} | T0瞬时速度: {raw['pct_change_D'].values[idx]*100:.2f}% | 换手: {raw['turnover_rate_f_D'].values[idx]*100:.2f}%")
         print(f"【HAB 冲击缓冲池 (全量扩容)】")
@@ -765,9 +767,8 @@ class CalculatePriceVolumeDynamics:
         print(f"  [基底结构] 筹码{tag}:{scores['chip'].values[idx]:.3f} | 熵序{tag}:{scores['entropy'].values[idx]:.3f} | 威科夫{tag}:{scores['wyckoff'].values[idx]:.3f} | 惯性{tag}:{scores['inertia'].values[idx]:.3f}")
         print(f"  [微观战术] 攻击(LV相位保护){tag}:{scores['micro'].values[idx]:.3f} | 分形{tag}:{scores['fractal'].values[idx]:.3f} | 渗透{tag}:{scores['perm'].values[idx]:.3f} | 风险:{scores['risk'].values[idx]:.3f}")
         print(f"{'-'*85}")
-        print(f" >>> PROCESS_META_PRICE_VOLUME_DYNAMICS 最终多维绝对领域总分: {final_score.values[idx]:.4f}")
+        print(f" >>> PROCESS_META_PRICE_VOLUME_DYNAMICS 最终多维绝对领域总分: {final_score:.4f}")
         print(f"{'='*85}\n")
-
 
 
 
