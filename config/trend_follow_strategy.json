@@ -232,7 +232,10 @@
         "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [3, 5, 8, 13, 21],
         "VOL_MA_5_D": [5, 13],
-        "VOL_MA_13_D": [5, 13]
+        "VOL_MA_13_D": [5, 13],
+        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [5, 13, 21, 34],
+        "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
+        "SMART_MONEY_SYNERGY_BUY_D": [5, 13]
       }
     },
     "accel_params": {
@@ -344,10 +347,12 @@
         "PRICE_ENTROPY_D": [5, 8, 13, 21],
         "STATE_GOLDEN_PIT_D": [5, 8, 13, 21],
         "TURNOVER_STABILITY_INDEX_D": [5, 8, 13, 21],
-        "说明_基础公理": "--- 为基础公理提供支持 ---",
         "industry_strength_rank_D": [3, 5, 8, 13, 21],
         "VOL_MA_5_D": [5, 13],
-        "VOL_MA_13_D": [5, 13]
+        "VOL_MA_13_D": [5, 13],
+        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [5, 13, 21, 34],
+        "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
+        "SMART_MONEY_SYNERGY_BUY_D": [5, 13]
       }
     },
     "jerk_params": {
@@ -435,7 +440,10 @@
         "MA_POTENTIAL_COMPRESSION_RATE_D": [5, 13, 21, 34],
         "STATE_PARABOLIC_WARNING_D": [5, 13],
         "VPA_MF_ADJUSTED_EFF_D": [5, 13],
-        "chip_entropy_D": [3, 5, 8, 13, 21]
+        "chip_entropy_D": [3, 5, 8, 13, 21],
+        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [5, 13, 21, 34],
+        "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
+        "SMART_MONEY_SYNERGY_BUY_D": [5, 13]
       }
     }
   },
