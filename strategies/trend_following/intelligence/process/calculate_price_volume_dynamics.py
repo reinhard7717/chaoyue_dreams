@@ -12,7 +12,7 @@ from strategies.trend_following.intelligence.process.price_volume_modules.calcul
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 @jit(nopython=True)
 def _numba_fractal_dimension(flows, window=21):
-    """V4.0.0 · 分形维数算子"""
+    """V7.0.0 · 分形维数算子"""
     n_series = len(flows)
     n_len = len(flows[0])
     out = np.ones((n_series, n_len), dtype=np.float32) * 1.5
@@ -50,7 +50,7 @@ def _numba_fractal_dimension(flows, window=21):
     return out
 @jit(nopython=True)
 def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.05):
-    """V4.0.0 · 自适应去噪算子"""
+    """V7.0.0 · 自适应去噪算子"""
     n = len(data)
     est = np.zeros(n)
     p = np.zeros(n)
@@ -75,7 +75,7 @@ def _numba_adaptive_denoise_dynamics(data, vol_adj, confidence, process_noise=0.
     return est
 @jit(nopython=True)
 def _numba_power_activation(x, alpha=0.01, gain=1.5):
-    """V4.0.0 · 非对称动力学激活算子"""
+    """V7.0.0 · 非对称动力学激活算子"""
     res = np.zeros_like(x)
     for i in range(len(x)):
         if x[i] > 0:
@@ -84,18 +84,30 @@ def _numba_power_activation(x, alpha=0.01, gain=1.5):
             res[i] = x[i] * alpha
     return res
 @jit(nopython=True)
-def _numba_rolling_norm_preserve_sign(data, window=21):
-    """V4.0.0 · 零点锚定极性归一化算子：采用 Zero-Centered MAD 彻底消灭单日极端尖峰引发的 20 天灵敏度致盲死穴"""
+def _numba_power_law_activation(x, power=1.5, leak=0.1):
+    """V7.0.0 · 幂律极化泄露算子"""
+    n = len(x)
+    out = np.zeros(n, dtype=np.float32)
+    for i in range(n):
+        if x[i] > 0:
+            out[i] = x[i] ** power
+        else:
+            out[i] = - (np.abs(x[i]) ** power) * leak
+    return out
+@jit(nopython=True)
+def _numba_rolling_robust_norm(data, window=21):
+    """V7.0.0 · 零点锚定极性归一化算子 (Zero-Centered MAD)"""
     n = len(data)
     out = np.zeros(n, dtype=np.float32)
     for i in range(window - 1, n):
         slice_data = data[i - window + 1 : i + 1]
-        mad_0 = np.mean(np.abs(slice_data)) + 1e-4
-        out[i] = np.tanh(data[i] / mad_0) * 1.5
+        median = np.median(slice_data)
+        mad = np.median(np.abs(slice_data - median)) + 1e-4
+        out[i] = np.tanh((data[i] - median) / (mad * 3.0)) * 3.0
     return out
 @jit(nopython=True)
 def _numba_fast_rolling_dynamics(data, windows):
-    """V4.0.0 · Numba 原生多尺度动力学算子"""
+    """V7.0.0 · Numba 原生多尺度动力学算子"""
     n = len(data)
     num_wins = len(windows)
     means = np.zeros((num_wins, n))
@@ -110,7 +122,7 @@ def _numba_fast_rolling_dynamics(data, windows):
     return means, slopes
 @jit(nopython=True)
 def _numba_hmm_regime_probability(flow_n, vol_n, price_n, vwap_dist_n):
-    """V4.0.0 · HMM 体制概率算子"""
+    """V7.0.0 · HMM 体制概率算子"""
     n = len(flow_n)
     markup_probs = np.zeros(n, dtype=np.float32)
     centroid_acc = np.array([1.0, -0.5, -0.2, -0.5], dtype=np.float32)
@@ -128,7 +140,7 @@ def _numba_hmm_regime_probability(flow_n, vol_n, price_n, vwap_dist_n):
     return markup_probs
 @jit(nopython=True)
 def _numba_robust_dynamics(data, win=5, abs_threshold=1e-4, change_threshold=1e-5):
-    """V4.0.0 · 鲁棒动力学算子"""
+    """V7.0.0 · 鲁棒动力学算子 (引入 Tanh Threshold Gate 防止零基粉碎)"""
     n = len(data)
     slope = np.zeros(n, dtype=np.float32)
     accel = np.zeros(n, dtype=np.float32)
@@ -139,20 +151,29 @@ def _numba_robust_dynamics(data, win=5, abs_threshold=1e-4, change_threshold=1e-
             clean_data[i] = 0.0
     for i in range(win, n):
         delta = clean_data[i] - clean_data[i-win]
-        norm_delta = np.tanh(np.abs(delta) / (change_threshold + 1e-9)) * delta
+        if np.abs(delta) < change_threshold:
+            norm_delta = 0.0
+        else:
+            norm_delta = np.tanh(np.abs(delta) / (change_threshold * 10.0 + 1e-9)) * delta
         slope[i] = norm_delta / win
     for i in range(win, n):
         delta_s = slope[i] - slope[i-1]
-        norm_s = np.tanh(np.abs(delta_s) / (change_threshold / 10.0 + 1e-9)) * delta_s
+        if np.abs(delta_s) < (change_threshold / 5.0):
+            norm_s = 0.0
+        else:
+            norm_s = np.tanh(np.abs(delta_s) / (change_threshold + 1e-9)) * delta_s
         accel[i] = norm_s
     for i in range(win, n):
         delta_a = accel[i] - accel[i-1]
-        norm_a = np.tanh(np.abs(delta_a) / (change_threshold / 100.0 + 1e-9)) * delta_a
+        if np.abs(delta_a) < (change_threshold / 25.0):
+            norm_a = 0.0
+        else:
+            norm_a = np.tanh(np.abs(delta_a) / (change_threshold / 5.0 + 1e-9)) * delta_a
         jerk[i] = norm_a
     return slope, accel, jerk
 @jit(nopython=True)
 def _numba_rolling_accumulation(data, window=13):
-    """V4.0.0 · 滚动累积算子"""
+    """V7.0.0 · 滚动累积算子"""
     n = len(data)
     res = np.zeros(n, dtype=np.float32)
     for i in range(window, n):
@@ -163,7 +184,7 @@ def _numba_rolling_accumulation(data, window=13):
     return res
 @jit(nopython=True)
 def _numba_rolling_rank(arr, window):
-    """V4.0.0 · Numba 滚动排名算子"""
+    """V7.0.0 · Numba 滚动排名算子"""
     n = len(arr)
     out = np.empty(n, dtype=np.float32)
     out[:] = np.nan
@@ -177,7 +198,7 @@ def _numba_rolling_rank(arr, window):
     return out
 @jit(nopython=True)
 def _numba_hab_impact(data, windows):
-    """V4.0.0 · HAB 历史累积与冲击强度算子"""
+    """V7.0.0 · HAB 历史累积与冲击强度全域感知缓冲器"""
     n = len(data)
     num_wins = len(windows)
     hab_stock = np.zeros((num_wins, n), dtype=np.float32)
@@ -193,16 +214,21 @@ def _numba_hab_impact(data, windows):
             shock_intensity[w_idx, i] = data[i] / (avg_stock + 1e-5)
     return hab_stock, shock_intensity
 @jit(nopython=True)
-def _numba_power_law_gain(x, power=1.5):
-    """V4.0.0 · 非线性保号幂律增益"""
-    n = len(x)
-    out = np.zeros(n, dtype=np.float32)
-    for i in range(n):
-        out[i] = np.sign(x[i]) * (np.abs(x[i]) ** power)
-    return out
+def _numba_langevin_dynamics(price, window=21):
+    """V7.0.0 · 朗之万动力学漂移与扩散算子"""
+    n = len(price)
+    drift = np.zeros(n, dtype=np.float32)
+    diffusion = np.zeros(n, dtype=np.float32)
+    for i in range(window, n):
+        diffs = np.empty(window, dtype=np.float32)
+        for j in range(window):
+            diffs[j] = price[i - window + j + 1] - price[i - window + j]
+        drift[i] = np.mean(diffs)
+        diffusion[i] = np.std(diffs) + 1e-5
+    return drift, diffusion
 @jit(nopython=True)
 def _numba_lotka_volterra_phase(predator, prey, window=21):
-    """V4.0.0 · Lotka-Volterra 捕食者-猎物相空间角动量算子：锁定极性区间，+2.0 防止象限翻转引发数学灾难"""
+    """V7.0.0 · Lotka-Volterra 捕食者-猎物相空间角动量算子"""
     n = len(predator)
     out = np.zeros(n, dtype=np.float32)
     for i in range(1, n):
@@ -212,7 +238,7 @@ def _numba_lotka_volterra_phase(predator, prey, window=21):
     return out
 @jit(nopython=True)
 def _numba_quantum_harmonic_oscillator(price, vwap, price_slope, window=21):
-    """V4.0.0 · 量子谐振子引力场"""
+    """V7.0.0 · 量子谐振子引力场"""
     n = len(price)
     energy = np.zeros(n, dtype=np.float32)
     for i in range(n):
@@ -221,6 +247,17 @@ def _numba_quantum_harmonic_oscillator(price, vwap, price_slope, window=21):
         kinetic = 0.5 * (price_slope[i] ** 2) * np.sign(price_slope[i])
         energy[i] = potential + kinetic
     return energy
+@jit(nopython=True)
+def _numba_navier_stokes_viscosity(pressure_trapped, cost_volatility, flow_persistence, window=21):
+    """V7.0.0 · Navier-Stokes 订单流运动学粘滞度算子"""
+    n = len(pressure_trapped)
+    viscosity = np.zeros(n, dtype=np.float32)
+    for i in range(n):
+        density = pressure_trapped[i]
+        turbulence = cost_volatility[i]
+        channel_width = flow_persistence[i] + 1e-5
+        viscosity[i] = (density * turbulence) / channel_width
+    return viscosity
 class CalculatePriceVolumeDynamics:
     """PROCESS_META_POWER_TRANSFER 计算价量动态与量子引力场的全息中枢系统"""
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
@@ -249,29 +286,28 @@ class CalculatePriceVolumeDynamics:
     def _get_pvd_params(self, config: Dict) -> Dict:
         return get_param_value(config.get('price_volume_dynamics_params'), {})
     def _validate_all_required_signals(self, df: pd.DataFrame, pvd_params: Dict, mtf_slope_accel_weights: Dict, method_name: str, is_debug_enabled: bool, probe_ts: Optional[pd.Timestamp]) -> bool:
-        """V4.0.0 · 核心防爆验证：新增日内派发置信度与价流背离显影剂，堵死主力潜行出货盲区"""
-        fib_windows = [3, 5, 8, 13, 21]
-        dynamic_base_cols = ['net_amount_rate_D', 'winner_rate_D', 'SMART_MONEY_HM_NET_BUY_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'volume_D', 'pct_change_D', 'close_D', 'market_sentiment_score_D', 'industry_strength_rank_D', 'turnover_rate_f_D', 'trade_count_D', 'net_mf_amount_D', 'pressure_trapped_D', 'stealth_flow_ratio_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D', 'intraday_distribution_confidence_D', 'price_flow_divergence_D']
-        base_required = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D', 'up_limit_D', 'down_limit_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 'VPA_EFFICIENCY_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'turnover_rate_f_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'price_percentile_position_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'cost_50pct_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'trade_count_D', 'market_sentiment_score_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'net_mf_amount_D', 'pressure_trapped_D', 'stealth_flow_ratio_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'CMF_21_D', 'game_intensity_D', 'hidden_accumulation_intensity_D', 'IS_MARKET_LEADER_D', 'STATE_PARABOLIC_WARNING_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D', 'intraday_distribution_confidence_D', 'price_flow_divergence_D']
-        dynamic_required = [f"{p}_{w}_{c}" for c in dynamic_base_cols for w in fib_windows for p in ['SLOPE', 'ACCEL', 'JERK']]
-        all_required = base_required + dynamic_required
-        return self.helper._validate_required_signals(df, all_required, method_name)
+        """V7.0.0 · 核心防爆验证：融合微观与流体力学高价值新维度拦截器"""
+        base_required = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'net_amount_rate_D', 'winner_rate_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'BBW_21_2.0_D', 'VPA_EFFICIENCY_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'turnover_rate_f_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'price_percentile_position_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'THEME_HOTNESS_SCORE_D', 'chip_entropy_D', 'cost_50pct_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'trade_count_D', 'market_sentiment_score_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'net_mf_amount_D', 'pressure_trapped_D', 'stealth_flow_ratio_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'CMF_21_D', 'game_intensity_D', 'hidden_accumulation_intensity_D', 'IS_MARKET_LEADER_D', 'STATE_PARABOLIC_WARNING_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D', 'intraday_distribution_confidence_D', 'price_flow_divergence_D', 'profit_pressure_D', 'tick_clustering_index_D', 'PRICE_ENTROPY_D', 'intraday_cost_center_volatility_D', 'flow_persistence_minutes_D', 'tick_abnormal_volume_ratio_D', 'uptrend_strength_D', 'circ_mv_D']
+        return self.helper._validate_required_signals(df, base_required, method_name)
     def _get_raw_signals(self, df: pd.DataFrame, method_name: str) -> Dict[str, pd.Series]:
-        """V4.0.0 · 原料加载层：统御级全域状态机 FLAG_FATAL_TRAP 完全融合日内微观派发数据，破除硬编码标度陷阱"""
+        """V7.0.0 · 原料加载层：贯通高频结构特征与宏观筹码势垒，扩容全量 HAB 冲击池"""
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
         raw_signals = {}
-        base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D']
-        has_mv_col = 'circ_mv_D' in df.columns
-        if has_mv_col: base_cols.append('circ_mv_D')
-        struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D', 'pressure_trapped_D']
-        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'up_limit_D', 'down_limit_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'CMF_21_D', 'hidden_accumulation_intensity_D', 'game_intensity_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'net_mf_amount_D', 'stealth_flow_ratio_D', 'IS_MARKET_LEADER_D', 'STATE_PARABOLIC_WARNING_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D', 'intraday_distribution_confidence_D', 'price_flow_divergence_D']
+        base_cols = ['close_D', 'high_D', 'low_D', 'volume_D', 'amount_D', 'pct_change_D', 'net_amount_rate_D', 'trade_count_D', 'turnover_rate_f_D', 'circ_mv_D', 'up_limit_D', 'down_limit_D']
+        struct_cols = ['winner_rate_D', 'chip_concentration_ratio_D', 'chip_entropy_D', 'cost_50pct_D', 'absorption_energy_D', 'GEOM_ARC_CURVATURE_D', 'GEOM_REG_R2_D', 'price_percentile_position_D', 'pressure_trapped_D', 'PRICE_ENTROPY_D', 'intraday_cost_center_volatility_D', 'chip_stability_D']
+        tech_cols = ['SMART_MONEY_HM_NET_BUY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'VPA_EFFICIENCY_D', 'BBW_21_2.0_D', 'closing_flow_intensity_D', 'T1_PREMIUM_EXPECTATION_D', 'pressure_release_index_D', 'closing_flow_ratio_D', 'TURNOVER_STABILITY_INDEX_D', 'STATE_EMOTIONAL_EXTREME_D', 'flow_consistency_D', 'industry_strength_rank_D', 'industry_rank_accel_D', 'STATE_ROUNDING_BOTTOM_D', 'STATE_GOLDEN_PIT_D', 'STATE_TRENDING_STAGE_D', 'THEME_HOTNESS_SCORE_D', 'buy_elg_amount_D', 'buy_lg_amount_D', 'sell_elg_amount_D', 'sell_lg_amount_D', 'market_sentiment_score_D', 'ADX_14_D', 'MACDh_13_34_8_D', 'CMF_21_D', 'hidden_accumulation_intensity_D', 'game_intensity_D', 'tick_large_order_net_D', 'intraday_main_force_activity_D', 'net_mf_amount_D', 'stealth_flow_ratio_D', 'IS_MARKET_LEADER_D', 'STATE_PARABOLIC_WARNING_D', 'VPA_MF_ADJUSTED_EFF_D', 'MA_COHERENCE_RESONANCE_D', 'intraday_distribution_confidence_D', 'price_flow_divergence_D', 'profit_pressure_D', 'tick_clustering_index_D', 'flow_persistence_minutes_D', 'tick_abnormal_volume_ratio_D', 'uptrend_strength_D', 'downtrend_strength_D', 'net_energy_flow_D']
         for col in base_cols + struct_cols + tech_cols:
-            if col not in df.columns: raise KeyError(f"CRITICAL: 军械库缺失关键列 {col}")
-            raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
+            if col in df.columns:
+                raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
+            else:
+                raw_signals[col] = pd.Series(0.0, index=df.index, dtype=np.float32)
+        sm_v = raw_signals['SMART_MONEY_HM_NET_BUY_D'].values
+        if np.sum(np.abs(sm_v)) < 1e-5: 
+            raw_signals['SMART_MONEY_HM_NET_BUY_D'] = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D'])
         if raw_signals['pct_change_D'].abs().max() > 0.5: raw_signals['pct_change_D'] *= np.float32(0.01)
         if raw_signals['turnover_rate_f_D'].max() > 1.5: raw_signals['turnover_rate_f_D'] *= np.float32(0.01)
         if raw_signals['winner_rate_D'].max() > 1.1: raw_signals['winner_rate_D'] *= np.float32(0.01)
-        if has_mv_col: raw_signals['circ_mv_D'] = raw_signals['circ_mv_D'] * np.float32(10000.0)
+        raw_signals['circ_mv_D'] = raw_signals['circ_mv_D'] * np.float32(10000.0)
         valid_mv = raw_signals.get('circ_mv_D', pd.Series([0], dtype=np.float32))
         valid_mv = valid_mv[valid_mv > 1e7]
         avg_mv = valid_mv.median() if len(valid_mv) > 0 else 0.0
@@ -287,16 +323,14 @@ class CalculatePriceVolumeDynamics:
             m_r = np.median(r_v[v_m] / r_c[v_m])
             if m_r < 0.5 or m_r > 2.0: s_f = np.float32(10.0 ** (-np.round(np.log10(m_r))))
         raw_signals['VWAP_D'] = (raw_vwap * s_f).astype(np.float32)
-        sm_v = raw_signals['SMART_MONEY_HM_NET_BUY_D'].values
-        if np.sum(np.abs(sm_v)) < 1e-5: sm_v = (raw_signals['buy_elg_amount_D'] - raw_signals['sell_elg_amount_D'] + raw_signals['buy_lg_amount_D'] - raw_signals['sell_lg_amount_D']).values
         hab_windows = np.array([13, 21, 34, 55], dtype=np.int32)
-        hab_stock_sm, shock_sm = _numba_hab_impact(raw_signals['net_mf_amount_D'].values.astype(np.float32), hab_windows)
-        hab_stock_vol, shock_vol = _numba_hab_impact(raw_signals['volume_D'].values.astype(np.float32), hab_windows)
-        for i, w in enumerate([13, 21, 34, 55]):
-            raw_signals[f'HAB_STOCK_{w}_SMART_MONEY'] = pd.Series(hab_stock_sm[i], index=df.index, dtype=np.float32)
-            raw_signals[f'HAB_SHOCK_{w}_SMART_MONEY'] = pd.Series(shock_sm[i], index=df.index, dtype=np.float32)
-            raw_signals[f'HAB_STOCK_{w}_VOLUME'] = pd.Series(hab_stock_vol[i], index=df.index, dtype=np.float32)
-            raw_signals[f'HAB_SHOCK_{w}_VOLUME'] = pd.Series(shock_vol[i], index=df.index, dtype=np.float32)
+        hab_targets = ['SMART_MONEY_HM_NET_BUY_D', 'volume_D', 'tick_large_order_net_D', 'profit_pressure_D', 'flow_persistence_minutes_D', 'net_energy_flow_D']
+        prefix_map = ['SMART_MONEY', 'VOLUME', 'TICK_NET', 'PROFIT_PRES', 'FLOW_PERSIST', 'ENERGY']
+        for target, prefix in zip(hab_targets, prefix_map):
+            stock, shock = _numba_hab_impact(raw_signals[target].values.astype(np.float32), hab_windows)
+            for i, w in enumerate([13, 21, 34, 55]):
+                raw_signals[f'HAB_STOCK_{w}_{prefix}'] = pd.Series(stock[i], index=df.index, dtype=np.float32)
+                raw_signals[f'HAB_SHOCK_{w}_{prefix}'] = pd.Series(shock[i], index=df.index, dtype=np.float32)
         raw_signals['ACCUM_13_SMART_MONEY'] = raw_signals['HAB_STOCK_13_SMART_MONEY']
         raw_signals['ACCUM_21_SMART_MONEY'] = raw_signals['HAB_STOCK_21_SMART_MONEY']
         raw_signals['ACCUM_21_VOLUME'] = raw_signals['HAB_STOCK_21_VOLUME']
@@ -316,7 +350,7 @@ class CalculatePriceVolumeDynamics:
         turn = raw_signals['turnover_rate_f_D'].values.astype(np.float32)
         mf_amount = raw_signals['net_mf_amount_D'].values.astype(np.float32)
         tick_net = raw_signals['tick_large_order_net_D'].values.astype(np.float32)
-        tick_norm = _numba_rolling_norm_preserve_sign(tick_net, 21)
+        tick_norm = _numba_rolling_robust_norm(tick_net, 21)
         sm_shock = raw_signals['HAB_SHOCK_13_SMART_MONEY'].values.astype(np.float32)
         pct = raw_signals['pct_change_D'].values.astype(np.float32)
         sm_hm = raw_signals['SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32)
@@ -335,7 +369,7 @@ class CalculatePriceVolumeDynamics:
         ignition = (pct > 0.05) & (mf_amount > 0) & (sm_shock > 0.5)
         raw_signals['FLAG_LIMIT_UP'] = pd.Series(np.where(is_limit_up, 1.0, 0.0).astype(np.float32), index=df.index)
         raw_signals['FLAG_IGNITION'] = pd.Series(np.where(ignition, 1.0, 0.0).astype(np.float32), index=df.index)
-        threshold_map = {'net_amount_rate_D': (0.01, 0.005), 'winner_rate_D': (0.01, 0.005), 'SMART_MONEY_HM_NET_BUY_D': (10, 10), 'VPA_EFFICIENCY_D': (0.01, 0.01), 'BBW_21_2.0_D': (0.001, 0.0001), 'THEME_HOTNESS_SCORE_D': (0.1, 0.1), 'chip_entropy_D': (0.01, 0.001), 'volume_D': (100, 10), 'pct_change_D': (0.0001, 0.0001), 'close_D': (0.1, 0.01), 'market_sentiment_score_D': (0.1, 0.1), 'industry_strength_rank_D': (0.001, 0.001), 'turnover_rate_f_D': (0.01, 0.01), 'trade_count_D': (10, 5), 'VWAP_D': (0.1, 0.01), 'closing_flow_ratio_D': (0.01, 0.01), 'net_mf_amount_D': (10000, 5000), 'pressure_trapped_D': (0.01, 0.005), 'stealth_flow_ratio_D': (0.01, 0.005), 'tick_large_order_net_D': (10000, 5000), 'intraday_main_force_activity_D': (1.0, 0.5), 'ADX_14_D': (0.5, 0.5), 'MACDh_13_34_8_D': (0.01, 0.005), 'VPA_MF_ADJUSTED_EFF_D': (0.01, 0.01), 'MA_COHERENCE_RESONANCE_D': (0.01, 0.01), 'price_flow_divergence_D': (0.01, 0.01), 'intraday_distribution_confidence_D': (1.0, 1.0)}
+        threshold_map = {'net_amount_rate_D': (0.01, 0.005), 'winner_rate_D': (0.01, 0.005), 'SMART_MONEY_HM_NET_BUY_D': (10, 10), 'VPA_EFFICIENCY_D': (0.01, 0.01), 'BBW_21_2.0_D': (0.001, 0.0001), 'THEME_HOTNESS_SCORE_D': (0.1, 0.1), 'chip_entropy_D': (0.01, 0.001), 'volume_D': (100, 10), 'pct_change_D': (0.0001, 0.0001), 'close_D': (0.1, 0.01), 'market_sentiment_score_D': (0.1, 0.1), 'industry_strength_rank_D': (0.001, 0.001), 'turnover_rate_f_D': (0.01, 0.01), 'trade_count_D': (10, 5), 'VWAP_D': (0.1, 0.01), 'closing_flow_ratio_D': (0.01, 0.01), 'net_mf_amount_D': (10000, 5000), 'pressure_trapped_D': (0.01, 0.005), 'stealth_flow_ratio_D': (0.01, 0.005), 'tick_large_order_net_D': (10000, 5000), 'intraday_main_force_activity_D': (1.0, 0.5), 'ADX_14_D': (0.5, 0.5), 'MACDh_13_34_8_D': (0.01, 0.005), 'VPA_MF_ADJUSTED_EFF_D': (0.01, 0.01), 'MA_COHERENCE_RESONANCE_D': (0.01, 0.01), 'price_flow_divergence_D': (0.01, 0.01), 'intraday_distribution_confidence_D': (1.0, 1.0), 'tick_clustering_index_D': (0.01, 0.005), 'intraday_cost_center_volatility_D': (0.01, 0.005), 'flow_persistence_minutes_D': (1.0, 0.5), 'PRICE_ENTROPY_D': (0.01, 0.005), 'chip_stability_D': (0.01, 0.005), 'net_energy_flow_D': (1000, 500), 'profit_pressure_D': (0.01, 0.01), 'uptrend_strength_D': (0.01, 0.01), 'downtrend_strength_D': (0.01, 0.01)}
         fib_wins = [3, 5, 8, 13, 21]
         for col, (abs_th, chg_th) in threshold_map.items():
             if col in raw_signals:
@@ -356,15 +390,15 @@ class CalculatePriceVolumeDynamics:
         a_c = _numba_adaptive_denoise_dynamics(raw['ACCEL_5_net_mf_amount_D'].values.astype(np.float32), vol_adj, conf)
         j_c = _numba_adaptive_denoise_dynamics(raw['JERK_3_net_mf_amount_D'].values.astype(np.float32), vol_adj, conf)
         mf_val = raw['net_mf_amount_D'].values.astype(np.float32)
-        mf_norm = _numba_rolling_norm_preserve_sign(mf_val, 21)
+        mf_norm = _numba_rolling_robust_norm(mf_val, 21)
         raw_impulse = (mf_norm * 0.40 + s_c * 0.30 + a_c * 0.20 + j_c * 0.10).astype(np.float32)
-        norm_imp = _numba_rolling_norm_preserve_sign(raw_impulse, 21)
+        norm_imp = _numba_rolling_robust_norm(raw_impulse, 21)
         norm_imp = np.where((mf_val < 0) & (norm_imp > 0), -norm_imp, norm_imp)
         comp_factor = np.where(raw['price_percentile_position_D'].values.astype(np.float32) < 0.2, 1.2, np.where(raw['price_percentile_position_D'].values.astype(np.float32) > 0.8, 0.8, 1.0)).astype(np.float32)
         comp_imp = norm_imp * comp_factor
         _, f_slopes = _numba_fast_rolling_dynamics(raw['net_mf_amount_D'].values.astype(np.float32), np.array([3, 5, 8, 13, 21], dtype=np.int64))
         mcv = np.dot(np.array([0.35, 0.25, 0.20, 0.10, 0.10], dtype=np.float32), f_slopes.astype(np.float32))
-        mcv_norm = _numba_rolling_norm_preserve_sign(mcv, 21)
+        mcv_norm = _numba_rolling_robust_norm(mcv, 21)
         mcv_norm = np.where((mf_val < 0) & (mcv_norm > 0), -mcv_norm, mcv_norm)
         mcv_weight = np.where((comp_imp > 0) & (mcv_norm < 0), 0.0, 0.35).astype(np.float32)
         imp_weight = 0.60 + (0.35 - mcv_weight)
@@ -380,7 +414,7 @@ class CalculatePriceVolumeDynamics:
         vwap = raw['VWAP_D'].values.astype(np.float32)
         close = raw['close_D'].values.astype(np.float32)
         pct_change = raw['pct_change_D'].values.astype(np.float32)
-        norm_propulsion = np.clip(_numba_rolling_norm_preserve_sign(pct_change, 21) * 3.0, -3.0, 3.0)
+        norm_propulsion = np.clip(_numba_rolling_robust_norm(pct_change, 21) * 3.0, -3.0, 3.0)
         bias = (close - vwap) / (vwap + 1e-9)
         instant_polarity = np.where((bias < -0.015) & (pct_change < -0.04), -1.0, np.where((bias > 0.015) & (pct_change > 0.04), 1.0, np.sign(norm_propulsion)))
         propulsion_score = (np.tanh(np.abs(norm_propulsion) * 0.8) * 1.5 * instant_polarity).astype(np.float32)
@@ -389,20 +423,21 @@ class CalculatePriceVolumeDynamics:
         days_above = raw['ACCUM_21_ABOVE_VWAP'].values.astype(np.float32)
         thickness_bonus = np.where(propulsion_score > 0, np.clip(days_above / 10.0, 0.8, 1.4), np.clip((21.0 - days_above) / 10.0, 0.8, 1.4)).astype(np.float32)
         qho_energy = _numba_quantum_harmonic_oscillator(close, vwap, pct_change, 21)
-        qho_norm = _numba_rolling_norm_preserve_sign(qho_energy, 21)
+        qho_norm = _numba_rolling_robust_norm(qho_energy, 21)
         qho_resonance = np.clip(1.0 + np.abs(qho_norm) * 0.5 * instant_polarity, 0.1, 2.0).astype(np.float32)
-        final_score = propulsion_score * bias_penalty * kinematic_boost * thickness_bonus * qho_resonance
-        return pd.Series(final_score.astype(np.float32), index=df_index, dtype=np.float32).clip(-5.0, 5.0)
+        return pd.Series((propulsion_score * bias_penalty * kinematic_boost * thickness_bonus * qho_resonance).astype(np.float32), index=df_index, dtype=np.float32).clip(-5.0, 5.0)
     def _calculate_trend_inertia_momentum(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         ma5 = raw['close_D'].rolling(5).mean().fillna(0).values.astype(np.float32)
         ma21 = raw['close_D'].rolling(21).mean().fillna(0).values.astype(np.float32)
         ma55 = raw['close_D'].rolling(55).mean().fillna(0).values.astype(np.float32)
         alignment = np.where((ma5 > ma21) & (ma21 > ma55), 1.0, 0.8).astype(np.float32)
-        norm_s = _numba_rolling_norm_preserve_sign(raw['SLOPE_5_close_D'].values.astype(np.float32), 21) * 3.0
-        norm_a = _numba_rolling_norm_preserve_sign(raw['ACCEL_5_close_D'].values.astype(np.float32), 21) * 3.0
-        kinematic_score = np.ones(len(df_index), dtype=np.float32) + np.where((norm_s > 1.0) & (norm_a > 0.5), 0.3, 0.0).astype(np.float32) + np.where((norm_a > 1.5) & (raw['JERK_3_close_D'].values.astype(np.float32) > 0), 0.4, 0.0).astype(np.float32) - np.where((norm_s > 0) & (norm_a < -1.0), 0.3, 0.0).astype(np.float32)
+        norm_s = _numba_rolling_robust_norm(raw['SLOPE_5_close_D'].values.astype(np.float32), 21) * 3.0
+        norm_a = _numba_rolling_robust_norm(raw['ACCEL_5_close_D'].values.astype(np.float32), 21) * 3.0
+        drift, diffusion = _numba_langevin_dynamics(raw['close_D'].values.astype(np.float32), 21)
+        snr = _numba_rolling_robust_norm(drift / (diffusion + 1e-9), 21)
+        kinematic_score = np.ones(len(df_index), dtype=np.float32) + np.where((norm_s > 1.0) & (norm_a > 0.5), 0.3, 0.0).astype(np.float32) + np.where((norm_a > 1.5) & (raw['JERK_3_close_D'].values.astype(np.float32) > 0), 0.4, 0.0).astype(np.float32) - np.where((norm_s > 0) & (norm_a < -1.0), 0.3, 0.0).astype(np.float32) + np.clip(snr * 0.2, -0.3, 0.5)
         adx_bonus = np.where(raw['ADX_14_D'].values.astype(np.float32) > 25, 1.2, np.where(raw['ADX_14_D'].values.astype(np.float32) < 15, 0.8, 1.0)).astype(np.float32)
-        macd_z = _numba_rolling_norm_preserve_sign(raw['MACDh_13_34_8_D'].values.astype(np.float32), 21)
+        macd_z = _numba_rolling_robust_norm(raw['MACDh_13_34_8_D'].values.astype(np.float32), 21)
         macd_bonus = np.clip(1.0 + macd_z * 0.3, 0.8, 1.3).astype(np.float32)
         pos_days = raw['ACCUM_21_POS_SLOPE'].values.astype(np.float32)
         consistency_bonus = np.clip(pos_days / 15.0, 0.8, 1.25).astype(np.float32)
@@ -419,7 +454,7 @@ class CalculatePriceVolumeDynamics:
         acc_sent = raw['ACCUM_13_SENTIMENT'].values
         saturation_decay = np.where((acc_sent > pd.Series(acc_sent, index=df_index).rolling(21).median().fillna(0).values * 1.5) & (~is_ignition) & (~is_leader), 0.8, 1.0).astype(np.float32)
         bonus = np.where(raw['JERK_3_industry_strength_rank_D'].values < -2.0, 1.3, np.where(raw['industry_strength_rank_D'].values < 0.1, 1.1, 0.9)).astype(np.float32)
-        game_z = _numba_rolling_norm_preserve_sign(raw['game_intensity_D'].values.astype(np.float32), 21) * 3.0
+        game_z = _numba_rolling_robust_norm(raw['game_intensity_D'].values.astype(np.float32), 21) * 3.0
         game_boost = np.clip(1.0 + game_z * 0.2, 0.8, 1.2).astype(np.float32)
         leader_boost = np.where(is_leader, 1.5, 1.0).astype(np.float32)
         final_perm = perm * np.maximum(bonus, 0.1) * np.maximum(saturation_decay, 0.1) * np.maximum(game_boost, 0.1) * leader_boost
@@ -431,34 +466,36 @@ class CalculatePriceVolumeDynamics:
         pct = raw['pct_change_D'].values.astype(np.float32)
         locking_force = -(s5 * 0.7 + a5 * 0.3)
         force_s = pd.Series(locking_force, index=df_index).values.astype(np.float32)
-        force_norm = _numba_rolling_norm_preserve_sign(force_s, 21) * 3.0
+        force_norm = _numba_rolling_robust_norm(force_s, 21) * 3.0
         base_bonus = np.clip(np.tanh(force_norm - 1.0) + 0.5, 0.0, 1.5).astype(np.float32)
         jerk_bonus = np.where((j3 < -0.01) & (force_norm > 1.5), 1.3, 1.0).astype(np.float32)
         ent_stab = raw['ACCUM_21_ENTROPY_STABILITY'].values.astype(np.float32)
         stab_ratio = ent_stab / 21.0
         stability_mult = np.clip(stab_ratio * 2.0, 0.8, 1.4).astype(np.float32)
         penalty = np.where((pct > 0) & (s5 > 0), 0.7, 1.0).astype(np.float32)
-        final_factor = pd.Series((1.0 + base_bonus) * jerk_bonus * stability_mult * penalty, index=df_index, dtype=np.float32).clip(0.1, 2.5)
+        p_ent_norm = _numba_rolling_robust_norm(raw['PRICE_ENTROPY_D'].values.astype(np.float32), 21)
+        p_ent_bonus = np.clip(1.0 - p_ent_norm * 0.15, 0.8, 1.2).astype(np.float32)
+        final_factor = pd.Series((1.0 + base_bonus) * jerk_bonus * stability_mult * penalty * p_ent_bonus, index=df_index, dtype=np.float32).clip(0.1, 2.5)
         return final_factor
     def _calculate_fractal_efficiency_resonance(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         f_all = _numba_fractal_dimension(np.vstack((raw['close_D'].values.astype(np.float32), raw['volume_D'].values.astype(np.float32))), window=21)
         h_p, h_v = (2.0 - f_all[0]).astype(np.float32), (2.0 - f_all[1]).astype(np.float32)
-        gap_z = _numba_rolling_norm_preserve_sign(np.abs(h_p - h_v), 21) * 3.0
+        gap_z = _numba_rolling_robust_norm(np.abs(h_p - h_v), 21) * 3.0
         res_score = np.clip(1.2 - np.abs(gap_z) * 0.2, 0.5, 1.3).astype(np.float32)
         is_super_trend = (h_p > 0.8) & (raw['ADX_14_D'].values.astype(np.float32) > 25.0)
         res_score = np.where(is_super_trend, 1.2, res_score).astype(np.float32)
         struct_stab = _numba_rolling_accumulation(np.where(h_p > 0.55, 1.0, 0.0).astype(np.float32), int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1]))
         adx_gate = np.clip(raw['ADX_14_D'].values.astype(np.float32) / 20.0, 0.5, 1.5).astype(np.float32)
         ma_coherence = raw['MA_COHERENCE_RESONANCE_D'].values.astype(np.float32)
-        ma_boost = np.clip(1.0 + _numba_rolling_norm_preserve_sign(ma_coherence, 21) * 0.3, 0.7, 1.3).astype(np.float32)
+        ma_boost = np.clip(1.0 + _numba_rolling_robust_norm(ma_coherence, 21) * 0.3, 0.7, 1.3).astype(np.float32)
         final = res_score * np.clip(struct_stab / 15.0, 0.9, 1.3).astype(np.float32) * adx_gate * ma_boost
         final_series = pd.Series(np.where((h_p > 0.55) & (pd.Series(h_p, index=df_index).diff(5).fillna(0).values.astype(np.float32) > 0), final * 1.2, final), index=df_index, dtype=np.float32)
         return pd.Series(final_series.values.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 2.5)
     def _calculate_hmm_regime_confirmation(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        f_n = _numba_rolling_norm_preserve_sign(raw['SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32), 21) * 3.0
-        v_n = _numba_rolling_norm_preserve_sign(raw['volume_D'].values.astype(np.float32), 21) * 3.0
-        p_n = _numba_rolling_norm_preserve_sign(raw['pct_change_D'].values.astype(np.float32), 21) * 3.0
-        v_d = _numba_rolling_norm_preserve_sign(((raw['close_D'].values.astype(np.float32) - raw['VWAP_D'].values.astype(np.float32)) / (raw['VWAP_D'].values.astype(np.float32) + 1e-9)), 21) * 3.0
+        f_n = _numba_rolling_robust_norm(raw['SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32), 21) * 3.0
+        v_n = _numba_rolling_robust_norm(raw['volume_D'].values.astype(np.float32), 21) * 3.0
+        p_n = _numba_rolling_robust_norm(raw['pct_change_D'].values.astype(np.float32), 21) * 3.0
+        v_d = _numba_rolling_robust_norm(((raw['close_D'].values.astype(np.float32) - raw['VWAP_D'].values.astype(np.float32)) / (raw['VWAP_D'].values.astype(np.float32) + 1e-9)), 21) * 3.0
         m_p_s = pd.Series(_numba_hmm_regime_probability(f_n, v_n, p_n, v_d), index=df_index, dtype=np.float32)
         regime_bias = np.where(raw['ACCUM_21_SMART_MONEY'].values.astype(np.float32) > 0, 1.15, 0.9).astype(np.float32)
         realization_ratio = np.clip(raw['ACCUM_21_POS_SLOPE'].values.astype(np.float32) / (float(int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1])) * 0.6), 0.7, 1.2).astype(np.float32)
@@ -477,15 +514,16 @@ class CalculatePriceVolumeDynamics:
         lock_factor = np.clip(2.0 / (1.0 + np.exp((rel_turn - 1.0) * 2.0 * final_decay)), 0.3, 1.5)
         k_bonus = 1.0 + np.where((raw['ACCEL_5_winner_rate_D'].values.astype(np.float32) > 0) & (raw['ACCEL_5_turnover_rate_f_D'].values.astype(np.float32) < 0), 0.3, 0.0).astype(np.float32) + np.where(raw['JERK_3_winner_rate_D'].values.astype(np.float32) > 0.1, 0.2, 0.0).astype(np.float32)
         deep_lock_mult = np.where(high_win_days > 10, 1.5, np.where(high_win_days > 5, 1.2, 1.0)).astype(np.float32)
-        final_chip = eff_win * lock_factor * k_bonus * deep_lock_mult * (0.8 + (raw['close_D'].values.astype(np.float32) > c_50).astype(np.float32) * 0.2)
+        chip_stab_z = _numba_rolling_robust_norm(raw['chip_stability_D'].values.astype(np.float32), 21)
+        stab_bonus = np.clip(1.0 + chip_stab_z * 0.2, 0.8, 1.2).astype(np.float32)
+        final_chip = eff_win * lock_factor * k_bonus * deep_lock_mult * stab_bonus * (0.8 + (raw['close_D'].values.astype(np.float32) > c_50).astype(np.float32) * 0.2)
         return pd.Series(final_chip, index=df_index, dtype=np.float32).clip(0.1, 2.5)
     def _calculate_microstructure_attack_vector(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V4.0.0 · 微观矢量攻击阵列：在进入相空间前进行极性归一化，彻底根除量纲粉碎 BUG"""
         e_n = (raw['buy_elg_amount_D'].values - raw['sell_elg_amount_D'].values).astype(np.float32)
         l_n = (raw['buy_lg_amount_D'].values - raw['sell_lg_amount_D'].values).astype(np.float32)
         t_a = (raw['amount_D'].values + 1e-9).astype(np.float32)
-        z_score_flow = _numba_rolling_norm_preserve_sign((e_n + l_n) / t_a, 21) * 3.0
-        z_score_jerk = _numba_rolling_norm_preserve_sign(raw['JERK_3_close_D'].values.astype(np.float32), 21) * 3.0
+        z_score_flow = _numba_rolling_robust_norm((e_n + l_n) / t_a, 21) * 3.0
+        z_score_jerk = _numba_rolling_robust_norm(raw['JERK_3_close_D'].values.astype(np.float32), 21) * 3.0
         base_score = 0.5 + (1.0 / (1.0 + np.exp(-z_score_flow)))
         close = raw['close_D'].values.astype(np.float32)
         is_stealth = (((e_n + l_n) / t_a) < 0) & (close > pd.Series(close, index=df_index).rolling(5).mean().values) & (z_score_jerk > 0)
@@ -493,15 +531,17 @@ class CalculatePriceVolumeDynamics:
         adjusted_base = np.where(is_stealth | is_benign_dip, np.maximum(base_score, 1.0), base_score).astype(np.float32)
         sync_score = np.where(((e_n / t_a) > 0) & ((l_n / t_a) > 0), 1.1, np.where(((e_n / t_a) * (l_n / t_a)) < 0, 0.9, 1.0)).astype(np.float32)
         jerk_bonus = np.where(raw['JERK_3_SMART_MONEY_HM_NET_BUY_D'].values.astype(np.float32) > 0.5, 1.2, 1.0).astype(np.float32)
-        mf_norm = _numba_rolling_norm_preserve_sign(raw['net_mf_amount_D'].values.astype(np.float32), 21)
-        pt_norm = _numba_rolling_norm_preserve_sign(raw['pressure_trapped_D'].values.astype(np.float32), 21)
+        mf_norm = _numba_rolling_robust_norm(raw['net_mf_amount_D'].values.astype(np.float32), 21)
+        pt_norm = _numba_rolling_robust_norm(raw['pressure_trapped_D'].values.astype(np.float32), 21)
         lv_phase = _numba_lotka_volterra_phase(mf_norm, pt_norm, 21)
-        lv_bonus = np.clip(1.0 + _numba_rolling_norm_preserve_sign(lv_phase, 21) * 0.5, 0.5, 2.0).astype(np.float32)
+        lv_bonus = np.clip(1.0 + _numba_rolling_robust_norm(lv_phase, 21) * 0.5, 0.5, 2.0).astype(np.float32)
         tick_net = raw['tick_large_order_net_D'].values.astype(np.float32)
-        tick_norm = _numba_rolling_norm_preserve_sign(tick_net, 21) * 3.0
+        tick_norm = _numba_rolling_robust_norm(tick_net, 21) * 3.0
         tick_bonus = np.clip(1.0 + tick_norm * 0.3, 0.5, 1.3).astype(np.float32)
-        stealth_bonus = np.clip(1.0 + _numba_rolling_norm_preserve_sign(raw['stealth_flow_ratio_D'].values.astype(np.float32), 21) * 0.2, 0.8, 1.2).astype(np.float32)
-        final_score = adjusted_base * np.maximum(sync_score, 0.1) * np.maximum(jerk_bonus, 0.1) * np.maximum(lv_bonus, 0.1) * np.maximum(tick_bonus, 0.1) * np.maximum(stealth_bonus, 0.1)
+        stealth_bonus = np.clip(1.0 + _numba_rolling_robust_norm(raw['stealth_flow_ratio_D'].values.astype(np.float32), 21) * 0.2, 0.8, 1.2).astype(np.float32)
+        clus_z = _numba_rolling_robust_norm(raw['tick_clustering_index_D'].values.astype(np.float32), 21)
+        clus_bonus = np.clip(1.0 + clus_z * 0.2, 0.8, 1.4).astype(np.float32)
+        final_score = adjusted_base * np.maximum(sync_score, 0.1) * np.maximum(jerk_bonus, 0.1) * np.maximum(lv_bonus, 0.1) * np.maximum(tick_bonus, 0.1) * np.maximum(stealth_bonus, 0.1) * clus_bonus
         return pd.Series(final_score.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 3.0)
     def _calculate_vpa_elasticity_reflexivity(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         current_elasticity = np.abs(raw['pct_change_D'].values.astype(np.float32)) / (np.abs(pd.Series(raw['volume_D'].values, index=df_index).pct_change().fillna(0).values.astype(np.float32)) + 0.1)
@@ -510,7 +550,7 @@ class CalculatePriceVolumeDynamics:
         hab_score = np.clip(raw['ACCUM_13_ELASTICITY'].values.astype(np.float32) / (ela_median * 13.0 + 1e-9), 0.8, 1.4).astype(np.float32)
         slope_bonus = np.where(pd.Series(current_elasticity, index=df_index).diff(3).fillna(0).values.astype(np.float32) > 0, 1.2, 1.0).astype(np.float32)
         vpa_adj = raw['VPA_MF_ADJUSTED_EFF_D'].values.astype(np.float32)
-        vpa_boost = np.clip(1.0 + _numba_rolling_norm_preserve_sign(vpa_adj, 21) * 0.4, 0.6, 1.5).astype(np.float32)
+        vpa_boost = np.clip(1.0 + _numba_rolling_robust_norm(vpa_adj, 21) * 0.4, 0.6, 1.5).astype(np.float32)
         final_score = score * np.maximum(slope_bonus, 0.1) * np.maximum(hab_score, 0.1) * vpa_boost
         return pd.Series(final_score.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 2.5)
     def _calculate_wyckoff_breakout_quality(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
@@ -524,7 +564,7 @@ class CalculatePriceVolumeDynamics:
         tr_slope = (pd.Series(tr_norm, index=df_index).diff(5).fillna(0) / 5.0).values.astype(np.float32)
         tr_accel = (pd.Series(tr_slope, index=df_index).diff(5).fillna(0) / 5.0).values.astype(np.float32)
         raw_jerk = raw['JERK_3_close_D'].values.astype(np.float32)
-        jerk_z = _numba_rolling_norm_preserve_sign(raw_jerk, 21) * 3.0
+        jerk_z = _numba_rolling_robust_norm(raw_jerk, 21) * 3.0
         vol_ma = pd.Series(vol, index=df_index).rolling(21).mean().replace(0, 1).values.astype(np.float32)
         tr_ma = pd.Series(tr, index=df_index).rolling(21).mean().replace(0, 1e-9).values.astype(np.float32)
         acc_compression = pd.Series(np.clip((vol / vol_ma) / (tr / tr_ma + 0.1), 0.5, 3.0).astype(np.float32), index=df_index).rolling(5).mean().fillna(0).values.astype(np.float32)
@@ -545,7 +585,9 @@ class CalculatePriceVolumeDynamics:
         t1_premium = raw['T1_PREMIUM_EXPECTATION_D'].values.astype(np.float32)
         parabolic_mult = np.where(parabolic_risk > 0.5, 2.0, 1.0).astype(np.float32)
         t1_exhaustion = np.where((t1_premium > 0.8) & (exhaustion_rate > 1.0), 1.5, 1.0).astype(np.float32)
-        reversal_pressure = raw['closing_flow_ratio_D'].values.astype(np.float32) * raw['STATE_EMOTIONAL_EXTREME_D'].values.astype(np.float32) * exhaustion_rate * hab_risk_norm * pressure_penalty * parabolic_mult * t1_exhaustion
+        prof_shock = raw['HAB_SHOCK_21_PROFIT_PRES'].values.astype(np.float32)
+        prof_mult = np.clip(1.0 + prof_shock * 0.5, 1.0, 2.0).astype(np.float32)
+        reversal_pressure = raw['closing_flow_ratio_D'].values.astype(np.float32) * raw['STATE_EMOTIONAL_EXTREME_D'].values.astype(np.float32) * exhaustion_rate * hab_risk_norm * pressure_penalty * parabolic_mult * t1_exhaustion * prof_mult
         base_risk = 1.0 - reversal_pressure * 0.4
         is_ignition = raw['FLAG_IGNITION'].values > 0.5
         is_limit_up = raw['FLAG_LIMIT_UP'].values > 0.5
@@ -553,19 +595,19 @@ class CalculatePriceVolumeDynamics:
         return pd.Series(risk_adjustment, index=df_index).clip(0.1, 1.5)
     def _calculate_intraday_decay_model(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
         stab = raw['TURNOVER_STABILITY_INDEX_D'].values.astype(np.float32)
-        base_decay = np.clip(1.0 + _numba_rolling_norm_preserve_sign(stab, 21) * 0.15, 0.7, 1.2).astype(np.float32)
+        base_decay = np.clip(1.0 + _numba_rolling_robust_norm(stab, 21) * 0.15, 0.7, 1.2).astype(np.float32)
         bad_board = (raw['close_D'].values.astype(np.float32) >= raw['up_limit_D'].values.astype(np.float32) * 0.999) & (raw['closing_flow_ratio_D'].values.astype(np.float32) > 0.4) & (stab < 0.4)
         fragility = np.where(raw['MEAN_13_STABILITY'].values.astype(np.float32) < 0.5, 0.9, 1.0).astype(np.float32)
         repair = np.where((raw['winner_rate_D'].values.astype(np.float32) < 0.15) & (stab < 0.3), 1.5, 1.0).astype(np.float32)
         return pd.Series(base_decay * np.where(bad_board, 0.6, 1.0).astype(np.float32) * repair * fragility, index=df_index, dtype=np.float32).clip(0.4, 1.5)
     def _calculate_sector_resonance_modifier(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        impulse_factor = (1.0 / (1.0 + np.exp(-np.clip(_numba_rolling_norm_preserve_sign(raw['SLOPE_5_THEME_HOTNESS_SCORE_D'].values.astype(np.float32), 21) * 3.0, -3.0, 3.0)))).astype(np.float32)
+        impulse_factor = (1.0 / (1.0 + np.exp(-np.clip(_numba_rolling_robust_norm(raw['SLOPE_5_THEME_HOTNESS_SCORE_D'].values.astype(np.float32), 21) * 3.0, -3.0, 3.0)))).astype(np.float32)
         leadership_bonus = 1.0 + np.clip(raw['ACCUM_21_HIGH_RANK'].values.astype(np.float32) / 21.0, 0.0, 1.0).astype(np.float32) * 0.4
         persistence = np.where((raw['industry_rank_accel_D'].values.astype(np.float32) > 0) & (raw['flow_consistency_D'].values.astype(np.float32) > 0.65), 1.2, 0.8).astype(np.float32)
         rank_pulse = np.where(raw['JERK_3_industry_strength_rank_D'].values.astype(np.float32) < -2.0, 1.3, 1.0).astype(np.float32)
         return pd.Series((0.8 + impulse_factor * 0.4) * persistence * leadership_bonus * rank_pulse, index=df_index, dtype=np.float32).clip(0.6, 2.2)
     def _calculate_volatility_clustering_adjustment(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        bbw_z = _numba_rolling_norm_preserve_sign(raw['BBW_21_2.0_D'].values.astype(np.float32), 21) * 3.0
+        bbw_z = _numba_rolling_robust_norm(raw['BBW_21_2.0_D'].values.astype(np.float32), 21) * 3.0
         is_squeeze = (bbw_z < -1.0)
         vcp_ignite = np.where(is_squeeze & (raw['ACCEL_5_BBW_21_2.0_D'].values.astype(np.float32) > 0), 1.4, 1.0).astype(np.float32)
         trap = np.where((bbw_z > 2.0) & (raw['SLOPE_5_BBW_21_2.0_D'].values.astype(np.float32) < 0), 0.7, 1.0).astype(np.float32)
@@ -585,7 +627,6 @@ class CalculatePriceVolumeDynamics:
         base = (1.5 / (fd_vals + 1e-9)).clip(0.5, 1.1).astype(np.float32)
         return pd.Series(np.where(avalanche, base * 0.5, base).astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 1.2)
     def _calculate_entry_accessibility_score(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
-        """V4.0.0 · 入场可获得性：贯彻涨停死锁暴力溢价逻辑，破除旧版流动性惩罚"""
         rel_liq = raw['turnover_rate_f_D'].values.astype(np.float32) / pd.Series(raw['turnover_rate_f_D'].values.astype(np.float32), index=df_index).rolling(21).mean().replace(0, 0.1).values.astype(np.float32)
         base_access = np.where(rel_liq < 0.5, 0.4 + rel_liq * 0.5, np.where(rel_liq <= 2.5, 1.0, np.clip(2.5/rel_liq, 0.5, 1.0))).astype(np.float32)
         is_limit_up = raw['FLAG_LIMIT_UP'].values > 0.5
@@ -594,8 +635,18 @@ class CalculatePriceVolumeDynamics:
         cmf_bonus = np.clip(1.0 + raw['CMF_21_D'].values.astype(np.float32), 0.8, 1.2).astype(np.float32)
         access = base_access * np.maximum(limit_penalty, 0.1) * np.maximum(congestion, 0.1) * np.maximum(cmf_bonus, 0.1)
         return pd.Series(access.astype(np.float32), index=df_index, dtype=np.float32).clip(0.1, 1.8)
+    def _calculate_flow_viscosity_drag(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str) -> pd.Series:
+        density = raw['pressure_trapped_D'].values.astype(np.float32)
+        turbulence = raw['intraday_cost_center_volatility_D'].values.astype(np.float32)
+        persistence = raw['flow_persistence_minutes_D'].values.astype(np.float32)
+        viscosity_raw = _numba_navier_stokes_viscosity(density, turbulence, persistence, 21)
+        viscosity_norm = _numba_rolling_robust_norm(viscosity_raw, 21)
+        viscosity_drag_factor = np.clip(1.0 - np.tanh(viscosity_norm * 0.5), 0.3, 1.5).astype(np.float32)
+        adx = raw['ADX_14_D'].values.astype(np.float32)
+        lubricant_bonus = np.where((adx > 25) & (viscosity_norm < 0), 1.2, 1.0).astype(np.float32)
+        return pd.Series(viscosity_drag_factor * lubricant_bonus, index=df_index, dtype=np.float32).clip(0.1, 2.5)
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """V4.0.0 · 全局动力学总线：中央集权执行 FLAG_FATAL_TRAP，引入 15-Dim Geometric Mean 彻底粉碎多头宇宙热寂魔咒"""
+        """V7.0.0 · 全局动力学总线：引入算术-几何混合全息压缩 (AG-Blend)，建立短板坍缩防爆墙"""
         method_name = "calculate_price_volume_dynamics"
         df_index = df.index
         is_debug, probe_ts, _ = self._setup_debug_info(df, method_name)
@@ -621,10 +672,12 @@ class CalculatePriceVolumeDynamics:
         scores['vol_gamma'] = self._calculate_volatility_clustering_adjustment(raw, df_index, method_name)
         scores['sector_decay'] = self._calculate_sector_overflow_decay(raw, df_index, method_name)
         scores['access'] = self._calculate_entry_accessibility_score(raw, df_index, method_name)
+        scores['viscosity'] = self._calculate_flow_viscosity_drag(raw, df_index, method_name)
         fatal_trap = raw['FLAG_FATAL_TRAP'].values > 0.5
         is_ignition = raw['FLAG_IGNITION'].values > 0.5
         is_leader = raw['IS_MARKET_LEADER_D'].values > 0.5
-        for key in ['inertia', 'perm', 'entropy', 'fractal', 'hmm', 'chip', 'micro', 'reflex', 'wyckoff', 'sector_mod', 'vol_gamma', 'sector_decay', 'access']:
+        keys_eval = ['inertia', 'perm', 'entropy', 'fractal', 'hmm', 'chip', 'micro', 'reflex', 'wyckoff', 'sector_mod', 'vol_gamma', 'sector_decay', 'access', 'viscosity']
+        for key in keys_eval:
             base_arr = np.clip(scores[key].values, 0.1, 2.5)
             shielded_arr = np.where((is_leader | is_ignition) & (~fatal_trap) & (base_arr < 1.0), 1.0, base_arr)
             scores[key] = pd.Series(np.where(fatal_trap, 0.1, shielded_arr).astype(np.float32), index=df_index, dtype=np.float32)
@@ -632,13 +685,25 @@ class CalculatePriceVolumeDynamics:
             scores[key] = pd.Series(np.where(fatal_trap, 0.1, np.clip(scores[key].values, 0.1, 2.5)).astype(np.float32), index=df_index, dtype=np.float32)
         unadjusted = scores['physical'].values * 0.45 + s_geo * 0.20 + scores['vwap'].values * 0.35
         unadjusted = np.where(fatal_trap, -np.abs(unadjusted) - 2.0, unadjusted).astype(np.float32)
-        global_factor_raw = (scores['inertia'].values * scores['perm'].values * scores['entropy'].values * scores['fractal'].values * scores['hmm'].values * scores['chip'].values * scores['micro'].values * scores['reflex'].values * scores['wyckoff'].values * scores['risk'].values * scores['decay'].values * scores['sector_mod'].values * scores['vol_gamma'].values * scores['sector_decay'].values * scores['access'].values)
-        global_factor = np.power(np.clip(global_factor_raw, 1e-15, None), 1.0 / 15.0).astype(np.float32)
-        inv_factor = np.clip(1.0 / (global_factor + 1e-9), 0.1, 5.0)
-        final_vals = np.where(unadjusted > 0, unadjusted * global_factor, unadjusted * inv_factor)
+        num_dim = float(len(keys_eval) + 2)
+        geom_product = np.ones(len(df_index), dtype=np.float32)
+        arith_sum = np.zeros(len(df_index), dtype=np.float32)
+        for key in keys_eval + ['risk', 'decay']:
+            v = scores[key].values
+            geom_product *= v
+            arith_sum += v
+        geom_mean = np.power(np.clip(geom_product, 1e-15, None), 1.0 / num_dim)
+        arith_mean = arith_sum / num_dim
+        blend_factor = 0.7 * geom_mean + 0.3 * arith_mean
+        matrix_scores = np.vstack([scores[k].values for k in keys_eval + ['risk', 'decay']])
+        min_dim_score = np.min(matrix_scores, axis=0)
+        collapse_penalty = np.where(min_dim_score < 0.3, np.clip((min_dim_score / 0.3) ** 2, 0.01, 1.0), 1.0).astype(np.float32)
+        global_factor_activated = _numba_power_law_activation(blend_factor * collapse_penalty, power=1.5, leak=0.5)
+        inv_factor = np.clip(1.0 / (global_factor_activated + 1e-9), 0.1, 5.0)
+        final_vals = np.where(unadjusted > 0, unadjusted * global_factor_activated, unadjusted * inv_factor)
         final_score = pd.Series(final_vals, index=df_index, dtype=np.float32).clip(-5.0, 6.0)
         self._persist_hab_state(raw, df_index, method_name)
-        if is_debug and probe_ts in df_index: self._print_full_chain_probe(probe_ts, raw, scores, final_score.loc[probe_ts], unadjusted, global_factor, global_factor_raw)
+        if is_debug and probe_ts in df_index: self._print_full_chain_probe(probe_ts, raw, scores, final_score.loc[probe_ts], unadjusted, global_factor_activated, blend_factor, min_dim_score, collapse_penalty)
         return final_score
     def _persist_hab_state(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str):
         if len(df_index) == 0: return
@@ -650,7 +715,7 @@ class CalculatePriceVolumeDynamics:
         if hasattr(self.helper, 'update_shared_state'):
             try: self.helper.update_shared_state('HAB_LATEST', hab_snapshot)
             except Exception: pass
-    def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], scores: Dict[str, pd.Series], final_score: float, unadjusted: np.ndarray, global_factor: np.ndarray, global_factor_raw: np.ndarray):
+    def _print_full_chain_probe(self, probe_ts: pd.Timestamp, raw: Dict[str, pd.Series], scores: Dict[str, pd.Series], final_score: float, unadjusted: np.ndarray, global_factor: np.ndarray, blend_factor: np.ndarray, min_dim_score: np.ndarray, collapse_penalty: np.ndarray):
         if probe_ts not in raw['close_D'].index: return
         idx = raw['close_D'].index.get_loc(probe_ts)
         w_s, w_l = int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[0]), int(raw.get('META_HAB_WINDOWS', pd.Series([13, 21])).iloc[1])
@@ -672,31 +737,36 @@ class CalculatePriceVolumeDynamics:
         status_str = "拉高出货诱多" if is_rally_dist else ("滞涨派发" if is_stagnant_dist else ("核按钮级深渊" if is_crash else ("👑绝对龙头受保护" if has_shield else ("🚀主升点火" if is_ignition else ("⚠️抛物线预警" if is_parabolic else ("健康发散" if health_score > 60 else "分歧震荡"))))))
         inv_f = np.clip(1.0 / (global_factor[idx] + 1e-9), 0.1, 5.0)
         actual_multiplier = inv_f if unadjusted[idx] < 0 else global_factor[idx]
-        print(f"\n{'='*30} [全息动力学与量子物理场探针 V4.0.0 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
+        drift, diffusion = _numba_langevin_dynamics(raw['close_D'].values.astype(np.float32), 21)
+        snr = drift[idx] / (diffusion[idx] + 1e-9)
+        print(f"\n{'='*30} [全息动力学与量子物理场探针 V7.0.0 @ {probe_ts.strftime('%Y-%m-%d')}] {'='*30}")
         print(f"【自适应边界】市值窗口: 短周期 {w_s}d / 长周期 {w_l}d")
         print(f"【基础物理学】收盘: {raw['close_D'].values[idx]:.2f} | T0瞬时速度: {raw['pct_change_D'].values[idx]*100:.2f}% | 换手: {raw['turnover_rate_f_D'].values[idx]*100:.2f}%")
-        print(f"【HAB 冲击缓冲池】")
+        print(f"【HAB 冲击缓冲池 (全量扩容)】")
         print(f"  ├─ 聪明钱底仓池 (21d/55d): {raw['HAB_STOCK_21_SMART_MONEY'].values[idx]:.1f} / {raw['HAB_STOCK_55_SMART_MONEY'].values[idx]:.1f}")
         print(f"  ├─ 主力冲击强度 (13/21d Shock): {raw['HAB_SHOCK_13_SMART_MONEY'].values[idx]:.4f}x / {smart_shock:.4f}x")
-        print(f"  └─ 成交量冲击强度 (13/21d Shock): {raw['HAB_SHOCK_13_VOLUME'].values[idx]:.4f}x / {vol_shock:.4f}x")
+        print(f"  ├─ 极端能量冲击强度 (21d Shock): {raw['HAB_SHOCK_21_ENERGY'].values[idx]:.4f}x")
+        print(f"  └─ 大单突袭冲击张力 (21d Shock): {raw['HAB_SHOCK_21_TICK_NET'].values[idx]:.4f}x")
         print(f"【高维引擎与物理场测度】")
         print(f"  ├─ 趋势神针 (ADX/MACDh/CMF): {raw['ADX_14_D'].values[idx]:.1f} / {raw['MACDh_13_34_8_D'].values[idx]:.4f} / {raw['CMF_21_D'].values[idx]:.3f}")
+        print(f"  ├─ 郎之万动力学(Langevin): 漂移项={drift[idx]:.2f} | 布朗扩散={diffusion[idx]:.2f} | SNR={snr:.2f}")
         print(f"  ├─ 微观相空间(Lotka-Volterra): 隐秘={raw['stealth_flow_ratio_D'].values[idx]:.2f} | 异动大单={raw['tick_large_order_net_D'].values[idx]:.2f}")
         print(f"  └─ 特权与极限压制: 龙头特权={'[开启(免惩罚)]' if has_shield else '关闭'} | 抛物死劫={'[报警]' if is_parabolic else '安全'} | 涨停封死={'[锁定(+1.5x)]' if is_limit_up else '未封'}")
-        print(f"【多头爆发降维引擎 (突破过敏与多头连乘热寂诅咒已根除)】")
-        print(f"  └─ 15维几何全息压缩 (Geometric Mean): 原始连乘 {global_factor_raw[idx]:.6e} -> 降维提纯真实杠杆 {global_factor[idx]:.4f}x")
+        print(f"【魔鬼代言人: 木桶坍缩防线 (绝对做空权执行)】")
+        print(f"  ├─ 16维算术-几何混合(AG-Blend) 原始融合: {blend_factor[idx]:.4f}")
+        print(f"  ├─ 寻找致命短板: 维度最低分 = {min_dim_score[idx]:.3f} -> 触发坍缩倍率 = {collapse_penalty[idx]:.3f}x")
+        print(f"  └─ 幂律极化激活算子过滤后 -> 真实杠杆系数: {global_factor[idx]:.4f}x")
         print(f"【健康度与引擎分输出 (绝对领域：相空间修正与龙头特权执行)】")
         print(f"  ★ 无量纲体检评分: {health_score:.1f} ({status_str}) | 瞬时脉冲Z: {jerk_z:.2f}σ")
         print(f"  ★ 极性状态: {'[深渊坠落/派发]' if unadjusted[idx] < 0 else '[主升向上势能]'} | 绝对基础向量: {unadjusted[idx]:.4f}")
         print(f"  ★ 真实物理杠杆: {'极性共轭裂变(乘数倒置)' if unadjusted[idx] < 0 else '正向引力放大'} -> {actual_multiplier:.4f}x")
         tag = "(天网剥夺)" if is_fatal else ("(特权庇护)" if has_shield else "")
-        print(f"  [物理中枢] 物理:{scores['physical'].values[idx]:.3f} | 几何:{scores['geo'].values[idx]:.3f} | VWAP(QHO势能):{scores['vwap'].values[idx]:.3f}")
+        print(f"  [物理中枢] 物理:{scores['physical'].values[idx]:.3f} | 几何:{scores['geo'].values[idx]:.3f} | VWAP(QHO势能):{scores['vwap'].values[idx]:.3f} | 流体粘滞:{scores['viscosity'].values[idx]:.3f}")
         print(f"  [基底结构] 筹码{tag}:{scores['chip'].values[idx]:.3f} | 熵序{tag}:{scores['entropy'].values[idx]:.3f} | 威科夫{tag}:{scores['wyckoff'].values[idx]:.3f} | 惯性{tag}:{scores['inertia'].values[idx]:.3f}")
         print(f"  [微观战术] 攻击(LV相位保护){tag}:{scores['micro'].values[idx]:.3f} | 分形{tag}:{scores['fractal'].values[idx]:.3f} | 渗透{tag}:{scores['perm'].values[idx]:.3f} | 风险:{scores['risk'].values[idx]:.3f}")
         print(f"{'-'*85}")
-        print(f" >>> PROCESS_META_POWER_TRANSFER 最终多维绝对领域总分: {final_score:.4f}")
+        print(f" >>> PROCESS_META_PRICE_VOLUME_DYNAMICS 最终多维绝对领域总分: {final_score.values[idx]:.4f}")
         print(f"{'='*85}\n")
-
 
 
 
