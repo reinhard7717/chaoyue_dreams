@@ -10,10 +10,10 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateMainForceControlRelationship:
     """
-    【V60.0.0 · 主力控盘全息量子决策系统 · 全域自适应量纲终极版】
+    【V60.1.0 · 主力控盘全息量子决策系统 · 全域量纲与合力修复版】
     PROCESS_META_MAIN_FORCE_CONTROL
     - 核心职责: 计算“主力控盘”专属关系分数，根除极性反噬、消除未来函数，全域统一指标量纲。
-    - 版本: 60.0.0
+    - 版本: 60.1.0
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         """【用途】初始化主力控盘处理器，挂载策略上下文参数矩阵与探针配置。"""
@@ -71,7 +71,7 @@ class CalculateMainForceControlRelationship:
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
         if probe_ts:
-            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V60.0.0 (全域自适应量纲版)")
+            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V60.1.0 (全域自适应量纲热修版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
         if hasattr(self, '_validate_arsenal_signals'):
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
@@ -218,7 +218,7 @@ class CalculateMainForceControlRelationship:
         if _temp_debug_values is not None:
             _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {"Close": market_raw['close'], "Chip_Flow_Intensity": funds_raw['chip_flow_intensity'], "Closing_Strength": sentiment_raw['closing_strength'], "Emotional_Extreme": state_raw['emotional_extreme']}
         if probe_ts:
-            print(f"[探针] V60.0.0 物理总线挂载完成。全息火力系统上线，HAB换手率与全域量纲自适应引擎就绪。")
+            print(f"[探针] V60.1.0 物理总线挂载完成。全息火力系统上线，HAB换手率与全域量纲自适应引擎就绪。")
         return {"market": market_raw, "funds": funds_raw, "structure": structure_raw, "sentiment": sentiment_raw, "state": state_raw, "ema": ema_system}
     def _calculate_lotka_volterra_model(self, df: pd.DataFrame, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series]:
         """【用途】洛特卡-沃尔泰拉生态博弈运算：搭载 Z-Score 量纲自适应转换，及拓扑连续状态混合器，粉碎第三象限多杀多异变。"""
@@ -324,7 +324,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["主力平均价格(HAB版)"] = {"VWAP_Correction": correction_factor.mean(), "HAB_Cost_21": hab_cost_buy_21, "Kinematic_Power": kinematic_power}
         return result
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, hab_prices: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """【用途】胡克定律受迫阻尼谐振子模型。计算筹码重心的牵引回归力，使用全域代数软饱和替换生硬截断防爆。"""
+        """【用途/修复】胡克定律受迫阻尼谐振子模型。计算筹码重心的牵引回归力，修复 net_force 物理合力丢失断层。"""
         m = context['market']
         s = context['structure']
         f = context['funds']
@@ -345,6 +345,7 @@ class CalculateMainForceControlRelationship:
         damping_force = -damping_coeff * slope_cost
         composite_flow = f.get('net_mf_calibrated', pd.Series(0.0, index=index)) + f.get('smart_synergy', pd.Series(0.0, index=index))
         driving_force = np.tanh(composite_flow / (f.get('hab_net_mf_21', pd.Series(1e-6, index=index)).abs() + 1e-6))
+        net_force = restoring_force + damping_force + driving_force
         winner_rate = s.get('winner_rate', pd.Series(50.0, index=index))
         score_winner = self._z_score_norm(winner_rate, scale=1.0)
         chip_entropy = s.get('chip_entropy', pd.Series(100.0, index=index))
@@ -452,7 +453,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["组件_传统控盘(柔性梯度版)"] = {"HAB_Slope_34": hab_slope_34, "Final_Trad_Score": final_score}
         return final_score
     def _calculate_control_leverage_model(self, index: pd.Index, traditional_score: pd.Series, fused_score: pd.Series, net_activity_score: pd.Series, norm_flow: pd.Series, cost_score: pd.Series, lv_tension: pd.Series, lv_score: pd.Series, norm_t0_buy: pd.Series, norm_t0_sell: pd.Series, norm_vwap_up: pd.Series, norm_vwap_down: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """【用途/修复】非线性风控杠杆拓扑网络调配。引入微观盘口幽灵意图熔接与博弈烈度增压，现场原生计算均线乖离率，彻底消除外部量纲漂移引发的核爆错误。"""
+        """【用途】非线性风控杠杆拓扑网络调配。引入微观盘口幽灵意图熔接与博弈烈度增压，现场原生计算均线乖离率，彻底消除外部量纲漂移引发的核爆错误。"""
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
@@ -656,7 +657,6 @@ class CalculateMainForceControlRelationship:
                 self._print_debug_info(debug_output)
             return False
         return True
-
 
 
 
