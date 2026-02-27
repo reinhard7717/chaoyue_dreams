@@ -1,5 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_main_force_control.py
-# 【V1.0.0 · 主力控盘关系计算器】 计算“主力控盘”的专属关系分数。  已完成pro
+# 【V68.0.0 · 主力控盘关系计算器】 计算“主力控盘”的专属关系分数。 已完成DeepThink
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
@@ -133,7 +133,7 @@ class CalculateMainForceControlRelationship:
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """【用途/效率优化】V68.0.0: 决策系统最高调度总线。聚合底层张量阵列，运用Numba极速软饱和收敛模型生成平滑最终分数。"""
         method_name = "calculate_main_force_control_relationship"
-        is_debug = get_param_value(self.debug_params.get('enabled'), False)
+        is_debug = False # get_param_value(self.debug_params.get('enabled'), False)
         _temp_debug_values = {} 
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
