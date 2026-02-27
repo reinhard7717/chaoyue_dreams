@@ -1,6 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_cost_advantage_trend_relationship.py
 # 【V11.0.0 · 全息成本资金五维共振计算器】 已升级pro
-# strategies\trend_following\intelligence\process\calculate_cost_advantage_trend_relationship.py
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
@@ -8,14 +7,13 @@ from strategies.trend_following.utils import get_params_block, get_param_value
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateCostAdvantageTrendRelationship:
     """
-    【V16.0.0 · 绝对物理场张量稳态固化版】
+    【V17.0.0 · 跨领域全息完美收敛版】
     PROCESS_META_COST_ADVANTAGE_TREND
     - 用途: 基于高维物理场模型（谐振子势垒/洛伦兹偏转/卡诺热机/杨氏模量/结构熵）对筹码与资金的爆发力进行全息诊断。
     - 本次修改要点:
-      1. [底层算术防御] 修复 D6 相变激活函数中 np.where 导致 np.power(负数, 1.2) 引发底层 C 级 RuntimeWarning 的隐患，增加 np.maximum(0.0, gate_val) 安全门。
-      2. [精度越界防御] 修复 D6 皮尔逊相关系数平方根计算中，浮点精度微小负数导致 np.sqrt 报错的隐患，追加 np.maximum(0.0, var_product)。
-      3. [量纲精密收敛] 鉴于 D4 应变比率（Strain_Ratio）仍达 4.51，为防极端行情导致 tanh 过早过饱和，将杨氏模量应变的倍数由 10.0 降维至 2.0，彻底锁定张量运动边界。
-      4. 严格执行代码高压清洗，剔除所有多余空行，实现工业级无断层运算布局。
+      1. [张量极性重构] 修复 D6 矩阵交互张量 tensor_proxy 算子，改为 np.where(a*b>0, sign(a)*sqrt(|ab|), -sqrt(|ab|))，同向取原极性，逆向施加惩罚，彻底阻断“五维全负却得出正向协同分”的致命系统级反噬BUG。
+      2. [军械库提纯] 彻底移除了不在清单中的历史冗余项(SMART_MONEY_INST_NET_BUY_D)，确保100%纯净依赖。
+      3. [算力优化] 剔除归一化输出后不必要的二次 tanh 冗余压缩，节省底层计算开销。全篇代码执行无空行极密压排版。
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -23,7 +21,7 @@ class CalculateCostAdvantageTrendRelationship:
         self.params = self.helper.params
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-        self.version = "V16.0.0"
+        self.version = "V17.0.0"
     def _initialize_debug_context(self, method_name: str, df: pd.DataFrame) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
         probe_ts = None
@@ -106,7 +104,7 @@ class CalculateCostAdvantageTrendRelationship:
             'profit_pressure_D': 0.0, 'pressure_trapped_D': 0.0, 'net_energy_flow_D': 0.0, 'tick_large_order_net_D': 0.0,
             'stealth_flow_ratio_D': 0.0, 'uptrend_strength_D': 50.0, 'downtrend_strength_D': 50.0,
             'pressure_release_index_D': 50.0, 'chip_flow_intensity_D': 0.0, 'PRICE_ENTROPY_D': 0.5,
-            'GEOM_REG_R2_D': 0.5, 'GEOM_REG_SLOPE_D': 0.0, 'ADX_14_D': 20.0, 'SMART_MONEY_INST_NET_BUY_D': 0.0
+            'GEOM_REG_R2_D': 0.5, 'GEOM_REG_SLOPE_D': 0.0, 'ADX_14_D': 20.0
         }
         missing = [col for col in default_map.keys() if col not in df.columns]
         if missing:
@@ -144,7 +142,7 @@ class CalculateCostAdvantageTrendRelationship:
         hab_stability = self._calc_hab_impact(stability, 55)
         pr_norm = pd.Series(np.tanh((pressure_release - 50.0) / 20.0), index=idx)
         slope_conc, accel_conc, jerk_conc = self._get_kinematics(df, concentration, 'chip_concentration_ratio_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D1_ChipSolidity")
-        kinematic_mod = pd.Series(np.tanh(self._scale_by_volatility(slope_conc, 21) * 0.5 + self._scale_by_volatility(accel_conc, 21) * 0.3), index=idx)
+        kinematic_mod = self._scale_by_volatility(slope_conc, 21) * 0.5 + self._scale_by_volatility(accel_conc, 21) * 0.3
         base_score = pe_norm * 0.4 + hab_stability * 0.3 + pr_norm * 0.2 + kinematic_mod * 0.1
         final_d1 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
@@ -167,7 +165,7 @@ class CalculateCostAdvantageTrendRelationship:
         lorentz_force = q_charge * (hab_e_field + v_norm * b_field)
         primary = pd.Series(np.tanh(lorentz_force), index=idx)
         slope_sm, accel_sm, jerk_sm = self._get_kinematics(df, hm_buy, 'SMART_MONEY_HM_NET_BUY_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D2_PredatorAttack")
-        kinematic_mod = pd.Series(np.tanh(self._scale_by_volatility(slope_sm, 21) * 0.5 + self._scale_by_volatility(accel_sm, 21) * 0.3), index=idx)
+        kinematic_mod = self._scale_by_volatility(slope_sm, 21) * 0.5 + self._scale_by_volatility(accel_sm, 21) * 0.3
         base_score = primary * (1.0 + np.sign(primary) * kinematic_mod * 0.5).clip(0.0, 2.0)
         final_d2 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
@@ -190,7 +188,7 @@ class CalculateCostAdvantageTrendRelationship:
         useful_work = hab_energy * hab_vpa.abs() * carnot_eta
         primary = pd.Series(np.tanh(useful_work), index=idx)
         slope_v, accel_v, jerk_v = self._get_kinematics(df, velocity, 'MA_VELOCITY_EMA_55_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D3_KinematicEff")
-        kinematic_mod = pd.Series(np.tanh(self._scale_by_volatility(slope_v, 21) * 0.5 + self._scale_by_volatility(accel_v, 21) * 0.3), index=idx)
+        kinematic_mod = self._scale_by_volatility(slope_v, 21) * 0.5 + self._scale_by_volatility(accel_v, 21) * 0.3
         base_score = primary * (1.0 + np.sign(primary) * kinematic_mod * 0.5).clip(0.0, 2.0)
         final_d3 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
@@ -213,7 +211,7 @@ class CalculateCostAdvantageTrendRelationship:
         strain = (slope_c50 / (cost_50 + 1e-8)) * 2.0
         compliance = strain / stress
         primary = pd.Series(np.tanh(compliance), index=idx)
-        flow_mod = pd.Series(np.tanh(self._scale_by_volatility(chip_flow, 21)), index=idx)
+        flow_mod = self._scale_by_volatility(chip_flow, 21)
         base_score = primary * (1.0 + np.sign(primary) * flow_mod * 0.5).clip(0.0, 2.0)
         final_d4 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
@@ -231,7 +229,7 @@ class CalculateCostAdvantageTrendRelationship:
         negentropy = np.tanh((hab_entropy - total_micro_entropy) * 5.0)
         primary = pd.Series(np.sign(negentropy) * np.sqrt(np.abs(negentropy * reg_r2)), index=idx)
         slope_ent, _, _ = self._get_kinematics(df, chip_entropy, 'chip_entropy_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D5_Negentropy")
-        kinetics_mod = pd.Series(-np.tanh(self._scale_by_volatility(slope_ent, 21)), index=idx)
+        kinetics_mod = -self._scale_by_volatility(slope_ent, 21)
         core_negentropy = primary * (1.0 + np.sign(primary) * kinetics_mod * 0.5).clip(0.0, 2.0)
         trend_gate = pd.Series(np.tanh(reg_slope * 10.0), index=idx)
         divergence_penalty = np.where((core_negentropy < 0) & (trend_gate > 0), 1.0 + np.abs(trend_gate), 1.0)
@@ -247,7 +245,7 @@ class CalculateCostAdvantageTrendRelationship:
     def _calculate_pentagonal_resonance(self, D1: pd.Series, D2: pd.Series, D3: pd.Series, D4: pd.Series, D5: pd.Series, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
         close = df['close_D']
         adx = df['ADX_14_D']
-        def tensor_proxy(a, b): return np.sign(a * b) * np.sqrt(np.abs(a * b))
+        def tensor_proxy(a, b): return np.where(a * b > 0, np.sign(a) * np.sqrt(np.abs(a * b)), -np.sqrt(np.abs(a * b)))
         i12 = tensor_proxy(D1, D2)
         i23 = tensor_proxy(D2, D3)
         i34 = tensor_proxy(D3, D4)
