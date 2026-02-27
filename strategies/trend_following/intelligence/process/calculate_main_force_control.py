@@ -19,21 +19,21 @@ except ImportError:
         return decorator
 @_njit_wrapper(cache=True, fastmath=True)
 def nb_soft_saturation(x: np.ndarray) -> np.ndarray:
-    """【V66.0.0 Numba极速内核】全域代数软饱和降维，替代pd.clip，消除隐性对象分配与偏导数消失。"""
+    """【V68.0.0 Numba极速内核】全域代数软饱和降维，替代pd.clip，消除隐性对象分配与偏导数消失。"""
     res = np.empty_like(x)
     for i in range(x.shape[0]):
         res[i] = x[i] / np.sqrt(1.0 + x[i]*x[i])
     return res
 @_njit_wrapper(cache=True, fastmath=True)
 def nb_threshold_gate(val: np.ndarray, noise: np.ndarray) -> np.ndarray:
-    """【V66.0.0 Numba极速内核】动力学微积分自适应阈值门限过滤，执行循环融合彻底消灭中间数组切片。"""
+    """【V68.0.0 Numba极速内核】动力学微积分自适应阈值门限过滤，执行循环融合彻底消灭中间数组切片。"""
     res = np.empty_like(val)
     for i in range(val.shape[0]):
         res[i] = val[i] * np.tanh(np.abs(val[i]) / noise[i])
     return res
 @_njit_wrapper(cache=True, fastmath=True)
 def nb_lv_regime_blend(dx_z: np.ndarray, dy_z: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """【V66.0.0 Numba极速内核】洛特卡-沃尔泰拉生态博弈运算，拓扑连续平滑求解第三象限黑洞引力与生态张力。"""
+    """【V68.0.0 Numba极速内核】洛特卡-沃尔泰拉生态博弈运算，拓扑连续平滑求解第三象限黑洞引力与生态张力。"""
     n = dx_z.shape[0]
     lv_net_force = np.empty(n, dtype=np.float32)
     lv_tension = np.empty(n, dtype=np.float32)
@@ -47,7 +47,7 @@ def nb_lv_regime_blend(dx_z: np.ndarray, dy_z: np.ndarray) -> Tuple[np.ndarray, 
     return lv_net_force, lv_tension, lv_score
 @_njit_wrapper(cache=True, fastmath=True)
 def nb_trap_force_and_weights(trad_arr: np.ndarray, act_arr: np.ndarray, fractal_dim: np.ndarray, w_trad_base: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """【V66.0.0 Numba极速内核】陷阱极性逆转张量生成器，执行防0值连乘的加法势能推演，速度提升数十倍。"""
+    """【V68.0.0 Numba极速内核】陷阱极性逆转张量生成器，执行防0值连乘的加法势能推演，速度提升数十倍。"""
     n = trad_arr.shape[0]
     trap_force = np.empty(n, dtype=np.float32)
     w_trad_adj = np.empty(n, dtype=np.float32)
@@ -65,27 +65,27 @@ def nb_trap_force_and_weights(trad_arr: np.ndarray, act_arr: np.ndarray, fractal
     return trap_force, w_trad_adj
 class CalculateMainForceControlRelationship:
     """
-    【V66.0.0 · 主力控盘全息量子决策系统 · Numba极速阵列版】
+    【V68.0.0 · 主力控盘全息量子决策系统 · 全息量子极速阵列终极版】
     PROCESS_META_MAIN_FORCE_CONTROL
-    - 核心职责: 计算“主力控盘”专属分数，运用Numpy矢量化与Numba JIT消除Pandas性能瓶颈，免疫未来函数。
-    - 版本: 66.0.0
+    - 核心职责: 计算“主力控盘”专属分数，运用Numpy矢量化与Numba JIT消除Pandas性能瓶颈，修复全部语法级宕机错误。
+    - 版本: 68.0.0
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
-        """【用途】V66.0.0: 初始化主力控盘处理器，挂载策略上下文参数矩阵与探针配置。"""
+        """【用途】V68.0.0: 初始化主力控盘处理器，挂载策略上下文参数矩阵与探针配置。"""
         self.strategy = strategy_instance
         self.helper = helper_instance
         self.params = self.helper.params
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
     def _print_debug_info(self, debug_output: Dict):
-        """【用途】V66.0.0: 统一格式化打印探针诊断信息，维持黑盒日志的高度清洁与可追踪性。"""
+        """【用途】V68.0.0: 统一格式化打印探针诊断信息，维持黑盒日志的高度清洁与可追踪性。"""
         for key, value in debug_output.items():
             if value:
                 print(f"{key}: {value}")
             else:
                 print(key)
     def _get_safe_series(self, df: pd.DataFrame, col_name: str, default_value: float = 0.0, method_name: str = "") -> pd.Series:
-        """【用途/效率优化】V66.0.0: 安全加载底层物理数据。强制降级astype(float32)削减50%内存带宽，提升CPU缓存命中。"""
+        """【用途/效率优化】V68.0.0: 安全加载底层物理数据。强制降级astype(float32)削减50%内存带宽，提升CPU缓存命中。"""
         process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         neutral_nan_defaults = process_params.get('neutral_nan_defaults', {})
         current_default_value = neutral_nan_defaults.get(col_name, default_value)
@@ -93,7 +93,7 @@ class CalculateMainForceControlRelationship:
             return pd.Series(current_default_value, index=df.index, dtype=np.float32)
         return df[col_name].ffill().fillna(current_default_value).astype(np.float32)
     def _get_robust_noise_floor(self, s: pd.Series, window_std=21, window_med=252) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 绝对单向时间膜底噪萃取。全量提取values执行Numpy maximum，规避Pandas对齐开销。"""
+        """【用途/效率优化】V68.0.0: 绝对单向时间膜底噪萃取。全量提取values执行Numpy maximum，规避Pandas对齐开销。"""
         s_abs = s.abs().values
         roll_std = pd.Series(s_abs).rolling(window=window_std, min_periods=3).std().ffill().fillna(0.0).values.astype(np.float32)
         roll_med = pd.Series(s_abs).rolling(window=window_med, min_periods=3).median().ffill().values.astype(np.float32)
@@ -101,7 +101,7 @@ class CalculateMainForceControlRelationship:
         final_med = np.where(np.isnan(roll_med), exp_med, roll_med)
         return pd.Series(np.maximum(roll_std, final_med) + 1e-5, index=s.index, dtype=np.float32)
     def _z_score_norm(self, s: pd.Series, scale=1.0, shift=0.0, window=252) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 自适应量纲Z-Score归一化。纯NumPy运算免疫Pandas耗时，防远古离群值永久挤压。"""
+        """【用途/效率优化】V68.0.0: 自适应量纲Z-Score归一化。纯NumPy运算免疫Pandas耗时，防远古离群值永久挤压。"""
         s_val = s.values.astype(np.float32)
         roll_med = s.rolling(window=window, min_periods=5).median().ffill().values.astype(np.float32)
         exp_med = s.expanding(min_periods=1).median().ffill().fillna(0.0).values.astype(np.float32)
@@ -113,12 +113,12 @@ class CalculateMainForceControlRelationship:
         res_val = (np.tanh((s_val - med_val) / (std_val + 1e-5)) * np.float32(scale)) + np.float32(shift)
         return pd.Series(res_val, index=s.index, dtype=np.float32)
     def _robust_pct_scale(self, s: pd.Series, threshold: float = 1.5, scale_factor: float = 100.0) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 自适应百分比量纲探测器。运用np.where实现C级向量化寻址条件分支，消灭pd.mask。"""
+        """【用途/效率优化】V68.0.0: 自适应百分比量纲探测器。运用np.where实现C级向量化寻址条件分支，消灭pd.mask。"""
         q90_val = s.expanding(min_periods=1).quantile(0.9).ffill().fillna(threshold).values.astype(np.float32)
         scale_arr = np.where(q90_val <= threshold, np.float32(scale_factor), np.float32(1.0))
         return pd.Series(s.values.astype(np.float32) * scale_arr, index=s.index, dtype=np.float32)
     def _apply_kinematics_with_threshold_gate(self, series: pd.Series, periods: tuple) -> Tuple[pd.Series, pd.Series, pd.Series]:
-        """【用途/效率优化】V66.0.0: 动力学微积分发生器。注入Numba JIT内核nb_threshold_gate，阻断零基噪音同时消除中间数组。"""
+        """【用途/效率优化】V68.0.0: 动力学微积分发生器。注入Numba JIT内核nb_threshold_gate，阻断零基噪音同时消除中间数组。"""
         p_slope, p_accel, p_jerk = periods
         slope = series.diff(p_slope).ffill().fillna(0.0).values.astype(np.float32)
         noise_slope = (self._get_robust_noise_floor(pd.Series(slope)).values * np.float32(0.5)).astype(np.float32)
@@ -131,14 +131,14 @@ class CalculateMainForceControlRelationship:
         jerk_gated = nb_threshold_gate(jerk, noise_jerk)
         return pd.Series(slope_gated, index=series.index, dtype=np.float32), pd.Series(accel_gated, index=series.index, dtype=np.float32), pd.Series(jerk_gated, index=series.index, dtype=np.float32)
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 决策系统最高调度总线。聚合底层张量阵列，运用Numba极速软饱和收敛模型生成平滑最终分数。"""
+        """【用途/效率优化】V68.0.0: 决策系统最高调度总线。聚合底层张量阵列，运用Numba极速软饱和收敛模型生成平滑最终分数。"""
         method_name = "calculate_main_force_control_relationship"
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
         _temp_debug_values = {} 
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
         if probe_ts:
-            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V66.0.0 (Numba极速阵列版)")
+            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V68.0.0 (全息量子极速阵列版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
         if hasattr(self, '_validate_arsenal_signals'):
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
@@ -176,14 +176,14 @@ class CalculateMainForceControlRelationship:
             self._calculate_main_force_control_relationship_debug_output(debug_output, _temp_debug_values, method_name, probe_ts)
         return final_control_score
     def _get_control_parameters(self, config: Dict) -> Tuple[Dict, Dict]:
-        """【用途】V66.0.0: 获取MTF多时间框架权重分配与动能斜率探测周期。"""
+        """【用途】V68.0.0: 获取MTF多时间框架权重分配与动能斜率探测周期。"""
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         return actual_mtf_weights, mtf_slope_accel_weights
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
-        """【用途/效率优化】V66.0.0: 全息物理总线。对HAB动力学半衰期衰减应用底层数组乘法剥离，免去复杂的多重索引校验开销。"""
+        """【用途/效率优化】V68.0.0: 全息物理总线。对HAB动力学半衰期衰减应用底层数组乘法剥离，免去复杂的多重索引校验开销。"""
         market_raw = {
             "close": self._get_safe_series(df, 'close_D', 0.0),
             "amount": self._get_safe_series(df, 'amount_D', 0.0),
@@ -285,10 +285,10 @@ class CalculateMainForceControlRelationship:
         if _temp_debug_values is not None:
             _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {"Close": market_raw['close'], "Chip_Flow_Intensity": funds_raw['chip_flow_intensity'], "Closing_Strength": sentiment_raw['closing_strength'], "Emotional_Extreme": state_raw['emotional_extreme']}
         if probe_ts:
-            print(f"[探针] V66.0.0 物理总线挂载完成。抗脆弱时间单向膜与极速内存降级网络就绪。")
+            print(f"[探针] V68.0.0 物理总线挂载完成。抗脆弱时间单向膜与极速内存降级网络就绪。")
         return {"market": market_raw, "funds": funds_raw, "structure": structure_raw, "sentiment": sentiment_raw, "state": state_raw, "ema": ema_system}
     def _calculate_lotka_volterra_model(self, df: pd.DataFrame, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series]:
-        """【用途/效率优化】V66.0.0: LV生态拓扑，彻底切入 nb_lv_regime_blend Numba内核处理非线性黑洞映射。"""
+        """【用途/效率优化】V68.0.0: LV生态拓扑，彻底切入 nb_lv_regime_blend Numba内核处理非线性黑洞映射。"""
         f = context['funds']
         m = context['market']
         s = context['structure']
@@ -308,14 +308,14 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["逻辑层_LV生态博弈(拓扑平滑态)"] = {"Predator_Force_Z": pd.Series(dx_z, index=index, dtype=np.float32), "Prey_Resistance_Z": pd.Series(dy_z, index=index, dtype=np.float32), "Regime_Weight": pd.Series((np.tanh(dx_z * 5.0) + 1.0) * 0.5, index=index, dtype=np.float32), "LV_Net_Force": pd.Series(lv_net_force_v, index=index, dtype=np.float32), "LV_Ecological_Tension": pd.Series(lv_tension_v, index=index, dtype=np.float32), "Final_LV_Score": pd.Series(lv_score_v, index=index, dtype=np.float32)}
         return pd.Series(lv_score_v, index=index, dtype=np.float32), pd.Series(lv_tension_v, index=index, dtype=np.float32)
     def _calculate_main_force_control_relationship_debug_output(self, debug_output: Dict, _temp_debug_values: Dict, method_name: str, probe_ts: pd.Timestamp):
-        """【用途】V66.0.0: 全链路探针诊断输出格式化封装，护航黑盒透视验证。"""
+        """【用途】V68.0.0: 全链路探针诊断输出格式化封装，护航黑盒透视验证。"""
         full_chain = [
             ("1. 物理层 (Raw Arsenal Data)", "1. 物理层 (Raw Arsenal Data)"),
             ("主力平均价格(HAB版)", "2. 原子层 (Weighted Cost Calc)"),
             ("逻辑层_LV生态博弈(拓扑平滑态)", "3. 逻辑层 - 洛特卡-沃尔泰拉博弈"),
             ("组件_传统控盘(柔性梯度版)", "4. 逻辑层 - 传统控盘 (Fibonacci Resonance)"),
             ("组件_成本优势(Harmonic版)", "5. 逻辑层 - 成本优势 (Harmonic Oscillator)"),
-            ("组件_净活动(V66穿甲弹版)", "6. 逻辑层 - 资金动力学 (Armor-Piercing Flows)"),
+            ("组件_净活动(V68穿甲弹版)", "6. 逻辑层 - 资金动力学 (Armor-Piercing Flows)"),
             ("归一化处理", "7. 转换层 (MTF & Normalization)"),
             ("融合_动力学(极性感知版)", "8. 决策层 - 深度融合 (Polarity-Aware Fusion)"),
             ("风控层_杠杆(量纲内聚校准版)", "9. 风控层 (Dimension-Calibrated Leverage)"),
@@ -341,7 +341,7 @@ class CalculateMainForceControlRelationship:
                         debug_output[f"        {sub_key}: {v_print}"] = ""
         self._print_debug_info(debug_output)
     def _calculate_main_force_avg_prices(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Dict[str, pd.Series]:
-        """【用途/效率优化】V66.0.0: VWMA均价计算，全量提取NumPy矩阵过滤极端量纲并交由nb_soft_saturation执行极速收敛。"""
+        """【用途/效率优化/热修】V68.0.0: VWMA均价计算，全量提取NumPy矩阵过滤极端量纲并交由nb_soft_saturation执行极速收敛。修复了 flow_weight_v 的致命拼写错误。"""
         m = context['market']
         f = context['funds']
         s = context['structure']
@@ -382,13 +382,13 @@ class CalculateMainForceControlRelationship:
         flow_weight_v = np.clip(np.tanh(turnover_v / 10.0), 0.2, 0.8).astype(np.float32)
         static_weight_v = 1.0 - flow_weight_v
         final_buy_price_v = (hab_cost_buy_21_v * flow_weight_v + cyq_avg_cost_v * static_weight_v) * (1.0 + smart_bias_v * 0.02)
-        final_sell_price_v = (hab_cost_sell_21_v * flow_weight_val + cyq_avg_cost_v * static_weight_v)
+        final_sell_price_v = (hab_cost_sell_21_v * flow_weight_v + cyq_avg_cost_v * static_weight_v)
         result = {"unit_mismatch": np.any(unit_mismatch_v), "avg_buy": pd.Series(final_buy_price_v, index=index, dtype=np.float32), "avg_sell": pd.Series(final_sell_price_v, index=index, dtype=np.float32), "buy_slope": slope_s, "buy_accel": accel_s, "buy_jerk": jerk_s, "kinematic_power": pd.Series(kinematic_power_v, index=index, dtype=np.float32), "shadow_cost": pd.Series(cyq_avg_cost_v, index=index, dtype=np.float32)}
         if _temp_debug_values is not None:
             _temp_debug_values["主力平均价格(HAB版)"] = {"VWAP_Correction": pd.Series(c_factor, index=index, dtype=np.float32).mean(), "HAB_Cost_21": pd.Series(hab_cost_buy_21_v, index=index, dtype=np.float32), "Kinematic_Power": pd.Series(kinematic_power_v, index=index, dtype=np.float32)}
         return result
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, hab_prices: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 胡克受迫阻尼谐振子。彻底剥离Pandas条件替换屏蔽，交由C级运算网络及Numba软饱和重构引擎速度。"""
+        """【用途/效率优化】V68.0.0: 胡克受迫阻尼谐振子。彻底剥离Pandas条件替换屏蔽，交由C级运算网络及Numba软饱和重构引擎速度。"""
         m = context['market']
         s = context['structure']
         f = context['funds']
@@ -430,7 +430,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["组件_成本优势(Harmonic版)"] = {"Net_Force": pd.Series(net_force_v, index=index, dtype=np.float32), "Final_Cost_Score": pd.Series(final_score_v, index=index, dtype=np.float32)}
         return pd.Series(final_score_v, index=index, dtype=np.float32)
     def _calculate_main_force_net_activity_score(self, context: Dict, index: pd.Index, config: Dict, method_name: str, _temp_debug_values: Dict) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 多维资金微观净动能，执行穿甲弹熔毁机制。剥离一切Series构造，100%基于底层NumPy与Numba执行。"""
+        """【用途/效率优化】V68.0.0: 多维资金微观净动能，执行穿甲弹熔毁机制。剥离一切Series构造，100%基于底层NumPy与Numba执行。"""
         f = context['funds']
         m = context['market']
         s_sent = context['sentiment']
@@ -469,10 +469,10 @@ class CalculateMainForceControlRelationship:
         raw_score_v = np.sign(final_energy_v) * np.power(np.abs(final_energy_v), gain_exponent_v)
         final_score_v = nb_soft_saturation(raw_score_v.astype(np.float32))
         if _temp_debug_values is not None:
-            _temp_debug_values["组件_净活动(V66穿甲弹版)"] = {"Raw_Vector": pd.Series(raw_vector_v, index=index, dtype=np.float32), "Armor_Threshold": pd.Series(armor_threshold_v, index=index, dtype=np.float32), "Armor_Melting": pd.Series(armor_melting_v, index=index, dtype=np.float32), "Impact_Strength": pd.Series(impact_strength_v, index=index, dtype=np.float32), "Z_Vel": pd.Series(z_vel_v, index=index, dtype=np.float32), "Final_Activity_Score": pd.Series(final_score_v, index=index, dtype=np.float32)}
+            _temp_debug_values["组件_净活动(V68穿甲弹版)"] = {"Raw_Vector": pd.Series(raw_vector_v, index=index, dtype=np.float32), "Armor_Threshold": pd.Series(armor_threshold_v, index=index, dtype=np.float32), "Armor_Melting": pd.Series(armor_melting_v, index=index, dtype=np.float32), "Impact_Strength": pd.Series(impact_strength_v, index=index, dtype=np.float32), "Z_Vel": pd.Series(z_vel_v, index=index, dtype=np.float32), "Final_Activity_Score": pd.Series(final_score_v, index=index, dtype=np.float32)}
         return pd.Series(final_score_v, index=index, dtype=np.float32)
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 传统均线流形张力推演。剥离所有mask判定，全部切换底层NumPy，与Numba无缝组装防偏导数消失(Gradient Vanishing)。"""
+        """【用途/效率优化】V68.0.0: 传统均线流形张力推演。剥离所有mask判定，全部切换底层NumPy，与Numba无缝组装防偏导数消失(Gradient Vanishing)。"""
         ema = context['ema']
         s_struct = context['structure']
         f_funds = context['funds']
@@ -511,7 +511,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["组件_传统控盘(柔性梯度版)"] = {"HAB_Slope_34": pd.Series(hab_slope_34_v, index=index, dtype=np.float32), "Final_Trad_Score": pd.Series(final_score_v, index=index, dtype=np.float32)}
         return pd.Series(final_score_v, index=index, dtype=np.float32)
     def _calculate_control_leverage_model(self, index: pd.Index, traditional_score: pd.Series, fused_score: pd.Series, net_activity_score: pd.Series, norm_flow: pd.Series, cost_score: pd.Series, lv_tension: pd.Series, lv_score: pd.Series, norm_t0_buy: pd.Series, norm_t0_sell: pd.Series, norm_vwap_up: pd.Series, norm_vwap_down: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 非线性风控杠杆拓扑。内部原生乖离率消除量纲漂移，解构20次Pandas嵌套，完全NumPy提速400%以上。"""
+        """【用途/效率优化】V68.0.0: 非线性风控杠杆拓扑。内部原生乖离率消除量纲漂移，解构20次Pandas嵌套，完全NumPy提速400%以上。"""
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
@@ -586,7 +586,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["风控层_杠杆(量纲内聚校准版)"] = {"Apparent_Strength": pd.Series(apparent_strength_v, index=index, dtype=np.float32), "Internal_Bias_Ratio": pd.Series(native_bias_55_v, index=index, dtype=np.float32), "Release_Multiplier": pd.Series(release_multiplier_v, index=index, dtype=np.float32), "Gravity_Assist": pd.Series(gravity_assist_v, index=index, dtype=np.float32), "Final_Leverage": pd.Series(final_lev_v, index=index, dtype=np.float32)}
         return pd.Series(final_lev_v, index=index, dtype=np.float32)
     def _fuse_control_scores(self, traditional_score: pd.Series, structural_score: pd.Series, lv_score: pd.Series, context: Dict, activity_score: pd.Series, _temp_debug_values: Dict) -> pd.Series:
-        """【用途/效率优化】V66.0.0: 极性感知高维特征融合。由Numba接管陷阱张量极性翻转逻辑，纯净NumPy合并极性与熵值计算避免开销堆积。"""
+        """【用途/效率优化】V68.0.0: 极性感知高维特征融合。由Numba接管陷阱张量极性翻转逻辑，纯净NumPy合并极性与熵值计算避免开销堆积。"""
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
@@ -645,7 +645,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["融合_动力学(极性感知版)"] = {"High_Pos_Lock_Norm": pd.Series(norm_lock_v, index=index, dtype=np.float32), "Trap_Force": pd.Series(trap_force_v, index=index, dtype=np.float32), "Entropy_Multiplier": pd.Series(entropy_multiplier_v, index=index, dtype=np.float32), "Final_Fused_Score": pd.Series(final_fused_v, index=index, dtype=np.float32)}
         return pd.Series(final_fused_v, index=index, dtype=np.float32)
     def _normalize_components(self, df: pd.DataFrame, context: Dict, scores_traditional: pd.Series, config: Dict, method_name: str, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
-        """【用途/效率优化】V66.0.0: 非线性转换层。全量NumPy Z-Score免疫绝对量纲差异，保证所有基础运算仅在连续内存执行。"""
+        """【用途/效率优化】V68.0.0: 非线性转换层。全量NumPy Z-Score免疫绝对量纲差异，保证所有基础运算仅在连续内存执行。"""
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
@@ -675,7 +675,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["归一化处理"] = {"structural_mtf_norm": norm_structural, "t0_buy_boost": norm_t0_buy}
         return norm_traditional, norm_structural, norm_flow, norm_t0_buy, norm_t0_sell, norm_vwap_up, norm_vwap_down
     def _get_probe_timestamp(self, df: pd.DataFrame, is_debug: bool) -> Optional[pd.Timestamp]:
-        """【用途/效率优化】V66.0.0: 探针时钟定位。利用向量化 .isin() 替换低效 for 循环。"""
+        """【用途/效率优化】V68.0.0: 探针时钟定位。利用向量化 .isin() 替换低效 for 循环。"""
         if not is_debug or not self.probe_dates:
             return None
         probe_dates_dt = pd.to_datetime(self.probe_dates).normalize()
@@ -683,7 +683,7 @@ class CalculateMainForceControlRelationship:
         matches = df.index[df_dates_naive.isin(probe_dates_dt)]
         return matches[-1] if len(matches) > 0 else None
     def _validate_arsenal_signals(self, df: pd.DataFrame, config: Dict, method_name: str, debug_output: Dict, probe_ts: pd.Timestamp) -> bool:
-        """【用途/安全】V66.0.0: 最高级别军械库守门员，执行严格的特征挂载校验，抵御源数据断联宕机。"""
+        """【用途/安全】V68.0.0: 最高级别军械库守门员，执行严格的特征挂载校验，抵御源数据断联宕机。"""
         required_physical_raw = [
             'close_D', 'amount_D', 'pct_change_D', 'turnover_rate_D', 'circ_mv_D',
             'buy_elg_amount_D', 'sell_elg_amount_D', 'buy_lg_amount_D', 'sell_lg_amount_D',
