@@ -10,10 +10,10 @@ from strategies.trend_following.utils import (
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateMainForceControlRelationship:
     """
-    【V60.1.0 · 主力控盘全息量子决策系统 · 全域量纲与合力修复版】
+    【V58.0.0 · 主力控盘全息量子决策系统 · 全域量纲自适应终极版】
     PROCESS_META_MAIN_FORCE_CONTROL
-    - 核心职责: 计算“主力控盘”专属关系分数，根除极性反噬、消除未来函数，全域统一指标量纲。
-    - 版本: 60.1.0
+    - 核心职责: 计算“主力控盘”专属关系分数，根除极性反噬、消除未来函数，全域统一指标量纲以防御漂移。
+    - 版本: 58.0.0
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         """【用途】初始化主力控盘处理器，挂载策略上下文参数矩阵与探针配置。"""
@@ -71,7 +71,7 @@ class CalculateMainForceControlRelationship:
         probe_ts = self._get_probe_timestamp(df, is_debug)
         debug_output = {}
         if probe_ts:
-            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V60.1.0 (全域自适应量纲热修版)")
+            print(f"[调度中心] {method_name} 启动 @ {probe_ts.strftime('%Y-%m-%d')} | 版本: V58.0.0 (全域自适应量纲版)")
             debug_output[f"--- {method_name} 管道启动 @ {probe_ts.strftime('%Y-%m-%d')} ---"] = ""
         if hasattr(self, '_validate_arsenal_signals'):
              if not self._validate_arsenal_signals(df, config, method_name, debug_output, probe_ts):
@@ -116,7 +116,7 @@ class CalculateMainForceControlRelationship:
         mtf_slope_accel_weights = config.get('mtf_slope_accel_weights', {"slope_periods": {"5": 0.6, "13": 0.4}, "accel_periods": {"5": 0.7, "13": 0.3}})
         return actual_mtf_weights, mtf_slope_accel_weights
     def _get_raw_control_signals(self, df: pd.DataFrame, method_name: str, _temp_debug_values: Dict, probe_ts: pd.Timestamp) -> Dict[str, Dict[str, pd.Series]]:
-        """【用途/修复】全息物理总线挂载：自动校准换手率与量纲漂移，应用指数衰减方程建立具有记忆半衰期的HAB存量护盾。"""
+        """【用途】全息物理总线挂载：自动校准换手率与量纲漂移，应用指数衰减方程建立具有记忆半衰期的HAB存量护盾。"""
         market_raw = {
             "close": self._get_safe_series(df, 'close_D', 0.0),
             "amount": self._get_safe_series(df, 'amount_D', 0.0),
@@ -218,7 +218,7 @@ class CalculateMainForceControlRelationship:
         if _temp_debug_values is not None:
             _temp_debug_values["1. 物理层 (Raw Arsenal Data)"] = {"Close": market_raw['close'], "Chip_Flow_Intensity": funds_raw['chip_flow_intensity'], "Closing_Strength": sentiment_raw['closing_strength'], "Emotional_Extreme": state_raw['emotional_extreme']}
         if probe_ts:
-            print(f"[探针] V60.1.0 物理总线挂载完成。全息火力系统上线，HAB换手率与全域量纲自适应引擎就绪。")
+            print(f"[探针] V58.0.0 物理总线挂载完成。全息火力系统上线，HAB换手率与全域量纲自适应引擎就绪。")
         return {"market": market_raw, "funds": funds_raw, "structure": structure_raw, "sentiment": sentiment_raw, "state": state_raw, "ema": ema_system}
     def _calculate_lotka_volterra_model(self, df: pd.DataFrame, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> Tuple[pd.Series, pd.Series]:
         """【用途】洛特卡-沃尔泰拉生态博弈运算：搭载 Z-Score 量纲自适应转换，及拓扑连续状态混合器，粉碎第三象限多杀多异变。"""
@@ -252,7 +252,7 @@ class CalculateMainForceControlRelationship:
             ("逻辑层_LV生态博弈(拓扑平滑态)", "3. 逻辑层 - 洛特卡-沃尔泰拉博弈"),
             ("组件_传统控盘(柔性梯度版)", "4. 逻辑层 - 传统控盘 (Fibonacci Resonance)"),
             ("组件_成本优势(Harmonic版)", "5. 逻辑层 - 成本优势 (Harmonic Oscillator)"),
-            ("组件_净活动(V60穿甲弹版)", "6. 逻辑层 - 资金动力学 (Armor-Piercing Flows)"),
+            ("组件_净活动(V58穿甲弹版)", "6. 逻辑层 - 资金动力学 (Armor-Piercing Flows)"),
             ("归一化处理", "7. 转换层 (MTF & Normalization)"),
             ("融合_动力学(极性感知版)", "8. 决策层 - 深度融合 (Polarity-Aware Fusion)"),
             ("风控层_杠杆(量纲内聚校准版)", "9. 风控层 (Dimension-Calibrated Leverage)"),
@@ -324,7 +324,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["主力平均价格(HAB版)"] = {"VWAP_Correction": correction_factor.mean(), "HAB_Cost_21": hab_cost_buy_21, "Kinematic_Power": kinematic_power}
         return result
     def _calculate_main_force_cost_advantage_score(self, context: Dict, index: pd.Index, hab_prices: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """【用途/修复】胡克定律受迫阻尼谐振子模型。计算筹码重心的牵引回归力，修复 net_force 物理合力丢失断层。"""
+        """【用途/修复】胡克定律受迫阻尼谐振子模型。计算筹码重心的牵引回归力，安全加载 net_force 物理合力。"""
         m = context['market']
         s = context['structure']
         f = context['funds']
@@ -411,7 +411,7 @@ class CalculateMainForceControlRelationship:
         safe_raw = raw_score.astype(np.float64)
         final_score = (safe_raw / np.sqrt(1.0 + np.square(safe_raw))).astype(np.float32)
         if _temp_debug_values is not None:
-            _temp_debug_values["组件_净活动(V60穿甲弹版)"] = {"Raw_Vector": raw_vector, "Armor_Threshold": armor_threshold, "Armor_Melting": armor_melting, "Impact_Strength": impact_strength, "Z_Vel": z_vel, "Final_Activity_Score": final_score}
+            _temp_debug_values["组件_净活动(V58穿甲弹版)"] = {"Raw_Vector": raw_vector, "Armor_Threshold": armor_threshold, "Armor_Melting": armor_melting, "Impact_Strength": impact_strength, "Z_Vel": z_vel, "Final_Activity_Score": final_score}
         return final_score
     def _calculate_traditional_control_score_components(self, context: Dict, index: pd.Index, _temp_debug_values: Dict) -> pd.Series:
         """【用途】传统均线流形结构多维张力推演。应用全域代数软饱和替换截断，避免极端趋势偏导数消失瞎眼(Gradient Vanishing)。"""
@@ -453,7 +453,7 @@ class CalculateMainForceControlRelationship:
             _temp_debug_values["组件_传统控盘(柔性梯度版)"] = {"HAB_Slope_34": hab_slope_34, "Final_Trad_Score": final_score}
         return final_score
     def _calculate_control_leverage_model(self, index: pd.Index, traditional_score: pd.Series, fused_score: pd.Series, net_activity_score: pd.Series, norm_flow: pd.Series, cost_score: pd.Series, lv_tension: pd.Series, lv_score: pd.Series, norm_t0_buy: pd.Series, norm_t0_sell: pd.Series, norm_vwap_up: pd.Series, norm_vwap_down: pd.Series, context: Dict, _temp_debug_values: Dict) -> pd.Series:
-        """【用途】非线性风控杠杆拓扑网络调配。引入微观盘口幽灵意图熔接与博弈烈度增压，现场原生计算均线乖离率，彻底消除外部量纲漂移引发的核爆错误。"""
+        """【用途/修复】非线性风控杠杆拓扑网络调配。引入微观盘口幽灵意图熔接与博弈烈度增压，现场原生计算均线乖离率，彻底消除外部量纲漂移引发的核爆错误。"""
         s_struct = context['structure']
         s_sent = context['sentiment']
         f_funds = context['funds']
