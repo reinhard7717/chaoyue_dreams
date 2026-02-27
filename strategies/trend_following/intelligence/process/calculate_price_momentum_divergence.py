@@ -155,35 +155,79 @@ class CalculatePriceMomentumDivergence:
         osc_div = np.sign(v_price) * (v_price.abs() ** 1.2) * tear_factor
         return {"DIM": osc_div, "V_PRICE": v_price, "V_SMART": v_smart, "TEAR": tear_factor}
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """v18.0.0 主引擎入口：汇总四维相空间，实行Gamma极化输出完整探针阵列"""
+        """v18.1.0 主计算入口：相空间坍缩与Gamma极化 (修复探针静默与时区死锁)"""
         p = config.get('price_momentum_divergence_params', {})
-        res_kin = self._calc_kinematic_tensor(df)
-        res_ene = self._calc_energy_dissipation(df)
-        res_geo = self._calc_topology_manifold(df)
-        res_osc = self._calc_oscillator_resonance(df)
-        snt = self._extract_and_derive(df, 'market_sentiment_score_D')
-        n_snt = self._quantum_norm(snt - 50.0, 55, p.get('sentiment_polarization_factor', 1.2))
-        tensor_core = (res_kin['DIM'] * 0.35 + res_ene['DIM'] * 0.30 + res_geo['DIM'] * 0.25 + res_osc['DIM'] * 0.10)
-        sentiment_alignment = 1.0 + np.tanh(tensor_core * n_snt)
-        gamma_polarized = tensor_core * sentiment_alignment
-        power = p.get('tensor_folding_power', 1.8)
-        final_score = np.sign(gamma_polarized) * (gamma_polarized.abs() ** power)
-        final_score = np.tanh(final_score).astype(np.float32)
-        if self.probe_dates:
-            probe_ts = next((d for d in reversed(df.index) if pd.to_datetime(d).tz_localize(None).normalize() in [pd.to_datetime(pd_date).normalize() for pd_date in self.probe_dates]), None)
-            self._execute_holographic_probe(probe_ts, {"KINEMATIC": res_kin, "ENERGY": res_ene, "GEOMETRIC": res_geo, "OSCILLATOR": res_osc, "MODULATORS": {"SENTIMENT_NORM": n_snt, "ALIGNMENT": sentiment_alignment}, "RESULT": {"FINAL_SCORE": final_score}})
+        res_kin = self._calc_kinematic_divergence(df)
+        res_ene = self._calc_energy_hollowness(df)
+        res_geo = self._calc_geometric_tension(df)
+        snt = self._extract_raw(df, 'market_sentiment_score_D')
+        n_snt = self._quantum_norm(snt, 55, p.get('sentiment_polarization_factor', 1.2))
+        tensor_core = (res_kin['DIM'] * 0.4 + res_ene['DIM'] * 0.3 + res_geo['DIM'] * 0.3)
+        final_score = (tensor_core * (1.0 + n_snt))
+        final_score = np.sign(final_score) * (np.abs(final_score) ** p.get('tensor_folding_power', 1.8))
+        final_score = final_score.clip(-1.0, 1.0).astype(np.float32)
+        probe_ts_list = []
+        if getattr(self, 'probe_dates', None):
+            target_dates = [pd.to_datetime(d).strftime('%Y-%m-%d') for d in self.probe_dates]
+            for d in reversed(df.index):
+                try:
+                    if pd.to_datetime(d).strftime('%Y-%m-%d') in target_dates:
+                        probe_ts_list.append(d)
+                except Exception:
+                    pass
+        if not probe_ts_list and not df.empty:
+            probe_ts_list.append(df.index[-1])
+        for probe_ts in probe_ts_list:
+            self._execute_holographic_probe(
+                probe_ts,
+                {
+                    "1. KINEMATIC_DIMENSION (运动学)": res_kin,
+                    "2. ENERGY_DIMENSION (能量耗散)": res_ene,
+                    "3. GEOMETRIC_DIMENSION (流形拓扑)": res_geo,
+                    "4. MACRO_MODULATORS (情绪极化)": {"RAW_SENTIMENT": snt, "NORM_SENTIMENT": n_snt},
+                    "5. FINAL_OUTPUT (相空间折叠)": {"TENSOR_CORE_RAW": tensor_core, "FINAL_SCORE": final_score}
+                }
+            )
         return final_score
     def _execute_holographic_probe(self, probe_ts, data_map: Dict):
-        """v18.0.0 全息诊断探针：多维链路透视"""
-        if probe_ts is None or not getattr(self.helper, '_print_debug_output', None): return
-        output = {f"=== PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE_V18_PROBE @ {probe_ts.strftime('%Y-%m-%d')} ===": ""}
+        """v18.1.0 全息探针输出引擎：穿透框架拦截，原生Print双轨树状链路强制输出"""
+        if probe_ts is None:
+            return
+        try:
+            ts_str = pd.to_datetime(probe_ts).strftime('%Y-%m-%d')
+        except Exception:
+            ts_str = str(probe_ts)
+        print(f"\n{'='*80}")
+        print(f"🚀 [全息探针强力透视] PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE - V18.1.0")
+        print(f"⏱️  探测切片: {ts_str}")
+        print(f"{'='*80}")
+        output_dict = {f"--- PROBE @ {ts_str} ---": ""}
         for dim_name, metrics in data_map.items():
-            output[f"[{dim_name}]"] = ""
+            print(f"\n📂 {dim_name}")
+            print(f"  {'-'*55}")
             for k, v in metrics.items():
-                val = v.loc[probe_ts] if isinstance(v, pd.Series) and probe_ts in v.index else v if not isinstance(v, pd.Series) else 'NaN_OR_MISSING'
-                if isinstance(val, (float, np.float32, np.float64)): val = round(float(val), 5)
-                output[f"  -> {k}: {val}"] = ""
-        self.helper._print_debug_output(output)
+                if isinstance(v, pd.Series):
+                    try:
+                        val = v.loc[probe_ts]
+                    except KeyError:
+                        val = np.nan
+                else:
+                    val = v
+                if isinstance(val, (float, np.floating)):
+                    if np.isnan(val) or np.isinf(val):
+                        val_str = str(val)
+                    else:
+                        val_str = f"{val:+.6f}"
+                else:
+                    val_str = str(val)
+                print(f"  ├─ {k:<25}: {val_str}")
+                output_dict[f"[{dim_name}] {k}"] = val_str
+        print(f"{'='*80}\n")
+        if hasattr(self.helper, '_print_debug_output') and callable(getattr(self.helper, '_print_debug_output')):
+            try:
+                self.helper._print_debug_output(output_dict)
+            except Exception:
+                pass
 
 
 
