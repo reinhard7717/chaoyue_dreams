@@ -13,10 +13,13 @@ class CalculatePriceMomentumDivergence:
     4. 无损信息保留：全面废除.clip()，采用幂律增益(Power Law)与Tanh双极压缩折叠。
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
+        print("[初始化] PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE 启动价格动量背离引擎...")
         self.strategy = strategy_instance
         self.helper = helper_instance
         self.debug_params = getattr(self.helper, 'debug_params', {})
+        print(f"[调试配置] 原始debug_params: {self.debug_params}")
         self.probe_dates = getattr(self.debug_params, 'probe_dates', [])
+        print(f"[调试配置] 探针日期列表: {self.probe_dates}")
     def _extract_and_derive(self, df: pd.DataFrame, base_col: str, deriv_type: str = None, lookback: int = 13) -> pd.Series:
         """v18.0.0 探针提取与动态微积分补偿，杜绝数据断层引发的实盘停机"""
         if deriv_type is None:
