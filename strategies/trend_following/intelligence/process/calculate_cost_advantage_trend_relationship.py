@@ -7,13 +7,12 @@ from strategies.trend_following.utils import get_params_block, get_param_value
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateCostAdvantageTrendRelationship:
     """
-    【V17.0.0 · 跨领域全息完美收敛版】
+    【V18.0.0 · 强类型物理装甲防崩版】
     PROCESS_META_COST_ADVANTAGE_TREND
     - 用途: 基于高维物理场模型（谐振子势垒/洛伦兹偏转/卡诺热机/杨氏模量/结构熵）对筹码与资金的爆发力进行全息诊断。
     - 本次修改要点:
-      1. [张量极性重构] 修复 D6 矩阵交互张量 tensor_proxy 算子，改为 np.where(a*b>0, sign(a)*sqrt(|ab|), -sqrt(|ab|))，同向取原极性，逆向施加惩罚，彻底阻断“五维全负却得出正向协同分”的致命系统级反噬BUG。
-      2. [军械库提纯] 彻底移除了不在清单中的历史冗余项(SMART_MONEY_INST_NET_BUY_D)，确保100%纯净依赖。
-      3. [算力优化] 剔除归一化输出后不必要的二次 tanh 冗余压缩，节省底层计算开销。全篇代码执行无空行极密压排版。
+      1. [类型塌陷死锁修复] 彻底解决因 np.where 等底层 C 级函数运算时剥离 Pandas 时序索引，导致 ndarray 无法使用 .loc 寻址从而引发战术引擎崩溃的致命 BUG。
+      2. [时空骨架加固] 所有向量计算中间态（特别是张量代理、反身性门控、极性算子）的裸数组产物，全部使用 pd.Series(..., index=idx) 进行时空骨架的二次熔铸。
     """
     def __init__(self, strategy_instance, helper_instance: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -21,7 +20,7 @@ class CalculateCostAdvantageTrendRelationship:
         self.params = self.helper.params
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-        self.version = "V17.0.0"
+        self.version = "V18.0.0"
     def _initialize_debug_context(self, method_name: str, df: pd.DataFrame) -> Tuple[bool, Optional[pd.Timestamp], Dict, Dict]:
         is_debug = get_param_value(self.debug_params.get('enabled'), False)
         probe_ts = None
@@ -114,7 +113,7 @@ class CalculateCostAdvantageTrendRelationship:
         return df
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         method_name = f"CalculateCostAdvantage_{self.version}"
-        print(f" ====== Start {method_name} 启动极性张量共振稳态计算，数据形状: {df.shape} ======")
+        print(f" ====== Start {method_name} 启动强类型装甲张量计算，数据形状: {df.shape} ======")
         is_debug, probe_ts, debug_out, temp_vals = self._initialize_debug_context(method_name, df)
         df_processed = self._check_and_repair_signals(df.copy(), method_name)
         df_index = df_processed.index
@@ -126,7 +125,7 @@ class CalculateCostAdvantageTrendRelationship:
         final_score = self._calculate_pentagonal_resonance(D1, D2, D3, D4, D5, df_processed, df_index, is_debug, probe_ts, temp_vals)
         if is_debug:
             self._log_debug_values(debug_out, temp_vals, probe_ts, method_name)
-        print(f" ====== End {method_name} 极性张量共振稳态计算完成 ======")
+        print(f" ====== End {method_name} 强类型装甲张量计算完成 ======")
         return final_score.astype(np.float32).fillna(0.0)
     def _calculate_chip_barrier_solidity(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
         concentration = df['chip_concentration_ratio_D']
@@ -134,20 +133,21 @@ class CalculateCostAdvantageTrendRelationship:
         cost_50 = df['cost_50pct_D']
         close = df['close_D']
         pressure_release = df['pressure_release_index_D']
-        k_spring = self._center_and_scale(concentration, 34) + 1.0
-        displacement = (close - cost_50) / (cost_50 + 1e-8)
-        norm_disp = displacement * 5.0
-        pe_raw = 0.5 * k_spring * (norm_disp ** 2) * np.sign(displacement)
+        k_spring = pd.Series(self._center_and_scale(concentration, 34) + 1.0, index=idx)
+        displacement = pd.Series((close - cost_50) / (cost_50 + 1e-8), index=idx)
+        norm_disp = pd.Series(displacement * 5.0, index=idx)
+        disp_sign = pd.Series(np.where(displacement >= 0, 1.0, -1.0), index=idx)
+        pe_raw = pd.Series(0.5 * k_spring * (norm_disp ** 2) * disp_sign, index=idx)
         pe_norm = pd.Series(np.tanh(pe_raw), index=idx)
-        hab_stability = self._calc_hab_impact(stability, 55)
+        hab_stability = pd.Series(self._calc_hab_impact(stability, 55), index=idx)
         pr_norm = pd.Series(np.tanh((pressure_release - 50.0) / 20.0), index=idx)
         slope_conc, accel_conc, jerk_conc = self._get_kinematics(df, concentration, 'chip_concentration_ratio_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D1_ChipSolidity")
-        kinematic_mod = self._scale_by_volatility(slope_conc, 21) * 0.5 + self._scale_by_volatility(accel_conc, 21) * 0.3
-        base_score = pe_norm * 0.4 + hab_stability * 0.3 + pr_norm * 0.2 + kinematic_mod * 0.1
+        kinematic_mod = pd.Series(np.tanh(self._scale_by_volatility(slope_conc, 21) * 0.5 + self._scale_by_volatility(accel_conc, 21) * 0.3), index=idx)
+        base_score = pd.Series(pe_norm * 0.4 + hab_stability * 0.3 + pr_norm * 0.2 + kinematic_mod * 0.1, index=idx)
         final_d1 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
             self._probe_val("K_Spring", k_spring.loc[probe_ts], temp_vals, "D1_ChipSolidity")
-            self._probe_val("Potential_Energy", pd.Series(pe_raw, index=idx).loc[probe_ts], temp_vals, "D1_ChipSolidity")
+            self._probe_val("Potential_Energy", pe_raw.loc[probe_ts], temp_vals, "D1_ChipSolidity")
             self._probe_val("Final_D1", final_d1.loc[probe_ts], temp_vals, "D1_ChipSolidity")
         return final_d1
     def _calculate_predator_attack_vector(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
@@ -156,21 +156,21 @@ class CalculateCostAdvantageTrendRelationship:
         tick_net = df['tick_large_order_net_D']
         stealth = df['stealth_flow_ratio_D']
         coord_attack = df['SMART_MONEY_HM_COORDINATED_ATTACK_D']
-        e_field_raw = hm_buy + synergy_buy + tick_net
-        hab_e_field = self._calc_hab_impact(e_field_raw, 21)
-        b_field = self._center_and_scale(stealth, 21)
+        e_field_raw = pd.Series(hm_buy + synergy_buy + tick_net, index=idx)
+        hab_e_field = pd.Series(self._calc_hab_impact(e_field_raw, 21), index=idx)
+        b_field = pd.Series(self._center_and_scale(stealth, 21), index=idx)
         v_price, _, _ = self._get_kinematics(df, df['close_D'], 'close_D', 5, temp_vals if is_debug and probe_ts in idx else None, "D2_PredatorAttack")
-        v_norm = self._scale_by_volatility(v_price, 21)
-        q_charge = 1.0 + np.tanh(coord_attack)
-        lorentz_force = q_charge * (hab_e_field + v_norm * b_field)
+        v_norm = pd.Series(self._scale_by_volatility(v_price, 21), index=idx)
+        q_charge = pd.Series(1.0 + np.tanh(coord_attack), index=idx)
+        lorentz_force = pd.Series(q_charge * (hab_e_field + v_norm * b_field), index=idx)
         primary = pd.Series(np.tanh(lorentz_force), index=idx)
         slope_sm, accel_sm, jerk_sm = self._get_kinematics(df, hm_buy, 'SMART_MONEY_HM_NET_BUY_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D2_PredatorAttack")
-        kinematic_mod = self._scale_by_volatility(slope_sm, 21) * 0.5 + self._scale_by_volatility(accel_sm, 21) * 0.3
-        base_score = primary * (1.0 + np.sign(primary) * kinematic_mod * 0.5).clip(0.0, 2.0)
+        kinematic_mod = pd.Series(np.tanh(self._scale_by_volatility(slope_sm, 21) * 0.5 + self._scale_by_volatility(accel_sm, 21) * 0.3), index=idx)
+        base_score = pd.Series(primary * (1.0 + np.sign(primary) * kinematic_mod * 0.5).clip(0.0, 2.0), index=idx)
         final_d2 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
             self._probe_val("E_Field", hab_e_field.loc[probe_ts], temp_vals, "D2_PredatorAttack")
-            self._probe_val("Lorentz_Force", pd.Series(lorentz_force, index=idx).loc[probe_ts], temp_vals, "D2_PredatorAttack")
+            self._probe_val("Lorentz_Force", lorentz_force.loc[probe_ts], temp_vals, "D2_PredatorAttack")
             self._probe_val("Final_D2", final_d2.loc[probe_ts], temp_vals, "D2_PredatorAttack")
         return final_d2
     def _calculate_kinematic_efficiency(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
@@ -180,22 +180,22 @@ class CalculateCostAdvantageTrendRelationship:
         downtrend = df['downtrend_strength_D']
         velocity = df['MA_VELOCITY_EMA_55_D']
         net_energy = df['net_energy_flow_D']
-        hab_energy = self._calc_hab_impact(net_energy, 34)
-        hab_vpa = self._calc_hab_impact(vpa_eff, 21)
-        t_c = entropy.fillna(0.5).clip(lower=0.1, upper=1.0)
-        t_h = 1.0 + np.maximum(uptrend.fillna(50.0), downtrend.fillna(50.0)) / 100.0
+        hab_energy = pd.Series(self._calc_hab_impact(net_energy, 34), index=idx)
+        hab_vpa = pd.Series(self._calc_hab_impact(vpa_eff, 21), index=idx)
+        t_c = pd.Series(entropy.fillna(0.5).clip(lower=0.1, upper=1.0), index=idx)
+        t_h = pd.Series(1.0 + np.maximum(uptrend.fillna(50.0), downtrend.fillna(50.0)) / 100.0, index=idx)
         carnot_eta = pd.Series(np.maximum(0.0, 1.0 - (t_c / (t_h + 1e-8))), index=idx)
-        useful_work = hab_energy * hab_vpa.abs() * carnot_eta
+        useful_work = pd.Series(hab_energy * hab_vpa.abs() * carnot_eta, index=idx)
         primary = pd.Series(np.tanh(useful_work), index=idx)
         slope_v, accel_v, jerk_v = self._get_kinematics(df, velocity, 'MA_VELOCITY_EMA_55_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D3_KinematicEff")
-        kinematic_mod = self._scale_by_volatility(slope_v, 21) * 0.5 + self._scale_by_volatility(accel_v, 21) * 0.3
-        base_score = primary * (1.0 + np.sign(primary) * kinematic_mod * 0.5).clip(0.0, 2.0)
+        kinematic_mod = pd.Series(np.tanh(self._scale_by_volatility(slope_v, 21) * 0.5 + self._scale_by_volatility(accel_v, 21) * 0.3), index=idx)
+        base_score = pd.Series(primary * (1.0 + np.sign(primary) * kinematic_mod * 0.5).clip(0.0, 2.0), index=idx)
         final_d3 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
-            self._probe_val("T_Cold_Clipped", pd.Series(t_c, index=idx).loc[probe_ts], temp_vals, "D3_KinematicEff")
-            self._probe_val("T_Hot_Scaled", pd.Series(t_h, index=idx).loc[probe_ts], temp_vals, "D3_KinematicEff")
+            self._probe_val("T_Cold_Clipped", t_c.loc[probe_ts], temp_vals, "D3_KinematicEff")
+            self._probe_val("T_Hot_Scaled", t_h.loc[probe_ts], temp_vals, "D3_KinematicEff")
             self._probe_val("Carnot_Eta", carnot_eta.loc[probe_ts], temp_vals, "D3_KinematicEff")
-            self._probe_val("Useful_Work", pd.Series(useful_work, index=idx).loc[probe_ts], temp_vals, "D3_KinematicEff")
+            self._probe_val("Useful_Work", useful_work.loc[probe_ts], temp_vals, "D3_KinematicEff")
             self._probe_val("Final_D3", final_d3.loc[probe_ts], temp_vals, "D3_KinematicEff")
         return final_d3
     def _calculate_cost_migration_elasticity(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
@@ -205,18 +205,20 @@ class CalculateCostAdvantageTrendRelationship:
         cost_50 = df['cost_50pct_D']
         chip_flow = df['chip_flow_intensity_D']
         slope_c50, _, _ = self._get_kinematics(df, cost_50, 'cost_50pct_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D4_Elasticity")
-        hab_turnover = self._calc_hab_impact(turnover, 21).clip(lower=0.0)
-        stress = hab_turnover + np.maximum(0.0, np.tanh(profit_pres / 50.0)) + np.maximum(0.0, np.tanh(trapped_pres / 50.0))
-        stress = np.maximum(0.1, stress)
-        strain = (slope_c50 / (cost_50 + 1e-8)) * 2.0
-        compliance = strain / stress
+        hab_turnover = pd.Series(self._calc_hab_impact(turnover, 21).clip(lower=0.0), index=idx)
+        profit_eff = pd.Series(np.maximum(0.0, np.tanh(profit_pres / 50.0)), index=idx)
+        trapped_eff = pd.Series(np.maximum(0.0, np.tanh(trapped_pres / 50.0)), index=idx)
+        stress_raw = pd.Series(hab_turnover + profit_eff + trapped_eff, index=idx)
+        stress = pd.Series(np.maximum(0.1, stress_raw), index=idx)
+        strain = pd.Series((slope_c50 / (cost_50 + 1e-8)) * 2.0, index=idx)
+        compliance = pd.Series(strain / stress, index=idx)
         primary = pd.Series(np.tanh(compliance), index=idx)
-        flow_mod = self._scale_by_volatility(chip_flow, 21)
-        base_score = primary * (1.0 + np.sign(primary) * flow_mod * 0.5).clip(0.0, 2.0)
+        flow_mod = pd.Series(np.tanh(self._scale_by_volatility(chip_flow, 21)), index=idx)
+        base_score = pd.Series(primary * (1.0 + np.sign(primary) * flow_mod * 0.5).clip(0.0, 2.0), index=idx)
         final_d4 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
-            self._probe_val("Stress", pd.Series(stress, index=idx).loc[probe_ts], temp_vals, "D4_Elasticity")
-            self._probe_val("Strain_Ratio", pd.Series(strain, index=idx).loc[probe_ts], temp_vals, "D4_Elasticity")
+            self._probe_val("Stress", stress.loc[probe_ts], temp_vals, "D4_Elasticity")
+            self._probe_val("Strain_Ratio", strain.loc[probe_ts], temp_vals, "D4_Elasticity")
             self._probe_val("Final_D4", final_d4.loc[probe_ts], temp_vals, "D4_Elasticity")
         return final_d4
     def _calculate_structure_negentropy(self, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
@@ -224,59 +226,67 @@ class CalculateCostAdvantageTrendRelationship:
         price_entropy = df['PRICE_ENTROPY_D']
         reg_r2 = df['GEOM_REG_R2_D']
         reg_slope = df['GEOM_REG_SLOPE_D']
-        total_micro_entropy = chip_entropy * 0.5 + price_entropy * 0.5
-        hab_entropy = total_micro_entropy.rolling(window=34, min_periods=1).mean()
-        negentropy = np.tanh((hab_entropy - total_micro_entropy) * 5.0)
-        primary = pd.Series(np.sign(negentropy) * np.sqrt(np.abs(negentropy * reg_r2)), index=idx)
+        total_micro_entropy = pd.Series(chip_entropy * 0.5 + price_entropy * 0.5, index=idx)
+        hab_entropy = pd.Series(total_micro_entropy.rolling(window=34, min_periods=1).mean(), index=idx)
+        negentropy = pd.Series(np.tanh((hab_entropy - total_micro_entropy) * 5.0), index=idx)
+        negent_sign = pd.Series(np.where(negentropy >= 0, 1.0, -1.0), index=idx)
+        primary = pd.Series(negent_sign * np.sqrt(np.abs(negentropy * reg_r2)), index=idx)
         slope_ent, _, _ = self._get_kinematics(df, chip_entropy, 'chip_entropy_D', 13, temp_vals if is_debug and probe_ts in idx else None, "D5_Negentropy")
-        kinetics_mod = -self._scale_by_volatility(slope_ent, 21)
-        core_negentropy = primary * (1.0 + np.sign(primary) * kinetics_mod * 0.5).clip(0.0, 2.0)
+        kinetics_mod = pd.Series(-np.tanh(self._scale_by_volatility(slope_ent, 21)), index=idx)
+        primary_sign = pd.Series(np.where(primary >= 0, 1.0, -1.0), index=idx)
+        core_negentropy = pd.Series(primary * (1.0 + primary_sign * kinetics_mod * 0.5).clip(0.0, 2.0), index=idx)
         trend_gate = pd.Series(np.tanh(reg_slope * 10.0), index=idx)
-        divergence_penalty = np.where((core_negentropy < 0) & (trend_gate > 0), 1.0 + np.abs(trend_gate), 1.0)
-        alignment_multiplier = np.where(core_negentropy * trend_gate > 0, 1.0 + np.abs(trend_gate) * 0.5, 1.0)
-        base_score = core_negentropy * divergence_penalty * alignment_multiplier
+        divergence_penalty = pd.Series(np.where((core_negentropy < 0) & (trend_gate > 0), 1.0 + np.abs(trend_gate), 1.0), index=idx)
+        alignment_multiplier = pd.Series(np.where(core_negentropy * trend_gate > 0, 1.0 + np.abs(trend_gate) * 0.5, 1.0), index=idx)
+        base_score = pd.Series(core_negentropy * divergence_penalty * alignment_multiplier, index=idx)
         final_d5 = pd.Series(np.tanh(base_score), index=idx)
         if is_debug and probe_ts in idx:
-            self._probe_val("Negentropy", pd.Series(negentropy, index=idx).loc[probe_ts], temp_vals, "D5_Negentropy")
-            self._probe_val("Order_Param", pd.Series(primary, index=idx).loc[probe_ts], temp_vals, "D5_Negentropy")
-            self._probe_val("Core_Negentropy", pd.Series(core_negentropy, index=idx).loc[probe_ts], temp_vals, "D5_Negentropy")
+            self._probe_val("Negentropy", negentropy.loc[probe_ts], temp_vals, "D5_Negentropy")
+            self._probe_val("Order_Param", primary.loc[probe_ts], temp_vals, "D5_Negentropy")
+            self._probe_val("Core_Negentropy", core_negentropy.loc[probe_ts], temp_vals, "D5_Negentropy")
             self._probe_val("Final_D5", final_d5.loc[probe_ts], temp_vals, "D5_Negentropy")
         return final_d5
     def _calculate_pentagonal_resonance(self, D1: pd.Series, D2: pd.Series, D3: pd.Series, D4: pd.Series, D5: pd.Series, df: pd.DataFrame, idx: pd.Index, is_debug: bool, probe_ts: pd.Timestamp, temp_vals: Dict) -> pd.Series:
         close = df['close_D']
         adx = df['ADX_14_D']
-        def tensor_proxy(a, b): return np.where(a * b > 0, np.sign(a) * np.sqrt(np.abs(a * b)), -np.sqrt(np.abs(a * b)))
+        def tensor_proxy(a: pd.Series, b: pd.Series) -> pd.Series:
+            a_sign = pd.Series(np.where(a > 0, 1.0, -1.0), index=idx)
+            raw_val = np.where(a * b > 0, a_sign * np.sqrt(np.abs(a * b)), -np.sqrt(np.abs(a * b)))
+            return pd.Series(raw_val, index=idx)
         i12 = tensor_proxy(D1, D2)
         i23 = tensor_proxy(D2, D3)
         i34 = tensor_proxy(D3, D4)
         i45 = tensor_proxy(D4, D5)
         i51 = tensor_proxy(D5, D1)
-        tensor_vol = (i12 + i23 + i34 + i45 + i51) / 5.0
+        tensor_vol = pd.Series((i12 + i23 + i34 + i45 + i51) / 5.0, index=idx)
         w1, w2, w3, w4, w5 = 0.2, 0.3, 0.2, 0.15, 0.15
-        linear_score = D1*w1 + D2*w2 + D3*w3 + D4*w4 + D5*w5
-        base_resonance = linear_score + tensor_vol * 1.5
-        res_diff = base_resonance.diff(8).fillna(0.0)
-        price_diff = close.diff(8).fillna(0.0)
-        roll_cov = res_diff.rolling(13, min_periods=1).cov(price_diff).fillna(0.0)
-        roll_var_res = res_diff.rolling(13, min_periods=1).var().fillna(0.0)
-        roll_var_price = price_diff.rolling(13, min_periods=1).var().fillna(0.0)
-        raw_corr = roll_cov / (np.sqrt(np.maximum(0.0, roll_var_res * roll_var_price)) + 1e-8)
+        linear_score = pd.Series(D1*w1 + D2*w2 + D3*w3 + D4*w4 + D5*w5, index=idx)
+        base_resonance = pd.Series(linear_score + tensor_vol * 1.5, index=idx)
+        res_diff = pd.Series(base_resonance.diff(8).fillna(0.0), index=idx)
+        price_diff = pd.Series(close.diff(8).fillna(0.0), index=idx)
+        roll_cov = pd.Series(res_diff.rolling(13, min_periods=1).cov(price_diff).fillna(0.0), index=idx)
+        roll_var_res = pd.Series(res_diff.rolling(13, min_periods=1).var().fillna(0.0), index=idx)
+        roll_var_price = pd.Series(price_diff.rolling(13, min_periods=1).var().fillna(0.0), index=idx)
+        raw_corr = pd.Series(roll_cov / (np.sqrt(np.maximum(0.0, roll_var_res * roll_var_price)) + 1e-8), index=idx)
         price_slope, _, _ = self._get_kinematics(df, close, 'close_D', 13, temp_vals if is_debug and probe_ts in idx else None, "Fusion")
-        price_dir = np.where(np.abs(price_slope / (close + 1e-8)) > 0.005, np.sign(price_slope), 0.0)
-        alignment = np.where(base_resonance * price_dir > 0, 1.0, np.where(base_resonance * price_dir < 0, -1.0, 0.0))
-        reflexivity_factor = pd.Series(np.where(alignment > 0, 1.0 + np.abs(raw_corr) * 0.5, np.where(alignment < 0, 1.0 / (1.0 + np.abs(raw_corr) * 0.5), 1.0)), index=idx)
-        core_score = base_resonance * reflexivity_factor
-        market_temp = np.tanh(adx / 50.0)
-        dyn_threshold = 0.6 - (market_temp - 0.5) * 0.4
-        dyn_gamma = 2.0 + (market_temp - 0.5) * 2.0
-        gate_val = np.abs(core_score) - dyn_threshold
-        safe_gate = np.maximum(0.0, gate_val)
-        apt_score = pd.Series(np.where(gate_val > 0.0, core_score * (1.0 + 0.6 * np.power(safe_gate, 1.2) * dyn_gamma), core_score), index=idx)
+        price_dir = pd.Series(np.where(np.abs(price_slope / (close + 1e-8)) > 0.005, np.sign(price_slope), 0.0), index=idx)
+        alignment_raw = np.where(base_resonance * price_dir > 0, 1.0, np.where(base_resonance * price_dir < 0, -1.0, 0.0))
+        alignment = pd.Series(alignment_raw, index=idx)
+        reflexivity_raw = np.where(alignment > 0, 1.0 + np.abs(raw_corr) * 0.5, np.where(alignment < 0, 1.0 / (1.0 + np.abs(raw_corr) * 0.5), 1.0))
+        reflexivity_factor = pd.Series(reflexivity_raw, index=idx)
+        core_score = pd.Series(base_resonance * reflexivity_factor, index=idx)
+        market_temp = pd.Series(np.tanh(adx / 50.0), index=idx)
+        dyn_threshold = pd.Series(0.6 - (market_temp - 0.5) * 0.4, index=idx)
+        dyn_gamma = pd.Series(2.0 + (market_temp - 0.5) * 2.0, index=idx)
+        gate_val = pd.Series(np.abs(core_score) - dyn_threshold, index=idx)
+        safe_gate = pd.Series(np.maximum(0.0, gate_val), index=idx)
+        apt_raw = np.where(gate_val > 0.0, core_score * (1.0 + 0.6 * np.power(safe_gate, 1.2) * dyn_gamma), core_score)
+        apt_score = pd.Series(apt_raw, index=idx)
         final_normalized_score = pd.Series(np.tanh(apt_score), index=idx)
         if is_debug and probe_ts in idx:
             self._probe_val("Tensor_Volume", tensor_vol.loc[probe_ts], temp_vals, "D6_Fusion")
             self._probe_val("Raw_Corr", raw_corr.loc[probe_ts], temp_vals, "D6_Fusion")
-            self._probe_val("Alignment", pd.Series(alignment, index=idx).loc[probe_ts], temp_vals, "D6_Fusion")
+            self._probe_val("Alignment", alignment.loc[probe_ts], temp_vals, "D6_Fusion")
             self._probe_val("Reflexivity", reflexivity_factor.loc[probe_ts], temp_vals, "D6_Fusion")
             self._probe_val("APT_Score", apt_score.loc[probe_ts], temp_vals, "D6_Fusion")
             self._probe_val("Final_Score", final_normalized_score.loc[probe_ts], temp_vals, "D6_Fusion")
