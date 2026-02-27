@@ -30,6 +30,7 @@ class CalculateStormEyeCalm:
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         self.actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         method_name = "calculate_storm_eye_calm"
         self.last_df_index = df.index
@@ -66,21 +67,26 @@ class CalculateStormEyeCalm:
         if is_debug_enabled and probe_ts is not None:
             self._print_debug_output_for_storm_eye_calm({}, _temp_debug_values, probe_ts, method_name, final_latched_score)
         return final_latched_score.astype(np.float32)
+
     def _check_and_fill_data_existence(self, df: pd.DataFrame, params: Dict):
         req_signals = self._get_required_signals(params)
         missing = [c for c in req_signals if c not in df.columns]
         if missing:
             print(f"【V2.0.0 探针警报】风暴眼基底特征断层，缺失列: {missing}。系统已启动拉普拉斯安全回退与零基填充保护机制！")
+
     def _soft_clip(self, series: pd.Series, min_val: float = 0.0, max_val: float = 1.0) -> pd.Series:
         mid = (max_val + min_val) / 2.0
         scale = (max_val - min_val) / 2.0
         return mid + scale * np.tanh((series - mid) / (scale + 1e-9))
+
     def _fermi_dirac_manifold(self, score_series: pd.Series, threshold: pd.Series | float = 0.5, beta: float = 10.0) -> pd.Series:
         if isinstance(threshold, pd.Series):
             threshold = threshold.reindex(score_series.index).fillna(0.5)
         return 1.0 / (1.0 + np.exp(beta * (threshold - score_series)))
+
     def _calculate_fermi_dirac_gate(self, score_series: pd.Series, threshold: float = 0.5, beta: float = 10.0) -> pd.Series:
         return 1.0 / (1.0 + np.exp(beta * (threshold - score_series)))
+
     def _lp_norm_fusion(self, scores: List[pd.Series], weights: List[float], p: float = 2.0) -> pd.Series:
         valid_scores, valid_weights = [], []
         for s, w in zip(scores, weights):
@@ -92,9 +98,11 @@ class CalculateStormEyeCalm:
         for s, w in zip(valid_scores, norm_weights):
             sum_pow += w * (s ** p)
         return sum_pow ** (1.0 / p)
+
     def _apply_threshold_gate(self, series: pd.Series, window: int = 21) -> pd.Series:
         noise_floor = series.rolling(window=window, min_periods=5).std().fillna(0.0) * 0.5 + 1e-9
         return series * np.tanh((series / noise_floor)**2)
+
     def _calculate_custom_normalization(self, series: pd.Series, mode: str, sensitivity: float = 1.0, window: int = 55, denoise: bool = False, atr_series: Optional[pd.Series] = None) -> pd.Series:
         if not isinstance(series, pd.Series):
             series = pd.Series(float(series), index=getattr(self, 'last_df_index', []))
@@ -115,6 +123,7 @@ class CalculateStormEyeCalm:
             norm = (series - roll_min) / (roll_max - roll_min + 1e-9)
             return self._soft_clip(norm * sensitivity)
         return pd.Series(0.0, index=series.index)
+
     def _get_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp]]:
         is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
         probe_ts = None
@@ -125,6 +134,7 @@ class CalculateStormEyeCalm:
                     probe_ts = date
                     break
         return is_debug_enabled_for_method, probe_ts
+
     def _print_debug_output_for_storm_eye_calm(self, debug_output: Dict, _temp_debug_values: Dict, probe_ts: pd.Timestamp, method_name: str, final_score: pd.Series):
         debug_output[f"  -- [风暴眼全链路量子探针] {method_name} @ {probe_ts.strftime('%Y-%m-%d')} --"] = ""
         for category, items in _temp_debug_values.items():
@@ -138,6 +148,7 @@ class CalculateStormEyeCalm:
         for key, value in debug_output.items():
             if value: print(f"{key}: {value}")
             else: print(key)
+
     def _get_storm_eye_calm_params(self, config: Dict) -> Dict:
         params = get_param_value(config.get('storm_eye_calm_params'), {})
         return {
@@ -160,18 +171,31 @@ class CalculateStormEyeCalm:
             'sentiment_pendulum_neutral_range': get_param_value(params.get('sentiment_pendulum_neutral_range'), 0.2),
             'ambiguity_components_weights': get_param_value(params.get('ambiguity_components_weights'), {}),
         }
+
     def _get_required_signals(self, params: Dict) -> list[str]:
+        """
+        【V2.1.0 · 军械库原子化合规清单】
+        说明: 彻底移除已失效的 breakout_confidence_D，并引入高价值的前瞻性替代维度：
+        pattern_confidence_D (形态置信度)、breakout_quality_score_D (突破质量评分) 与 breakout_chip_score_D (突破筹码评分)。
+        """
         required_signals = [
-            'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'BBW_21_2.0_D', 'chip_concentration_ratio_D', 'concentration_entropy_D', 'PRICE_ENTROPY_D', 'GEOM_ARC_CURVATURE_D', 'dynamic_consolidation_duration_D', 'turnover_rate_f_D', 'volume_D', 'intraday_trough_filling_degree_D', 'tick_abnormal_volume_ratio_D', 'afternoon_flow_ratio_D', 'absorption_energy_D', 'stealth_flow_ratio_D', 'tick_clustering_index_D', 'accumulation_signal_score_D', 'SMART_MONEY_HM_NET_BUY_D', 'HM_ACTIVE_TOP_TIER_D', 'net_mf_amount_D', 'profit_ratio_D', 'winner_rate_D', 'market_sentiment_score_D', 'breakout_potential_D', 'breakout_confidence_D', 'breakout_penalty_score_D', 'resistance_strength_D', 'GEOM_REG_R2_D', 'GEOM_REG_SLOPE_D', 'ATR_14_D', 'chip_stability_D', 'ADX_14_D', 'flow_impact_ratio_D', 'industry_preheat_score_D', 'industry_rank_accel_D', 'industry_strength_rank_D', 'trend_confirmation_score_D', 'main_force_activity_index_D', 'intraday_cost_center_migration_D', 'migration_convergence_ratio_D', 'tick_chip_balance_ratio_D', 'VPA_EFFICIENCY_D', 'VPA_MF_ADJUSTED_EFF_D', 'VPA_ACCELERATION_13D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'OCH_ACCELERATION_D', 'OCH_D', 'PDI_14_D', 'NDI_14_D', 'price_vs_ma_21_ratio_D', 'price_vs_ma_55_ratio_D', 'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 'amount_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D', 'STATE_GOLDEN_PIT_D', 'BIAS_5_D', 'MA_FAN_EFFICIENCY_D', 'RSI_13_D', 'close', 'MA_144_D', 'chip_entropy_D', 'pressure_trapped_D', 'consolidation_quality_score_D', 'net_energy_flow_D', 'intraday_chip_game_index_D'
+            'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'BBW_21_2.0_D', 'chip_concentration_ratio_D', 'concentration_entropy_D', 'PRICE_ENTROPY_D', 'GEOM_ARC_CURVATURE_D', 'dynamic_consolidation_duration_D', 'turnover_rate_f_D', 'volume_D', 'intraday_trough_filling_degree_D', 'tick_abnormal_volume_ratio_D', 'afternoon_flow_ratio_D', 'absorption_energy_D', 'stealth_flow_ratio_D', 'tick_clustering_index_D', 'accumulation_signal_score_D', 'SMART_MONEY_HM_NET_BUY_D', 'HM_ACTIVE_TOP_TIER_D', 'net_mf_amount_D', 'profit_ratio_D', 'winner_rate_D', 'market_sentiment_score_D', 'breakout_potential_D', 'breakout_penalty_score_D', 'resistance_strength_D', 'GEOM_REG_R2_D', 'GEOM_REG_SLOPE_D', 'ATR_14_D', 'chip_stability_D', 'ADX_14_D', 'flow_impact_ratio_D', 'industry_preheat_score_D', 'industry_rank_accel_D', 'industry_strength_rank_D', 'trend_confirmation_score_D', 'main_force_activity_index_D', 'intraday_cost_center_migration_D', 'migration_convergence_ratio_D', 'tick_chip_balance_ratio_D', 'VPA_EFFICIENCY_D', 'VPA_MF_ADJUSTED_EFF_D', 'VPA_ACCELERATION_13D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'OCH_ACCELERATION_D', 'OCH_D', 'PDI_14_D', 'NDI_14_D', 'price_vs_ma_21_ratio_D', 'price_vs_ma_55_ratio_D', 'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 'amount_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D', 'STATE_GOLDEN_PIT_D', 'BIAS_5_D', 'MA_FAN_EFFICIENCY_D', 'RSI_13_D', 'close', 'MA_144_D', 'chip_entropy_D', 'pressure_trapped_D', 'consolidation_quality_score_D', 'net_energy_flow_D', 'intraday_chip_game_index_D',
+            'pattern_confidence_D', 'breakout_quality_score_D', 'breakout_chip_score_D'
         ]
         return list(set(required_signals))
+
     def _safe_diff(self, series: pd.Series, period: int) -> pd.Series:
         return self._apply_threshold_gate(series.diff(period))
+
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict) -> Dict[str, pd.Series]:
+        """
+        【V2.1.0 · 生产级物理限幅数据引擎】
+        说明: 将 pattern_confidence_D 与 breakout_quality_score_D 纳入微积分导数运算矩阵，动态追踪形态完美度的加速度变化。
+        """
         raw_data = {col: df.get(col, pd.Series(0.0, index=df.index)) for col in self._get_required_signals(params)}
         raw_data['close_D'] = df.get('close_D', df.get('close', pd.Series(0.0, index=df.index)))
         deriv_cols = [
-            'VPA_ACCELERATION_13D', 'VPA_MF_ADJUSTED_EFF_D', 'tick_abnormal_volume_ratio_D', 'MA_ACCELERATION_EMA_55_D', 'PRICE_ENTROPY_D', 'STATE_GOLDEN_PIT_D', 'BIAS_55_D', 'NDI_14_D', 'PDI_14_D', 'breakout_penalty_score_D', 'RSI_13_D', 'OCH_D', 'ATR_14_D', 'MA_FAN_EFFICIENCY_D', 'HM_ACTIVE_ANY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'HM_COORDINATED_ATTACK_D', 'BIAS_5_D', 'market_sentiment_score_D', 'ADX_14_D', 'profit_ratio_D', 'chip_entropy_D', 'net_energy_flow_D'
+            'VPA_ACCELERATION_13D', 'VPA_MF_ADJUSTED_EFF_D', 'tick_abnormal_volume_ratio_D', 'MA_ACCELERATION_EMA_55_D', 'PRICE_ENTROPY_D', 'STATE_GOLDEN_PIT_D', 'BIAS_55_D', 'NDI_14_D', 'PDI_14_D', 'breakout_penalty_score_D', 'RSI_13_D', 'OCH_D', 'ATR_14_D', 'MA_FAN_EFFICIENCY_D', 'HM_ACTIVE_ANY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'HM_COORDINATED_ATTACK_D', 'BIAS_5_D', 'market_sentiment_score_D', 'ADX_14_D', 'profit_ratio_D', 'chip_entropy_D', 'net_energy_flow_D', 'pattern_confidence_D', 'breakout_quality_score_D'
         ]
         for col in deriv_cols:
             if col in raw_data:
@@ -188,6 +212,7 @@ class CalculateStormEyeCalm:
         raw_data['JERK_5_pain_index_proxy'] = raw_data.get('JERK_5_profit_ratio_D', pd.Series(0.0, index=df.index)) * -1.0
         raw_data['price_slope_raw'] = raw_data.get('SLOPE_5_market_sentiment_score_D', pd.Series(0.0, index=df.index))
         return raw_data
+
     def _calculate_qho_historical_accumulation_buffer(self, daily_series: pd.Series, windows: list[int] = [13, 21, 34, 55]) -> pd.Series:
         buffers = []
         for w in windows:
@@ -196,6 +221,7 @@ class CalculateStormEyeCalm:
             buffer_factor = np.tanh(incremental_impact.abs() * 0.5)
             buffers.append(buffer_factor)
         return pd.concat(buffers, axis=1).mean(axis=1).fillna(0.0)
+
     def _calculate_energy_compression_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         fcc_factor = self._calculate_fan_curvature_collapse(df_index, raw_data)
         vvc_factor = self._calculate_volatility_vacuum_contraction(df_index, raw_data)
@@ -209,6 +235,7 @@ class CalculateStormEyeCalm:
         final_energy = self._lp_norm_fusion([fcc_factor, vvc_factor, lrf_score, entropy_gain, phase_attractor], [0.2, 0.2, 0.2, 0.2, 0.2], p=2.0) * (struct_quality + 0.1)
         _temp_debug_values["能量压缩"]["final"] = self._soft_clip(final_energy)
         return self._soft_clip(final_energy)
+
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
         turnover_score = self._calculate_custom_normalization(raw_data['turnover_rate_f_D'], mode='limit_low', sensitivity=25.0)
         trough_fill = self._calculate_custom_normalization(raw_data['intraday_trough_filling_degree_D'], mode='limit_high', sensitivity=3.0)
@@ -220,6 +247,7 @@ class CalculateStormEyeCalm:
         final_vol = base_vac * (mdb_factor + 0.1) * (0.6 + 0.4 * solid_factor) * (0.8 + 0.2 * mf_eff) * (1.0 - 0.3 * (1.0 - vpa_jerk))
         _temp_debug_values["量能枯竭"]["final"] = self._soft_clip(final_vol)
         return self._soft_clip(final_vol)
+
     def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict, _temp_debug_values: Dict) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         chf_base = raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].rolling(window=8, min_periods=1).mean()
         chf_jerk_score = self._calculate_custom_normalization(raw_data.get('JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=25.0, denoise=True)
@@ -232,6 +260,7 @@ class CalculateStormEyeCalm:
         final_intent = base_intent * (0.75 + 0.25 * htc_factor) * (0.6 + 0.4 * mf_hab)
         _temp_debug_values["主力隐蔽意图"]["final"] = self._soft_clip(final_intent)
         return self._soft_clip(final_intent), {"stealth_score": stealth_score, "htc_factor": htc_factor}
+
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float, _temp_debug_values: Dict) -> pd.Series:
         pain_score = self._calculate_custom_normalization(raw_data['pain_index_proxy'], mode='limit_high', sensitivity=3.0)
         despair_burst = self._calculate_custom_normalization(raw_data.get('JERK_5_pain_index_proxy', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=20.0, denoise=True)
@@ -245,7 +274,27 @@ class CalculateStormEyeCalm:
         final_sentiment = (base_subdued * (1.0 + 0.3 * order_gain) * self._lp_norm_fusion([short_exhaustion, bipolar_gain, panic_resonance], [0.3, 0.3, 0.4], p=2.0) + 0.25 * despair_burst)
         _temp_debug_values["市场情绪低迷融合"]["final"] = self._soft_clip(final_sentiment)
         return self._soft_clip(final_sentiment)
+
+    def _calculate_breakout_conviction_proxy(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
+        """
+        【V1.0.0 · 形态突破量子隧穿代理 (新增方法)】
+        说明: 作为废弃 breakout_confidence_D 的高维前瞻性替代。
+        利用形态置信度、突破质量和突破筹码构建三重交叉验证，辅以 HAB 时序记忆与微积分斜率偏置。
+        """
+        pattern_conf = self._calculate_custom_normalization(raw_data.get('pattern_confidence_D', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=1.5)
+        pattern_slope = self._calculate_custom_normalization(raw_data.get('SLOPE_13_pattern_confidence_D', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=5.0, denoise=True)
+        breakout_qual = self._calculate_custom_normalization(raw_data.get('breakout_quality_score_D', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=1.5)
+        breakout_chip = self._calculate_custom_normalization(raw_data.get('breakout_chip_score_D', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=2.0)
+        qual_hab = self._calculate_qho_historical_accumulation_buffer(raw_data.get('breakout_quality_score_D', pd.Series(0.0, index=df_index)), windows=[13, 21])
+        base_conviction = self._lp_norm_fusion([pattern_conf, breakout_qual, breakout_chip], [0.4, 0.4, 0.2], p=2.0)
+        final_conviction = base_conviction * (0.7 + 0.3 * pattern_slope) * (0.8 + 0.2 * qual_hab)
+        return self._soft_clip(final_conviction)
+
     def _calculate_breakout_readiness_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, _temp_debug_values: Dict) -> pd.Series:
+        """
+        【V3.0.0 · 突破准备度终端矩阵重构版】
+        说明: 集成全新的形态突破量子隧穿代理 (conviction_proxy)，取代旧有的单一主观置信度，彻底消除数据信息孤岛。
+        """
         grp_score = self._calculate_gravitational_regression_pull(df_index, raw_data)
         plr_score = self._calculate_phase_locked_resonance(df_index, raw_data)
         sed_score = self._calculate_short_exhaustion_divergence(df_index, raw_data)
@@ -259,14 +308,17 @@ class CalculateStormEyeCalm:
         long_awakening = self._calculate_long_awakening_threshold(df_index, raw_data)
         stress_test = self._calculate_level_stress_test_modulator(df_index, raw_data)
         consolidation = self._calculate_custom_normalization(raw_data.get('consolidation_quality_score_D', pd.Series(0.0, index=df_index)), mode='limit_high', sensitivity=2.0)
+        conviction_proxy = self._calculate_breakout_conviction_proxy(df_index, raw_data)
         momentum_part = self._lp_norm_fusion([grp_score, plr_score], [0.5, 0.5], p=2.0)
         friction_part = self._lp_norm_fusion([sed_score, ssd_score], [0.5, 0.5], p=2.0)
         quality_part = self._lp_norm_fusion([egd_score, sope_score, aeo_score], [0.3, 0.4, 0.3], p=2.0)
-        state_part = self._lp_norm_fusion([well_collapse, long_awakening, aded_score, stress_test, neutral_score, consolidation], [0.15, 0.15, 0.15, 0.15, 0.2, 0.2], p=2.0)
+        state_part = self._lp_norm_fusion([well_collapse, long_awakening, aded_score, stress_test, neutral_score, consolidation, conviction_proxy], [0.1, 0.15, 0.1, 0.15, 0.15, 0.15, 0.2], p=2.0)
         acc_hab = self._calculate_qho_historical_accumulation_buffer(raw_data['accumulation_signal_score_D'], windows=[21, 34])
         readiness = self._lp_norm_fusion([momentum_part, friction_part, quality_part, state_part], [0.15, 0.15, 0.3, 0.4], p=2.0) * (0.8 + 0.2 * acc_hab)
         _temp_debug_values["突破准备度融合"]["final"] = self._soft_clip(readiness)
+        _temp_debug_values["突破准备度融合"]["conviction_proxy"] = conviction_proxy
         return self._soft_clip(readiness)
+
     def _calculate_market_regulator_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], params: Dict, _temp_debug_values: Dict) -> pd.Series:
         sector_preheat = raw_data['industry_preheat_score_D']
         sector_hab = self._calculate_qho_historical_accumulation_buffer(sector_preheat, windows=[13, 21])
@@ -279,6 +331,7 @@ class CalculateStormEyeCalm:
         adx_supp = 1.0 / (1.0 + np.exp(0.4 * (adx_raw - 28.0)))
         final_modulator = (0.7 + 0.3 * sector_hab) * (1.0 + 0.5 * macro_resonance) * adx_supp
         return self._soft_clip(final_modulator, min_val=0.2, max_val=1.5)
+
     def _perform_lp_norm_fusion(self, df_index: pd.Index, component_scores: dict[str, pd.Series], final_fusion_weights: dict, raw_data: dict[str, pd.Series], _temp_debug_values: Dict) -> pd.Series:
         ewd_factor = self._calculate_consensus_entropy(component_scores)
         scores_list = [component_scores['energy'], component_scores['volume'], component_scores['intent'], component_scores['sentiment'], component_scores['readiness']]
@@ -288,6 +341,7 @@ class CalculateStormEyeCalm:
         hunting_boost = 1.0 + 0.4 * (raw_data['SMART_MONEY_HM_COORDINATED_ATTACK_D'].rolling(8).mean() * 0.5).fillna(0)
         final_score = base_score * ewd_factor * (struct_boost + 0.1) * (1.0 + 0.5 * ext_calm) * hunting_boost
         return self._soft_clip(final_score)
+
     def _calculate_trend_energy_shearing(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         adx_raw = raw_data['ADX_14_D']
         adx_accel = raw_data.get('ACCEL_8_ADX_14_D', pd.Series(0.0, index=df_index))
@@ -295,6 +349,7 @@ class CalculateStormEyeCalm:
         shearing_ignite = self._calculate_custom_normalization(adx_accel, mode='limit_low', sensitivity=15.0, denoise=True)
         shearing_factor = 1.0 + 0.2 * (high_context * shearing_ignite) ** 0.5
         return shearing_factor.fillna(1.0)
+
     def _calculate_consensus_entropy(self, scores_dict: dict[str, pd.Series]) -> pd.Series:
         df_scores = pd.concat(scores_dict.values(), axis=1)
         dispersion = df_scores.std(axis=1).fillna(1.0)
@@ -303,6 +358,7 @@ class CalculateStormEyeCalm:
         disp_decay = np.exp(- (dispersion * 2.5) ** 2)
         final_decay = disp_decay * (0.6 + 0.4 * coherence.clip(0, 1))
         return self._soft_clip(final_decay)
+
     def _calculate_pressure_backtest_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         penalty_raw = raw_data['breakout_penalty_score_D']
         penalty_slope = raw_data.get('SLOPE_13_breakout_penalty_score_D', pd.Series(0.0, index=df_index))
@@ -312,6 +368,7 @@ class CalculateStormEyeCalm:
         backtest_factor = 1.0 - (resistance_intensity * np.tanh(np.maximum(0, price_v) * 10.0))
         final_modulator = (backtest_factor * (1.0 - penalty_hab)) + penalty_hab
         return self._soft_clip(final_modulator, min_val=0.2, max_val=1.0)
+
     def _calculate_level_stress_test_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         och_accel = raw_data['OCH_ACCELERATION_D']
         och_jerk = raw_data.get('JERK_5_OCH_ACCELERATION_D', pd.Series(0.0, index=df_index))
@@ -322,6 +379,7 @@ class CalculateStormEyeCalm:
         level_weight = np.maximum(ma21_proximity, ma55_proximity)
         stress_test_score = och_jerk_score * level_weight * self._calculate_custom_normalization(res_strength, mode='limit_high', sensitivity=1.0)
         return self._soft_clip(stress_test_score)
+
     def _calculate_linear_resonance_failure(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         r2_raw = raw_data['GEOM_REG_R2_D']
         r2_accel = raw_data.get('ACCEL_8_GEOM_REG_R2_D', pd.Series(0.0, index=df_index))
@@ -331,6 +389,7 @@ class CalculateStormEyeCalm:
         slope_calm = self._calculate_custom_normalization(reg_slope, mode='zero_focus', sensitivity=40.0, denoise=True)
         failure_score = r2_hab * failure_burst * slope_calm
         return self._soft_clip(failure_score)
+
     def _calculate_micro_order_gain(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         entropy_raw = raw_data['PRICE_ENTROPY_D']
         entropy_slope = raw_data.get('SLOPE_13_PRICE_ENTROPY_D', pd.Series(0.0, index=df_index))
@@ -341,6 +400,7 @@ class CalculateStormEyeCalm:
         game_intensity = self._calculate_custom_normalization(game_index, mode='limit_high', sensitivity=1.5)
         gain_score = orderly_score * price_calm * (1.0 - entropy_hab) * (game_intensity + 0.1)
         return self._soft_clip(gain_score)
+
     def _calculate_momentum_dissipation_balance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         vpa_accel = raw_data['VPA_ACCELERATION_13D']
         vpa_accel_jerk = raw_data.get('JERK_5_VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
@@ -349,6 +409,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         mdb_score = dissipation_focus * jerk_silence * price_calm
         return self._soft_clip(mdb_score)
+
     def _calculate_hunting_temporal_coherence(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         attack_raw = raw_data['HM_COORDINATED_ATTACK_D']
         attack_jerk = raw_data.get('JERK_5_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index))
@@ -357,6 +418,7 @@ class CalculateStormEyeCalm:
         top_tier_activity = self._calculate_custom_normalization(raw_data['HM_ACTIVE_TOP_TIER_D'], mode='limit_high', sensitivity=2.0)
         htc_score = temporal_stability * rhythm_score * (0.8 + 0.2 * top_tier_activity)
         return self._soft_clip(htc_score)
+
     def _calculate_liquidity_solidification_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         stability_raw = raw_data['TURNOVER_STABILITY_INDEX_D']
         stability_slope = raw_data.get('SLOPE_13_TURNOVER_STABILITY_INDEX_D', pd.Series(0.0, index=df_index))
@@ -366,6 +428,7 @@ class CalculateStormEyeCalm:
         turnover_low = self._calculate_custom_normalization(raw_data['turnover_rate_f_D'], mode='limit_low', sensitivity=25.0)
         solidification_factor = stability_score * (0.7 + 0.3 * slope_growth) * stability_hab * turnover_low
         return self._soft_clip(solidification_factor)
+
     def _calculate_amount_distribution_entropy_delta(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         entropy_raw = raw_data['concentration_entropy_D']
         entropy_slope = raw_data.get('SLOPE_13_concentration_entropy_D', pd.Series(0.0, index=df_index))
@@ -373,6 +436,7 @@ class CalculateStormEyeCalm:
         entropy_hab = self._calculate_qho_historical_accumulation_buffer(entropy_raw, windows=[21])
         final_score = interceptive_score * (1.0 - entropy_hab)
         return self._soft_clip(final_score)
+
     def _calculate_seat_scatter_decay(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         any_act = raw_data['HM_ACTIVE_ANY_D']
         top_act = raw_data['HM_ACTIVE_TOP_TIER_D']
@@ -382,6 +446,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         final_decay = decay_score * price_calm
         return self._soft_clip(final_decay)
+
     def _calculate_gravitational_regression_pull(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         bias_raw = raw_data['BIAS_55_D']
         bias_accel = raw_data.get('ACCEL_8_BIAS_55_D', pd.Series(0.0, index=df_index))
@@ -390,6 +455,7 @@ class CalculateStormEyeCalm:
         depth_score = self._calculate_custom_normalization(bias_raw, mode='limit_low', sensitivity=10.0)
         pull_score = depth_score * bias_hab * gravity_ignite
         return self._soft_clip(pull_score)
+
     def _calculate_short_exhaustion_divergence(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         ndi_raw = raw_data['NDI_14_D']
         ndi_jerk = raw_data.get('JERK_5_NDI_14_D', pd.Series(0.0, index=df_index))
@@ -398,6 +464,7 @@ class CalculateStormEyeCalm:
         ndi_hab = self._calculate_qho_historical_accumulation_buffer(ndi_raw, windows=[21])
         divergence_score = exhaustion_score * price_calm * ndi_hab
         return self._soft_clip(divergence_score)
+
     def _calculate_long_awakening_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         pdi_raw = raw_data['PDI_14_D']
         pdi_slope = raw_data.get('SLOPE_13_PDI_14_D', pd.Series(0.0, index=df_index))
@@ -407,6 +474,7 @@ class CalculateStormEyeCalm:
         pdi_hab = self._calculate_qho_historical_accumulation_buffer(pdi_raw, windows=[21])
         awakening_score = awakening_continuity * awakening_ignite * (1.0 - pdi_hab)
         return self._soft_clip(awakening_score)
+
     def _calculate_abnormal_energy_overflow(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         mf_eff = raw_data['VPA_MF_ADJUSTED_EFF_D']
         eff_jerk = raw_data.get('JERK_5_VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
@@ -415,6 +483,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         overflow_score = overflow_ignite * amount_calm * price_calm
         return self._soft_clip(overflow_score)
+
     def _calculate_phase_locked_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         vpa_accel = raw_data['VPA_ACCELERATION_13D']
         price_accel = raw_data['MA_ACCELERATION_EMA_55_D']
@@ -424,6 +493,7 @@ class CalculateStormEyeCalm:
         vpa_jerk = self._calculate_custom_normalization(raw_data.get('JERK_5_VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index)), mode='zero_focus', sensitivity=60.0, denoise=True)
         plr_score = vpa_focus * price_focus * (0.5 + 0.5 * resonance_sim.clip(0, 1)) * vpa_jerk
         return self._soft_clip(plr_score)
+
     def _calculate_split_order_pulse_entropy(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         abnormal_raw = raw_data['tick_abnormal_volume_ratio_D']
         abnormal_jerk = raw_data.get('JERK_5_tick_abnormal_volume_ratio_D', pd.Series(0.0, index=df_index))
@@ -434,6 +504,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         sope_gain = order_score * price_calm
         return self._soft_clip(sope_gain)
+
     def _calculate_efficiency_gradient_dissipation(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         mf_eff = raw_data['VPA_MF_ADJUSTED_EFF_D']
         eff_slope = raw_data.get('SLOPE_13_VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
@@ -443,6 +514,7 @@ class CalculateStormEyeCalm:
         mf_activity = self._calculate_custom_normalization(raw_data['main_force_activity_index_D'], mode='limit_high', sensitivity=2.0)
         egd_score = slope_stability * accel_lock * (0.8 + 0.2 * mf_activity)
         return self._soft_clip(egd_score)
+
     def _calculate_potential_well_collapse(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         pit_state = raw_data['STATE_GOLDEN_PIT_D']
         pit_jerk = raw_data.get('JERK_5_STATE_GOLDEN_PIT_D', pd.Series(0.0, index=df_index))
@@ -451,6 +523,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         well_collapse_score = pit_state * (escape_ignite * 0.8 + (1.0 - trap_lock) * 0.2) * price_calm
         return self._soft_clip(well_collapse_score)
+
     def _calculate_high_freq_kinetic_gap_fill(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         bias5 = raw_data['BIAS_5_D']
         bias55 = raw_data['BIAS_55_D']
@@ -461,6 +534,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         final_fill_score = (elasticity * ignite * gap_score) * price_calm
         return self._soft_clip(final_fill_score)
+
     def _calculate_volatility_vacuum_contraction(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         atr_raw = raw_data['ATR_14_D']
         atr_slope = raw_data.get('SLOPE_13_ATR_14_D', pd.Series(0.0, index=df_index))
@@ -471,6 +545,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         vvc_score = atr_low_score * decay_purity * vacuum_silence * price_calm
         return self._soft_clip(vvc_score)
+
     def _calculate_fan_curvature_collapse(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         fan_raw = raw_data['MA_FAN_EFFICIENCY_D']
         fan_accel = raw_data.get('ACCEL_8_MA_FAN_EFFICIENCY_D', pd.Series(0.0, index=df_index))
@@ -481,6 +556,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         fcc_score = fan_high_score * accel_focus * jerk_silence * price_calm
         return self._soft_clip(fcc_score)
+
     def _calculate_game_neutralization_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         och_raw = raw_data['OCH_D']
         och_slope = raw_data.get('SLOPE_13_OCH_D', pd.Series(0.0, index=df_index))
@@ -489,6 +565,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         neutral_score = och_intensity * neutralization_focus * price_calm
         return self._soft_clip(neutral_score)
+
     def _calculate_oversold_momentum_bipolarization(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         rsi_raw = raw_data['RSI_13_D']
         rsi_accel = raw_data.get('ACCEL_8_RSI_13_D', pd.Series(0.0, index=df_index))
@@ -500,6 +577,7 @@ class CalculateStormEyeCalm:
         price_calm = self._calculate_custom_normalization(raw_data['price_slope_raw'], mode='zero_focus', sensitivity=60.0, denoise=True)
         omb_score = oversold_lock * bipolar_ratio * price_calm
         return self._soft_clip(omb_score)
+
     def _calculate_kinetic_overflow_veto(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], bipolar_gain: pd.Series) -> pd.Series:
         rsi_raw = raw_data['RSI_13_D']
         rsi_slope = raw_data.get('SLOPE_5_RSI_13_D', pd.Series(0.0, index=df_index))
@@ -512,6 +590,7 @@ class CalculateStormEyeCalm:
         veto_l3 = np.where((price_v > 0.6) & (bipolar_gain < 0.3), 0.6, 1.0)
         final_veto = pd.Series(veto_l1 * veto_l2 * veto_l3, index=df_index)
         return self._soft_clip(final_veto, min_val=0.3, max_val=1.0)
+
     def _calculate_spatio_temporal_asymmetric_reward(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], resonance_confirm: pd.Series) -> pd.Series:
         close = raw_data.get('close_D', pd.Series(1.0, index=df_index))
         past_ret = close / (close.shift(5) + 1e-9) - 1.0
@@ -519,17 +598,20 @@ class CalculateStormEyeCalm:
         expected_gain = (past_ret * hist_hit_mask).rolling(window=120, min_periods=10).mean()
         reward_factor = 1.0 + self._calculate_custom_normalization(expected_gain.clip(lower=0), mode='limit_high', sensitivity=4.0)
         return reward_factor.fillna(1.0)
+
     def _calculate_extreme_panic_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         pain_jerk = raw_data.get('JERK_5_pain_index_proxy', pd.Series(0.0, index=df_index))
         panic_burst = self._calculate_custom_normalization(pain_jerk, mode='limit_high', sensitivity=25.0, denoise=True)
         pit_state = raw_data['STATE_GOLDEN_PIT_D']
         resonance_score = panic_burst * pit_state
         return self._soft_clip(resonance_score)
+
     def _calculate_adaptive_phase_transition_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         price_v = raw_data['price_slope_raw']
         noise_cv = price_v.rolling(window=250, min_periods=60).std() / (price_v.rolling(window=250, min_periods=60).mean().abs() + 1e-9)
         adaptive_threshold = 0.45 * (0.8 + 0.5 * self._calculate_custom_normalization(noise_cv, mode='limit_high', sensitivity=2.0))
         return adaptive_threshold.fillna(0.45)
+
     def _calculate_mean_reversion_kinetic_bias(self, df_index: pd.Index, raw_data: Dict[str, pd.Series]) -> pd.Series:
         bias144 = raw_data['price_vs_ma_144_ratio']
         accel144 = raw_data.get('ACCEL_8_price_vs_ma_144_ratio', pd.Series(0.0, index=df_index))
