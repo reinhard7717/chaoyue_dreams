@@ -1,4 +1,5 @@
 # strategies\trend_following\intelligence\process\calculate_price_momentum_divergence.py
+# 价格动量背离引擎 - v18.0.0 量子相空间张量正交背离引擎 已废弃
 import pandas as pd
 import numpy as np
 from typing import Dict
