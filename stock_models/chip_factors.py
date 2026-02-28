@@ -977,15 +977,12 @@ class ChipHoldingMatrixBase(models.Model):
         super().save(*args, **kwargs)
 
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
-        """
-        保存动态分析结果(增强版:集成tick数据) - 逻辑重构版
-        委托 ChipMatrixDynamicsCalculator 处理核心计算
-        """
+        # [V3.1.3] 方法说明：保存动态分析结果。集成数据类型强制降级(float32)，优化传入计算引擎的矩阵内存布局，激活底层SIMD向量化性能
         import zlib
         import json
+        import numpy as np
         Calculator = ChipMatrixDynamicsCalculator
         try:
-            # 1. 基础校验
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
                 self.calc_status = 'failed'
                 self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
@@ -996,7 +993,6 @@ class ChipHoldingMatrixBase(models.Model):
                 self.error_message = "缺少必要字段"
                 self.save(update_fields=['calc_status', 'error_message'])
                 return False
-            # 2. Tick数据处理 (委托计算)
             tick_factors = dynamics_result.get('tick_enhanced_factors', {})
             if tick_factors:
                 self.intraday_chip_quality_score = tick_factors.get('tick_data_quality_score', 0.0)
@@ -1005,57 +1001,29 @@ class ChipHoldingMatrixBase(models.Model):
                 self.intraday_accumulation_confidence = tick_factors.get('intraday_accumulation_confidence', 0.0)
                 self.intraday_distribution_confidence = tick_factors.get('intraday_distribution_confidence', 0.0)
                 self.used_tick_data = True
-                # 清洗复杂结构
                 self.tick_data_summary = Calculator.clean_structure(tick_factors.get('tick_data_summary'), precision=3)
-                # [修复]：将扁平化的Tick关键因子打包进 intraday_market_microstructure 以便持久化
-                # 因为 ChipHoldingMatrix 没有这些字段的独立列，必须存入 JSON
                 microstructure_data = Calculator.clean_structure(tick_factors.get('intraday_market_microstructure'), precision=3)
                 if microstructure_data is None:
                     microstructure_data = {}
-                # 定义需要持久化的关键Tick因子列表 (对应 ChipFactor 中的字段)
-                critical_tick_keys = [
-                    'intraday_chip_consolidation_degree',
-                    'intraday_peak_valley_ratio',
-                    'intraday_price_distribution_skewness',
-                    'intraday_resistance_test_count',
-                    'intraday_support_test_count',
-                    'intraday_trough_filling_degree',
-                    'tick_abnormal_volume_ratio',
-                    'tick_chip_balance_ratio',
-                    'tick_chip_transfer_efficiency',
-                    'tick_clustering_index',
-                    'tick_level_chip_flow',
-                    'intraday_chip_concentration',
-                    'intraday_chip_entropy',
-                    'intraday_chip_turnover_intensity',
-                    'intraday_cost_center_migration',
-                    'intraday_cost_center_volatility',
-                    'intraday_low_lock_ratio',
-                    'intraday_high_lock_ratio',
-                    'intraday_chip_game_index'
-                ]
-                # 将这些因子注入到 JSON 字段中
+                critical_tick_keys = ['intraday_chip_consolidation_degree','intraday_peak_valley_ratio','intraday_price_distribution_skewness','intraday_resistance_test_count','intraday_support_test_count','intraday_trough_filling_degree','tick_abnormal_volume_ratio','tick_chip_balance_ratio','tick_chip_transfer_efficiency','tick_clustering_index','tick_level_chip_flow','intraday_chip_concentration','intraday_chip_entropy','intraday_chip_turnover_intensity','intraday_cost_center_migration','intraday_cost_center_volatility','intraday_low_lock_ratio','intraday_high_lock_ratio','intraday_chip_game_index']
                 for key in critical_tick_keys:
                     if key in tick_factors:
                         microstructure_data[key] = tick_factors[key]
                 self.intraday_market_microstructure = microstructure_data
-            # 3. 绝对变化分析 (委托计算)
             try:
                 change_matrix = dynamics_result.get('percent_change_matrix', [])
                 price_grid = dynamics_result.get('price_grid', [])
                 current_price = dynamics_result.get('current_price', 0)
                 if change_matrix and price_grid and current_price:
-                    latest_change = np.array(change_matrix[-1])
-                    p_grid = np.array(price_grid)
+                    latest_change = np.array(change_matrix[-1], dtype=np.float32)
+                    p_grid = np.array(price_grid, dtype=np.float32)
                     self.absolute_change_analysis = Calculator.calculate_absolute_change_analysis(latest_change, p_grid, current_price)
                 else:
                     self.absolute_change_analysis = Calculator.get_default_absolute_analysis()
-                # 清洗结果
                 self.absolute_change_analysis = Calculator.clean_structure(self.absolute_change_analysis, precision=3)
             except Exception as e:
                 print(f"⚠️ 绝对变化分析失败: {e}")
                 self.absolute_change_analysis = Calculator.get_default_absolute_analysis()
-            # 4. 能量场数据处理
             game_energy = dynamics_result.get('game_energy_result', {})
             if game_energy:
                 self.absorption_energy = round(max(0.0, game_energy.get('absorption_energy', 0.0)), 3)
@@ -1069,7 +1037,6 @@ class ChipHoldingMatrixBase(models.Model):
                 if not kbz:
                     kbz = Calculator.create_default_key_battle_zones(price_grid, current_price)
             else:
-                # 默认值
                 self.absorption_energy = 0.0
                 self.distribution_energy = 0.0
                 self.net_energy_flow = 0.0
@@ -1078,7 +1045,6 @@ class ChipHoldingMatrixBase(models.Model):
                 self.energy_concentration = 0.0
                 self.fake_distribution_flag = False
                 kbz = []
-            # 5. 核心指标扁平化提取
             conc_metrics = dynamics_result.get('concentration_metrics', {})
             press_metrics = dynamics_result.get('pressure_metrics', {})
             conv_metrics = dynamics_result.get('convergence_metrics', {})
@@ -1095,7 +1061,6 @@ class ChipHoldingMatrixBase(models.Model):
             self.behavior_accumulation = round(behav_patterns.get('accumulation', {}).get('strength', 0.0), 3)
             self.behavior_distribution = round(behav_patterns.get('distribution', {}).get('strength', 0.0), 3)
             self.behavior_consolidation = round(behav_patterns.get('consolidation', {}).get('strength', 0.0), 3)
-            # 6. 矩阵压缩存储
             try:
                 if dynamics_result.get('chip_matrix'):
                     cleaned = Calculator.clean_structure(dynamics_result['chip_matrix'], precision=3, threshold=0.001)
@@ -1105,47 +1070,15 @@ class ChipHoldingMatrixBase(models.Model):
                     self.compressed_change_matrix = zlib.compress(json.dumps(cleaned, separators=(',', ':')).encode('utf-8'))
             except Exception as e:
                 print(f"⚠️ 矩阵压缩失败: {e}")
-            # 7. 合并复杂JSON字段 (使用Calculator清洗)
-            self.chart_signals = Calculator.clean_structure({
-                'absolute_signals': dynamics_result.get('absolute_change_signals', {}),
-                'behavior_areas': {
-                    'accumulation': behav_patterns.get('accumulation', {}).get('areas', []),
-                    'distribution': behav_patterns.get('distribution', {}).get('areas', [])
-                },
-                'key_battle_zones': kbz[:5],
-                'migration_areas': {
-                    'convergence': dynamics_result.get('migration_patterns', {}).get('convergence_migration', {}).get('areas', []),
-                    'divergence': dynamics_result.get('migration_patterns', {}).get('divergence_migration', {}).get('areas', [])
-                }
-            }, precision=3)
-            self.extra_metrics = Calculator.clean_structure({
-                'concentration': conc_metrics,
-                'pressure': press_metrics,
-                'convergence': conv_metrics,
-                'migration': dynamics_result.get('migration_patterns', {}),
-                'behavior_meta': {
-                    'accumulation_detected': behav_patterns.get('accumulation', {}).get('detected'),
-                    'distribution_detected': behav_patterns.get('distribution', {}).get('detected'),
-                    'main_force_activity': behav_patterns.get('main_force_activity')
-                }
-            }, precision=4)
+            self.chart_signals = Calculator.clean_structure({'absolute_signals': dynamics_result.get('absolute_change_signals', {}),'behavior_areas': {'accumulation': behav_patterns.get('accumulation', {}).get('areas', []), 'distribution': behav_patterns.get('distribution', {}).get('areas', [])},'key_battle_zones': kbz[:5],'migration_areas': {'convergence': dynamics_result.get('migration_patterns', {}).get('convergence_migration', {}).get('areas', []),'divergence': dynamics_result.get('migration_patterns', {}).get('divergence_migration', {}).get('areas', [])}}, precision=3)
+            self.extra_metrics = Calculator.clean_structure({'concentration': conc_metrics,'pressure': press_metrics,'convergence': conv_metrics,'migration': dynamics_result.get('migration_patterns', {}),'behavior_meta': {'accumulation_detected': behav_patterns.get('accumulation', {}).get('detected'),'distribution_detected': behav_patterns.get('distribution', {}).get('detected'),'main_force_activity': behav_patterns.get('main_force_activity')}}, precision=4)
             self.price_grid = Calculator.clean_structure(dynamics_result.get('price_grid', []), precision=3)
             self.validation_score = round(max(0.0, min(1.0, dynamics_result.get('validation_score', 0.5))), 3)
             self.validation_warnings = Calculator.clean_structure(dynamics_result.get('validation_warnings', []), precision=3)
-            # 8. 计算持有时间因子 (委托给Calculator)
             holding_res = Calculator.calculate_holding_factors(dynamics_result, self.absolute_change_analysis)
-            # 基础持有数据
-            current_factors = {
-                'short': holding_res.get('short_term_ratio', 0.2),
-                'mid': holding_res.get('mid_term_ratio', 0.3),
-                'long': holding_res.get('long_term_ratio', 0.5),
-                'days': holding_res.get('avg_holding_days', 60.0)
-            }
-            # Tick数据增强修正
+            current_factors = {'short': holding_res.get('short_term_ratio', 0.2),'mid': holding_res.get('mid_term_ratio', 0.3),'long': holding_res.get('long_term_ratio', 0.5),'days': holding_res.get('avg_holding_days', 60.0)}
             if tick_factors and self.intraday_chip_quality_score > 0.3:
-                s, m, l, d, reason = Calculator.calculate_tick_enhanced_factors(
-                    current_factors, tick_factors, self.intraday_chip_quality_score
-                )
+                s, m, l, d, reason = Calculator.calculate_tick_enhanced_factors(current_factors, tick_factors, self.intraday_chip_quality_score)
                 self.short_term_ratio, self.mid_term_ratio, self.long_term_ratio, self.avg_holding_days = s, m, l, d
                 if 'extra_metrics' in holding_res:
                     holding_res['extra_metrics']['tick_adjustment_reason'] = reason
@@ -1154,11 +1087,9 @@ class ChipHoldingMatrixBase(models.Model):
                 self.mid_term_ratio = current_factors['mid']
                 self.long_term_ratio = current_factors['long']
                 self.avg_holding_days = current_factors['days']
-            # 更新extra_metrics
             if self.extra_metrics is None: self.extra_metrics = {}
             if 'extra_metrics' in holding_res:
                 self.extra_metrics.update(holding_res['extra_metrics'])
-            # 9. 保存状态
             self.calc_status = 'success'
             self.analysis_method = 'advanced_dynamics_v3_tick_enhanced'
             self.used_percent_data = True
