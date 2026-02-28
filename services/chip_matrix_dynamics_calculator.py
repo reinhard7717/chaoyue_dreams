@@ -1,6 +1,7 @@
 # services\chip_matrix_dynamics_calculator.py
 # 筹码矩阵动态分析计算服务
 import numpy as np
+from numba import njit, prange
 import scipy.stats
 import math
 import json
