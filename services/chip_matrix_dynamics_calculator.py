@@ -14,7 +14,8 @@ class QuantitativeTelemetryProbe:
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
         payload = {"module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
         try:
-            print(f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False)}")
+            pass
+            # print(f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False)}")
         except Exception:
             pass
 
