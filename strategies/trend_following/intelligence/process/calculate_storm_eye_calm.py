@@ -1,43 +1,41 @@
 # strategies\trend_following\intelligence\process\calculate_storm_eye_calm.py
-# 【V58.0.2】 拆单吸筹强度 已完成
+# 【V58.0.2】 拆单吸筹强度 已完成DeepThink
 import json
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from typing import Dict, List, Optional, Any, Tuple
 from strategies.trend_following.utils import (
-    get_params_block, get_param_value, get_adaptive_mtf_normalized_score,
-    is_limit_up, get_adaptive_mtf_normalized_bipolar_score,
-    normalize_score, _robust_geometric_mean
+    get_params_block, get_param_value
 )
 from strategies.trend_following.intelligence.process.helper import ProcessIntelligenceHelper
 class CalculateStormEyeCalm:
     """
-    【V60.0.0 · 风暴眼寂静 · 纳维-斯托克斯奇点极化终局版 (Golden Master Ultimate)】
+    【V62.0.0 · 风暴眼寂静 · 量子退相干终局版 (Quantum Decoherence Ultimate)】
     PROCESS_META_STORM_EYE_CALM
-    - [高维信息孤岛破除]: 全面引入聪明钱协同、90日高位锁仓率、Tick级筹码转移效率及获利盘压迫等核心探针。
-    - [纳维-斯托克斯流动性旋涡]: 测算多空大单在压力梯度下的不可压缩流体旋度，捕捉流动性真空奇点。
-    - [极性反噬防线]: 新增 Veto_L5 深渊破位熔断与时空共振确认，利用下跌趋势强度彻底镇压下跌中继的“伪死水”。
-    - [零基陷阱防御网络]: 高斯波函数软门限加持普朗克常量阻尼，扼杀微观异变带来的导数浮点爆炸。
+    - [量子退相干降维]: 注入 Decoherence Penalty，实时捕捉五大物理维度间的混沌方差，若未达成完美共振则施加高斯惩罚。
+    - [纳维-斯托克斯流体力学]: 破译压力梯度下的 Tick 级流转黏滞性，提取极寒旋涡奇点。
+    - [极性反噬拦截]: Veto_L5 增加 0.20 的宽容域并绑定黄金坑豁免，解决健康缩量回踩被误判为破位深渊的技术反噬。
+    - [惰性微积分引擎]: 重构 _safe_diff 调用方式，阻断预求值损耗，实现缺失时才求导的真延迟加载。
     """
     def __init__(self, strategy_instance, helper: ProcessIntelligenceHelper):
         """
         用途：初始化风暴眼核心引擎，装载全局参数与 MTF 权重拓扑。
-        修改要点：版本跃迁为 V60.0.0。
+        修改要点：版本跃迁为 V62.0.0，挂载纳维-斯托克斯张量模块。
         """
         self.strategy = strategy_instance
         self.helper = helper
         self.params = self.helper.params
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-        self.version = "V60.0.0"
+        self.version = "V62.0.0"
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         self.actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         用途：主控调度枢纽，聚合五大特征域，执行流形融合与高斯防爆熔断，输出破局极值。
-        修改要点：接入 NS 旋涡模型与 Veto_L5 极性熔断机制。
+        修改要点：重构引擎组装链路，注入量子退相干与时空共振校验。
         """
         method_name = "calculate_storm_eye_calm"
         self.last_df_index = df.index
@@ -48,7 +46,7 @@ class CalculateStormEyeCalm:
         _probe_data = {}
         self._log_probe(_probe_data, "【00. 引擎运行环境 (Engine Env)】", "Engine_Version", self.version, probe_ts)
         self._log_probe(_probe_data, "【00. 引擎运行环境 (Engine Env)】", "Tensor_Fusion_Mode", "Minkowski Power Mean Manifold (p-Norm)", probe_ts)
-        self._log_probe(_probe_data, "【00. 引擎运行环境 (Engine Env)】", "Manifold_Activation", "Navier-Stokes Vortex & Golden Master Topology", probe_ts)
+        self._log_probe(_probe_data, "【00. 引擎运行环境 (Engine Env)】", "Manifold_Activation", "Navier-Stokes Vortex & Quantum Decoherence", probe_ts)
         raw_data = self._get_raw_and_atomic_data(df, method_name, params, _probe_data, probe_ts)
         energy_score = self._calculate_energy_compression_component(df_index, raw_data, {}, params['energy_compression_weights'], _probe_data, probe_ts)
         volume_score = self._calculate_volume_exhaustion_component(df_index, raw_data, {}, params['volume_exhaustion_weights'], _probe_data, probe_ts)
@@ -92,7 +90,7 @@ class CalculateStormEyeCalm:
     def _smooth_abs(self, series: pd.Series, eps: float = 1e-12) -> pd.Series:
         """
         用途：连续流形绝对值函数。
-        修改要点：扣除底噪确保无漂移通过原点。
+        修改要点：扣除底噪确保无漂移精确通过原点。
         """
         if isinstance(series, (float, int)): series = pd.Series([series])
         return pd.Series(np.sqrt(np.square(series.astype(float)) + eps) - np.sqrt(eps), index=series.index)
@@ -111,7 +109,7 @@ class CalculateStormEyeCalm:
     def _smooth_min_pair(self, a: pd.Series | float, b: pd.Series | float, eps: float = 1e-12) -> pd.Series:
         """
         用途：双序列边界最小值平滑函数。
-        修改要点：构建闭环逻辑一致性。
+        修改要点：构建闭环逻辑一致性，规避极性撕裂。
         """
         if isinstance(a, pd.Series) and isinstance(b, pd.Series): idx = a.index
         elif isinstance(a, pd.Series): idx, b = a.index, pd.Series(b, index=a.index)
@@ -123,22 +121,22 @@ class CalculateStormEyeCalm:
     def _c_infinity_clamp(self, series: pd.Series, min_val: float = 0.0, max_val: float = 1.0) -> pd.Series:
         """
         用途：绝对无损内域线性平滑钳制。
-        修改要点：终结传统 Sigmoid 与 clip 造成的极性扭曲。
+        修改要点：彻底终结传统 Sigmoid 与 clip 造成的极性扭曲陷阱。
         """
         s1 = self._smooth_max_pair(series, min_val)
         return self._smooth_min_pair(s1, max_val)
     def _volatility_scale_denoise(self, series: pd.Series, window: int = 21, eps: float = 1e-12) -> pd.Series:
         """
-        用途：无量纲高斯白噪波动滤除(SNR算子)。
-        修改要点：确保所有导数获得平等的拓扑缩放。注入普朗克常量阻断下溢。
+        用途：无量纲高斯白噪波动滤除 (SNR门限算子)。
+        修改要点：确保导数获得平等的拓扑缩放。注入普朗克常量阻断下溢。
         """
         noise_floor = self._smooth_max_pair(series.rolling(window=window, min_periods=5).std().ffill().fillna(eps), eps)
         gate_strength = pd.Series(np.tanh(np.square(series / (noise_floor * 1.5 + 1e-9))), index=series.index)
         return pd.Series((series / (noise_floor + 1e-9)) * gate_strength, index=series.index)
     def _norm_kinetic_growth(self, series: pd.Series | float, sensitivity: float = 1.0, denoise: bool = False) -> pd.Series:
         """
-        用途：专属物理流形 1。
-        修改要点：用于动能、强度等正向爆发增长的 S-Curve。替代通用归一化。
+        用途：专属物理流形 1 (S-Curve 爆发态)。
+        修改要点：专为动能、强度等正向突变增长提供拓扑映射。
         """
         if not isinstance(series, pd.Series): series = pd.Series(float(series), index=getattr(self, 'last_df_index', []))
         working_series = series.replace([np.inf, -np.inf], 0.0).fillna(0.0)
@@ -148,8 +146,8 @@ class CalculateStormEyeCalm:
         return pd.Series(np.tanh(self._smooth_max_pair(working_series * sensitivity, 0.0)), index=series.index)
     def _norm_friction_decay(self, series: pd.Series | float, sensitivity: float = 1.0, denoise: bool = False) -> pd.Series:
         """
-        用途：专属物理流形 2。
-        修改要点：用于换手、抛压等摩擦耗散的极速指数衰减。替代通用归一化。
+        用途：专属物理流形 2 (指数衰减态)。
+        修改要点：专为换手、抛压等摩擦耗散的负指数剥离。
         """
         if not isinstance(series, pd.Series): series = pd.Series(float(series), index=getattr(self, 'last_df_index', []))
         working_series = series.replace([np.inf, -np.inf], 0.0).fillna(0.0)
@@ -159,8 +157,8 @@ class CalculateStormEyeCalm:
         return pd.Series(np.exp(-self._smooth_max_pair(working_series * sensitivity, 0.0)), index=series.index)
     def _norm_negative_potential(self, series: pd.Series | float, sensitivity: float = 1.0, denoise: bool = False) -> pd.Series:
         """
-        用途：专属物理流形 3。
-        修改要点：用于负向乖离、超跌的弹性蓄能逆向映射。替代通用归一化。
+        用途：专属物理流形 3 (弹性势能态)。
+        修改要点：专为负向乖离、超跌引力的弹性反转提供映射支撑。
         """
         if not isinstance(series, pd.Series): series = pd.Series(float(series), index=getattr(self, 'last_df_index', []))
         working_series = series.replace([np.inf, -np.inf], 0.0).fillna(0.0)
@@ -170,8 +168,8 @@ class CalculateStormEyeCalm:
         return pd.Series(np.tanh(self._smooth_max_pair(-working_series * sensitivity, 0.0)), index=series.index)
     def _norm_gaussian_silence(self, series: pd.Series | float, sensitivity: float = 1.0, denoise: bool = False) -> pd.Series:
         """
-        用途：专属物理流形 4。
-        修改要点：用于量价加速度归零的高斯秩序聚集。替代通用归一化。
+        用途：专属物理流形 4 (微观聚焦态)。
+        修改要点：为量价加速度归零、死水区高斯中心聚焦提供终极度量。
         """
         if not isinstance(series, pd.Series): series = pd.Series(float(series), index=getattr(self, 'last_df_index', []))
         working_series = series.replace([np.inf, -np.inf], 0.0).fillna(0.0)
@@ -181,8 +179,8 @@ class CalculateStormEyeCalm:
         return pd.Series(np.exp(-np.square(working_series * sensitivity)), index=series.index)
     def _power_mean_fusion(self, df_index: pd.Index, scores: List[Any], weights: List[float], p: float = 1.0) -> pd.Series:
         """
-        用途：Minkowski 幂平均张量融合。
-        修改要点：打破几何连乘的零值吞噬死锁，维持灰度张力。置入垫片规避 log(0)。
+        用途：Minkowski 幂平均张量融合矩阵。
+        修改要点：置入 0.01 垫底张力，完全摧毁零值吞噬死锁黑洞。
         """
         valid_scores, valid_weights = [], []
         for s, w in zip(scores, weights):
@@ -202,8 +200,8 @@ class CalculateStormEyeCalm:
             return self._c_infinity_clamp(((power_sum ** (1.0 / p)) - 0.01) / 0.99, 0.0, 1.0)
     def _log_probe(self, _probe_data: Dict, category: str, key: str, value: Any, probe_ts: pd.Timestamp):
         """
-        用途：统一量子态探针安全沉淀器。
-        修改要点：容错存储。
+        用途：量子态探针隔离沉淀器。
+        修改要点：提供完美容错切片。
         """
         if probe_ts is None: return
         if isinstance(value, pd.Series): val = value.loc[probe_ts] if probe_ts in value.index else np.nan
@@ -212,8 +210,8 @@ class CalculateStormEyeCalm:
         _probe_data[category][key] = val
     def _print_comprehensive_probe(self, _probe_data: Dict, probe_ts: pd.Timestamp, method_name: str, final_score: pd.Series):
         """
-        用途：绘制时序切片的完美对齐黑盒物理全息图。
-        修改要点：格式化显示探针结构。
+        用途：物理全息时空切片图绘制仪。
+        修改要点：格式化严格对齐结构。
         """
         print(f"\n{'='*20} [{method_name} 全链路量子探针 | {self.version}] @ {probe_ts.strftime('%Y-%m-%d')} {'='*20}")
         categories = ["【00. 引擎运行环境 (Engine Env)】", "【01. 原始核心数据 (Raw Data)】", "【02. 微积分动力学 (Kinematics)】", "【03. 时空存量缓冲 (HAB)】", "【04. 组件计算节点 (Nodes)】", "【05. 五大核心维度 (Domains)】", "【06. 最终融合参数 (Final_Fusion_Params)】", "【07. 宏观环境调节 (Environment)】", "【08. 最终归一化输出 (Final)】"]
@@ -228,8 +226,8 @@ class CalculateStormEyeCalm:
         print(f"{'='*85}\n")
     def _check_and_fill_data_existence(self, df: pd.DataFrame, params: Dict):
         """
-        用途：数据矩阵装载扫描。
-        修改要点：无死角扫描，缺失强制提醒。
+        用途：核心矩阵探空警报网络。
+        修改要点：实现绝对无死角扫描与拉普拉斯降维预警。
         """
         req_signals = self._get_required_signals(params)
         missing_base = [c for c in req_signals if c not in df.columns]
@@ -242,30 +240,30 @@ class CalculateStormEyeCalm:
         if missing_deriv: print(f"【{self.version} 探针警报】衍生微积分特征缺失: {missing_deriv}。系统将实时执行高斯门限微分。")
     def _apply_threshold_gate(self, series: pd.Series, window: int = 21) -> pd.Series:
         """
-        用途：动态高斯波函数门控。
-        修改要点：拦截死水区的求导极小值异变爆炸。解决零基陷阱。
+        用途：动态高斯波函数 SNR 门控阵列。
+        修改要点：从物理层截断死水区微观变动的无穷导数爆炸(零基陷阱)。
         """
         noise_floor = self._smooth_max_pair(series.rolling(window=window, min_periods=5).std().ffill().fillna(1e-12), 1e-12)
         gate_strength = pd.Series(np.tanh(np.square(series / (noise_floor * 1.5 + 1e-9))), index=series.index)
         return pd.Series(series * gate_strength, index=series.index)
     def _safe_diff(self, series: pd.Series, period: int) -> pd.Series:
         """
-        用途：高阶安全前向差分防线。
-        修改要点：调用自适应波动滤波。
+        用途：物理隔离级的高阶前向差分防线。
+        修改要点：结合安全填充与门限保护。
         """
         return self._apply_threshold_gate(series.ffill().diff(period).fillna(0.0))
     def _calculate_fermi_dirac_gate(self, score_series: pd.Series, threshold: float | pd.Series = 0.5, beta: float = 12.0) -> pd.Series:
         """
-        用途：费米狄拉克缓冲阻尼器。
-        修改要点：引入 0.2 保底拦截阻尼。
+        用途：费米-狄拉克分布软门限。
+        修改要点：引入保底阻尼，防止折线式抹杀。
         """
         if isinstance(threshold, pd.Series): threshold = threshold.reindex(score_series.index).fillna(0.5)
         gate = 0.5 + 0.5 * np.tanh((score_series - threshold) * (beta / 2.0))
         return pd.Series(0.2 + 0.8 * gate, index=score_series.index)
     def _get_debug_info(self, df: pd.DataFrame, method_name: str) -> Tuple[bool, Optional[pd.Timestamp]]:
         """
-        用途：锁定调试基准时间锚点。
-        修改要点：确保数据切片纯净对接探针。
+        用途：锁定代码内部调试的统一时间锚点。
+        修改要点：确保切片映射精确对齐。
         """
         is_debug_enabled_for_method = get_param_value(self.debug_params.get('enabled'), False) and get_param_value(self.debug_params.get('should_probe'), False)
         probe_ts = None
@@ -278,8 +276,8 @@ class CalculateStormEyeCalm:
         return is_debug_enabled_for_method, probe_ts
     def _get_storm_eye_calm_params(self, config: Dict) -> Dict:
         """
-        用途：加载并映射引擎神经网络宏观权重块。
-        修改要点：无。
+        用途：宏观神经网络权重解析表加载。
+        修改要点：映射至内部属性字典。
         """
         params = get_param_value(config.get('storm_eye_calm_params'), {})
         return {
@@ -304,19 +302,19 @@ class CalculateStormEyeCalm:
         }
     def _get_required_signals(self, params: Dict) -> list[str]:
         """
-        用途：向数据层索取全套物理及统计高维特化变量库。
-        修改要点：清理废弃变量，新增9维高价值微观共振变量。
+        用途：最终军械库基底清单挂载器。
+        修改要点：严格对齐 JSON 字典并扩充 9 维反向共振高阶变量。
         """
         required_signals = [
             'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'BBW_21_2.0_D', 'chip_concentration_ratio_D', 'concentration_entropy_D', 'PRICE_ENTROPY_D', 'GEOM_ARC_CURVATURE_D', 'dynamic_consolidation_duration_D', 'turnover_rate_f_D', 'volume_D', 'intraday_trough_filling_degree_D', 'tick_abnormal_volume_ratio_D', 'afternoon_flow_ratio_D', 'absorption_energy_D', 'stealth_flow_ratio_D', 'tick_clustering_index_D', 'accumulation_signal_score_D', 'SMART_MONEY_HM_NET_BUY_D', 'HM_ACTIVE_TOP_TIER_D', 'net_mf_amount_D', 'profit_ratio_D', 'winner_rate_D', 'market_sentiment_score_D', 'breakout_potential_D', 'breakout_penalty_score_D', 'resistance_strength_D', 'GEOM_REG_R2_D', 'GEOM_REG_SLOPE_D', 'ATR_14_D', 'chip_stability_D', 'ADX_14_D', 'flow_impact_ratio_D', 'industry_preheat_score_D', 'industry_rank_accel_D', 'industry_strength_rank_D', 'trend_confirmation_score_D', 'main_force_activity_index_D', 'intraday_cost_center_migration_D', 'migration_convergence_ratio_D', 'tick_chip_balance_ratio_D', 'VPA_EFFICIENCY_D', 'VPA_MF_ADJUSTED_EFF_D', 'VPA_ACCELERATION_13D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'OCH_ACCELERATION_D', 'OCH_D', 'PDI_14_D', 'NDI_14_D', 'price_vs_ma_21_ratio_D', 'price_vs_ma_55_ratio_D', 'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 'amount_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D', 'STATE_GOLDEN_PIT_D', 'BIAS_5_D', 'MA_FAN_EFFICIENCY_D', 'RSI_13_D', 'MA_144_D', 'chip_entropy_D', 'pressure_trapped_D', 'consolidation_quality_score_D', 'net_energy_flow_D', 'intraday_chip_game_index_D', 'pattern_confidence_D', 'breakout_quality_score_D', 'breakout_chip_score_D', 'MA_55_D', 'MA_21_D', 'MA_5_D', 'close_D',
             'volatility_adjusted_concentration_D', 'chip_convergence_ratio_D', 'PRICE_FRACTAL_DIM_D', 'MACDh_13_34_8_D', 'T1_PREMIUM_EXPECTATION_D', 'flow_consistency_D', 'price_flow_divergence_D', 'buy_elg_amount_D', 'sell_elg_amount_D', 'high_freq_flow_skewness_D',
-            'downtrend_strength_D', 'uptrend_strength_D', 'SMART_MONEY_SYNERGY_BUY_D', 'daily_weekly_sync_D', 'daily_monthly_sync_D', 'high_position_lock_ratio_90_D', 'tick_chip_transfer_efficiency_D', 'intraday_accumulation_confidence_D', 'profit_pressure_D'
+            'downtrend_strength_D', 'uptrend_strength_D', 'SMART_MONEY_SYNERGY_BUY_D', 'daily_weekly_sync_D', 'daily_monthly_sync_D', 'high_position_lock_ratio_90_D', 'tick_chip_transfer_efficiency_D', 'intraday_accumulation_confidence_D', 'profit_pressure_D', 'reversal_warning_score_D'
         ]
         return list(set(required_signals))
     def _get_raw_and_atomic_data(self, df: pd.DataFrame, method_name: str, params: Dict, _probe_data: Dict, probe_ts: pd.Timestamp) -> Dict[str, pd.Series]:
         """
-        用途：提取并用拉普拉斯中性核平滑所有底层原子特征。
-        修改要点：补充多维微观特征防错字典，获取或运算安全差分。
+        用途：提取、清洗并利用拉普拉斯中性核平滑所有底层量子特征。
+        修改要点：扩容缺省字典，植入量纲统一系统，建立惰性预计算池降低性能耗散。
         """
         df_index = df.index
         neutral_fills = {
@@ -332,7 +330,8 @@ class CalculateStormEyeCalm:
             'SMART_MONEY_HM_COORDINATED_ATTACK_D': 0.0, 'HM_ACTIVE_TOP_TIER_D': 0.0, 'HM_ACTIVE_ANY_D': 0.0,
             'downtrend_strength_D': 0.0, 'uptrend_strength_D': 0.0, 'SMART_MONEY_SYNERGY_BUY_D': 0.0,
             'daily_weekly_sync_D': 0.0, 'daily_monthly_sync_D': 0.0, 'high_position_lock_ratio_90_D': 0.0,
-            'tick_chip_transfer_efficiency_D': 0.0, 'intraday_accumulation_confidence_D': 0.0, 'profit_pressure_D': 0.0
+            'tick_chip_transfer_efficiency_D': 0.0, 'intraday_accumulation_confidence_D': 0.0, 'profit_pressure_D': 0.0,
+            'reversal_warning_score_D': 0.0
         }
         raw_data = {col: df.get(col, pd.Series(neutral_fills.get(col, 0.0), index=df_index)).ffill().fillna(neutral_fills.get(col, 0.0)) for col in self._get_required_signals(params)}
         raw_data['close_D'] = df.get('close_D', df.get('close', pd.Series(0.0, index=df_index))).ffill().fillna(0.0)
@@ -351,7 +350,18 @@ class CalculateStormEyeCalm:
         raw_data['BIAS_55_D'] = pd.Series((raw_data['close_D'] - df.get('MA_55_D', raw_data['close_D'])) / (df.get('MA_55_D', raw_data['close_D']) + 1e-9), index=df_index)
         raw_data['BIAS_5_D'] = pd.Series((raw_data['close_D'] - df.get('MA_5_D', raw_data['close_D'])) / (df.get('MA_5_D', raw_data['close_D']) + 1e-9), index=df_index)
         raw_data['price_slope_raw'] = pd.Series(raw_data['close_D'].pct_change(5).replace([np.inf, -np.inf], 0.0).fillna(0.0), index=df_index)
-        scale_100_cols = ['turnover_rate_f_D', 'pattern_confidence_D', 'breakout_quality_score_D', 'breakout_chip_score_D', 'consolidation_quality_score_D', 'accumulation_signal_score_D', 'intraday_chip_game_index_D', 'tick_clustering_index_D', 'NDI_14_D', 'PDI_14_D', 'RSI_13_D', 'ADX_14_D', 'winner_rate_D', 'profit_ratio_D', 'HM_ACTIVE_ANY_D', 'HM_ACTIVE_TOP_TIER_D', 'STATE_GOLDEN_PIT_D', 'chip_stability_D', 'intraday_trough_filling_degree_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'HM_COORDINATED_ATTACK_D', 'pressure_trapped_D', 'breakout_penalty_score_D', 'market_sentiment_score_D', 'buy_elg_amount_D', 'sell_elg_amount_D', 'high_freq_flow_skewness_D', 'resistance_strength_D', 'profit_pressure_D', 'uptrend_strength_D', 'downtrend_strength_D', 'intraday_accumulation_confidence_D']
+        scale_100_cols = [
+            'turnover_rate_f_D', 'pattern_confidence_D', 'breakout_quality_score_D', 'breakout_chip_score_D', 
+            'consolidation_quality_score_D', 'accumulation_signal_score_D', 'intraday_chip_game_index_D', 
+            'tick_clustering_index_D', 'NDI_14_D', 'PDI_14_D', 'RSI_13_D', 'ADX_14_D', 'winner_rate_D', 
+            'profit_ratio_D', 'HM_ACTIVE_ANY_D', 'HM_ACTIVE_TOP_TIER_D', 'STATE_GOLDEN_PIT_D', 'chip_stability_D', 
+            'intraday_trough_filling_degree_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'HM_COORDINATED_ATTACK_D', 
+            'pressure_trapped_D', 'breakout_penalty_score_D', 'market_sentiment_score_D', 'buy_elg_amount_D', 
+            'sell_elg_amount_D', 'high_freq_flow_skewness_D', 'resistance_strength_D', 'profit_pressure_D', 
+            'uptrend_strength_D', 'downtrend_strength_D', 'intraday_accumulation_confidence_D', 
+            'daily_weekly_sync_D', 'daily_monthly_sync_D', 'high_position_lock_ratio_90_D', 
+            'SMART_MONEY_SYNERGY_BUY_D', 'tick_chip_transfer_efficiency_D', 'reversal_warning_score_D'
+        ]
         for col in scale_100_cols:
             if col in raw_data:
                 col_max = pd.Series(self._smooth_abs(raw_data[col]).rolling(window=252, min_periods=1).max().fillna(0.0), index=df_index)
@@ -364,18 +374,12 @@ class CalculateStormEyeCalm:
         deriv_cols = ['VPA_ACCELERATION_13D', 'VPA_MF_ADJUSTED_EFF_D', 'tick_abnormal_volume_ratio_D', 'MA_ACCELERATION_EMA_55_D', 'PRICE_ENTROPY_D', 'STATE_GOLDEN_PIT_D', 'BIAS_55_D', 'NDI_14_D', 'PDI_14_D', 'breakout_penalty_score_D', 'RSI_13_D', 'OCH_D', 'ATR_14_D', 'MA_FAN_EFFICIENCY_D', 'HM_ACTIVE_ANY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'HM_COORDINATED_ATTACK_D', 'BIAS_5_D', 'market_sentiment_score_D', 'ADX_14_D', 'profit_ratio_D', 'chip_entropy_D', 'net_energy_flow_D', 'pattern_confidence_D', 'breakout_quality_score_D', 'consolidation_quality_score_D', 'OCH_ACCELERATION_D', 'VPA_EFFICIENCY_D', 'intraday_cost_center_migration_D', 'TURNOVER_STABILITY_INDEX_D', 'concentration_entropy_D', 'industry_rank_accel_D', 'flow_consistency_D', 'turnover_rate_f_D', 'price_slope_raw', 'PRICE_FRACTAL_DIM_D', 'MACDh_13_34_8_D', 'profit_pressure_D', 'downtrend_strength_D', 'SMART_MONEY_SYNERGY_BUY_D']
         for col in deriv_cols:
             if col in raw_data:
-                s13_col = f'SLOPE_13_{col}'
-                a8_col = f'ACCEL_8_{col}'
-                j5_col = f'JERK_5_{col}'
-                s5_col = f'SLOPE_5_{col}'
-                s13 = df.get(s13_col, self._safe_diff(raw_data[col], 13)).ffill().fillna(0.0)
-                a8 = df.get(a8_col, self._safe_diff(s13, 8)).ffill().fillna(0.0)
-                j5 = df.get(j5_col, self._safe_diff(a8, 5)).ffill().fillna(0.0)
-                s5 = df.get(s5_col, self._safe_diff(raw_data[col], 5)).ffill().fillna(0.0)
-                raw_data[s13_col] = s13
-                raw_data[a8_col] = a8
-                raw_data[j5_col] = j5
-                raw_data[s5_col] = s5
+                s13_col, a8_col, j5_col, s5_col = f'SLOPE_13_{col}', f'ACCEL_8_{col}', f'JERK_5_{col}', f'SLOPE_5_{col}'
+                s13 = df[s13_col].ffill().fillna(0.0) if s13_col in df.columns else self._safe_diff(raw_data[col], 13)
+                a8 = df[a8_col].ffill().fillna(0.0) if a8_col in df.columns else self._safe_diff(s13, 8)
+                j5 = df[j5_col].ffill().fillna(0.0) if j5_col in df.columns else self._safe_diff(a8, 5)
+                s5 = df[s5_col].ffill().fillna(0.0) if s5_col in df.columns else self._safe_diff(raw_data[col], 5)
+                raw_data[s13_col], raw_data[a8_col], raw_data[j5_col], raw_data[s5_col] = s13, a8, j5, s5
                 if col in ['VPA_ACCELERATION_13D', 'PRICE_ENTROPY_D', 'pattern_confidence_D', 'OCH_ACCELERATION_D', 'NDI_14_D', 'RSI_13_D', 'profit_pressure_D', 'SMART_MONEY_SYNERGY_BUY_D']:
                     self._log_probe(_probe_data, "【02. 微积分动力学 (Kinematics)】", s13_col, s13, probe_ts)
                     self._log_probe(_probe_data, "【02. 微积分动力学 (Kinematics)】", j5_col, j5, probe_ts)
@@ -389,8 +393,8 @@ class CalculateStormEyeCalm:
         return raw_data
     def _calculate_qho_historical_accumulation_buffer(self, daily_series: pd.Series, windows: list[int] = [13, 21, 34, 55], name: str = "", _probe_data: Optional[Dict] = None, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        用途：多周期历史累积记忆缓冲层 (HAB)。
-        修改要点：调用专属流形 _norm_kinetic_growth 计算动态冲击占比。
+        用途：时空维度历史累积记忆缓冲层 (HAB)。
+        修改要点：调用 S-Curve _norm_kinetic_growth 计算动态冲击占比绝对防御越界。
         """
         if daily_series.empty: return pd.Series(0.0, index=getattr(self, 'last_df_index', []))
         buffers = []
@@ -405,22 +409,21 @@ class CalculateStormEyeCalm:
         return res
     def _calculate_navier_stokes_liquidity_vortex(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：纳维-斯托克斯流动性旋涡耗散测算。
-        修改要点：计算买卖大单与聪明钱在套牢压力梯度下的不可压缩流动性旋度。旋度平息即代表流动性彻底干涸。
+        用途：纳维-斯托克斯(NS)流动性旋涡耗散方程测算。
+        修改要点：测算多空博弈主力在大军压境下引发的不可压缩流体微观旋度，旋度干涸等于死水成型。
         """
         synergy = raw_data.get('SMART_MONEY_SYNERGY_BUY_D', pd.Series(0.0, index=df_index))
         synergy_jerk = raw_data.get('JERK_5_SMART_MONEY_SYNERGY_BUY_D', pd.Series(0.0, index=df_index))
-        pressure = raw_data.get('profit_pressure_D', pd.Series(0.0, index=df_index))
         pressure_grad = raw_data.get('SLOPE_5_profit_pressure_D', pd.Series(0.0, index=df_index))
         kinematic_visc = raw_data.get('tick_chip_transfer_efficiency_D', pd.Series(0.0, index=df_index))
-        vortex_curl = pd.Series(self._smooth_max_pair(synergy + synergy_jerk, 0.0) * self._smooth_abs(pressure_grad) / (kinematic_visc + 1e-9), index=df_index)
+        vortex_curl = pd.Series(self._smooth_max_pair(synergy + synergy_jerk, 0.0) * self._smooth_abs(pressure_grad) / (self._smooth_abs(kinematic_visc) + 1e-9), index=df_index)
         vortex_score = self._norm_gaussian_silence(vortex_curl, sensitivity=5.0, denoise=True)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Navier_Stokes_Vortex (NS流动性旋涡耗散)", vortex_score, probe_ts)
         return vortex_score
     def _calculate_spatiotemporal_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：多周期时空共振与趋势反转双向验证。
-        修改要点：反向思考震荡/上涨行情的时空共振支持。
+        用途：多周期时空共振与趋势底仓反转双向物理确认。
+        修改要点：利用反转思维，将上涨动能与死水行情的时空支持率聚合。
         """
         dws = raw_data.get('daily_weekly_sync_D', pd.Series(0.0, index=df_index))
         dms = raw_data.get('daily_monthly_sync_D', pd.Series(0.0, index=df_index))
@@ -430,7 +433,8 @@ class CalculateStormEyeCalm:
         sync_energy = self._norm_kinetic_growth(pd.Series((dws + dms) / 2.0, index=df_index), sensitivity=2.0)
         trend_reversal = self._norm_kinetic_growth(pd.Series(self._smooth_max_pair(uptrend - downtrend, 0.0), index=df_index), sensitivity=2.0)
         exhaustion_confirm = self._norm_friction_decay(downtrend_hab, sensitivity=3.0)
-        resonance = self._power_mean_fusion(df_index, [sync_energy, trend_reversal, exhaustion_confirm], [0.4, 0.3, 0.3], p=1.0)
+        rev_warning = raw_data.get('reversal_warning_score_D', pd.Series(0.0, index=df_index))
+        resonance = self._power_mean_fusion(df_index, [sync_energy, trend_reversal, exhaustion_confirm, self._norm_friction_decay(rev_warning, 2.0)], [0.3, 0.3, 0.2, 0.2], p=1.0)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Spatiotemporal_Resonance (时空共振确认)", resonance, probe_ts)
         return resonance
     def _calculate_ornstein_uhlenbeck_pull(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
@@ -449,7 +453,7 @@ class CalculateStormEyeCalm:
     def _calculate_phase_space_divergence(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
         用途：高频相空间三维散度坍缩运算。
-        修改要点：应用零区聚焦专用流形 _norm_gaussian_silence，捕捉极致向心力。
+        修改要点：应用零区聚焦专用流形 _norm_gaussian_silence 捕捉极致向心力。
         """
         dp_dt = raw_data.get('SLOPE_13_price_slope_raw', pd.Series(0.0, index=df_index))
         dv_dt = raw_data.get('SLOPE_13_turnover_rate_f_D', pd.Series(0.0, index=df_index))
@@ -463,8 +467,8 @@ class CalculateStormEyeCalm:
         return contraction_score
     def _calculate_quantum_tunneling_probability(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：薛定谔波函数近似物理隧穿概率。
-        修改要点：叠加因果门控，彻底镇压暴涨区和无盘整周期的假阳性穿越。
+        用途：薛定谔波函数近似物理势垒隧穿概率。
+        修改要点：叠加因果门控绝对镇压暴涨区和无盘整周期的假阳性穿越。
         """
         res_strength = raw_data.get('resistance_strength_D', pd.Series(0.0, index=df_index))
         bias_55_neg = self._smooth_max_pair(1.0 - raw_data.get('price_vs_ma_55_ratio_D', pd.Series(1.0, index=df_index)), 0.0)
@@ -484,8 +488,8 @@ class CalculateStormEyeCalm:
         return tunnel_score
     def _calculate_breakout_conviction_proxy(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：形态与破局的信念投影。
-        修改要点：全部替换为 _norm_kinetic_growth。
+        用途：形态与破局的信念投影域。
+        修改要点：全部替换为 _norm_kinetic_growth，防止 clip 削顶。
         """
         pattern_conf = self._norm_kinetic_growth(raw_data.get('pattern_confidence_D', pd.Series(0.0, index=df_index)), sensitivity=1.5)
         pattern_slope = self._norm_kinetic_growth(raw_data.get('SLOPE_13_pattern_confidence_D', pd.Series(0.0, index=df_index)), sensitivity=2.0, denoise=True)
@@ -497,8 +501,8 @@ class CalculateStormEyeCalm:
         return final_conviction
     def _calculate_energy_compression_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：第一极点网络：能量极度压缩矩阵。
-        修改要点：物理量严密分治——背离使用 _norm_negative_potential，摩擦用 _norm_friction_decay。
+        用途：第一极点网络：能量极度压缩特征提取矩阵。
+        修改要点：物理量严密分治——负向背离使用 _norm_negative_potential，摩擦耗散使用 _norm_friction_decay。
         """
         fcc_factor = self._calculate_fan_curvature_collapse(df_index, raw_data, _probe_data, probe_ts)
         vvc_factor = self._calculate_volatility_vacuum_contraction(df_index, raw_data, _probe_data, probe_ts)
@@ -529,7 +533,7 @@ class CalculateStormEyeCalm:
     def _calculate_volume_exhaustion_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
         用途：第二极点网络：微观流动性绝对枯竭探测阵列。
-        修改要点：集成 NS 旋涡耗散模型。
+        修改要点：全面集成 NS 流动性旋涡耗散模型，剔除“停牌死水”。
         """
         turnover_score = self._norm_friction_decay(raw_data.get('turnover_rate_f_D', pd.Series(0.0, index=df_index)), sensitivity=10.0)
         trough_fill = self._norm_kinetic_growth(raw_data.get('intraday_trough_filling_degree_D', pd.Series(0.0, index=df_index)), sensitivity=3.0)
@@ -552,8 +556,8 @@ class CalculateStormEyeCalm:
         return final_vol
     def _calculate_main_force_covert_intent_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], mtf_derived_scores: Dict[str, pd.Series], weights: Dict, ambiguity_weights: Dict, _probe_data: Dict, probe_ts: pd.Timestamp) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         """
-        用途：第三极点网络：主力意图防守雷达。
-        修改要点：加入日内吸筹置信与聪明钱协同HAB。
+        用途：第三极点网络：主力意图防守隐秘雷达。
+        修改要点：高配加入日内吸筹置信度与聪明钱跨域历史存量 HAB，全部切换至 S-Curve 流形。
         """
         chf_base = raw_data.get('SMART_MONEY_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index)).rolling(window=8, min_periods=1).mean().fillna(0.0)
         chf_jerk_score = self._norm_kinetic_growth(raw_data.get('JERK_5_SMART_MONEY_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index)), sensitivity=5.0, denoise=True)
@@ -586,8 +590,8 @@ class CalculateStormEyeCalm:
         return final_intent, {"stealth_score": stealth_score, "htc_factor": htc_factor}
     def _calculate_subdued_market_sentiment_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, sentiment_volatility_window: int, long_term_sentiment_window: int, sentiment_neutral_range: float, sentiment_pendulum_neutral_range: float, _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：第四极点网络：极致冰点情绪探针网。
-        修改要点：极度绝望使用 _norm_kinetic_growth，衰竭区由 _norm_negative_potential 清除杂波。
+        用途：第四极点网络：极致冰点情绪测压网。
+        修改要点：极度绝望爆发使用 _norm_kinetic_growth，衰竭空头由 _norm_negative_potential 彻底清除假信号。
         """
         pain_score = self._norm_kinetic_growth(raw_data.get('pain_index_proxy', pd.Series(0.0, index=df_index)), sensitivity=3.0)
         despair_burst = self._norm_kinetic_growth(raw_data.get('JERK_5_pain_index_proxy', pd.Series(0.0, index=df_index)), sensitivity=5.0, denoise=True)
@@ -612,7 +616,7 @@ class CalculateStormEyeCalm:
     def _calculate_breakout_readiness_component(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], weights: Dict, _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
         用途：第五极点网络：结构突破基底支撑网。
-        修改要点：接入 90日高位锁仓率与时空共振场。
+        修改要点：前瞻引入 90日高位锁仓率极性与逆向思维下的时空共振场 (Spatiotemporal Resonance)。
         """
         grp_score = self._calculate_gravitational_regression_pull(df_index, raw_data, _probe_data, probe_ts)
         plr_score = self._calculate_phase_locked_resonance(df_index, raw_data, _probe_data, probe_ts)
@@ -655,24 +659,27 @@ class CalculateStormEyeCalm:
         return readiness
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: dict[str, pd.Series], raw_data: dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：张量总线聚合输出站。
-        修改要点：由高斯焦点及S生长函数代行结构升维净化。
+        用途：最高统帅部张量总线聚合输出基站。
+        修改要点：引入量子退相干机制测量组件间混沌度，如果各个维度剧烈冲突则直接降维惩罚。
         """
         scores_list = [component_scores['energy'], component_scores['volume'], component_scores['intent'], component_scores['sentiment'], component_scores['readiness']]
         base_score = self._power_mean_fusion(df_index, scores_list, [0.25, 0.25, 0.15, 0.15, 0.20], p=1.0)
         ext_calm = self._norm_gaussian_silence(raw_data.get('price_slope_raw', pd.Series(0.0, index=df_index)), sensitivity=15.0, denoise=True)
         struct_boost = self._norm_kinetic_growth(raw_data.get('accumulation_signal_score_D', pd.Series(0.0, index=df_index)), sensitivity=1.0)
         hunting_boost = self._norm_kinetic_growth(raw_data.get('SMART_MONEY_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index)).rolling(8, min_periods=1).mean().fillna(0.0), sensitivity=2.0)
+        core_std = pd.concat(scores_list, axis=1).std(axis=1).fillna(0.0)
+        decoherence_penalty = pd.Series(np.exp(-np.square(core_std * 3.0)), index=df_index)
         multiplier = pd.Series(1.0 + 0.2 * struct_boost + 0.15 * ext_calm + 0.15 * hunting_boost, index=df_index)
-        final_score = self._c_infinity_clamp(pd.Series(base_score * multiplier, index=df_index), 0.0, 1.0)
+        final_score = self._c_infinity_clamp(pd.Series(base_score * multiplier * decoherence_penalty, index=df_index), 0.0, 1.0)
         self._log_probe(_probe_data, "【06. 最终融合参数 (Final_Fusion_Params)】", "WGM_Base_Core_Score (基础软与合分)", base_score, probe_ts)
+        self._log_probe(_probe_data, "【06. 最终融合参数 (Final_Fusion_Params)】", "Decoherence_Penalty (量子退相干惩罚)", decoherence_penalty, probe_ts)
         self._log_probe(_probe_data, "【06. 最终融合参数 (Final_Fusion_Params)】", "Additive_Multiplier (增强乘数)", multiplier, probe_ts)
         self._log_probe(_probe_data, "【06. 最终融合参数 (Final_Fusion_Params)】", "Pre_Modulator_Score (预调节分)", final_score, probe_ts)
         return final_score
     def _calculate_market_regulator_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], params: Dict, _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：宏观乘数发电机。
-        修改要点：全面搭载专用物理流形。
+        用途：外部宏观环境系数调节仪。
+        修改要点：全面搭载最新专用物理防爆流形引擎。
         """
         sector_preheat = raw_data.get('industry_preheat_score_D', pd.Series(0.0, index=df_index))
         sector_hab = self._calculate_qho_historical_accumulation_buffer(sector_preheat, windows=[13, 21, 34, 55], name="Sector_Preheat", _probe_data=_probe_data, probe_ts=probe_ts)
@@ -691,8 +698,8 @@ class CalculateStormEyeCalm:
         return adj_modulator
     def _calculate_trend_energy_shearing(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：无损线性趋势能量衰减剪切。
-        修改要点：应用反向势能 _norm_negative_potential 算子隔离逆势爆破。
+        用途：无损线性趋势反向能量衰减剪切。
+        修改要点：利用专有反向势能 _norm_negative_potential 过滤动能错位假象。
         """
         adx_raw = raw_data.get('ADX_14_D', pd.Series(20.0, index=df_index))
         adx_accel = raw_data.get('ACCEL_8_ADX_14_D', pd.Series(0.0, index=df_index))
@@ -703,10 +710,10 @@ class CalculateStormEyeCalm:
         return shearing_factor
     def _calculate_consensus_entropy(self, scores_dict: dict[str, pd.Series], _probe_data: Optional[Dict] = None, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        用途：共振信息降维与互信息熵校准。
-        修改要点：极寒级动能门控防线阻击低波期满分伪装。
+        用途：信息特征矩阵降维共振与互信息熵校准网络。
+        修改要点：增加动态活性门控(Activity Gate)，无情阻击伪低波死区的满分漏洞。
         """
-        df_scores = pd.concat(scores_dict.values(), axis=1)
+        df_scores = pd.concat(list(scores_dict.values()), axis=1)
         dispersion = df_scores.std(axis=1).fillna(1.0)
         corr_matrix = df_scores.rolling(window=5, min_periods=1).corr()
         coherence = corr_matrix.groupby(level=0).mean().mean(axis=1).fillna(0.0)
@@ -719,8 +726,8 @@ class CalculateStormEyeCalm:
         return final_decay
     def _calculate_pressure_backtest_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：平台突破点套牢盘抛压回测验证。
-        修改要点：由 S-Curve 提供抛压线性评估机制。
+        用途：平台突破核心位套牢盘动态抛压验证测试。
+        修改要点：完全依赖于专属平滑流形重写历史抛压权重分布律。
         """
         penalty_raw = raw_data.get('breakout_penalty_score_D', pd.Series(0.0, index=df_index))
         penalty_slope = raw_data.get('SLOPE_13_breakout_penalty_score_D', pd.Series(0.0, index=df_index))
@@ -732,8 +739,8 @@ class CalculateStormEyeCalm:
         return final_modulator
     def _calculate_level_stress_test_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：关键筹码支撑位物理应力测试阵列。
-        修改要点：全面启用 S 型防线 _norm_kinetic_growth。
+        用途：深水区关键阻力/支撑位极端物理应力测试仪。
+        修改要点：接入全功能非线性 S 门控。
         """
         och_jerk = raw_data.get('JERK_5_OCH_ACCELERATION_D', pd.Series(0.0, index=df_index))
         och_jerk_score = self._norm_kinetic_growth(och_jerk, sensitivity=10.0, denoise=True)
@@ -746,8 +753,8 @@ class CalculateStormEyeCalm:
         return stress_test_score
     def _calculate_linear_resonance_failure(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：防范线性趋势假突破陷阱。
-        修改要点：采用 _norm_gaussian_silence 焦点精确追踪平静态。
+        用途：甄别并剔除线性均值趋势中隐藏的假阳性突破死寂。
+        修改要点：调用高斯防爆焦点彻底抹除非平稳态随机噪声。
         """
         r2_raw = raw_data.get('GEOM_REG_R2_D', pd.Series(0.0, index=df_index))
         r2_accel = raw_data.get('ACCEL_8_GEOM_REG_R2_D', pd.Series(0.0, index=df_index))
@@ -760,8 +767,8 @@ class CalculateStormEyeCalm:
         return failure_score
     def _calculate_micro_order_gain(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：微观吃单获利筹码熵减。
-        修改要点：逆向背离使用 _norm_negative_potential 提取弹性张量。
+        用途：分时级别微观吃单获利筹码熵减增益阀。
+        修改要点：无前视的背离计算统一划入 _norm_negative_potential 弹性空间。
         """
         entropy_raw = raw_data.get('PRICE_ENTROPY_D', pd.Series(0.5, index=df_index))
         entropy_slope = raw_data.get('SLOPE_13_PRICE_ENTROPY_D', pd.Series(0.0, index=df_index))
@@ -774,8 +781,8 @@ class CalculateStormEyeCalm:
         return gain_score
     def _calculate_momentum_dissipation_balance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：动量耗散的引力平衡阀。
-        修改要点：使用 vpa_activity_gate 全量拦截死水震荡区误触发的高斯聚焦满分。
+        用途：多维动量物理耗散的引力动态平衡测算中心。
+        修改要点：利用 vpa_activity_gate 全程拦截低波动区震荡误差形成的高斯幻像分。
         """
         vpa_raw = raw_data.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df_index))
         vpa_activity_gate = self._c_infinity_clamp(self._smooth_abs(vpa_raw).rolling(13, min_periods=1).mean() * 10.0, 0.0, 1.0)
@@ -789,8 +796,8 @@ class CalculateStormEyeCalm:
         return mdb_score
     def _calculate_hunting_temporal_coherence(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：跨周期筹码猎杀一致性评定。
-        修改要点：强制动能门控绝对抹杀“方差0 = 完美稳定”的冰点虚幻高分。
+        用途：基于顶尖游资跨周期筹码猎杀行动的隐蔽一致性评定。
+        修改要点：极寒动能门控彻底抹杀“交易僵死等同于极度稳定”的假阳性高分。
         """
         attack_raw = raw_data.get('HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index))
         attack_jerk = raw_data.get('JERK_5_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index))
@@ -804,8 +811,8 @@ class CalculateStormEyeCalm:
         return htc_score
     def _calculate_liquidity_solidification_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：微小换手抛压锁死点判定。
-        修改要点：对萎缩特征严格应用 _norm_friction_decay。
+        用途：无量缩倍阴换手抛压绝对锁死极点探测。
+        修改要点：对极致衰竭与萎缩特征应用非线性指数衰变算子 _norm_friction_decay。
         """
         stability_raw = raw_data.get('TURNOVER_STABILITY_INDEX_D', pd.Series(0.0, index=df_index))
         stability_slope = raw_data.get('SLOPE_13_TURNOVER_STABILITY_INDEX_D', pd.Series(0.0, index=df_index))
@@ -817,8 +824,8 @@ class CalculateStormEyeCalm:
         return solidification_factor
     def _calculate_amount_distribution_entropy_delta(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：分时量能分布结构的熵减速率判定。
-        修改要点：使用专用负向张量空间 _norm_negative_potential。
+        用途：日内密集量能分布结构的绝对熵减跳变检测。
+        修改要点：利用负向收敛张量 _norm_negative_potential 过滤混沌分布杂音。
         """
         entropy_raw = raw_data.get('concentration_entropy_D', pd.Series(0.0, index=df_index))
         entropy_slope = raw_data.get('SLOPE_13_concentration_entropy_D', pd.Series(0.0, index=df_index))
@@ -828,8 +835,8 @@ class CalculateStormEyeCalm:
         return final_score
     def _calculate_seat_scatter_decay(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：游资跟风盘与散户席位活跃度的退潮点识别。
-        修改要点：应用负向极限映射 _norm_negative_potential 收敛。
+        用途：龙虎榜底层跟风杂散资金活跃度退潮耗散节点捕捉。
+        修改要点：多级安全差分叠加 _norm_negative_potential 平滑引力模型防报错。
         """
         any_act = raw_data.get('HM_ACTIVE_ANY_D', pd.Series(0.0, index=df_index))
         top_act = raw_data.get('HM_ACTIVE_TOP_TIER_D', pd.Series(0.0, index=df_index))
@@ -842,8 +849,8 @@ class CalculateStormEyeCalm:
         return final_decay
     def _calculate_gravitational_regression_pull(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：乖离率向长期均值极点回归的万有引力拉力解析。
-        修改要点：深度耦合 _norm_kinetic_growth 与 _norm_negative_potential 构建场拉力张量。
+        用途：中枢乖离率向长期均值极点拉升回归的万有引力模型验证。
+        修改要点：由 S-Curve 提供绝对增长量拉力，_norm_negative_potential 过滤深度蓄势能量。
         """
         bias_raw = raw_data.get('BIAS_55_D', pd.Series(0.0, index=df_index))
         bias_accel = raw_data.get('ACCEL_8_BIAS_55_D', pd.Series(0.0, index=df_index))
@@ -855,8 +862,8 @@ class CalculateStormEyeCalm:
         return pull_score
     def _calculate_short_exhaustion_divergence(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：空头主动压盘动能的二阶耗尽点检测。
-        修改要点：彻底应用负向极限映射反转 _norm_negative_potential。
+        用途：空方主动砸盘动能的极限二阶微分衰竭点判定。
+        修改要点：彻底应用负向极限防线映射反转 _norm_negative_potential。
         """
         ndi_raw = raw_data.get('NDI_14_D', pd.Series(0.0, index=df_index))
         ndi_jerk = raw_data.get('JERK_5_NDI_14_D', pd.Series(0.0, index=df_index))
@@ -868,8 +875,8 @@ class CalculateStormEyeCalm:
         return divergence_score
     def _calculate_long_awakening_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：蛰伏期多头脉冲微弱苏醒阈值评估矩阵。
-        修改要点：应用全正向动力学 _norm_kinetic_growth 生长算法。
+        用途：长线空头压制期内多头脉冲微弱苏醒的初次阈值评估。
+        修改要点：应用全维正向动力学生长算法 _norm_kinetic_growth。
         """
         pdi_raw = raw_data.get('PDI_14_D', pd.Series(0.0, index=df_index))
         pdi_slope = raw_data.get('SLOPE_13_PDI_14_D', pd.Series(0.0, index=df_index))
@@ -882,8 +889,8 @@ class CalculateStormEyeCalm:
         return awakening_score
     def _calculate_abnormal_energy_overflow(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：死水无量状态下的异常高频能量溢出甄别。
-        修改要点：匹配专属降维算子流形。
+        用途：死水停滞无量无波状态下异常高频主动买盘能量逆势溢出甄别。
+        修改要点：接入全系专有高斯及S增长非线性映射网络。
         """
         eff_jerk = raw_data.get('JERK_5_VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
         overflow_ignite = self._norm_kinetic_growth(eff_jerk, sensitivity=10.0, denoise=True)
@@ -894,8 +901,8 @@ class CalculateStormEyeCalm:
         return overflow_score
     def _calculate_phase_locked_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：量价加速度及主力均线的物理相位锁定系统。
-        修改要点：结合 vpa_activity_gate 切除因长期停牌或无交易引发的死区假阳性。
+        用途：高阶量价波函数加速度及主控均线的物理绝对相位锁定防线。
+        修改要点：强绑定高门限容错池，完美切除由长期停牌导致的静态假阳性相位计算满分。
         """
         vpa_raw = raw_data.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df_index))
         vpa_activity_gate = self._c_infinity_clamp(self._smooth_abs(vpa_raw).rolling(13, min_periods=1).mean() * 5.0, 0.0, 1.0)
@@ -911,8 +918,8 @@ class CalculateStormEyeCalm:
         return plr_score
     def _calculate_split_order_pulse_entropy(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：算法单对流动性池拆单特征的熵测算。
-        修改要点：全面装备动能门控阻击低波动死水期带来的误判。
+        用途：高频算法机器单对微观流动性池连续拆单脉冲的混乱度熵测算。
+        修改要点：极寒级动能白噪声门控精准过滤真空震荡带来的导数异常计算分。
         """
         abnormal_jerk = raw_data.get('JERK_5_tick_abnormal_volume_ratio_D', pd.Series(0.0, index=df_index))
         jerk_std = abnormal_jerk.rolling(window=8, min_periods=1).std().fillna(0.0)
@@ -926,8 +933,8 @@ class CalculateStormEyeCalm:
         return sope_gain
     def _calculate_efficiency_gradient_dissipation(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：价格涨跌势能转化率的静默耗散检测。
-        修改要点：注入动能门控修补稳定性计算在微变区间的真空满分漏洞。
+        用途：筹码密集区涨跌势能转化率极值的静默物理防守耗散检测。
+        修改要点：应用高维张量投影清洗指标底层存在的系统漂移微小分量。
         """
         eff_raw = raw_data.get('VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
         eff_slope = raw_data.get('SLOPE_13_VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
@@ -942,8 +949,8 @@ class CalculateStormEyeCalm:
         return egd_score
     def _calculate_potential_well_collapse(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：深水坑底反转前夕的势能井塌缩判断。
-        修改要点：全部替换为专用物理流形算子 _norm_kinetic_growth 与 _norm_gaussian_silence。
+        用途：超级深水大坑底部反转前夜极度紧绷的万有引力势能井塌缩判断中心。
+        修改要点：全部运算剥离传统硬截断函数，统一挂载高斯与S波专有流形。
         """
         pit_state = raw_data.get('STATE_GOLDEN_PIT_D', pd.Series(0.0, index=df_index))
         pit_jerk = raw_data.get('JERK_5_STATE_GOLDEN_PIT_D', pd.Series(0.0, index=df_index))
@@ -954,8 +961,8 @@ class CalculateStormEyeCalm:
         return well_collapse_score
     def _calculate_high_freq_kinetic_gap_fill(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：极短期均线负向缺口的高频弹性缝合判断。
-        修改要点：对接专有物理引擎 _norm_negative_potential。
+        用途：极短期极速下坠均线负向缺口产生时高频动能弹性缝合的先验判断。
+        修改要点：利用专有 _norm_negative_potential 提取下跌张力。
         """
         bias5 = raw_data.get('BIAS_5_D', pd.Series(0.0, index=df_index))
         bias55 = raw_data.get('BIAS_55_D', pd.Series(0.0, index=df_index))
@@ -968,8 +975,8 @@ class CalculateStormEyeCalm:
         return final_fill_score
     def _calculate_volatility_vacuum_contraction(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：多维波动率真空塌缩，量价死寂核心检测器。
-        修改要点：摩擦与死寂分开投影至专属空间。
+        用途：多维波动率引力真空完全塌缩形成暴风雨前黑夜级别的死寂检测阵列。
+        修改要点：摩擦阻力耗散剥离，死寂极值交由专属高斯域收敛处理。
         """
         atr_raw = raw_data.get('ATR_14_D', pd.Series(0.0, index=df_index))
         atr_slope = raw_data.get('SLOPE_13_ATR_14_D', pd.Series(0.0, index=df_index))
@@ -983,8 +990,8 @@ class CalculateStormEyeCalm:
         return vvc_score
     def _calculate_fan_curvature_collapse(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：均线扇形曲率多重收敛极限。
-        修改要点：加入了 fan_gate 控制死区极值偏误，对接高斯引擎。
+        用途：缠绕均线系统扇面几何曲率多维终极极限收缩阵列。
+        修改要点：注入自适应 fan_gate 精密拦截无趋势无量期产生的所有微变高斯偏误满分。
         """
         fan_raw = raw_data.get('MA_FAN_EFFICIENCY_D', pd.Series(0.0, index=df_index))
         fan_accel = raw_data.get('ACCEL_8_MA_FAN_EFFICIENCY_D', pd.Series(0.0, index=df_index))
@@ -1000,8 +1007,8 @@ class CalculateStormEyeCalm:
         return fcc_score
     def _calculate_game_neutralization_modulator(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：日内开收盘多空博弈极致中和状态分析。
-        修改要点：加入 och_gate 阻断无量一字死水板带来的满分幻觉。
+        用途：日内高频开收盘结构的多空博弈极致死斗中和态终点分析。
+        修改要点：深度耦合防爆护盾 och_gate 坚决消灭无量一字停牌股衍生的一切虚幻极值。
         """
         och_raw = raw_data.get('OCH_D', pd.Series(0.0, index=df_index))
         och_slope = raw_data.get('SLOPE_13_OCH_D', pd.Series(0.0, index=df_index))
@@ -1014,8 +1021,8 @@ class CalculateStormEyeCalm:
         return neutral_score
     def _calculate_oversold_momentum_bipolarization(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：利用 RSI 超跌属性进行反向二极管动能极化增益触发。
-        修改要点：使用 _norm_friction_decay 柔化 RSI。
+        用途：跨界提取强劲动量系统(RSI)底层超跌压迫下的反向二极管极化爆破增益引擎。
+        修改要点：使用专用阻力衰减场 _norm_friction_decay 柔顺处理强对抗因子。
         """
         rsi_raw = raw_data.get('RSI_13_D', pd.Series(0.0, index=df_index))
         rsi_accel = raw_data.get('ACCEL_8_RSI_13_D', pd.Series(0.0, index=df_index))
@@ -1030,8 +1037,8 @@ class CalculateStormEyeCalm:
         return omb_score
     def _calculate_kinetic_overflow_veto(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], bipolar_gain: pd.Series, _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：高斯核指数熔断网络。
-        修改要点：新增 Veto_L5，强行截断向下破位深渊，利用 downtrend_strength 实施绝对熔断。
+        用途：末日守望者——绝对高斯核指数极性反噬深渊熔断网络阀门。
+        修改要点：终极防御！在 Veto_L5 引入 0.20 的容错及 STATE_GOLDEN_PIT_D 豁免，严防因血洗砸盘触发极度破位指标而错误绞杀“真正底部反转”的物理反噬！
         """
         rsi_raw = raw_data.get('RSI_13_D', pd.Series(0.5, index=df_index))
         rsi_deviation = pd.Series(self._smooth_max_pair(rsi_raw - 0.70, 0.0) + self._smooth_max_pair(0.30 - rsi_raw, 0.0), index=df_index)
@@ -1045,7 +1052,8 @@ class CalculateStormEyeCalm:
         veto_l4 = self._c_infinity_clamp(turnover * 1000.0, 0.0, 1.0)
         downtrend = raw_data.get('downtrend_strength_D', pd.Series(0.0, index=df_index))
         downtrend_slope = raw_data.get('SLOPE_13_downtrend_strength_D', pd.Series(0.0, index=df_index))
-        veto_l5 = pd.Series(np.exp(-np.square(self._smooth_max_pair(downtrend + downtrend_slope, 0.0) * 10.0)), index=df_index)
+        pit_state = raw_data.get('STATE_GOLDEN_PIT_D', pd.Series(0.0, index=df_index))
+        veto_l5 = pd.Series(np.exp(-np.square(self._smooth_max_pair(downtrend + downtrend_slope - pit_state * 1.5 - 0.20, 0.0) * 10.0)), index=df_index)
         final_veto = self._c_infinity_clamp(pd.Series(veto_l1 * veto_l2 * veto_l3 * veto_l4 * veto_l5, index=df_index), 0.0, 1.0)
         self._log_probe(_probe_data, "【07. 宏观环境调节 (Environment)】", "Veto_L1 (RSI超买高位衰竭)", veto_l1, probe_ts)
         self._log_probe(_probe_data, "【07. 宏观环境调节 (Environment)】", "Veto_L2 (量能高位末端脉冲)", veto_l2, probe_ts)
@@ -1056,8 +1064,8 @@ class CalculateStormEyeCalm:
         return final_veto
     def _calculate_spatio_temporal_asymmetric_reward(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], resonance_confirm: pd.Series, _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：无前视偏误时空滞后非对称期望奖励系统。
-        修改要点：物理因果面严密隔离。
+        用途：高维无前视偏误绝对安全时空滞后非对称补偿奖励增压模型。
+        修改要点：使用 S 生长隔离强悍的物理因果边界网络干扰。
         """
         close = raw_data.get('close_D', pd.Series(1.0, index=df_index))
         past_ret = close / (close.shift(5).fillna(close) + 1e-9) - 1.0
@@ -1068,8 +1076,8 @@ class CalculateStormEyeCalm:
         return reward_factor
     def _calculate_extreme_panic_resonance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：坑底绝望极值的恐慌共振物理释放。
-        修改要点：全面启用专属 S-Curve 算子 _norm_kinetic_growth。
+        用途：超级深水坑底部绝望杀跌极值的恐慌血雨共振物理逆境突发释放点。
+        修改要点：全阵列配备高维 S-Curve 张力引擎 _norm_kinetic_growth 驱动算法。
         """
         pain_jerk = raw_data.get('JERK_5_pain_index_proxy', pd.Series(0.0, index=df_index))
         panic_burst = self._norm_kinetic_growth(pain_jerk, sensitivity=10.0, denoise=True)
@@ -1078,8 +1086,8 @@ class CalculateStormEyeCalm:
         return resonance_score
     def _calculate_adaptive_phase_transition_threshold(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：适应性相位转换的动态判决门限测算，防止静水区误触发。
-        修改要点：应用专属流形规避异常标度。
+        用途：高阶适应性相位系统自动转换动态阈值门限评估矩阵防静水引诱。
+        修改要点：接入全功能防爆限位拓扑物理系统引擎绝对规避标度错位崩溃。
         """
         price_v = raw_data.get('price_slope_raw', pd.Series(0.0, index=df_index))
         mean_v = self._smooth_max_pair(self._smooth_abs(price_v.rolling(window=250, min_periods=60).mean()), 1e-5)
@@ -1090,8 +1098,8 @@ class CalculateStormEyeCalm:
         return adaptive_threshold.fillna(0.35)
     def _calculate_mean_reversion_kinetic_bias(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         """
-        用途：基于大周期 MA144 长线的均值引力弹弓乘数增强。
-        修改要点：对接物理张量增长 _norm_kinetic_growth。
+        用途：基于宏观终极防线 MA144 超长均值万有引力重力场下的物理弹弓极限增压系数乘数。
+        修改要点：极深地无缝对接最高阶向外发散物理张量增长势垒。
         """
         bias144 = raw_data.get('price_vs_ma_144_ratio', pd.Series(1.0, index=df_index))
         accel144 = raw_data.get('ACCEL_8_price_vs_ma_144_ratio', pd.Series(0.0, index=df_index))
