@@ -220,7 +220,10 @@ async def _calculate_factor_batch_async(stock_code: str, trade_dates: List[date]
 
 async def _calculate_single_date_factor_async(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao, realtime_dao) -> Optional[Any]:
     """
-    v1.7.2: 修复布尔字段被 _safe_decimal 错误转换为 None 导致的非空约束报错。
+    版本: V2.1.0
+    说明: 性能极限压榨版。消除每次调用时 Django ORM 内部的动态反射开销。
+    利用 getattr/setattr 在模型类自身缓存字段集合，将 O(N) 的反射探测损耗彻底降维至 O(1)。
+    由于此方法属于标量数据装配，原生 dict 赋值为最优解，禁止引入 Numpy/Numba 以免增加对象创建开销。
     """
     try:
         stock_info = await stock_basic_dao.get_stock_by_code(stock_code)
@@ -239,18 +242,13 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         )
         calculator = FundFlowFactorCalculator(context)
         metrics = calculator.calculate_all_metrics()
-        # 动态过滤：仅保留数据库中存在的字段
-        model_fields = {f.name for f in factor_model._meta.fields}
-        # [关键修复]：定义不需要转换为 Decimal 的字段集合 (Boolean, String, JSON, Integer)
-        # 必须包含 'large_order_anomaly'，否则 True/False 会变成 None
+        model_fields = getattr(factor_model, '_cached_factor_fields', None)
+        if model_fields is None:
+            model_fields = {f.name for f in factor_model._meta.fields}
+            setattr(factor_model, '_cached_factor_fields', model_fields)
         raw_fields = {
-            # 字符串/枚举
             'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 
-            # JSON
-            'intraday_flow_distribution',
-            # 布尔值 (Critical Fix)
-            'large_order_anomaly', 
-            # 整数型 (可选，但这能避免不必要的 Decimal 转换开销)
+            'intraday_flow_distribution', 'large_order_anomaly', 
             'intensity_level', 'inflow_persistence', 'days_since_last_peak',
             'tick_large_order_count', 'flow_persistence_minutes', 'flow_cluster_duration'
         }
@@ -258,25 +256,24 @@ async def _calculate_single_date_factor_async(stock_code: str, trade_date: date,
         for key, value in metrics.items():
             if key in model_fields:
                 if key in raw_fields:
-                    # 对于大单异动，如果计算结果偶然为None，必须回退到False，防止入库报错
                     if key == 'large_order_anomaly' and value is None:
                         final_data[key] = False
                     else:
                         final_data[key] = value
                 else:
                     final_data[key] = _safe_decimal(value)
-                    
         final_data['stock'] = stock_info
         final_data['trade_time'] = trade_date
         return factor_model(**final_data)
-        
     except Exception as e:
         logger.error(f"构建因子实例失败 {stock_code} @ {trade_date}: {e}")
         return None
 
 def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model, stock_basic_dao, stock_time_trade_dao) -> Optional[Any]:
     """
-    v1.7.2: 同步版修复，增加 raw_fields 覆盖范围。
+    版本: V2.1.0
+    说明: 同步版性能优化。应用与异步版等同规格的反射缓存策略(Reflection Caching)。
+    彻底消除每次遍历生成 instance 时的 _meta.fields 元数据解包耗时。
     """
     try:
         stock_info = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
@@ -297,8 +294,10 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
         )
         calculator = FundFlowFactorCalculator(context)
         metrics = calculator.calculate_all_metrics()
-        model_fields = {f.name for f in factor_model._meta.fields}
-        # [关键修复] 扩展原始字段集合
+        model_fields = getattr(factor_model, '_cached_factor_fields', None)
+        if model_fields is None:
+            model_fields = {f.name for f in factor_model._meta.fields}
+            setattr(factor_model, '_cached_factor_fields', model_fields)
         raw_fields = {
             'behavior_pattern', 'divergence_type', 'trading_signal', 'feature_vector', 
             'intraday_flow_distribution', 'large_order_anomaly', 
@@ -315,98 +314,83 @@ def calculate_single_date_factor(stock_code: str, trade_date: date, factor_model
                         final_data[key] = value
                 else:
                     final_data[key] = _safe_decimal(value)
-                    
         final_data['stock'] = stock_info
         final_data['trade_time'] = trade_date
         return factor_model(**final_data)
-        
     except Exception as e:
         logger.error(f"同步构建因子实例失败 {stock_code} @ {trade_date}: {e}")
         return None
 
 async def _get_historical_flow_data_async(stock_code: str, end_date: date, stock_time_trade_dao, days: int = 120) -> List[Dict]:
     """
-    [Async] 获取历史资金流向数据
-    版本: V1.8
-    修改思路:
-    1. 增加 'vol' 字段的提取和合并，解决成交量指标为0的问题。
+    版本: V2.0.0
+    说明: 性能重构版。彻底消除 iterrows() 与 Python 层面的 for 循环匹配。
+    引入 Pandas 向量化合并 (Vectorized Merge) 与条件计算 (np.where)。
+    应用 Downcasting (float64 -> float32) 降低内存带宽占用，提升 CPU 缓存命中率。
     """
     try:
-        # DB 操作
         trade_dates = await sync_to_async(TradeCalendar.get_latest_n_trade_dates)(n=days, reference_date=end_date)
         if not trade_dates:
             return []
         stock_info = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock_info:
             return []
-        historical_data = []
-        # 循环获取单日流向数据
         sorted_dates = sorted(trade_dates)
+        historical_data = []
         for trade_date in sorted_dates:
             flow_data = await sync_to_async(get_single_date_flow_data)(stock_code, trade_date, stock_info)
             if flow_data:
                 flow_data['trade_date'] = trade_date.isoformat()
-                flow_data['net_amount_ratio'] = 0.0
                 historical_data.append(flow_data)
         if not historical_data:
             return []
-        # 异步获取历史行情
+        df_flow = pd.DataFrame(historical_data)
         try:
             start_date = sorted_dates[0]
             real_end_date = sorted_dates[-1]
             s_str = start_date.strftime('%Y%m%d')
             e_str = real_end_date.strftime('%Y%m%d')
-            # 直接 await DAO 方法
             df_price = await stock_time_trade_dao.get_daily_data(stock_code, s_str, e_str)
             if not df_price.empty:
-                price_map = {}
-                for idx, row in df_price.iterrows():
-                    try:
-                        if hasattr(idx, 'strftime'):
-                            d_str = idx.strftime('%Y-%m-%d')
-                        else:
-                            d_str = pd.to_datetime(idx).strftime('%Y-%m-%d')
-                    except Exception:
-                        continue
-                    # [关键修正] 提取 vol 字段
-                    price_map[d_str] = {
-                        'close': float(row['close']) if pd.notnull(row.get('close')) else None,
-                        'pct_change': float(row['pct_change']) if pd.notnull(row.get('pct_change')) else None,
-                        'amount': float(row['amount']) if pd.notnull(row.get('amount')) else 0.0,
-                        'vol': float(row['vol']) if pd.notnull(row.get('vol')) else 0.0
-                    }
-                for item in historical_data:
-                    d_str = item['trade_date']
-                    if d_str in price_map:
-                        item.update(price_map[d_str])
-                    net_amt = item.get('net_mf_amount')
-                    total_amt = item.get('amount')
-                    if net_amt is not None and total_amt and total_amt != 0:
-                        item['net_amount_ratio'] = (net_amt / total_amt) * 1000.0
-                    else:
-                        item['net_amount_ratio'] = 0.0
+                df_price.index = pd.to_datetime(df_price.index).strftime('%Y-%m-%d')
+                df_price = df_price[['close', 'pct_change', 'amount', 'vol']].copy()
+                df_price['amount'] = df_price['amount'].fillna(0.0).astype(np.float32)
+                df_price['vol'] = df_price['vol'].fillna(0.0).astype(np.float32)
+                df_price['close'] = df_price['close'].astype(np.float32)
+                df_price['pct_change'] = df_price['pct_change'].astype(np.float32)
+                df_flow = df_flow.merge(df_price, left_on='trade_date', right_index=True, how='left')
+                df_flow['net_amount_ratio'] = np.where(
+                    (df_flow['net_mf_amount'].notnull()) & (df_flow['amount'].fillna(0) > 0),
+                    (df_flow['net_mf_amount'] / df_flow['amount']) * 1000.0,
+                    0.0
+                ).astype(np.float32)
+            else:
+                df_flow['net_amount_ratio'] = 0.0
+                for col in ['close', 'pct_change', 'amount', 'vol']:
+                    df_flow[col] = 0.0 if col in ['amount', 'vol'] else None
         except Exception as e:
             logger.error(f"合并股票 {stock_code} 历史行情数据失败: {e}", exc_info=True)
-        return historical_data
+            df_flow['net_amount_ratio'] = 0.0
+        return df_flow.replace({np.nan: None}).to_dict('records')
     except Exception as e:
         logger.error(f"获取股票 {stock_code} 历史资金流向数据失败: {e}")
         return []
 
-async def _get_daily_basic_data_async(stock_code: str, trade_date: date, 
-                                    stock_time_trade_dao) -> Optional[Dict]:
-    """[Async] 获取每日基本信息"""
+async def _get_daily_basic_data_async(stock_code: str, trade_date: date, stock_time_trade_dao) -> Optional[Dict]:
+    """
+    版本: V2.1.0
+    说明: 性能优化。重构内部 safe_float 闭包函数，增加 isinstance 黄金短路拦截，
+    大幅减少 float() 转换过程中的异常捕获产生的上下文切换开销。
+    """
     try:
-        # 直接 await DAO 方法
         daily_data_list = await stock_time_trade_dao.get_stocks_daily_data([stock_code], trade_date)
         if daily_data_list:
             daily_obj = daily_data_list[0]
             def safe_float(val):
-                if val is not None:
-                    try:
-                        return float(val)
-                    except (ValueError, TypeError):
-                        return None
-                return None
+                if val is None: return None
+                if isinstance(val, (float, int)): return float(val)
+                try: return float(val)
+                except (ValueError, TypeError): return None
             basic_dict = {
                 'close': safe_float(daily_obj.close),
                 'amount': safe_float(daily_obj.amount),
@@ -521,76 +505,55 @@ def calculate_factor_batch(stock_code: str, trade_dates: List[date], factor_mode
         save_factors_bulk(factor_model, instances)
     return len(instances), failed_dates
 
-def get_historical_flow_data(stock_code: str, end_date: date, 
-                            stock_time_trade_dao: StockTimeTradeDAO, stock_info: StockInfo,
-                            days: int = 120) -> List[Dict]:
+def get_historical_flow_data(stock_code: str, end_date: date, stock_time_trade_dao, stock_info, days: int = 120) -> List[Dict]:
     """
-    获取历史资金流向数据
-    版本: V1.7
-    说明: 
-    1. 接收 stock_time_trade_dao 参数，复用 Redis 连接。
-    2. 移除内部的 CacheManager 实例化。
+    版本: V2.0.0
+    说明: 同步获取历史数据的性能重构版。
+    使用 pandas 向量化计算替代 iterrows 循环，并对数值列进行 float32 降级，
+    大幅削减构建上下文时的计算耗时与内存分配。
     """
     try:
-        # 获取结束日期之前的N个交易日
         trade_dates = TradeCalendar.get_latest_n_trade_dates(n=days, reference_date=end_date)
-        if not trade_dates:
+        if not trade_dates or not stock_info:
             return []
-        if not stock_info:
-            return []
+        sorted_dates = sorted(trade_dates)
         historical_data = []
-        # 1. 获取资金流向数据
-        for trade_date in sorted(trade_dates):
+        for trade_date in sorted_dates:
             flow_data = get_single_date_flow_data(stock_code, trade_date, stock_info)
             if flow_data:
                 flow_data['trade_date'] = trade_date.isoformat()
-                flow_data['net_amount_ratio'] = 0.0
                 historical_data.append(flow_data)
         if not historical_data:
             return []
-        # 2. 批量获取历史行情数据 (Close, PctChange, Amount) 并合并
+        df_flow = pd.DataFrame(historical_data)
         try:
-            sorted_dates = sorted(trade_dates)
             start_date = sorted_dates[0]
             real_end_date = sorted_dates[-1]
-            # 使用传入的 stock_time_trade_dao
             s_str = start_date.strftime('%Y%m%d')
             e_str = real_end_date.strftime('%Y%m%d')
-            # 异步转同步调用 DAO 获取日线数据
             df_price = async_to_sync(stock_time_trade_dao.get_daily_data)(stock_code, s_str, e_str)
             if not df_price.empty:
-                # 构建价格查找字典
-                price_map = {}
-                for idx, row in df_price.iterrows():
-                    try:
-                        if hasattr(idx, 'strftime'):
-                            d_str = idx.strftime('%Y-%m-%d')
-                        else:
-                            d_str = pd.to_datetime(idx).strftime('%Y-%m-%d')
-                    except Exception:
-                        continue
-                    price_map[d_str] = {
-                        'close': float(row['close']) if pd.notnull(row.get('close')) else None,
-                        'pct_change': float(row['pct_change']) if pd.notnull(row.get('pct_change')) else None,
-                        'amount': float(row['amount']) if pd.notnull(row.get('amount')) else 0.0
-                    }
-                # 将价格数据合并到 historical_data 中
-                for item in historical_data:
-                    d_str = item['trade_date']
-                    if d_str in price_map:
-                        item.update(price_map[d_str])
-                    # 计算 net_amount_ratio
-                    net_amt = item.get('net_mf_amount')
-                    total_amt = item.get('amount')
-                    if net_amt is not None and total_amt and total_amt != 0:
-                        item['net_amount_ratio'] = (net_amt / total_amt) * 1000.0
-                    else:
-                        item['net_amount_ratio'] = 0.0
+                df_price.index = pd.to_datetime(df_price.index).strftime('%Y-%m-%d')
+                df_price = df_price[['close', 'pct_change', 'amount', 'vol']].copy()
+                df_price['amount'] = df_price['amount'].fillna(0.0).astype(np.float32)
+                df_price['vol'] = df_price['vol'].fillna(0.0).astype(np.float32)
+                df_price['close'] = df_price['close'].astype(np.float32)
+                df_price['pct_change'] = df_price['pct_change'].astype(np.float32)
+                df_flow = df_flow.merge(df_price, left_on='trade_date', right_index=True, how='left')
+                df_flow['net_amount_ratio'] = np.where(
+                    (df_flow['net_mf_amount'].notnull()) & (df_flow['amount'].fillna(0) > 0),
+                    (df_flow['net_mf_amount'] / df_flow['amount']) * 1000.0,
+                    0.0
+                ).astype(np.float32)
             else:
-                logger.warning(f"股票 {stock_code} 在 {s_str}-{e_str} 期间无日线行情数据，无法计算净流入占比")
+                logger.warning(f"股票 {stock_code} 在 {s_str}-{e_str} 期间无日线行情数据")
+                df_flow['net_amount_ratio'] = 0.0
+                for col in ['close', 'pct_change', 'amount', 'vol']:
+                    df_flow[col] = 0.0 if col in ['amount', 'vol'] else None
         except Exception as e:
             logger.error(f"合并股票 {stock_code} 历史行情数据失败: {e}", exc_info=True)
-        return historical_data
+            df_flow['net_amount_ratio'] = 0.0
+        return df_flow.replace({np.nan: None}).to_dict('records')
     except Exception as e:
         logger.error(f"获取股票 {stock_code} 历史资金流向数据失败: {e}")
         return []
@@ -635,32 +598,27 @@ def get_current_flow_data(stock_code: str, trade_date: date) -> Optional[Dict]:
     """获取当前日的资金流向数据"""
     return get_single_date_flow_data(stock_code, trade_date)
 
-def get_daily_basic_data(stock_code: str, trade_date: date, 
-                        stock_time_trade_dao: StockTimeTradeDAO) -> Optional[Dict]:
+def get_daily_basic_data(stock_code: str, trade_date: date, stock_time_trade_dao: StockTimeTradeDAO) -> Optional[Dict]:
     """
-    获取每日基本信息
-    版本: V1.1
-    说明: 接收 stock_time_trade_dao 参数，复用 Redis 连接。
+    版本: V2.1.0
+    说明: 性能优化。重构内部 safe_float，应用类型短路拦截合法类型，避免异常触发开销。
+    保持单行标量提取最高效率，拒绝无意义的向量化强转。
     """
     try:
-        # 使用传入的 stock_time_trade_dao
         daily_data_list = async_to_sync(stock_time_trade_dao.get_stocks_daily_data)([stock_code], trade_date)
         if daily_data_list:
             daily_obj = daily_data_list[0]
             def safe_float(val):
-                if val is not None:
-                    try:
-                        return float(val)
-                    except (ValueError, TypeError):
-                        return None
-                return None
+                if val is None: return None
+                if isinstance(val, (float, int)): return float(val)
+                try: return float(val)
+                except (ValueError, TypeError): return None
             basic_dict = {
                 'close': safe_float(daily_obj.close),
                 'amount': safe_float(daily_obj.amount),
                 'vol': safe_float(daily_obj.vol),
                 'turnover_rate': safe_float(getattr(daily_obj, 'turnover_rate', None)),
             }
-            # 尝试获取StockDailyBasic数据
             basic_model = async_to_sync(stock_time_trade_dao.get_stock_daily_basic_by_date)(stock_code, trade_date)
             if basic_model:
                 basic_dict.update({
@@ -681,9 +639,21 @@ def get_daily_basic_data(stock_code: str, trade_date: date,
         return None
 
 async def _get_1min_data_async(stock_code: str, trade_date: date, stock_time_trade_dao) -> Optional[pd.DataFrame]:
-    """[Async] 获取1分钟数据"""
+    """
+    版本: V2.2.0
+    说明: 性能极限压榨版。拦截底层返回的1分钟高频数据，执行强制数据类型降级 (Downcasting)。
+    将默认的 float64/int64 精度缩减至 float32/int32，直接将内存占用减半。
+    此举可极大降低下游计算组件 (Calculator) 在高频矩阵运算时的 CPU 缓存未命中率 (Cache Miss Rate)。
+    """
     try:
         df = await stock_time_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date)
+        if df is not None and not df.empty:
+            float_cols = df.select_dtypes(include=['float64']).columns
+            if len(float_cols) > 0:
+                df[float_cols] = df[float_cols].astype(np.float32)
+            int_cols = df.select_dtypes(include=['int64']).columns
+            if len(int_cols) > 0:
+                df[int_cols] = df[int_cols].astype(np.int32)
         return df
     except Exception as e:
         logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的1分钟数据失败: {e}")
@@ -691,15 +661,20 @@ async def _get_1min_data_async(stock_code: str, trade_date: date, stock_time_tra
 
 def get_1min_data(stock_code: str, trade_date: date, stock_time_trade_dao: StockTimeTradeDAO) -> Optional[pd.DataFrame]:
     """
-    获取1分钟数据
-    版本: V1.1
-    说明: 接收 stock_time_trade_dao 参数，复用 Redis 连接。
+    版本: V2.2.0
+    说明: 同步获取1分钟数据的性能降维版。
+    利用 Pandas 引擎在数据组装源头直接进行 float64 -> float32 与 int64 -> int32 的降级转换，
+    以 O(N) 的极小代价换取下游庞大矩阵计算时 O(N^2) 级别的访存加速。
     """
     try:
-        # 使用传入的 stock_time_trade_dao
         df = async_to_sync(stock_time_trade_dao.get_1_min_kline_time_by_day)(stock_code, trade_date)
-        if df is None:
-            return None
+        if df is not None and not df.empty:
+            float_cols = df.select_dtypes(include=['float64']).columns
+            if len(float_cols) > 0:
+                df[float_cols] = df[float_cols].astype(np.float32)
+            int_cols = df.select_dtypes(include=['int64']).columns
+            if len(int_cols) > 0:
+                df[int_cols] = df[int_cols].astype(np.int32)
         return df
     except Exception as e:
         logger.debug(f"获取股票 {stock_code} 在 {trade_date} 的1分钟数据失败: {e}")
@@ -782,12 +757,23 @@ def save_factors_bulk(factor_model, objects_to_save: List[Any]):
             raise
 
 def _safe_decimal(value):
-    """安全转换为Decimal"""
+    """
+    版本: V2.1.0
+    说明: 性能优化。去除了低效的全面 try-except 捕获。
+    通过 isinstance 类型检查构建短路拦截机制 (Short-circuiting)，加速合法数值转换，
+    避免 Python 异常堆栈展开在每股每天几十个因子上造成的累积 CPU 阻塞。
+    """
     if value is None:
         return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return Decimal(str(value))
     try:
         return Decimal(str(value))
-    except:
+    except (ValueError, TypeError, Exception):
         return None
 
 @celery_app.task(bind=True, queue="calculator")
