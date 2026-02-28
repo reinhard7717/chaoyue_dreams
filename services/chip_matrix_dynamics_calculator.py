@@ -204,42 +204,64 @@ class ChipMatrixDynamicsCalculator:
         return analysis
 
     @classmethod
-    def calculate_tick_enhanced_factors(cls, tick_intensity, main_force_score, acc_conf, dist_conf, short_term, mid_term, long_term, avg_days):
-        """严格保留 Tick 强化修正中对于散户主导及主力吸筹/派发的惩罚/奖励逻辑"""
-        # Retail Domination Logic
+    def calculate_tick_enhanced_factors(cls, current_factors: Dict[str, float], tick_factors: Dict[str, Any], quality_score: float) -> Tuple[float, float, float, float, str]:
+        # [V3.4.1] 重构Tick增强接口签名，支持字典解包并返回调整原因，彻底消除解包与传参断层。
+        short_term = float(current_factors.get('short', 0.2))
+        mid_term = float(current_factors.get('mid', 0.3))
+        long_term = float(current_factors.get('long', 0.5))
+        avg_days = float(current_factors.get('days', 60.0))
+        if not tick_factors or quality_score <= 0.3:
+            return short_term, mid_term, long_term, avg_days, "Tick质量极低，不触发微观盘口修正"
+        tick_intensity = float(tick_factors.get('intraday_chip_turnover_intensity', 0.0))
+        main_force_score = float(tick_factors.get('intraday_main_force_activity', 0.0))
+        acc_conf = float(tick_factors.get('intraday_accumulation_confidence', 0.0))
+        dist_conf = float(tick_factors.get('intraday_distribution_confidence', 0.0))
+        reason = "微观资金结构平衡，维持基础权重"
+        adjusted = False
         if tick_intensity > 0.7 and main_force_score < 0.3:
             adjust = tick_intensity * 0.15
             short_term = min(0.6, short_term + adjust)
             long_term = max(0.1, long_term - adjust * 0.5)
-        # Main Force Behavior Logic
-        if main_force_score > 0.4:
+            reason = "散户高换手主导，大幅缩短持仓周期预期"
+            adjusted = True
+        elif main_force_score > 0.4:
             if acc_conf > dist_conf:
                 mid_term = min(0.6, mid_term + 0.1)
                 avg_days *= 1.2
+                reason = "主力隐蔽吸筹信号确认，延长趋势持仓预期"
+                adjusted = True
             else:
                 short_term = min(0.5, short_term + 0.1)
                 avg_days *= 0.8
-                
-        # Normalization Re-check
+                reason = "主力高频派发迹象明显，强制缩短防御周期"
+                adjusted = True
         total = short_term + mid_term + long_term
         if total > 0:
             short_term /= total
             mid_term /= total
             long_term /= total
-        return short_term, mid_term, long_term, avg_days
-
+        return float(short_term), float(mid_term), float(long_term), float(avg_days), reason
     @classmethod
-    def calculate_holding_factors(cls, convergence_metrics, concentration_metrics, chip_lock_ratio, main_force_activity, market_sentiment, trend_quality, cycle_adj):
-        """严格保留原有长中短线分配权重、情感乘数与天数计算的所有硬编码数学公式"""
-        comprehensive_convergence = convergence_metrics.get('comprehensive_convergence', 0.0)
-        comprehensive_concentration = concentration_metrics.get('comprehensive_concentration', 0.0)
-        # Long-Term Ratio Logic
+    def calculate_holding_factors(cls, dynamics_result: Dict[str, Any], absolute_change_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        # [V3.4.1] 重构因子持久化算子签名，通过适配器模式安全提取高维数据，彻底根除参数错位带来的执行期崩溃。
+        if absolute_change_analysis is None:
+            absolute_change_analysis = {}
+        convergence_metrics = dynamics_result.get('convergence_metrics', {})
+        concentration_metrics = dynamics_result.get('concentration_metrics', {})
+        behavior_patterns = dynamics_result.get('behavior_patterns', {})
+        chip_lock_ratio = float(absolute_change_analysis.get('chip_lock_ratio', 0.5))
+        market_sentiment = float(absolute_change_analysis.get('market_sentiment', 0.5))
+        trend_quality = float(absolute_change_analysis.get('trend_quality', 0.5))
+        market_cycle = absolute_change_analysis.get('market_cycle_phase', 'consolidation')
+        trend_health = float(absolute_change_analysis.get('trend_health', 0.5))
+        main_force_activity = float(behavior_patterns.get('main_force_activity', 0.0))
+        cycle_adj = float(cls.calculate_market_cycle_adjustment(market_cycle, trend_health))
+        comprehensive_convergence = float(convergence_metrics.get('comprehensive_convergence', 0.0))
+        comprehensive_concentration = float(concentration_metrics.get('comprehensive_concentration', 0.0))
         long_term_base = (comprehensive_convergence * 0.3) + (comprehensive_concentration * 0.3) + (chip_lock_ratio * 0.4)
         long_term_ratio = min(0.85, max(0.05, long_term_base * cycle_adj))
-        # Short-Term Ratio Logic
         divergence_score = 1.0 - comprehensive_convergence
         short_term_base = (divergence_score * 0.35) + (main_force_activity * 0.25) + ((1.0 - chip_lock_ratio) * 0.2)
-        # Sentiment Adjustments
         if market_sentiment > 0.7:
             short_term_ratio = short_term_base * 1.3
         elif market_sentiment < 0.3:
@@ -247,7 +269,6 @@ class ChipMatrixDynamicsCalculator:
         else:
             short_term_ratio = short_term_base
         short_term_ratio = min(0.65, max(0.05, short_term_ratio))
-        # Mid-Term Ratio and Normalization
         mid_term_ratio = 1.0 - short_term_ratio - long_term_ratio
         if mid_term_ratio < 0:
             excess = abs(mid_term_ratio)
@@ -259,15 +280,20 @@ class ChipMatrixDynamicsCalculator:
             short_term_ratio *= (1.0 / total_sum)
             mid_term_ratio *= (1.0 / total_sum)
             long_term_ratio *= (1.0 / total_sum)
-        # Average Holding Days Formula
         base_days = 20 + (long_term_ratio * 160)
         trend_days_adjust = 0.8 + trend_quality * 0.4
         avg_holding_days = max(3.0, min(365.0, base_days * trend_days_adjust))
         return {
-            'short_term_ratio': short_term_ratio,
-            'mid_term_ratio': mid_term_ratio,
-            'long_term_ratio': long_term_ratio,
-            'avg_holding_days': avg_holding_days
+            'short_term_ratio': float(short_term_ratio),
+            'mid_term_ratio': float(mid_term_ratio),
+            'long_term_ratio': float(long_term_ratio),
+            'avg_holding_days': float(avg_holding_days),
+            'extra_metrics': {
+                'chip_lock_ratio': float(chip_lock_ratio),
+                'market_sentiment': float(market_sentiment),
+                'trend_quality': float(trend_quality),
+                'cycle_adj': float(cycle_adj)
+            }
         }
 
     # ========== 具体的私有分析方法 (静态化) ==========
