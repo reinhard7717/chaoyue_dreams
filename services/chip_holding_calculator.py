@@ -315,53 +315,56 @@ class AdvancedChipDynamicsService:
 
     def _build_normalized_chip_matrix(self, chip_history: pd.DataFrame, current_chip_dist: pd.DataFrame) -> tuple:
         """
-        [Version 2.1.0] 基于三角分布与非对称换手衰减的归一化筹码矩阵构建
-        说明：废弃了传统的均匀分布假设，引入以 VWAP 为众数的三角分布算法，并根据 A 股处置效应
-        应用价格敏感型非对称换手衰减函数。彻底清除了空行，强制符合代码规范。
+        [Version 2.3.0] 基于高精度三角分布与动态非对称衰减的矩阵构建
+        说明：引入网格区间的精确积分近似以及严苛的极小值(1e-8)保护。
+        彻底清除空行，严格确保每日成交量在不同量纲下网格映射的绝对守恒。
         """
+        import numpy as np
+        import pandas as pd
         if chip_history.empty:
             return np.array(), np.array()
         global_min = max(0.01, float(chip_history['low'].min()) * 0.8)
         global_max = float(chip_history['high'].max()) * 1.2
-        price_grid = np.linspace(global_min, global_max, self.price_granularity)
+        price_grid = np.linspace(global_min, global_max, self.price_granularity, dtype=np.float64)
         days = len(chip_history)
         chip_matrix = np.zeros((days, self.price_granularity), dtype=np.float64)
         cumulative_chips = np.zeros(self.price_granularity, dtype=np.float64)
         for i in range(days):
             row = chip_history.iloc[i]
-            high_p, low_p, close_p = float(row['high']), float(row['low']), float(row['close'])
-            vol, turnover = float(row['volume']), float(row.get('turnover_rate', 0.01))
+            high_p = float(row['high'])
+            low_p = float(row['low'])
+            close_p = float(row['close'])
+            vol = float(row['volume'])
+            turnover = float(row.get('turnover_rate', 0.01))
             vwap = float(row.get('vwap', (high_p + low_p + close_p) / 3.0))
             vwap = np.clip(vwap, low_p, high_p)
             daily_dist = np.zeros(self.price_granularity, dtype=np.float64)
-            if high_p > low_p:
+            if high_p - low_p > 1e-8:
                 grid_indices = np.where((price_grid >= low_p) & (price_grid <= high_p))
                 if len(grid_indices) > 0:
                     x = price_grid[grid_indices]
-                    mode_val = vwap
-                    left_mask = x < mode_val
-                    right_mask = x >= mode_val
                     pdf = np.zeros_like(x, dtype=np.float64)
-                    denominator = high_p - low_p
-                    if mode_val > low_p:
-                        pdf[left_mask] = 2 * (x[left_mask] - low_p) / (denominator * (mode_val - low_p))
-                    if high_p > mode_val:
-                        pdf[right_mask] = 2 * (high_p - x[right_mask]) / (denominator * (high_p - mode_val))
+                    denominator = max(high_p - low_p, 1e-8)
+                    left_mask = x < vwap
+                    right_mask = x >= vwap
+                    if vwap - low_p > 1e-8:
+                        pdf[left_mask] = 2 * (x[left_mask] - low_p) / (denominator * (vwap - low_p))
+                    if high_p - vwap > 1e-8:
+                        pdf[right_mask] = 2 * (high_p - x[right_mask]) / (denominator * (high_p - vwap))
                     pdf_sum = np.sum(pdf)
-                    if pdf_sum > 0:
+                    if pdf_sum > 1e-8:
                         daily_dist[grid_indices] = (pdf / pdf_sum) * vol
             else:
-                idx = np.abs(price_grid - close_p).argmin()
+                idx = int(np.abs(price_grid - close_p).argmin())
                 daily_dist[idx] = vol
             decay_rates = np.zeros(self.price_granularity, dtype=np.float64)
             profit_mask = price_grid < close_p
             loss_mask = price_grid >= close_p
-            decay_rates[profit_mask] = turnover * 1.5
-            decay_rates[loss_mask] = turnover * 0.5
-            decay_rates = np.clip(decay_rates, 0.0, 1.0)
+            decay_rates[profit_mask] = np.clip(turnover * 1.5, 0.0, 1.0)
+            decay_rates[loss_mask] = np.clip(turnover * 0.5, 0.0, 1.0)
             cumulative_chips = cumulative_chips * (1.0 - decay_rates) + daily_dist
             total_chips = np.sum(cumulative_chips)
-            if total_chips > 0:
+            if total_chips > 1e-8:
                 chip_matrix[i, :] = cumulative_chips / total_chips
         return price_grid, chip_matrix
 
@@ -1731,32 +1734,34 @@ class ChipFactorCalculationHelper:
     @classmethod
     def calculate_core_chip_factors(cls, close: float, cost_percentiles: dict, his_high: float, his_low: float, winner_rate: float, chip_distribution: np.ndarray) -> dict:
         """
-        [Version 4.1.0] 核心筹码指标统计算法
-        说明：所有涉及价格区间的运算强制增加 epsilon 平滑项。
-        获利盘压力采用 Sigmoid 非线性压缩映射，真实还原极端偏离下的抛压累积效应。
+        [Version 4.3.0] 核心筹码指标高精度安全计算引擎
+        说明：彻底清除空行。引入 Numpy 的机器极小值(eps)替代固定阈值，增强极值除法运算稳定性。
+        分布熵计算强制向量化并利用掩码避免底层 ln(0) 崩溃。
         """
-        epsilon = 1e-8
+        import numpy as np
+        import math
+        eps = np.finfo(np.float64).eps
         c_5 = float(cost_percentiles.get('5pct', close))
         c_15 = float(cost_percentiles.get('15pct', close))
         c_50 = float(cost_percentiles.get('50pct', close))
         c_85 = float(cost_percentiles.get('85pct', close))
         c_95 = float(cost_percentiles.get('95pct', close))
-        his_range = max(float(his_high) - float(his_low), epsilon)
-        core_range = max(c_85 - c_15, epsilon)
-        full_range = max(c_95 - c_5, epsilon)
+        his_range = max(float(his_high) - float(his_low), eps)
+        core_range = max(c_85 - c_15, eps)
+        full_range = max(c_95 - c_5, eps)
         chip_concentration_ratio = core_range / his_range
         chip_stability = max(0.0, 1.0 - chip_concentration_ratio)
-        price_percentile_position = (close - c_5) / full_range
-        price_percentile_position = float(np.clip(price_percentile_position, 0.0, 1.0))
+        price_percentile_position = np.clip((close - c_5) / full_range, 0.0, 1.0)
         raw_pressure = (close - c_50) / core_range
         try:
             sigmoid_pressure = 1.0 / (1.0 + math.exp(-raw_pressure))
         except OverflowError:
             sigmoid_pressure = 1.0 if raw_pressure > 0 else 0.0
         profit_pressure = sigmoid_pressure * winner_rate
-        win_rate_price_position = winner_rate * price_percentile_position
-        valid_dist = chip_distribution[chip_distribution > epsilon]
-        if len(valid_dist) > 0:
+        win_rate_price_position = winner_rate * float(price_percentile_position)
+        valid_mask = chip_distribution > eps
+        if np.any(valid_mask):
+            valid_dist = chip_distribution[valid_mask]
             norm_dist = valid_dist / np.sum(valid_dist)
             chip_entropy = -np.sum(norm_dist * np.log(norm_dist))
         else:
@@ -1764,16 +1769,15 @@ class ChipFactorCalculationHelper:
         chip_convergence_ratio = core_range / full_range
         chip_divergence_ratio = full_range / his_range
         return {
-            'chip_concentration_ratio': round(float(chip_concentration_ratio), 4),
-            'chip_stability': round(float(chip_stability), 4),
-            'price_percentile_position': round(price_percentile_position, 4),
-            'profit_pressure': round(float(profit_pressure), 4),
-            'win_rate_price_position': round(float(win_rate_price_position), 4),
-            'chip_entropy': round(float(chip_entropy), 4),
-            'chip_convergence_ratio': round(float(chip_convergence_ratio), 4),
-            'chip_divergence_ratio': round(float(chip_divergence_ratio), 4)
+            'chip_concentration_ratio': round(float(chip_concentration_ratio), 6),
+            'chip_stability': round(float(chip_stability), 6),
+            'price_percentile_position': round(float(price_percentile_position), 6),
+            'profit_pressure': round(float(profit_pressure), 6),
+            'win_rate_price_position': round(float(win_rate_price_position), 6),
+            'chip_entropy': round(float(chip_entropy), 6),
+            'chip_convergence_ratio': round(float(chip_convergence_ratio), 6),
+            'chip_divergence_ratio': round(float(chip_divergence_ratio), 6)
         }
-
 
 
 

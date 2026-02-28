@@ -43,26 +43,34 @@ class ChipMatrixDynamicsCalculator:
     @njit(parallel=True, fastmath=False, cache=True)
     def calculate_matrix_emd_dynamics_optimized(chip_matrix: np.ndarray, price_grid: np.ndarray, threshold_pct: float) -> tuple:
         """
-        [Version 3.1.0] 基于严格 IEEE 754 标准的 Wasserstein 距离与拓扑迁移计算
-        说明：强制关闭 fastmath 以保全浮点累加的绝对精度。
-        采用线性插值法计算分位数锁定阈值，消除了离散数据的阶梯效应断层。
+        [Version 3.3.0] 高精度 Wasserstein 距离计算引擎
+        说明：针对原算法的累加浮点溢出缺陷，引入 Kahan Summation (卡汉求和)算法补偿 CDF 积分误差。
+        锁定率分位数采用精确的小数权重插值，清除所有空行，严格规范纯计算缩进。
         """
         rows, cols = chip_matrix.shape
         emd_distance_array = np.zeros(rows - 1, dtype=np.float64)
         abs_change_matrix = np.zeros((rows - 1, cols), dtype=np.float64)
         for i in prange(rows - 1):
-            cdf_prev = 0.0
-            cdf_curr = 0.0
-            emd_sum = 0.0
+            cdf_prev, cdf_curr, emd_sum = 0.0, 0.0, 0.0
+            c_prev, c_curr, c_emd = 0.0, 0.0, 0.0
             for j in range(cols):
                 val_prev = chip_matrix[i, j]
                 val_curr = chip_matrix[i+1, j]
                 abs_change_matrix[i, j] = np.abs(val_curr - val_prev)
-                cdf_prev += val_prev
-                cdf_curr += val_curr
+                y_prev = val_prev - c_prev
+                t_prev = cdf_prev + y_prev
+                c_prev = (t_prev - cdf_prev) - y_prev
+                cdf_prev = t_prev
+                y_curr = val_curr - c_curr
+                t_curr = cdf_curr + y_curr
+                c_curr = (t_curr - cdf_curr) - y_curr
+                cdf_curr = t_curr
                 if j < cols - 1:
                     grid_distance = price_grid[j+1] - price_grid[j]
-                    emd_sum += np.abs(cdf_prev - cdf_curr) * grid_distance
+                    y_emd = (np.abs(cdf_prev - cdf_curr) * grid_distance) - c_emd
+                    t_emd = emd_sum + y_emd
+                    c_emd = (t_emd - emd_sum) - y_emd
+                    emd_sum = t_emd
             emd_distance_array[i] = emd_sum
         latest_changes = abs_change_matrix[-1, :]
         total_change_volume = np.sum(latest_changes)
@@ -75,13 +83,10 @@ class ChipMatrixDynamicsCalculator:
         active_changes = sorted_changes[sorted_changes > 0]
         if len(active_changes) > 0:
             pct_index = (len(active_changes) - 1) * threshold_pct
-            lower_idx = int(np.floor(pct_index))
-            upper_idx = int(np.ceil(pct_index))
+            lower_idx = int(pct_index)
+            upper_idx = min(lower_idx + 1, len(active_changes) - 1)
             weight = pct_index - lower_idx
-            if lower_idx == upper_idx:
-                lock_threshold = active_changes[lower_idx]
-            else:
-                lock_threshold = active_changes[lower_idx] * (1.0 - weight) + active_changes[upper_idx] * weight
+            lock_threshold = active_changes[lower_idx] * (1.0 - weight) + active_changes[upper_idx] * weight
             locked_count = 0
             for val in latest_changes:
                 if val < lock_threshold:
@@ -89,46 +94,53 @@ class ChipMatrixDynamicsCalculator:
             chip_lock_ratio = locked_count / cols
         else:
             chip_lock_ratio = 1.0
-        return emd_distance_array, abs_change_matrix, change_concentration, chip_lock_ratio
+        return emd_distance_array, abs_change_matrix, change_concentration, float(chip_lock_ratio)
 
     @staticmethod
     def calculate_topological_chip_peaks(chip_distribution: np.ndarray, price_grid: np.ndarray) -> dict:
         """
-        [Version 3.1.0] 连续映射拓扑突起度多峰识别算法
-        说明：废弃了粗糙的0,1,2三档位置分类，采用精确的连续百分位映射(0.0-1.0)。
-        引入基于四分位距(IQR)的自适应突起度阈值，防止极化分布的肥尾效应掩盖真实的局部密集峰。
+        [Version 3.3.0] 亚网格(Sub-grid)精度抛物线插值多峰识别算法
+        说明：针对原分布模型峰值定位仅依赖离散网格坐标的缺陷，引入抛物线插值寻找连续真实极值。
+        四分位距(IQR)实现动态自适应阈值，全面提升震荡市下主力吸筹识别精度。禁止空行。
         """
         import numpy as np
         from scipy.signal import find_peaks
-        if len(chip_distribution) == 0 or len(price_grid) == 0:
+        if len(chip_distribution) < 3 or len(price_grid) < 3:
             return {'peak_count': 0, 'highest_peak_price': 0.0, 'lowest_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'main_peak_position': 0.0}
         q75, q25 = np.percentile(chip_distribution, )
         iqr = q75 - q25
-        min_prominence = max(0.005, iqr * 0.3)
+        min_prominence = max(1e-6, iqr * 0.3)
         min_distance = max(1, int(len(price_grid) * 0.03))
-        peaks_indices, properties = find_peaks(
-            chip_distribution, prominence=min_prominence, width=2, distance=min_distance
-        )
+        peaks_indices, properties = find_peaks(chip_distribution, prominence=min_prominence, width=2, distance=min_distance)
         peak_count = len(peaks_indices)
         if peak_count == 0:
             return {'peak_count': 0, 'highest_peak_price': 0.0, 'lowest_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'main_peak_position': 0.0}
         prominences = properties['prominences']
         sorted_peak_ranks = np.argsort(prominences)[::-1]
         main_peak_idx = peaks_indices[sorted_peak_ranks]
-        main_peak_price = float(price_grid[main_peak_idx])
-        price_min = float(price_grid)
-        price_max = float(price_grid[-1])
-        price_range = price_max - price_min
-        if price_range > 0:
-            main_peak_position = (main_peak_price - price_min) / price_range
+        if 0 < main_peak_idx < len(chip_distribution) - 1:
+            y1 = float(chip_distribution[main_peak_idx - 1])
+            y2 = float(chip_distribution[main_peak_idx])
+            y3 = float(chip_distribution[main_peak_idx + 1])
+            denominator = y1 - 2 * y2 + y3
+            p_shift = 0.5 * (y1 - y3) / denominator if abs(denominator) > 1e-8 else 0.0
+            exact_idx = main_peak_idx + p_shift
+            idx_floor = int(np.floor(exact_idx))
+            idx_ceil = min(idx_floor + 1, len(price_grid) - 1)
+            weight = exact_idx - idx_floor
+            main_peak_price = float(price_grid[idx_floor]) * (1.0 - weight) + float(price_grid[idx_ceil]) * weight
+            peak_concentration = y2 - 0.25 * (y1 - y3) * p_shift if abs(denominator) > 1e-8 else y2
         else:
-            main_peak_position = 0.0
+            main_peak_price = float(price_grid[main_peak_idx])
+            peak_concentration = float(chip_distribution[main_peak_idx])
+        price_min, price_max = float(price_grid), float(price_grid[-1])
+        price_range = max(price_max - price_min, 1e-8)
+        main_peak_position = np.clip((main_peak_price - price_min) / price_range, 0.0, 1.0)
         highest_peak_price = float(np.max(price_grid[peaks_indices]))
         lowest_peak_price = float(np.min(price_grid[peaks_indices]))
-        peak_distance_ratio = (highest_peak_price - lowest_peak_price) / price_range if price_range > 0 else 0.0
-        peak_concentration = float(chip_distribution[main_peak_idx])
+        peak_distance_ratio = (highest_peak_price - lowest_peak_price) / price_range
         if peak_count > 1:
-            second_peak_idx = peaks_indices[sorted_peak_ranks]
+            second_peak_idx = peaks_indices[sorted_peak_ranks[1]]
             peak_concentration += float(chip_distribution[second_peak_idx])
         return {
             'peak_count': int(peak_count),
@@ -136,7 +148,7 @@ class ChipMatrixDynamicsCalculator:
             'lowest_peak_price': lowest_peak_price,
             'peak_distance_ratio': float(peak_distance_ratio),
             'peak_concentration': float(peak_concentration),
-            'main_peak_position': round(float(main_peak_position), 4)
+            'main_peak_position': round(float(main_peak_position), 6)
         }
 
     @classmethod

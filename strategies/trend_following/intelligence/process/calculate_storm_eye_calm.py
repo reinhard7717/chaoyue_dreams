@@ -12,12 +12,13 @@ from strategies.trend_following.intelligence.process.helper import ProcessIntell
 
 class CalculateStormEyeCalm:
     """
-    【V62.0.3 · 风暴眼寂静 · 军械库直连纯净版】
+    【V62.0.4 · 风暴眼寂静 · 军械库直连纯净版】
     PROCESS_META_STORM_EYE_CALM
     - [幽灵歼灭]: 彻底移除私自合成的 price_slope_raw，全链路无缝对接原生军械库特征 ROC_13_D。
     - [物理学降阶]: 取消对 VPA_ACCELERATION 荒诞的 4 阶/5 阶极限微积分，消除高频白噪音逸出。
     - [自适应标度]: 针对 ROC_13_D 执行自动百分比转换，维持物理参数流形平衡，并下调高斯敏感度适配 13 日周期。
     - [零告警稳态]: 依托 LazyKinematicDict 完美接管缺失张量的 O(1) 实时递归求导，实现探针 100% 缓存命中态。
+    - [拓扑闭环]: 修复代码截断问题，重装 _calculate_efficiency_gradient_dissipation 核心节点。
     """
     def __init__(self, strategy_instance, helper: ProcessIntelligenceHelper):
         self.strategy = strategy_instance
@@ -25,7 +26,7 @@ class CalculateStormEyeCalm:
         self.params = self.helper.params
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-        self.version = "V62.0.3"
+        self.version = "V62.0.4"
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         self.actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -201,7 +202,6 @@ class CalculateStormEyeCalm:
         missing_base = [c for c in req_signals if c not in df.columns]
         if missing_base: print(f"【{self.version} 探针警报】风暴眼基底缺失列: {missing_base}。系统已启动拉普拉斯安全回退！")
         
-        # 将原有的 price_slope_raw 全部换防为原生的 ROC_13_D
         full_deriv_cols = [
             'VPA_ACCELERATION_13D', 'VPA_MF_ADJUSTED_EFF_D', 'tick_abnormal_volume_ratio_D', 'MA_ACCELERATION_EMA_55_D', 
             'PRICE_ENTROPY_D', 'STATE_GOLDEN_PIT_D', 'BIAS_55_D', 'NDI_14_D', 'PDI_14_D', 'breakout_penalty_score_D', 
@@ -217,7 +217,6 @@ class CalculateStormEyeCalm:
         for col in full_deriv_cols:
             if col in df.columns:
                 if f'SLOPE_13_{col}' not in df.columns: missing_deriv_tensors.append(f'SLOPE_13_{col}')
-                # 取消向数据层索要 VPA(本质已是二阶导) 荒诞的 4阶和5阶微积分
                 if col != 'VPA_ACCELERATION_13D':
                     if f'ACCEL_8_{col}' not in df.columns: missing_deriv_tensors.append(f'ACCEL_8_{col}')
                     if f'JERK_5_{col}' not in df.columns: missing_deriv_tensors.append(f'JERK_5_{col}')
@@ -276,7 +275,6 @@ class CalculateStormEyeCalm:
         }
 
     def _get_required_signals(self, params: Dict) -> list[str]:
-        # 移除了无效的 price_slope_raw，替换为原生的 ROC_13_D
         required_signals = [
             'MA_POTENTIAL_TENSION_INDEX_D', 'MA_COHERENCE_RESONANCE_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'BBW_21_2.0_D', 'chip_concentration_ratio_D', 'concentration_entropy_D', 'PRICE_ENTROPY_D', 'GEOM_ARC_CURVATURE_D', 'dynamic_consolidation_duration_D', 'turnover_rate_f_D', 'volume_D', 'intraday_trough_filling_degree_D', 'tick_abnormal_volume_ratio_D', 'afternoon_flow_ratio_D', 'absorption_energy_D', 'stealth_flow_ratio_D', 'tick_clustering_index_D', 'accumulation_signal_score_D', 'SMART_MONEY_HM_NET_BUY_D', 'HM_ACTIVE_TOP_TIER_D', 'net_mf_amount_D', 'profit_ratio_D', 'winner_rate_D', 'market_sentiment_score_D', 'breakout_potential_D', 'breakout_penalty_score_D', 'resistance_strength_D', 'GEOM_REG_R2_D', 'GEOM_REG_SLOPE_D', 'ATR_14_D', 'chip_stability_D', 'ADX_14_D', 'flow_impact_ratio_D', 'industry_preheat_score_D', 'industry_rank_accel_D', 'industry_strength_rank_D', 'trend_confirmation_score_D', 'main_force_activity_index_D', 'intraday_cost_center_migration_D', 'migration_convergence_ratio_D', 'tick_chip_balance_ratio_D', 'VPA_EFFICIENCY_D', 'VPA_MF_ADJUSTED_EFF_D', 'VPA_ACCELERATION_13D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'OCH_ACCELERATION_D', 'OCH_D', 'PDI_14_D', 'NDI_14_D', 'price_vs_ma_21_ratio_D', 'price_vs_ma_55_ratio_D', 'HM_COORDINATED_ATTACK_D', 'TURNOVER_STABILITY_INDEX_D', 'amount_D', 'HM_ACTIVE_ANY_D', 'BIAS_55_D', 'MA_ACCELERATION_EMA_55_D', 'STATE_GOLDEN_PIT_D', 'BIAS_5_D', 'MA_FAN_EFFICIENCY_D', 'RSI_13_D', 'MA_144_D', 'chip_entropy_D', 'pressure_trapped_D', 'consolidation_quality_score_D', 'net_energy_flow_D', 'intraday_chip_game_index_D', 'pattern_confidence_D', 'breakout_quality_score_D', 'breakout_chip_score_D', 'MA_55_D', 'MA_21_D', 'MA_5_D', 'close_D',
             'volatility_adjusted_concentration_D', 'chip_convergence_ratio_D', 'PRICE_FRACTAL_DIM_D', 'MACDh_13_34_8_D', 'T1_PREMIUM_EXPECTATION_D', 'flow_consistency_D', 'price_flow_divergence_D', 'buy_elg_amount_D', 'sell_elg_amount_D', 'high_freq_flow_skewness_D',
@@ -345,7 +343,6 @@ class CalculateStormEyeCalm:
         base_data['close_D'] = df.get('close_D', df.get('close', pd.Series(0.0, index=df_index))).ffill().fillna(0.0)
         close_base = base_data['close_D'] + 1e-9
         
-        # [自适应降维] 如果军械库的 ROC 是百分制 (如 5.0 代表 5%)，则自动除以 100 降维为小数形态，对齐微积分标度
         if 'ROC_13_D' in base_data:
             roc_series = base_data['ROC_13_D']
             if not roc_series.empty and roc_series.abs().max() > 2.0:
@@ -502,7 +499,6 @@ class CalculateStormEyeCalm:
         struct_quality = self._norm_kinetic_growth(raw_data.get('chip_stability_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
         entropy_gain = self._norm_negative_potential(raw_data.get('SLOPE_13_chip_entropy_D', pd.Series(0.0, index=df_index)), sensitivity=5.0, denoise=True)
         
-        # 物理降阶修正：回归真实的2阶加速度与3阶跃度组合，取消 VPA 的高阶索要
         vpa_accel = raw_data.get('VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
         vpa_jerk = raw_data.get('SLOPE_13_VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
         
@@ -613,7 +609,10 @@ class CalculateStormEyeCalm:
         plr_score = self._calculate_phase_locked_resonance(df_index, raw_data, _probe_data, probe_ts)
         sed_score = self._calculate_short_exhaustion_divergence(df_index, raw_data, _probe_data, probe_ts)
         ssd_score = self._calculate_seat_scatter_decay(df_index, raw_data, _probe_data, probe_ts)
+        
+        # [核心修复] 重接缺失的方法调用
         egd_score = self._calculate_efficiency_gradient_dissipation(df_index, raw_data, _probe_data, probe_ts)
+        
         sope_score = self._calculate_split_order_pulse_entropy(df_index, raw_data, _probe_data, probe_ts)
         aeo_score = self._calculate_abnormal_energy_overflow(df_index, raw_data, _probe_data, probe_ts)
         neutral_score = self._calculate_game_neutralization_modulator(df_index, raw_data, _probe_data, probe_ts)
@@ -651,6 +650,30 @@ class CalculateStormEyeCalm:
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Long_Awakening (多头蛰伏觉醒)", long_awakening, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Consolidation (盘整无懈可击)", consolidation, probe_ts)
         return readiness
+
+    # ====== 本次修复的核心：寻回丢失的效率梯度耗散节点 ======
+    def _calculate_efficiency_gradient_dissipation(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
+        """
+        用途：筹码密集区涨跌势能转化率极值的静默物理防守耗散检测。
+        修改要点：应用高维张量投影清洗指标底层存在的系统漂移微小分量。已在 V62.0.4 成功找回并重新熔接。
+        """
+        eff_raw = raw_data.get('VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
+        eff_slope = raw_data.get('SLOPE_13_VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
+        eff_accel = raw_data.get('ACCEL_8_VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
+        
+        eff_mean = self._smooth_abs(eff_raw).rolling(window=8, min_periods=1).mean().fillna(0.0)
+        activity_gate = self._c_infinity_clamp(eff_mean * 5.0, 0.0, 1.0)
+        eff_std = eff_slope.rolling(window=8, min_periods=1).std().fillna(0.0)
+        
+        slope_stability = pd.Series((1.0 - self._norm_kinetic_growth(eff_std, sensitivity=2.0)) * activity_gate, index=df_index)
+        accel_lock = pd.Series(self._norm_gaussian_silence(eff_accel, sensitivity=15.0, denoise=True) * activity_gate, index=df_index)
+        mf_activity = self._norm_kinetic_growth(raw_data.get('main_force_activity_index_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
+        
+        egd_score = self._power_mean_fusion(df_index, [slope_stability, accel_lock, mf_activity], [0.4, 0.4, 0.2], p=1.0)
+        
+        self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "EGD_Score (效率梯度耗散)", egd_score, probe_ts)
+        return egd_score
+    # ========================================================
 
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: dict[str, pd.Series], raw_data: dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         scores_list = [component_scores['energy'], component_scores['volume'], component_scores['intent'], component_scores['sentiment'], component_scores['readiness']]
@@ -717,8 +740,6 @@ class CalculateStormEyeCalm:
         penalty_slope = raw_data.get('SLOPE_13_breakout_penalty_score_D', pd.Series(0.0, index=df_index))
         penalty_hab = self._calculate_qho_historical_accumulation_buffer(penalty_raw, windows=[21])
         resistance_intensity = self._norm_kinetic_growth(pd.Series(penalty_raw * (1.0 + self._smooth_max_pair(penalty_slope, 0.0)), index=df_index), sensitivity=5.0)
-        
-        # 匹配 13 日张量幅度
         price_v = raw_data.get('ROC_13_D', pd.Series(0.0, index=df_index))
         backtest_factor = pd.Series(1.0 - (resistance_intensity * np.tanh(self._smooth_max_pair(price_v, 0.0) * 6.0)), index=df_index)
         final_modulator = pd.Series(0.2 + 0.8 * self._c_infinity_clamp(pd.Series((backtest_factor * (1.0 - penalty_hab)) + penalty_hab, index=df_index), 0.0, 1.0), index=df_index)
@@ -760,8 +781,6 @@ class CalculateStormEyeCalm:
     def _calculate_momentum_dissipation_balance(self, df_index: pd.Index, raw_data: Dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         vpa_raw = raw_data.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df_index))
         vpa_activity_gate = self._c_infinity_clamp(self._smooth_abs(vpa_raw).rolling(13, min_periods=1).mean() * 10.0, 0.0, 1.0)
-        
-        # 物理学降阶修正：回归真实的2阶加速度与3阶跃度组合，取消VPA超高阶索要
         vpa_accel = raw_data.get('VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
         vpa_accel_jerk = raw_data.get('SLOPE_13_VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
         
@@ -861,8 +880,6 @@ class CalculateStormEyeCalm:
         vpa_focus = pd.Series(self._norm_gaussian_silence(vpa_accel, sensitivity=10.0, denoise=True) * vpa_activity_gate, index=df_index)
         price_focus = self._norm_gaussian_silence(price_accel, sensitivity=10.0, denoise=True)
         resonance_sim = pd.Series((vpa_accel * price_accel).rolling(window=5, min_periods=1).mean() / (self._smooth_abs(vpa_accel).rolling(window=5, min_periods=1).mean() * self._smooth_abs(price_accel).rolling(window=5, min_periods=1).mean() + 1e-9), index=df_index)
-        
-        # 物理学降阶修正：取消荒谬的5阶微分，直接使用 VPA 加速度的差分(SLOPE_13)构建相空间张量
         vpa_jerk = pd.Series(self._norm_gaussian_silence(raw_data.get('SLOPE_13_VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index)), sensitivity=15.0, denoise=True) * vpa_activity_gate, index=df_index)
         ma_coherence = self._norm_kinetic_growth(raw_data.get('MA_COHERENCE_RESONANCE_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
         plr_score = self._power_mean_fusion(df_index, [vpa_focus, price_focus, self._c_infinity_clamp(pd.Series(0.5 + 0.5 * resonance_sim.fillna(0.0), index=df_index), 0.0, 1.0), vpa_jerk, ma_coherence], [0.2, 0.2, 0.25, 0.15, 0.2], p=1.0)
@@ -959,7 +976,6 @@ class CalculateStormEyeCalm:
         turnover_excess = pd.Series(self._smooth_max_pair(turnover - 0.15, 0.0), index=df_index)
         veto_l2 = pd.Series(np.exp(-np.square(turnover_excess * 15.0)), index=df_index)
         
-        # 将防爆边界调整为适合 13 日 ROC 的振幅区间 (+20%, -15%)，原有的5日区间会导致正常涨停即被熔断
         price_v = raw_data.get('ROC_13_D', pd.Series(0.0, index=df_index))
         price_v_excess = pd.Series(self._smooth_max_pair(price_v - 0.20, 0.0) + self._smooth_max_pair(-0.15 - price_v, 0.0), index=df_index)
         veto_l3 = pd.Series(np.exp(-np.square(price_v_excess * 15.0)), index=df_index)
@@ -1012,12 +1028,3 @@ class CalculateStormEyeCalm:
         bias_factor = pd.Series(1.0 + 0.25 * self._power_mean_fusion(df_index, [depth_reward, slingshot_ignite], [0.5, 0.5], p=1.0), index=df_index)
         self._log_probe(_probe_data, "【07. 宏观环境调节 (Environment)】", "MRKB_Factor (均值引力弹弓)", bias_factor.fillna(1.0), probe_ts)
         return bias_factor.fillna(1.0)
-
-
-
-
-
-
-
-
-

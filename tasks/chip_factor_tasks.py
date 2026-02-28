@@ -275,9 +275,9 @@ def calculate_single_stock_chip_factors_sync(stock_code: str, start_date: str, e
     非线性映射与除零安全防线计算，并将结果持久化到对应市场的 ChipFactor 模型中。
     """
     from services.chip_holding_calculator import ChipFactorCalculationHelper
-    from utils.model_helpers import get_chip_holding_matrix_model_by_code, get_chip_factor_model_by_market
+    from utils.model_helpers import get_chip_holding_matrix_model_by_code, get_chip_factor_model_by_code
     HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
-    FactorModel = get_chip_factor_model_by_market(market_type)
+    FactorModel = get_chip_factor_model_by_code(stock_code)
     matrix_records = HoldingMatrixModel.objects.filter(stock_id=stock_code, trade_time__gte=start_date, trade_time__lte=end_date, calc_status='success').order_by('trade_time')
     if not matrix_records.exists():
         return False
