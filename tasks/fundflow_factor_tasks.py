@@ -34,53 +34,71 @@ from stock_models.time_trade import StockDailyBasic
 logger = logging.getLogger(__name__)
 
 @celery_app.task(bind=True, name='tasks.fundflow_factor_tasks.schedule_fundflow_factors_calculation', queue="calculator")
-def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batch_size: int = 10, incremental: bool = True):
+def schedule_fundflow_factors_calculation(self, start_date_str: str = None, batch_size: int = 50, incremental: bool = True):
     """
-    调度任务：调度所有股票的资金流向因子计算
-    Args:
-        start_date_str: 开始计算日期 (YYYY-MM-DD格式)，如果为空且incremental=True则为增量模式
-        batch_size: 每批处理的股票数量
-        incremental: 是否为增量模式（默认True）
+    版本: V2.0.0
+    说明: 重构调度任务，引入增量更新前置过滤机制(Pre-dispatch Filtering)。
+    利用 asyncio 并发探测各动态分表模型的最新计算日期，仅将实际落后于最新交易日的股票压入计算队列，
+    极大降低 Celery Broker 队列压力与无意义的 Worker 数据库建连及唤醒开销。
     """
+    from utils.cache_manager import CacheManager
+    from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+    from stock_models.index import TradeCalendar
+    from django.db.models import Max
+    from datetime import date
+    import asyncio
+    from asgiref.sync import async_to_sync, sync_to_async
     stock_basic_dao = StockBasicInfoDao(CacheManager())
     try:
-        # 获取所有有效的股票代码
-        # 注意：get_stock_list 返回的是 StockInfo 对象列表
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         if not all_stocks:
             logger.warning("未获取到任何股票信息，无法调度计算任务")
-            return {
-                'status': 'warning',
-                'message': '未获取到股票列表',
-                'total_stocks': 0
-            }
+            return {'status': 'warning', 'message': '未获取到股票列表', 'total_stocks': 0}
         total_stocks = len(all_stocks)
-        print(f"开始调度资金流向因子计算，共 {total_stocks} 只股票")
-        # 分批处理股票
+        print(f"开始调度资金流向因子计算，共获取 {total_stocks} 只股票")
+        global_latest_date = None
+        if incremental and not start_date_str:
+            latest_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=timezone.now().date())
+            global_latest_date = latest_dates[0] if latest_dates else None
+            if not global_latest_date:
+                logger.warning("增量模式下无法获取全局最新交易日，调度中止")
+                return {'status': 'failed', 'message': '无法获取最新交易日'}
+        async def _check_stock_needs_update(stock_code: str, target_date: date) -> bool:
+            try:
+                factor_model = await sync_to_async(get_fundflow_factor_model_by_code)(stock_code)
+                latest_record = await sync_to_async(lambda: factor_model.objects.filter(stock__stock_code=stock_code).aggregate(max_date=Max('trade_time')))()
+                max_date = latest_record.get('max_date')
+                if max_date is None or max_date < target_date:
+                    return True
+                return False
+            except Exception as e:
+                logger.error(f"探测股票 {stock_code} 最新计算日期异常: {e}")
+                return True
+        async def _filter_batch_stocks(stocks: list) -> list:
+            tasks = []
+            for stock_info in stocks:
+                stock_code = stock_info.stock_code
+                if global_latest_date:
+                    tasks.append(_check_stock_needs_update(stock_code, global_latest_date))
+                else:
+                    async def always_true(): return True
+                    tasks.append(always_true())
+            results = await asyncio.gather(*tasks)
+            return [stocks[idx].stock_code for idx, needs_update in enumerate(results) if needs_update]
+        scheduled_count = 0
         for i in range(0, total_stocks, batch_size):
             batch_stocks = list(all_stocks[i:i+batch_size])
-            # 为每只股票创建独立计算任务
-            for stock_info in batch_stocks:
-                # 修正：从 StockInfo 对象中获取 stock_code 字符串
-                # 之前的代码直接使用了 stock_info 对象作为 stock_code 参数，导致序列化问题或参数错误
-                stock_code = stock_info.stock_code
-                # 异步执行单个股票的计算任务
-                calculate_fundflow_factors_for_stock.delay(
-                    stock_code=stock_code,
-                    start_date_str=start_date_str,
-                    incremental=incremental
-                )
-            print(f"已调度第 {i//batch_size + 1} 批股票，共 {len(batch_stocks)} 只")
-            # 减少休眠时间，提高调度效率，但保留少量休眠以防消息队列瞬时过载
-            time.sleep(0.1)
-        print(f"资金流向因子计算调度完成，共调度 {total_stocks} 只股票")
-        return {
-            'status': 'success',
-            'message': f'已调度 {total_stocks} 只股票的计算任务',
-            'total_stocks': total_stocks
-        }
+            pending_codes = async_to_sync(_filter_batch_stocks)(batch_stocks)
+            for stock_code in pending_codes:
+                calculate_fundflow_factors_for_stock.delay(stock_code=stock_code,start_date_str=start_date_str,incremental=incremental)
+                scheduled_count += 1
+            if pending_codes:
+                print(f"已调度第 {i//batch_size + 1} 批，实际下发 {len(pending_codes)} 只增量任务")
+            time.sleep(0.05)
+        print(f"调度完成: 全市场 {total_stocks} 只股票，实际增量下发 {scheduled_count} 只任务")
+        return {'status': 'success', 'message': f'调度成功，实际下发 {scheduled_count} 个任务', 'scheduled_stocks': scheduled_count}
     except Exception as e:
-        logger.error(f"调度资金流向因子计算失败: {e}", exc_info=True)
+        logger.error(f"调度资金流向因子计算全局异常: {e}", exc_info=True)
         raise self.retry(exc=e)
 
 @celery_app.task(bind=True, name='tasks.fundflow_factor_tasks.calculate_fundflow_factors_for_stock', queue="calculator")
