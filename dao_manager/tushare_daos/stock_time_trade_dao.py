@@ -1490,10 +1490,11 @@ class StockTimeTradeDAO(BaseDAO):
     @with_rate_limit(name='api_stk_limit')
     async def save_stk_limit_history(self, trade_date: date = None, start_date: date = None, end_date: date = None, *, limiter) -> dict:
         """
-        【V1.3 - 修复排序Bug版】保存每日涨跌停价格。
-        优化：
-        1. groupby 增加 sort=False，防止对 Model 类进行排序导致 TypeError。
-        2. 使用 Pandas GroupBy 替代 Python 循环进行模型分发，大幅提升处理速度。
+        【V1.4 - 字段强校验防雷版】保存每日涨跌停价格。
+        优化逻辑：
+        1. 显式指定 API 返回 fields，防止第三方数据源默认规则变更导致断流。
+        2. 引入列存在性拓扑防御，动态补齐缺失维度，杜绝 KeyError 造成的批处理中断。
+        3. 强化 NaN 到 None 的转换机制，保障 ORM 批量 Upsert 稳定性。
         """
         api_params = {}
         if trade_date:
@@ -1507,7 +1508,7 @@ class StockTimeTradeDAO(BaseDAO):
         try:
             while not await limiter.acquire():
                 await asyncio.sleep(10)
-            df = self.ts_pro.stk_limit(**api_params)
+            df = self.ts_pro.stk_limit(**api_params, fields=["ts_code", "trade_date", "pre_close", "up_limit", "down_limit"])
             if df.empty:
                 return {"status": "success", "message": "No data", "saved_count": 0}
             df.rename(columns={'ts_code': 'stock_code'}, inplace=True)
@@ -1516,15 +1517,17 @@ class StockTimeTradeDAO(BaseDAO):
             stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_codes)
             df['stock'] = df['stock_code'].map(stock_map)
             df.dropna(subset=['stock'], inplace=True)
-            # 向量化模型映射
             model_map = {code: get_stk_limit_model_by_code(code) for code in unique_codes}
             df['model_class'] = df['stock_code'].map(model_map)
             df.dropna(subset=['model_class'], inplace=True)
+            required_cols = ['stock', 'trade_time', 'pre_close', 'up_limit', 'down_limit']
+            for col in required_cols:
+                if col not in df.columns:
+                    df[col] = np.nan
             save_tasks = []
-            # 使用 groupby 替代循环
-            # [Fix] 添加 sort=False
             for model_class, group_df in df.groupby('model_class', sort=False):
-                data_list = group_df[['stock', 'trade_time', 'pre_close', 'up_limit', 'down_limit']].to_dict('records')
+                final_df = group_df[required_cols]
+                data_list = final_df.where(pd.notnull(final_df), None).to_dict('records')
                 task = self._save_all_to_db_native_upsert(
                     model_class=model_class,
                     data_list=data_list,
