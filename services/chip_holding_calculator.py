@@ -64,9 +64,11 @@ class AdvancedChipDynamicsService:
                 stock_code, trade_date, lookback_days
             )
             # PROBE: 检查数据获取结果
-            history_len = len(chip_data['chip_history']) if chip_data else 0
-            if not chip_data or len(chip_data['chip_history']) < 5:
-                return self._get_default_result(stock_code, trade_date)
+            # 🧨 [核心修改] 细化并抛出具体的阻断原因
+            if not chip_data:
+                return self._get_default_result(stock_code, trade_date, error_msg="未获取到筹码分布或日线价格(可能是停牌或底层数据库缺失)")
+            if history_len < 5:
+                return self._get_default_result(stock_code, trade_date, error_msg=f"历史筹码切片不足(当前仅 {history_len} 天，要求至少 5 天，多发于次新股)")
             # 2. 构建价格网格和归一化筹码矩阵
             price_grid, chip_matrix = self._build_normalized_chip_matrix(
                 chip_data['chip_history'],
@@ -191,7 +193,7 @@ class AdvancedChipDynamicsService:
             print(f"❌ [筹码动态分析异常] {e}")
             import traceback
             traceback.print_exc()
-            return self._get_default_result(stock_code, trade_date)
+            return self._get_default_result(stock_code, trade_date, error_msg=f"动态引擎内部计算异常: {str(e)}")
 
     async def _calculate_tick_enhanced_factors(self, tick_data: pd.DataFrame, chip_data: Dict[str, Any],price_grid: np.ndarray,current_chip_dist: np.ndarray, trade_date: str = "") -> Dict[str, Any]:
         # [V3.4.2] 突破Tick质量分死锁：强制将有容错价值的数据保底分上调至0.35，直接击穿上游 if score > 0.3 的绝对丢弃拦截器。
@@ -920,8 +922,7 @@ class AdvancedChipDynamicsService:
             return None
 
     # ============== 默认结果方法 ==============
-    
-    def _get_default_result(self, stock_code: str = "", trade_date: str = "") -> Dict[str, any]:
+    def _get_default_result(self, stock_code: str = "", trade_date: str = "", error_msg: str = "未知错误") -> Dict[str, any]:
         result = {
             'stock_code': stock_code,
             'trade_date': trade_date,
@@ -935,9 +936,9 @@ class AdvancedChipDynamicsService:
             'convergence_metrics': self._get_default_convergence_metrics(),
             'game_energy_result': {},
             'direct_ad_result': {},
-            # 新增：默认tick因子
             'tick_enhanced_factors': self._get_default_tick_factors(),
-            'analysis_status': 'failed'
+            'analysis_status': 'failed',
+            'error_message': error_msg  # 🧨 [核心修改] 暴露真实的失败原因字段
         }
         # 确保有默认的game_energy_result
         if 'game_energy_result' not in result or not result['game_energy_result']:

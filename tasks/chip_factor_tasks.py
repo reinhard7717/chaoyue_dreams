@@ -493,8 +493,10 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                         failed_dates.append(current_date)
                         print(f"❌ [持有矩阵] {stock_code} {current_date} 动态分析保存失败")
                 else:
-                    failed_dates.append(current_date)
-                    print(f"⚠️ [持有矩阵] {stock_code} {current_date} 动态分析失败: {dynamics_result.get('analysis_status', 'unknown')}")
+                    failed.append(current_date)
+                    # 🧨 [终极修复] 提取底层引擎吐出的 error_message 并高亮打印
+                    err_msg = dynamics_result.get('error_message', '未知原因(被系统静默截断)')
+                    print(f"⚠️ [持有矩阵] {stock_code} {current_date} 动态分析被阻断 | 🩸死因: {err_msg}")
                     
             except Exception as e:
                 print(f"❌ [持有矩阵] {stock_code} {current_date} 计算失败: {e}")
