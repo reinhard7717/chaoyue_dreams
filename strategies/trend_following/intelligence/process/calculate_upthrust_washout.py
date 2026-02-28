@@ -34,8 +34,9 @@ class CalculateUpthrustWashoutRelationship:
         return 0.5 * (1.0 + np.tanh((x - center) * steepness))
     def calculate(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        [V9.0.0 · 全链路执行总控]
-        - 融合物理、资金、筹码、取证四层模型。引入微积分加成与 55日 HAB 存量冲击验证。
+        [V9.1.0 · 张量对齐与签名修复版]
+        - 修复: 修复 _robust_geometric_mean 调用签名缺失 weights_dict 和 df_index 的严重阻断错误。
+        - 变更: 将原有的无名 Series 合并替换为带有严格 name 和 index 标识的张量列，并显式下发四维等权字典以保证高阶算子的执行安全性与时序对齐。
         """
         method_name = "CalculateUpthrustWashoutRelationship.calculate"
         (open_p, high_p, low_p, close_p, pct_chg, p_ent, slope_p, jerk_p, atr_14, vol_f20, c_mean, p_mig, c_mig, r_f, j_f, smart_n, smart_d, f_acc13, f_acc34, f_acc55, t_acc55, vpa_eff, och_acc, bbp_pos, hm_att, sm_att, p_trap, p_rel, is_ldr, st_ldr, t_hot, t_stab, win, a_win, c_stab, a_stab, c_diff, c_kurt, c_conv, is_multi, p_cnt, c_ent, dw_s, morn, ste, h_lock, skew, h_rel, t_over, clust, vol, cnt, t_net, ma_r, sl_t, sr_ratio, supp_test, cost_mig, acc_supp, tick_abnorm, large_anom, acc_abnorm, net_mf_vol, buy_elg_vol, buy_lg_vol, net_mf_amount, closing_strength, amount, mf_vol_slope, mf_vol_accel, mf_vol_jerk) = self._get_raw_signals(df, method_name)
@@ -86,8 +87,14 @@ class CalculateUpthrustWashoutRelationship:
         entropy_multi = self._apply_nonlinear_gain(1.2 - (p_ent / e_scale), center=0.0, steepness=3.0)
         sync_gate = np.where(dw_s == 1, 1.1, 0.9)
         core_washout_raw = form_gate * strong_evidence * hab_retention_gate
-        context_df = pd.concat([pd.Series(k_trap + 0.1), pd.Series(fund_score + 0.1), pd.Series(chip_score + 0.1), pd.Series(forensic_score + 0.1)], axis=1)
-        context_mean = _robust_geometric_mean(context_df) - 0.1
+        context_df = pd.DataFrame({
+            'phys': k_trap + 0.1,
+            'fund': fund_score + 0.1,
+            'chip': chip_score + 0.1,
+            'forens': forensic_score + 0.1
+        }, index=df_index)
+        weights_dict = {'phys': 0.25, 'fund': 0.25, 'chip': 0.25, 'forens': 0.25}
+        context_mean = _robust_geometric_mean(context_df, weights_dict, df_index) - 0.1
         context_mean = np.maximum(context_mean, 0.0)
         final_raw = core_washout_raw * (context_mean + 0.1) * leader_bonus * beta_hedge * entropy_multi * sync_gate
         final_score = self._apply_nonlinear_gain(final_raw, center=0.2, steepness=4.0)
