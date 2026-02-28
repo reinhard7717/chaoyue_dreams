@@ -158,7 +158,7 @@ class ChipMatrixDynamicsCalculator:
         # 使用 <=，将未变动的网格精准计入锁定状态
         chip_lock_ratio = float(np.sum(abs_changes <= noise_threshold) / len(changes))
         analysis = {'total_change_volume': total_change_volume, 'positive_change_volume': float(np.sum(changes[changes > 0])), 'negative_change_volume': float(np.sum(changes[changes < 0])), 'max_increase': float(np.max(changes)), 'max_decrease': float(np.min(changes)), 'mean_change': float(np.mean(changes)), 'change_std': float(np.std(changes)), 'change_concentration': cls.calculate_change_concentration(changes), 'chip_lock_ratio': chip_lock_ratio}
-        QuantitativeTelemetryProbe.emit("ChipMatrixDynamics", "calc_absolute_change", {'mad': float(mad), 'active_grids': int(np.sum(active_mask))}, {'noise_threshold': float(noise_threshold)}, {'chip_lock_ratio': analysis['chip_lock_ratio']})
+        # QuantitativeTelemetryProbe.emit("ChipMatrixDynamics", "calc_absolute_change", {'mad': float(mad), 'active_grids': int(np.sum(active_mask))}, {'noise_threshold': float(noise_threshold)}, {'chip_lock_ratio': analysis['chip_lock_ratio']})
         if hasattr(cls, 'analyze_a_share_key_price_levels'): analysis.update(cls.analyze_a_share_key_price_levels(changes, price_grid, current_price))
         if hasattr(cls, 'analyze_a_share_pullback_pattern'): analysis.update(cls.analyze_a_share_pullback_pattern(changes, price_grid, current_price))
         if hasattr(cls, 'detect_a_share_false_signals'): analysis.update(cls.detect_a_share_false_signals(changes, price_grid, current_price))
@@ -208,7 +208,7 @@ class ChipMatrixDynamicsCalculator:
             if conc_t5 > 0.85 and main_force_intensity > 0.8: comp *= 0.8
             if conc_t5 < 0.4 and small_change_ratio > 0.7: comp *= 0.7
             final_conc = float(max(0.0, min(1.0, comp)))
-            QuantitativeTelemetryProbe.emit("ChipMatrixDynamics", "calc_concentration", {'active_mean': change_mean}, {'cv': cv_ratio, 'main_force_intensity': main_force_intensity}, {'final_conc': final_conc})
+            # QuantitativeTelemetryProbe.emit("ChipMatrixDynamics", "calc_concentration", {'active_mean': change_mean}, {'cv': cv_ratio, 'main_force_intensity': main_force_intensity}, {'final_conc': final_conc})
             return final_conc
         except Exception: return 0.0
 
