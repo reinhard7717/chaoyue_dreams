@@ -21,15 +21,14 @@ class CalculateStormEyeCalm:
     def __init__(self, strategy_instance, helper: ProcessIntelligenceHelper):
         """
         用途：初始化风暴眼核心引擎，装载全局参数与 MTF 权重拓扑。
-        修改要点：版本跃迁为 V62.0.1，彻底修复探针网络指代错位 Bug，铲除伪惰性微积分引擎，重构为真·按需加载的 LazyKinematicDict 字典。
-        版本号：V62.0.1
+        修改要点：版本跃迁为 V62.0.2，解除探针日志折叠限制，全量无损输出未命中清单。
         """
         self.strategy = strategy_instance
         self.helper = helper
         self.params = self.helper.params
         self.debug_params = self.helper.debug_params
         self.probe_dates = self.helper.probe_dates
-        self.version = "V62.0.1"
+        self.version = "V62.0.2"
         p_conf_structural_ultimate = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_mtf = get_param_value(p_conf_structural_ultimate.get('mtf_normalization_weights'), {})
         self.actual_mtf_weights = get_param_value(p_mtf.get('default'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -243,25 +242,42 @@ class CalculateStormEyeCalm:
         """
         用途：核心矩阵探空警报网络。
         修改要点：
-        1. 修复日志“指鹿为马”缺陷，精确定位未命中的具体微积分阶次张量。
-        2. 雷达视野从 9 维暴力扩容对齐至 40 维全息矩阵，补齐 SLOPE_5 阶次漏检。
-        3. 加入日志防洪限流，将警告降级为预期内合理的状态同步。
-        版本号：V62.0.1
+        1. 移除 `[:5]` 切片限制，强制全量、无省略地输出高阶微积分张量未命中清单。
+        2. 采用 JSON 格式化输出，优化近 160 个特征打印时的视觉可读性。
+        版本号：V62.0.2
         """
+        import json
         req_signals = self._get_required_signals(params)
         missing_base = [c for c in req_signals if c not in df.columns]
-        if missing_base: print(f"【{self.version} 探针警报】风暴眼基底缺失列: {missing_base}。系统已启动拉普拉斯安全回退！")
-        full_deriv_cols = ['VPA_ACCELERATION_13D', 'VPA_MF_ADJUSTED_EFF_D', 'tick_abnormal_volume_ratio_D', 'MA_ACCELERATION_EMA_55_D', 'PRICE_ENTROPY_D', 'STATE_GOLDEN_PIT_D', 'BIAS_55_D', 'NDI_14_D', 'PDI_14_D', 'breakout_penalty_score_D', 'RSI_13_D', 'OCH_D', 'ATR_14_D', 'MA_FAN_EFFICIENCY_D', 'HM_ACTIVE_ANY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'HM_COORDINATED_ATTACK_D', 'BIAS_5_D', 'market_sentiment_score_D', 'ADX_14_D', 'profit_ratio_D', 'chip_entropy_D', 'net_energy_flow_D', 'pattern_confidence_D', 'breakout_quality_score_D', 'consolidation_quality_score_D', 'OCH_ACCELERATION_D', 'VPA_EFFICIENCY_D', 'intraday_cost_center_migration_D', 'TURNOVER_STABILITY_INDEX_D', 'concentration_entropy_D', 'industry_rank_accel_D', 'flow_consistency_D', 'turnover_rate_f_D', 'price_slope_raw', 'PRICE_FRACTAL_DIM_D', 'MACDh_13_34_8_D', 'profit_pressure_D', 'downtrend_strength_D', 'SMART_MONEY_SYNERGY_BUY_D']
+        
+        if missing_base: 
+            print(f"【{self.version} 探针警报】风暴眼基底缺失列: {missing_base}。系统已启动拉普拉斯安全回退！")
+
+        # 40个需要进行微积分推演的核心特征
+        full_deriv_cols = [
+            'VPA_ACCELERATION_13D', 'VPA_MF_ADJUSTED_EFF_D', 'tick_abnormal_volume_ratio_D', 'MA_ACCELERATION_EMA_55_D', 
+            'PRICE_ENTROPY_D', 'STATE_GOLDEN_PIT_D', 'BIAS_55_D', 'NDI_14_D', 'PDI_14_D', 'breakout_penalty_score_D', 
+            'RSI_13_D', 'OCH_D', 'ATR_14_D', 'MA_FAN_EFFICIENCY_D', 'HM_ACTIVE_ANY_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 
+            'HM_COORDINATED_ATTACK_D', 'BIAS_5_D', 'market_sentiment_score_D', 'ADX_14_D', 'profit_ratio_D', 'chip_entropy_D', 
+            'net_energy_flow_D', 'pattern_confidence_D', 'breakout_quality_score_D', 'consolidation_quality_score_D', 
+            'OCH_ACCELERATION_D', 'VPA_EFFICIENCY_D', 'intraday_cost_center_migration_D', 'TURNOVER_STABILITY_INDEX_D', 
+            'concentration_entropy_D', 'industry_rank_accel_D', 'flow_consistency_D', 'turnover_rate_f_D', 'price_slope_raw', 
+            'PRICE_FRACTAL_DIM_D', 'MACDh_13_34_8_D', 'profit_pressure_D', 'downtrend_strength_D', 'SMART_MONEY_SYNERGY_BUY_D'
+        ]
+        
         missing_deriv_tensors = []
         for col in full_deriv_cols:
-            if col in df.columns:
+            # 只有当基底列存在 (或者它属于运行时合成的价差斜率) 时，才向下核查其衍生张量
+            if col in df.columns or col == 'price_slope_raw':
                 if f'SLOPE_13_{col}' not in df.columns: missing_deriv_tensors.append(f'SLOPE_13_{col}')
                 if f'ACCEL_8_{col}' not in df.columns: missing_deriv_tensors.append(f'ACCEL_8_{col}')
                 if f'JERK_5_{col}' not in df.columns: missing_deriv_tensors.append(f'JERK_5_{col}')
                 if f'SLOPE_5_{col}' not in df.columns: missing_deriv_tensors.append(f'SLOPE_5_{col}')
+                
         if missing_deriv_tensors:
-            display_str = str(missing_deriv_tensors[:5]).replace(']', '') + (f", ...等共 {len(missing_deriv_tensors)} 项]" if len(missing_deriv_tensors) > 5 else "]")
-            print(f"【{self.version} 探针状态同步】高阶微积分张量未命中预计算缓存: {display_str}。系统内部已无缝切入 LazyKinematicDict 惰性求导计算。")
+            print(f"\n【{self.version} 探针状态同步】高阶微积分张量未命中预计算缓存 (全量清单共 {len(missing_deriv_tensors)} 项):")
+            print(json.dumps(missing_deriv_tensors, indent=4))
+            print(f"【系统通告】以上 {len(missing_deriv_tensors)} 个衍生特征在数据层(军械库)中并未提供。这是预期内行为，系统已无缝切入 LazyKinematicDict 惰性引擎进行 O(1) 实时求导计算。\n")
 
     def _apply_threshold_gate(self, series: pd.Series, window: int = 21) -> pd.Series:
         """
