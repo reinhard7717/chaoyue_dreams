@@ -15,15 +15,20 @@ class ChipMatrixDynamicsCalculator:
     """
 
     @staticmethod
-    def clean_structure(data, precision=3, threshold=0.0):
-        """保留原有的递归数据清洗与精度控制逻辑，确保 JSON 序列化安全"""
+    def clean_structure(data, precision=6, threshold=1e-8):
+        """
+        [Version 3.1.0] 递归数据清洗与超高精度控制逻辑
+        说明：将默认精度提升至6位，阈值下放至1e-8，防止高频微观筹码尾部在序列化前被抹杀。
+        针对浮点运算的安全截断进行严格的类型校验，确保后续 EMD 运算的地基纯洁性。
+        """
+        import numpy as np
+        import math
         if isinstance(data, dict):
             return {k: ChipMatrixDynamicsCalculator.clean_structure(v, precision, threshold) for k, v in data.items()}
         elif isinstance(data, (list, tuple)):
             return
         elif isinstance(data, np.ndarray):
-            cleaned_array = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
-            return
+            return np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0).tolist()
         elif isinstance(data, (float, np.floating)):
             if math.isnan(data) or math.isinf(data):
                 return 0.0
@@ -35,9 +40,13 @@ class ChipMatrixDynamicsCalculator:
         return data
 
     @staticmethod
-    @njit(parallel=True, fastmath=True, cache=True)
+    @njit(parallel=True, fastmath=False, cache=True)
     def calculate_matrix_emd_dynamics_optimized(chip_matrix: np.ndarray, price_grid: np.ndarray, threshold_pct: float) -> tuple:
-        """【新增】基于 Numba 与 Wasserstein 距离的高性能筹码拓扑迁移矩阵计算"""
+        """
+        [Version 3.1.0] 基于严格 IEEE 754 标准的 Wasserstein 距离与拓扑迁移计算
+        说明：强制关闭 fastmath 以保全浮点累加的绝对精度。
+        采用线性插值法计算分位数锁定阈值，消除了离散数据的阶梯效应断层。
+        """
         rows, cols = chip_matrix.shape
         emd_distance_array = np.zeros(rows - 1, dtype=np.float64)
         abs_change_matrix = np.zeros((rows - 1, cols), dtype=np.float64)
@@ -65,7 +74,14 @@ class ChipMatrixDynamicsCalculator:
         change_concentration = top_5_sum / total_change_volume
         active_changes = sorted_changes[sorted_changes > 0]
         if len(active_changes) > 0:
-            lock_threshold = active_changes[int(len(active_changes) * threshold_pct)]
+            pct_index = (len(active_changes) - 1) * threshold_pct
+            lower_idx = int(np.floor(pct_index))
+            upper_idx = int(np.ceil(pct_index))
+            weight = pct_index - lower_idx
+            if lower_idx == upper_idx:
+                lock_threshold = active_changes[lower_idx]
+            else:
+                lock_threshold = active_changes[lower_idx] * (1.0 - weight) + active_changes[upper_idx] * weight
             locked_count = 0
             for val in latest_changes:
                 if val < lock_threshold:
@@ -77,42 +93,50 @@ class ChipMatrixDynamicsCalculator:
 
     @staticmethod
     def calculate_topological_chip_peaks(chip_distribution: np.ndarray, price_grid: np.ndarray) -> dict:
-        """【新增】引入拓扑突起度 (Prominence) 过滤 A 股毛刺的长尾多峰识别算法"""
-        dist_std = np.std(chip_distribution)
-        min_prominence = max(0.01, dist_std * 0.5)
-        min_distance = max(1, int(len(price_grid) * 0.05))
+        """
+        [Version 3.1.0] 连续映射拓扑突起度多峰识别算法
+        说明：废弃了粗糙的0,1,2三档位置分类，采用精确的连续百分位映射(0.0-1.0)。
+        引入基于四分位距(IQR)的自适应突起度阈值，防止极化分布的肥尾效应掩盖真实的局部密集峰。
+        """
+        import numpy as np
+        from scipy.signal import find_peaks
+        if len(chip_distribution) == 0 or len(price_grid) == 0:
+            return {'peak_count': 0, 'highest_peak_price': 0.0, 'lowest_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'main_peak_position': 0.0}
+        q75, q25 = np.percentile(chip_distribution, )
+        iqr = q75 - q25
+        min_prominence = max(0.005, iqr * 0.3)
+        min_distance = max(1, int(len(price_grid) * 0.03))
         peaks_indices, properties = find_peaks(
             chip_distribution, prominence=min_prominence, width=2, distance=min_distance
         )
         peak_count = len(peaks_indices)
         if peak_count == 0:
-            return {'peak_count': 0, 'highest_peak_price': 0.0, 'lowest_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'main_peak_position': 0}
+            return {'peak_count': 0, 'highest_peak_price': 0.0, 'lowest_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'main_peak_position': 0.0}
         prominences = properties['prominences']
         sorted_peak_ranks = np.argsort(prominences)[::-1]
         main_peak_idx = peaks_indices[sorted_peak_ranks]
-        main_peak_price = price_grid[main_peak_idx]
-        price_min, price_max = price_grid, price_grid[-1]
+        main_peak_price = float(price_grid[main_peak_idx])
+        price_min = float(price_grid)
+        price_max = float(price_grid[-1])
         price_range = price_max - price_min
-        if main_peak_price < price_min + price_range * 0.33:
-            main_peak_position = 0
-        elif main_peak_price > price_min + price_range * 0.66:
-            main_peak_position = 2
+        if price_range > 0:
+            main_peak_position = (main_peak_price - price_min) / price_range
         else:
-            main_peak_position = 1
-        highest_peak_price = np.max(price_grid[peaks_indices])
-        lowest_peak_price = np.min(price_grid[peaks_indices])
+            main_peak_position = 0.0
+        highest_peak_price = float(np.max(price_grid[peaks_indices]))
+        lowest_peak_price = float(np.min(price_grid[peaks_indices]))
         peak_distance_ratio = (highest_peak_price - lowest_peak_price) / price_range if price_range > 0 else 0.0
-        peak_concentration = chip_distribution[main_peak_idx]
+        peak_concentration = float(chip_distribution[main_peak_idx])
         if peak_count > 1:
-            second_peak_idx = peaks_indices[sorted_peak_ranks[1]]
-            peak_concentration += chip_distribution[second_peak_idx]
+            second_peak_idx = peaks_indices[sorted_peak_ranks]
+            peak_concentration += float(chip_distribution[second_peak_idx])
         return {
-            'peak_count': peak_count,
+            'peak_count': int(peak_count),
             'highest_peak_price': highest_peak_price,
             'lowest_peak_price': lowest_peak_price,
-            'peak_distance_ratio': peak_distance_ratio,
-            'peak_concentration': peak_concentration,
-            'main_peak_position': main_peak_position
+            'peak_distance_ratio': float(peak_distance_ratio),
+            'peak_concentration': float(peak_concentration),
+            'main_peak_position': round(float(main_peak_position), 4)
         }
 
     @classmethod

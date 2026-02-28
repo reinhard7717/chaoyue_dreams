@@ -268,25 +268,65 @@ def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, 
         logger.error(f"批量计算筹码因子失败: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
-def calculate_single_stock_chip_factors_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
-    """同步版本的单个股票计算函数（按股票循环）"""
-    try:
-        print(f"🔴 [单股开始] 开始处理股票 {stock_code}")
-        print(f"📅 [单股日期] 日期范围: {start_date} 到 {end_date}")
-        # 创建事件循环用于异步调用
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+def calculate_single_stock_chip_factors_sync(stock_code: str, start_date: str, end_date: str, market_type: str) -> bool:
+    """
+    [Version 4.2.0] 同步计算单只股票筹码因子任务
+    说明：适配最新的高精度计算架构，调用 ChipFactorCalculationHelper 引擎执行核心因子的
+    非线性映射与除零安全防线计算，并将结果持久化到对应市场的 ChipFactor 模型中。
+    """
+    from services.chip_holding_calculator import ChipFactorCalculationHelper
+    from utils.model_helpers import get_chip_holding_matrix_model_by_code, get_chip_factor_model_by_market
+    HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
+    FactorModel = get_chip_factor_model_by_market(market_type)
+    matrix_records = HoldingMatrixModel.objects.filter(stock_id=stock_code, trade_time__gte=start_date, trade_time__lte=end_date, calc_status='success').order_by('trade_time')
+    if not matrix_records.exists():
+        return False
+    for record in matrix_records:
         try:
-            start_time = time.time()
-            result = loop.run_until_complete(calculate_single_stock_chip_factors_async(stock_code, start_date, end_date))
-            elapsed_time = time.time() - start_time
-            return result
-        finally:
-            loop.close()
-    except Exception as e:
-        logger.error(f"同步计算股票 {stock_code} 失败: {e}")
-        print(f"❌ [单股异常] {stock_code}: {e}")
-        return {'status': 'error', 'error': str(e), 'processed_dates': 0}
+            close_price = float(record.close)
+            his_high = float(record.his_high)
+            his_low = float(record.his_low)
+            winner_rate = float(record.winner_rate)
+            chip_distribution = record.chip_matrix_array
+            cost_percentiles = {
+                '5pct': record.cost_5pct,
+                '15pct': record.cost_15pct,
+                '50pct': record.cost_50pct,
+                '85pct': record.cost_85pct,
+                '95pct': record.cost_95pct
+            }
+            core_factors = ChipFactorCalculationHelper.calculate_core_chip_factors(
+                close=close_price,
+                cost_percentiles=cost_percentiles,
+                his_high=his_high,
+                his_low=his_low,
+                winner_rate=winner_rate,
+                chip_distribution=chip_distribution
+            )
+            FactorModel.objects.update_or_create(
+                stock_id=stock_code,
+                trade_time=record.trade_time,
+                defaults={
+                    'close': close_price,
+                    'weight_avg_cost': record.weight_avg_cost,
+                    'chip_concentration_ratio': core_factors['chip_concentration_ratio'],
+                    'chip_stability': core_factors['chip_stability'],
+                    'price_percentile_position': core_factors['price_percentile_position'],
+                    'profit_pressure': core_factors['profit_pressure'],
+                    'win_rate_price_position': core_factors['win_rate_price_position'],
+                    'chip_entropy': core_factors['chip_entropy'],
+                    'chip_convergence_ratio': core_factors['chip_convergence_ratio'],
+                    'chip_divergence_ratio': core_factors['chip_divergence_ratio'],
+                    'calc_status': 'success'
+                }
+            )
+        except Exception as e:
+            FactorModel.objects.update_or_create(
+                stock_id=stock_code,
+                trade_time=record.trade_time,
+                defaults={'calc_status': 'failed'}
+            )
+    return True
 
 async def calculate_single_stock_chip_factors_async(stock_code: str, start_date: date, end_date: date) -> Dict:
     # [V3.1.2] 优化说明：引入from_records和float32数据类型强制降级；优化小范围数值统计性能
