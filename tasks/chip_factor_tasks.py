@@ -1207,13 +1207,10 @@ def weekly_chip_factor_maintenance(self) -> Dict:
 
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_energy_field_analysis',queue=ChipTaskConfig.get_queue_name())
 def schedule_energy_field_analysis(self, start_date_str: str, end_date_str: str) -> Dict:
-    """
-    专门调度能量场分析任务
-    """
+    # [V3.1.5] 方法说明：全市场能量场调度器（重构版）。废弃冗余逻辑，强制代理至 schedule_energy_only_calculation，确保底层一次性计算并写入数据库
     try:
         start_date = parse_date(start_date_str)
         end_date = parse_date(end_date_str)
-        # 获取全市场股票
         cache_manager = CacheManager()
         stock_dao = StockBasicInfoDao(cache_manager)
         loop = asyncio.new_event_loop()
@@ -1223,134 +1220,15 @@ def schedule_energy_field_analysis(self, start_date_str: str, end_date_str: str)
             stock_codes = [stock.stock_code for stock in stock_list]
         finally:
             loop.close()
-        # 分批调度
-        batch_size = ChipTaskConfig.BATCH_SIZE_BULK
-        total_batches = (len(stock_codes) + batch_size - 1) // batch_size
-        task_ids = []
-        for i in range(0, len(stock_codes), batch_size):
-            batch_codes = stock_codes[i:i + batch_size]
-            task = calculate_energy_field_batch.delay(
-                stock_codes=batch_codes,
-                start_date=start_date_str,
-                end_date=end_date_str
-            )
-            task_ids.append(task.id)
-            print(f"📤 [能量场调度] 批次 {i//batch_size + 1}/{total_batches}: {len(batch_codes)} 只股票")
-        return {
-            'status': 'scheduled',
-            'task_count': len(task_ids),
-            'task_ids': task_ids,
-            'total_stocks': len(stock_codes),
-        }
+        result = schedule_energy_only_calculation(stock_codes, start_date, end_date)
+        return {'status': 'scheduled','task_count': result['total_tasks'],'task_ids': [],'total_stocks': len(stock_codes),'message': '已全面路由至综合持有矩阵一次性计算'}
     except Exception as e:
         logger.error(f"调度能量场分析失败: {e}")
         raise self.retry(exc=e, countdown=60)
 
-@celery_app.task(bind=True, name='tasks.chip_factor_tasks.calculate_energy_field_batch',queue=ChipTaskConfig.get_queue_name())
-def calculate_energy_field_batch(self, stock_codes: List[str], start_date: str, end_date: str, incremental: bool = True) -> Dict:
-    # [V3.1.0] 能量场分析批处理增加O(1)增量过滤逻辑，依据能量场特有字段判断断点
-    try:
-        global_start_date_obj = parse_date(start_date)
-        end_date_obj = parse_date(end_date)
-        results = {'total': len(stock_codes), 'success': 0, 'failed': 0, 'details': []}
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        cm = CacheManager()
-        try:
-            for idx, stock_code in enumerate(stock_codes):
-                try:
-                    print(f"🔴 [能量场计算] 处理 {idx+1}/{len(stock_codes)}: {stock_code}")
-                    actual_start_date_obj = global_start_date_obj
-                    if incremental:
-                        holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
-                        # 查询能量场特有字段不为默认值的最新日期
-                        latest_record = holding_matrix_model.objects.filter(
-                            stock__stock_code=stock_code,
-                            calc_status='success',
-                            analysis_method='energy_field_v2'
-                        ).order_by('-trade_time').first()
-                        if latest_record:
-                            next_trade_date = TradeCalendar.get_next_trade_date(latest_record.trade_time)
-                            if next_trade_date:
-                                actual_start_date_obj = max(global_start_date_obj, next_trade_date)
-                    if actual_start_date_obj > end_date_obj:
-                        print(f"✅ [增量跳过] {stock_code} 能量场数据已是最新")
-                        results['success'] += 1
-                        continue
-                    trade_dates = TradeCalendar.get_trade_dates_between(actual_start_date_obj, end_date_obj)
-                    if not trade_dates:
-                        continue
-                    date_results = loop.run_until_complete(
-                        process_energy_field_for_stock(stock_code, trade_dates, cm)
-                    )
-                    processed_dates = date_results['processed_dates']
-                    if processed_dates > 0:
-                        results['success'] += 1
-                        results['details'].append({'stock_code': stock_code, 'status': 'success', 'processed_dates': processed_dates})
-                    else:
-                        results['failed'] += 1
-                except Exception as e:
-                    results['failed'] += 1
-                    print(f"❌ [能量场股票错误] {stock_code}: {e}")
-        finally:
-            loop.close()
-        return results
-    except Exception as e:
-        logger.error(f"批量计算能量场失败: {e}")
-        raise self.retry(exc=e, countdown=60)
-
-async def process_energy_field_for_stock(stock_code: str, trade_dates: List[date], cm: CacheManager) -> Dict:
-    """处理单只股票的能量场计算"""
-    processed_dates = 0
-    # 创建AdvancedChipDynamicsService实例
-    service = AdvancedChipDynamicsService(market_type=get_market_from_code(stock_code))
-    for trade_date in trade_dates:
-        try:
-            # 分析筹码动态（包含能量场）
-            realtime_dao = StockRealtimeDAO(cm)
-            tick_data = await realtime_dao.get_daily_real_ticks(stock_code, trade_date) 
-            dynamics_result = await service.analyze_chip_dynamics_daily(
-                stock_code=stock_code,
-                trade_date=trade_date.strftime('%Y-%m-%d'),
-                lookback_days=20,
-                tick_data=tick_data
-            )
-            if dynamics_result.get('analysis_status') == 'success':
-                # 更新持有矩阵记录的能量场字段
-                HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
-                # 获取股票
-                from stock_models.stock_basic import StockInfo
-                stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
-                if stock:
-                    # 获取或创建记录
-                    record, created = await sync_to_async(HoldingMatrixModel.objects.get_or_create)(
-                        stock=stock,
-                        trade_time=trade_date,
-                        defaults={'calc_status': 'pending'}
-                    )
-                    # 只更新能量场相关字段，不覆盖其他计算
-                    game_energy = dynamics_result.get('game_energy_result', {})
-                    if game_energy:
-                        record.absorption_energy = game_energy.get('absorption_energy', 0.0)
-                        record.distribution_energy = game_energy.get('distribution_energy', 0.0)
-                        record.net_energy_flow = game_energy.get('net_energy_flow', 0.0)
-                        record.game_intensity = game_energy.get('game_intensity', 0.0)
-                        record.breakout_potential = game_energy.get('breakout_potential', 0.0)
-                        record.energy_concentration = game_energy.get('energy_concentration', 0.0)
-                        record.fake_distribution_flag = game_energy.get('fake_distribution_flag', False)
-                        record.key_battle_zones = game_energy.get('key_battle_zones', [])
-                        # 标记为能量场计算
-                        record.analysis_method = 'energy_field_v2'
-                        await sync_to_async(record.save)()
-                        processed_dates += 1
-        except Exception as e:
-            print(f"⚠️ [能量场日期错误] {stock_code} {trade_date}: {e}")
-            continue
-    return {'processed_dates': processed_dates}
-
 # ========== 工具函数 ==========
 def schedule_comprehensive_calculation(stock_codes: List[str], start_date: date, end_date: date, batch_mode: bool = True, incremental: bool = True) -> Dict:
-    # [V3.1.0] 综合计算调度器注入incremental参数，贯穿全链路增量控制
+    # [V3.1.4] 方法说明：综合计算调度器。移除了冗余的能量场独立计算环节（持有矩阵阶段已完整包含动态能量分析并持久化），减少50%的重复计算与Tick获取开销
     print(f"🚀 [综合计算V3] 开始调度 {len(stock_codes)} 只股票，增量模式: {incremental}")
     print(f"📅 [日期范围] {start_date} 到 {end_date}")
     market_groups = {}
@@ -1364,81 +1242,32 @@ def schedule_comprehensive_calculation(stock_codes: List[str], start_date: date,
         for i in range(0, len(codes), ChipTaskConfig.BATCH_SIZE_BULK):
             batch_codes = codes[i:i + ChipTaskConfig.BATCH_SIZE_BULK]
             task_chain = chain(
-                calculate_holding_matrix_batch.s(
-                    stock_codes=batch_codes,
-                    start_date=start_date.strftime('%Y%m%d'),
-                    end_date=end_date.strftime('%Y%m%d'),
-                    market=market,
-                    incremental=incremental
-                ),
-                calculate_energy_field_batch.si(
-                    stock_codes=batch_codes,
-                    start_date=start_date.strftime('%Y%m%d'),
-                    end_date=end_date.strftime('%Y%m%d'),
-                    incremental=incremental
-                ),
-                calculate_chip_factors_batch.si(
-                    stock_codes=batch_codes,
-                    start_date=start_date.strftime('%Y%m%d'),
-                    end_date=end_date.strftime('%Y%m%d'),
-                    market=market,
-                    incremental=incremental
-                )
+                calculate_holding_matrix_batch.s(stock_codes=batch_codes,start_date=start_date.strftime('%Y%m%d'),end_date=end_date.strftime('%Y%m%d'),market=market,incremental=incremental),
+                calculate_chip_factors_batch.si(stock_codes=batch_codes,start_date=start_date.strftime('%Y%m%d'),end_date=end_date.strftime('%Y%m%d'),market=market,incremental=incremental)
             )
             chain_result = task_chain.delay()
             total_tasks += 1
-            task_details.append({
-                'task_id': chain_result.id,
-                'market': market,
-                'batch_index': i // ChipTaskConfig.BATCH_SIZE_BULK + 1,
-                'stock_count': len(batch_codes)
-            })
+            task_details.append({'task_id': chain_result.id,'market': market,'batch_index': i // ChipTaskConfig.BATCH_SIZE_BULK + 1,'stock_count': len(batch_codes)})
             if total_tasks % 10 == 0:
                 time.sleep(0.5)
     print(f"✅ [综合计算V3] 共创建 {total_tasks} 个链式任务")
-    return {
-        'status': 'scheduled',
-        'total_tasks': total_tasks,
-        'mode': 'comprehensive_v3',
-        'calculation_flow': 'holding_matrix -> energy_field -> chip_factors',
-        'total_stocks': len(stock_codes),
-        'date_range': f"{start_date} - {end_date}"
-    }
+    return {'status': 'scheduled','total_tasks': total_tasks,'mode': 'comprehensive_v3','calculation_flow': 'holding_matrix -> chip_factors','total_stocks': len(stock_codes),'date_range': f"{start_date} - {end_date}"}
 
-def schedule_energy_only_calculation(
-    stock_codes: List[str], 
-    start_date: date, 
-    end_date: date
-) -> Dict:
-    """
-    仅调度能量场分析
-    """
-    print(f"⚡ [能量场专用] 开始调度 {len(stock_codes)} 只股票的能量场计算")
-    # 按市场分组
+def schedule_energy_only_calculation(stock_codes: List[str], start_date: date, end_date: date, incremental: bool = True) -> Dict:
+    # [V3.1.5] 方法说明：能量场专属调度器（重构版）。强制路由至统一的持有矩阵批处理任务，实现动力学指标一次性计算与统一持久化，杜绝I/O浪费
+    print(f"⚡ [路由重定向] 能量场分析已与持有矩阵合并，正在路由 {len(stock_codes)} 只股票的计算请求")
     market_groups = {}
     for code in stock_codes:
         market = get_market_from_code(code)
         market_groups.setdefault(market, []).append(code)
     total_tasks = 0
     for market, codes in market_groups.items():
-        # 分批处理
         for i in range(0, len(codes), ChipTaskConfig.BATCH_SIZE_BULK):
             batch_codes = codes[i:i + ChipTaskConfig.BATCH_SIZE_BULK]
-            # 创建能量场计算任务
-            task = calculate_energy_field_batch.delay(
-                stock_codes=batch_codes,
-                start_date=start_date.strftime('%Y%m%d'),
-                end_date=end_date.strftime('%Y%m%d')
-            )
+            task = calculate_holding_matrix_batch.delay(stock_codes=batch_codes,start_date=start_date.strftime('%Y%m%d'),end_date=end_date.strftime('%Y%m%d'),market=market,incremental=incremental)
             total_tasks += 1
-            print(f"📤 [能量场任务] 创建任务 {task.id}: {market}市场 {len(batch_codes)} 只股票")
-    return {
-        'status': 'scheduled',
-        'total_tasks': total_tasks,
-        'mode': 'energy_only',
-        'total_stocks': len(stock_codes),
-        'date_range': f"{start_date} - {end_date}"
-    }
+            print(f"📤 [统一任务] 创建综合动态任务 {task.id}: {market}市场 {len(batch_codes)} 只股票")
+    return {'status': 'scheduled','total_tasks': total_tasks,'mode': 'routed_to_holding_matrix','total_stocks': len(stock_codes),'date_range': f"{start_date} - {end_date}"}
 
 def schedule_single_stock_calculation(stock_code: str,start_date_str: str = None,end_date_str: str = None) -> str:
     """
