@@ -179,13 +179,13 @@
         "mid_long_sync_D": [5, 13, 21, 34],
         "industry_breadth_score_D": [5, 13, 21, 34],
         "volatility_adjusted_concentration_D": [5, 13, 21, 34],
-        "HM_ACTIVE_ANY_D": [5, 13, 21, 34],
+        "HM_ACTIVE_ANY_D": [3, 5, 8, 13, 21, 34, 55],
         "breakout_quality_score_D": [5, 13, 21, 34, 55],
         "GAP_MOMENTUM_STRENGTH_D": [5, 13, 21, 34, 55],
         "ATAN_ANGLE_EMA_55_D": [5, 13],
         "MA_VELOCITY_EMA_55_D": [5, 13],
         "MA_ACCELERATION_EMA_55_D": [5, 8, 13, 21, 34],
-        "HM_COORDINATED_ATTACK_D": [5, 13],
+        "HM_COORDINATED_ATTACK_D": [3, 5, 8, 13, 21, 34, 55],
         "PRICE_ENTROPY_D": [5, 8, 13, 21],
         "STATE_GOLDEN_PIT_D": [5, 8, 13, 21],
         "stealth_flow_ratio_D": [3, 5, 8, 13, 21],
@@ -234,9 +234,9 @@
         "industry_strength_rank_D": [3, 5, 8, 13, 21],
         "VOL_MA_5_D": [5, 13],
         "VOL_MA_13_D": [5, 13],
-        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [5, 13, 21, 34],
+        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [3, 5, 8, 13, 21, 34, 55],
         "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
-        "SMART_MONEY_SYNERGY_BUY_D": [5, 13]
+        "SMART_MONEY_SYNERGY_BUY_D": [3, 5, 8, 13, 21, 34, 55]
       }
     },
     "accel_params": {
@@ -295,7 +295,7 @@
         "mid_long_sync_D": [5, 13, 21, 34],
         "industry_breadth_score_D": [5, 13, 21, 34],
         "volatility_adjusted_concentration_D": [5, 13, 21, 34],
-        "HM_ACTIVE_ANY_D": [5, 13, 21, 34],
+        "HM_ACTIVE_ANY_D": [3, 5, 8, 13, 21, 34, 55],
         "THEME_HOTNESS_SCORE_D": [3, 5, 8, 13, 21],
         "market_sentiment_score_D": [3, 5, 8, 13, 21, 34, 55],
         "counterparty_exhaustion_index_D": [5, 13, 21],
@@ -345,16 +345,16 @@
         "trade_count_D": [3, 5, 8, 13, 21],
         "absorption_energy_D": [5, 13, 21, 34, 55],
         "buy_elg_amount_D": [5, 13, 21],
-        "HM_COORDINATED_ATTACK_D": [5, 13],
+        "HM_COORDINATED_ATTACK_D": [3, 5, 8, 13, 21, 34, 55],
         "PRICE_ENTROPY_D": [5, 8, 13, 21],
         "STATE_GOLDEN_PIT_D": [5, 8, 13, 21],
         "TURNOVER_STABILITY_INDEX_D": [5, 8, 13, 21],
         "industry_strength_rank_D": [3, 5, 8, 13, 21],
         "VOL_MA_5_D": [5, 13],
         "VOL_MA_13_D": [5, 13],
-        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [5, 13, 21, 34],
+        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [3, 5, 8, 13, 21, 34, 55],
         "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
-        "SMART_MONEY_SYNERGY_BUY_D": [5, 13]
+        "SMART_MONEY_SYNERGY_BUY_D": [3, 5, 8, 13, 21, 34, 55]
       }
     },
     "jerk_params": {
@@ -429,9 +429,9 @@
         "mid_long_sync_D": [5, 13, 21, 34],
         "industry_breadth_score_D": [5, 13, 21, 34],
         "volatility_adjusted_concentration_D": [5, 13, 21, 34],
-        "HM_ACTIVE_ANY_D": [5, 13, 21, 34],
+        "HM_ACTIVE_ANY_D": [3, 5, 8, 13, 21, 34, 55],
         "CLOSING_STRENGTH_D": [5, 13, 21, 34, 55],
-        "HM_COORDINATED_ATTACK_D": [5, 13],
+        "HM_COORDINATED_ATTACK_D": [3, 5, 8, 13, 21, 34, 55],
         "PRICE_ENTROPY_D": [5, 8, 13, 21],
         "STATE_GOLDEN_PIT_D": [5, 8, 13, 21],
         "MA_ACCELERATION_EMA_55_D": [5, 8, 13, 21, 34],
@@ -445,9 +445,9 @@
         "STATE_PARABOLIC_WARNING_D": [5, 13],
         "VPA_MF_ADJUSTED_EFF_D": [3, 5, 8, 13, 21],
         "chip_entropy_D": [3, 5, 8, 13, 21],
-        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [5, 13, 21, 34],
+        "SMART_MONEY_HM_COORDINATED_ATTACK_D": [3, 5, 8, 13, 21, 34, 55],
         "SMART_MONEY_HM_NET_BUY_D": [3, 5, 8, 13, 21, 34, 55],
-        "SMART_MONEY_SYNERGY_BUY_D": [5, 13]
+        "SMART_MONEY_SYNERGY_BUY_D": [3, 5, 8, 13, 21, 34, 55]
       }
     }
   },
