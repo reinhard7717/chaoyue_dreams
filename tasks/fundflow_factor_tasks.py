@@ -434,48 +434,39 @@ async def _get_daily_basic_data_async(stock_code: str, trade_date: date,
 
 def get_trade_dates_for_stock(stock_code: str, start_date: date, incremental: bool, factor_model) -> List[date]:
     """
-    获取需要计算的交易日列表
-    版本: V1.2
-    说明: 移除错误的采样逻辑 [::50]，确保计算指定区间内的所有交易日。
+    版本: V2.1.0
+    说明: 彻底重构增量计算逻辑，引入“区间差集”比对机制。
+    废弃原有的“仅依赖最后一条记录向后推算”的逻辑，改为拉取理论区间内的全部交易日，并与数据库中已存在记录作差集。
+    无论是否指定 start_date，只要开启 incremental=True，系统都会精准识别并仅计算缺失的日期，彻底解决历史数据空洞问题。
     """
     try:
-        # 修改：使用 get_latest_n_trade_dates 获取包含今天的最新交易日 (lte)
         latest_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=timezone.now().date())
         latest_trade_date = latest_dates[0] if latest_dates else None
         if not latest_trade_date:
             logger.warning(f"无法获取股票 {stock_code} 的最新交易日")
             return []
-        # 确定实际开始日期
-        if incremental and start_date is None:
-            # 增量模式：从已有因子数据的最新日期开始
-            latest_factor = factor_model.objects.filter(
-                stock__stock_code=stock_code
-            ).order_by('-trade_time').first()
-            if latest_factor:
-                # 从已有因子的下一个交易日开始
-                calc_start_date = TradeCalendar.get_next_trade_date(reference_date=latest_factor.trade_time)
-            else:
-                # 没有因子数据，从最早的资金流向数据开始
-                calc_start_date = get_earliest_flow_date(stock_code)
+        if start_date:
+            calc_start_date = start_date
         else:
-            # 指定日期模式
-            calc_start_date = start_date or get_earliest_flow_date(stock_code)
+            calc_start_date = get_earliest_flow_date(stock_code)
         if not calc_start_date:
             logger.warning(f"无法确定股票 {stock_code} 的计算开始日期")
             return []
-        # 确保开始日期不晚于最新交易日
         if calc_start_date > latest_trade_date:
-            print(f"股票 {stock_code} 开始日期 {calc_start_date} 晚于最新交易日 {latest_trade_date}")
+            logger.debug(f"股票 {stock_code} 开始日期 {calc_start_date} 晚于最新交易日 {latest_trade_date}")
             return []
-        # 获取开始日期到最新交易日之间的所有交易日
-        all_trade_dates = TradeCalendar.get_trade_dates_between(start_date=calc_start_date,end_date=latest_trade_date)
+        all_trade_dates = TradeCalendar.get_trade_dates_between(start_date=calc_start_date, end_date=latest_trade_date)
         if not all_trade_dates:
-            print(f"股票 {stock_code} 在 {calc_start_date} 到 {latest_trade_date} 之间没有交易日")
+            logger.debug(f"股票 {stock_code} 在指定区间内没有理论交易日")
             return []
-        # [修正] 移除采样逻辑，返回所有需要计算的日期
-        # 原代码的 [::50] 会导致只计算极少数日期，不符合连续因子计算的需求
-        logger.debug(f"股票 {stock_code} 需要计算的交易日数量: {len(all_trade_dates)}")
-        return all_trade_dates
+        if incremental:
+            existing_records = factor_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=calc_start_date, trade_time__lte=latest_trade_date).values_list('trade_time', flat=True)
+            existing_dates = set(existing_records)
+            pending_dates = [d for d in all_trade_dates if d not in existing_dates]
+        else:
+            pending_dates = all_trade_dates
+        logger.debug(f"股票 {stock_code} 理论交易日: {len(all_trade_dates)}天, 实际待计算(增量差集): {len(pending_dates)}天")
+        return sorted(pending_dates)
     except Exception as e:
         logger.error(f"获取股票 {stock_code} 交易日失败: {e}", exc_info=True)
         return []
