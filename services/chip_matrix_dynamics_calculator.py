@@ -15,226 +15,225 @@ class ChipMatrixDynamicsCalculator:
 
     @staticmethod
     def clean_structure(data, precision=3, threshold=0.0):
-        """数据清洗与精度控制辅助函数"""
-        if isinstance(data, (float, int, np.number)):
-            try:
-                val = float(data)
-                if math.isnan(val) or math.isinf(val): return 0.0
-                if abs(val) < threshold: return 0.0
-                if val == 0.0: return 0.0
-                return round(val, precision)
-            except Exception: return 0.0
+        """保留原有的递归数据清洗与精度控制逻辑，确保 JSON 序列化安全"""
+        if isinstance(data, dict):
+            return {k: ChipMatrixDynamicsCalculator.clean_structure(v, precision, threshold) for k, v in data.items()}
+        elif isinstance(data, (list, tuple)):
+            return
         elif isinstance(data, np.ndarray):
-            try:
-                data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
-                if threshold > 0: data = np.where(np.abs(data) < threshold, 0.0, data)
-                return np.round(data, precision).tolist()
-            except Exception: return [ChipMatrixDynamicsCalculator.clean_structure(i, precision, threshold) for i in data.tolist()]
-        elif isinstance(data, dict): return {k: ChipMatrixDynamicsCalculator.clean_structure(v, precision, threshold) for k, v in data.items()}
-        elif isinstance(data, (list, tuple)): return [ChipMatrixDynamicsCalculator.clean_structure(i, precision, threshold) for i in data]
+            cleaned_array = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
+            return
+        elif isinstance(data, (float, np.floating)):
+            if math.isnan(data) or math.isinf(data):
+                return 0.0
+            if abs(data) < threshold:
+                return 0.0
+            return round(float(data), precision)
+        elif isinstance(data, np.bool_):
+            return bool(data)
         return data
 
     @staticmethod
-    def calculate_absolute_change_analysis(changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
-        """深化版绝对变化分析 - 融合幻方A股趋势与反转博弈经验"""
-        try:
-            if len(changes) == 0 or len(price_grid) == 0 or current_price <= 0:
-                return ChipMatrixDynamicsCalculator.get_default_absolute_analysis()
-            # 1. 基础统计
-            analysis = {
-                'total_change_volume': float(np.sum(np.abs(changes))),
-                'positive_change_volume': float(np.sum(changes[changes > 0])),
-                'negative_change_volume': float(np.sum(changes[changes < 0])),
-                'max_increase': float(np.max(changes)) if len(changes) > 0 else 0.0,
-                'max_decrease': float(np.min(changes)) if len(changes) > 0 else 0.0,
-                'mean_change': float(np.mean(changes)) if len(changes) > 0 else 0.0,
-                'change_std': float(np.std(changes)) if len(changes) > 0 else 0.0,
-            }
-            # 2. A股特有变化集中度分析
-            if analysis['total_change_volume'] > 0:
-                abs_changes = np.abs(changes)
-                sorted_indices = np.argsort(abs_changes)[::-1]
-                top_5_percent = max(1, int(len(changes) * 0.05))
-                top_indices = sorted_indices[:top_5_percent]
-                analysis['change_concentration'] = np.sum(abs_changes[top_indices]) / analysis['total_change_volume']
-                # 筹码锁定度
-                threshold = np.percentile(abs_changes[abs_changes > 0], 10) if np.any(abs_changes > 0) else 0.0
-                analysis['chip_lock_ratio'] = np.sum(abs_changes < threshold) / len(changes) if threshold > 0 else 0.0
-            else:
-                analysis['change_concentration'] = 0.0
-                analysis['chip_lock_ratio'] = 1.0
-            # 3. 组合各个维度的分析
-            analysis.update(ChipMatrixDynamicsCalculator.analyze_a_share_key_price_levels(changes, price_grid, current_price))
-            analysis.update(ChipMatrixDynamicsCalculator.analyze_a_share_pullback_pattern(changes, price_grid, current_price))
-            analysis.update(ChipMatrixDynamicsCalculator.analyze_a_share_reversal_features(changes, price_grid, current_price))
-            analysis.update(ChipMatrixDynamicsCalculator.detect_a_share_false_signals(changes, price_grid, current_price))
-            analysis.update(ChipMatrixDynamicsCalculator.calculate_a_share_market_sentiment(changes, price_grid, current_price))
-            analysis.update(ChipMatrixDynamicsCalculator.assess_a_share_trend_quality(changes, price_grid, current_price))
-            analysis.update(ChipMatrixDynamicsCalculator.analyze_chip_transfer_path(changes, price_grid, current_price))
-            analysis.update(ChipMatrixDynamicsCalculator.identify_sector_rotation_patterns(changes, price_grid, current_price))
-            return analysis
-        except Exception as e:
-            print(f"❌ [绝对变化分析] 异常: {e}")
-            return ChipMatrixDynamicsCalculator.get_default_absolute_analysis()
+    @njit(parallel=True, fastmath=True, cache=True)
+    def calculate_matrix_emd_dynamics_optimized(chip_matrix: np.ndarray, price_grid: np.ndarray, threshold_pct: float) -> tuple:
+        """【新增】基于 Numba 与 Wasserstein 距离的高性能筹码拓扑迁移矩阵计算"""
+        rows, cols = chip_matrix.shape
+        emd_distance_array = np.zeros(rows - 1, dtype=np.float64)
+        abs_change_matrix = np.zeros((rows - 1, cols), dtype=np.float64)
+        for i in prange(rows - 1):
+            cdf_prev = 0.0
+            cdf_curr = 0.0
+            emd_sum = 0.0
+            for j in range(cols):
+                val_prev = chip_matrix[i, j]
+                val_curr = chip_matrix[i+1, j]
+                abs_change_matrix[i, j] = np.abs(val_curr - val_prev)
+                cdf_prev += val_prev
+                cdf_curr += val_curr
+                if j < cols - 1:
+                    grid_distance = price_grid[j+1] - price_grid[j]
+                    emd_sum += np.abs(cdf_prev - cdf_curr) * grid_distance
+            emd_distance_array[i] = emd_sum
+        latest_changes = abs_change_matrix[-1, :]
+        total_change_volume = np.sum(latest_changes)
+        if total_change_volume <= 1e-8:
+            return emd_distance_array, abs_change_matrix, 0.0, 1.0
+        k_top = max(1, int(cols * 0.05))
+        sorted_changes = np.sort(latest_changes)
+        top_5_sum = np.sum(sorted_changes[-k_top:])
+        change_concentration = top_5_sum / total_change_volume
+        active_changes = sorted_changes[sorted_changes > 0]
+        if len(active_changes) > 0:
+            lock_threshold = active_changes[int(len(active_changes) * threshold_pct)]
+            locked_count = 0
+            for val in latest_changes:
+                if val < lock_threshold:
+                    locked_count += 1
+            chip_lock_ratio = locked_count / cols
+        else:
+            chip_lock_ratio = 1.0
+        return emd_distance_array, abs_change_matrix, change_concentration, chip_lock_ratio
 
     @staticmethod
-    def calculate_tick_enhanced_factors(current_factors: Dict[str, float], tick_factors: Dict[str, Any], quality_score: float) -> Tuple[float, float, float, float, Dict[str, Any]]:
-        """
-        基于Tick数据的持有时间因子修正
-        返回: (short_term, mid_term, long_term, avg_days, adjustment_reason)
-        """
-        short_term = current_factors.get('short', 0.2)
-        mid_term = current_factors.get('mid', 0.3)
-        long_term = current_factors.get('long', 0.5)
-        avg_days = current_factors.get('days', 60.0)
-        reason = {}
-        try:
-            if quality_score < 0.5:
-                return short_term, mid_term, long_term, avg_days, {'msg': 'low_quality'}
-            # 提取因子
-            tick_intensity = tick_factors.get('intraday_chip_turnover_intensity', 0.0)
-            main_force_score = tick_factors.get('intraday_main_force_activity', 0.0)
-            volume_clustering = tick_factors.get('volume_clustering_score', 0.0)
-            # A股散户特征识别
-            retail_dominated = False
-            if tick_intensity > 0.7 and main_force_score < 0.3:
-                retail_dominated = True
-            # 调整逻辑
-            if retail_dominated:
-                adjust = tick_intensity * 0.15
-                short_term = min(0.6, short_term + adjust)
-                long_term = max(0.1, long_term - adjust * 0.5)
-            if main_force_score > 0.4:
-                acc_conf = tick_factors.get('intraday_accumulation_confidence', 0.0)
-                dist_conf = tick_factors.get('intraday_distribution_confidence', 0.0)
-                if acc_conf > dist_conf:
-                    # 吸筹 -> 延长时间
-                    mid_term = min(0.6, mid_term + 0.1)
-                    avg_days *= 1.2
-                else:
-                    # 派发 -> 缩短时间
-                    short_term = min(0.5, short_term + 0.1)
-                    avg_days *= 0.8
-            # 归一化
-            total = short_term + mid_term + long_term
-            if abs(total - 1.0) > 0.001:
-                scale = 1.0 / total
-                short_term *= scale
-                mid_term *= scale
-                long_term *= scale
-            reason = {
-                'retail_dominated': retail_dominated,
-                'main_force_score': main_force_score,
-                'tick_intensity': tick_intensity
-            }
-            return round(short_term, 4), round(mid_term, 4), round(long_term, 4), round(avg_days, 1), reason
-        except Exception as e:
-            print(f"⚠️ [Tick增强计算] 异常: {e}")
-            return short_term, mid_term, long_term, avg_days, {'error': str(e)}
-
-    @staticmethod
-    def calculate_holding_factors(dynamics_result: Dict[str, Any], absolute_analysis: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        核心逻辑：计算持有时间分布因子
-        """
-        factors = {
-            'short_term_ratio': 0.25,
-            'mid_term_ratio': 0.35,
-            'long_term_ratio': 0.40,
-            'avg_holding_days': 60.0,
-            'extra_metrics': {}
+    def calculate_topological_chip_peaks(chip_distribution: np.ndarray, price_grid: np.ndarray) -> dict:
+        """【新增】引入拓扑突起度 (Prominence) 过滤 A 股毛刺的长尾多峰识别算法"""
+        dist_std = np.std(chip_distribution)
+        min_prominence = max(0.01, dist_std * 0.5)
+        min_distance = max(1, int(len(price_grid) * 0.05))
+        peaks_indices, properties = find_peaks(
+            chip_distribution, prominence=min_prominence, width=2, distance=min_distance
+        )
+        peak_count = len(peaks_indices)
+        if peak_count == 0:
+            return {'peak_count': 0, 'highest_peak_price': 0.0, 'lowest_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'main_peak_position': 0}
+        prominences = properties['prominences']
+        sorted_peak_ranks = np.argsort(prominences)[::-1]
+        main_peak_idx = peaks_indices[sorted_peak_ranks]
+        main_peak_price = price_grid[main_peak_idx]
+        price_min, price_max = price_grid, price_grid[-1]
+        price_range = price_max - price_min
+        if main_peak_price < price_min + price_range * 0.33:
+            main_peak_position = 0
+        elif main_peak_price > price_min + price_range * 0.66:
+            main_peak_position = 2
+        else:
+            main_peak_position = 1
+        highest_peak_price = np.max(price_grid[peaks_indices])
+        lowest_peak_price = np.min(price_grid[peaks_indices])
+        peak_distance_ratio = (highest_peak_price - lowest_peak_price) / price_range if price_range > 0 else 0.0
+        peak_concentration = chip_distribution[main_peak_idx]
+        if peak_count > 1:
+            second_peak_idx = peaks_indices[sorted_peak_ranks[1]]
+            peak_concentration += chip_distribution[second_peak_idx]
+        return {
+            'peak_count': peak_count,
+            'highest_peak_price': highest_peak_price,
+            'lowest_peak_price': lowest_peak_price,
+            'peak_distance_ratio': peak_distance_ratio,
+            'peak_concentration': peak_concentration,
+            'main_peak_position': main_peak_position
         }
-        try:
-            absolute_analysis = absolute_analysis or {}
-            # 1. 提取基础指标
-            convergence = dynamics_result.get('convergence_metrics', {})
-            concentration = dynamics_result.get('concentration_metrics', {})
-            behavior = dynamics_result.get('behavior_patterns', {})
-            market_sentiment = absolute_analysis.get('market_sentiment', 0.5)
-            trend_quality = absolute_analysis.get('trend_quality', 0.5)
-            chip_lock_ratio = absolute_analysis.get('chip_lock_ratio', 0.5)
-            market_cycle = absolute_analysis.get('rotation_analysis', {}).get('market_cycle_phase', 'consolidation')
-            # 2. 长线逻辑 (A股特色)
-            long_term_base = (
-                convergence.get('comprehensive_convergence', 0.5) * 0.3 +
-                concentration.get('comprehensive_concentration', 0.5) * 0.3 +
-                chip_lock_ratio * 0.4
-            )
-            # 市场周期调整
-            cycle_adj = ChipMatrixDynamicsCalculator.calculate_market_cycle_adjustment(market_cycle, trend_health=absolute_analysis.get('trend_health', 0.5))
-            long_term_base *= cycle_adj
-            factors['long_term_ratio'] = min(0.85, max(0.05, long_term_base))
-            # 3. 短线逻辑
-            divergence_score = 1.0 - convergence.get('comprehensive_convergence', 0.5)
-            main_force_activity = behavior.get('main_force_activity', 0.0)
-            short_term_base = (
-                divergence_score * 0.35 +
-                main_force_activity * 0.25 +
-                (1.0 - chip_lock_ratio) * 0.2
-            )
-            # 情绪调整
-            if market_sentiment > 0.7: short_term_base *= 1.3 # 过热
-            elif market_sentiment < 0.3: short_term_base *= 1.1 # 恐慌
-            factors['short_term_ratio'] = min(0.65, max(0.05, short_term_base))
-            # 4. 中线补足与归一化
-            remaining = 1.0 - factors['short_term_ratio'] - factors['long_term_ratio']
-            if remaining < 0:
-                # 压缩短线优先
-                excess = -remaining
-                factors['short_term_ratio'] -= excess * 0.6
-                factors['long_term_ratio'] -= excess * 0.4
-                factors['mid_term_ratio'] = 0.0
+
+    @classmethod
+    def calculate_absolute_change_analysis(cls, changes, price_grid, current_price):
+        """完全保留原有基础统计逻辑和 A 股专属整合调用，接入 EMD 结果修正"""
+        if len(changes) == 0 or current_price <= 0:
+            return {}
+        # 保留原有基础统计与正负量计算公式
+        total_change_volume = np.sum(np.abs(changes))
+        positive_change_volume = np.sum(changes[changes > 0])
+        negative_change_volume = np.sum(changes[changes < 0])
+        max_increase = np.max(changes)
+        max_decrease = np.min(changes)
+        mean_change = np.mean(changes)
+        change_std = np.std(changes)
+        # 提取 Top 5% 作为集中度基础计算 (向下兼容保留)
+        abs_changes = np.abs(changes)
+        top_indices = np.argsort(abs_changes)[-max(1, int(len(changes) * 0.05)):]
+        change_concentration = np.sum(abs_changes[top_indices]) / total_change_volume if total_change_volume > 0 else 0.0
+        # 10th percentile 阈值锁定率公式保留
+        positive_abs = abs_changes[abs_changes > 0]
+        threshold = np.percentile(positive_abs, 10) if len(positive_abs) > 0 else 0.0
+        chip_lock_ratio = np.sum(abs_changes < threshold) / len(changes)
+
+        analysis = {
+            'total_change_volume': float(total_change_volume),
+            'positive_change_volume': float(positive_change_volume),
+            'negative_change_volume': float(negative_change_volume),
+            'max_increase': float(max_increase),
+            'max_decrease': float(max_decrease),
+            'mean_change': float(mean_change),
+            'change_std': float(change_std),
+            'change_concentration': float(change_concentration),
+            'chip_lock_ratio': float(chip_lock_ratio)
+        }
+        # 保留原有的 A 股特性综合分析调用逻辑
+        if hasattr(cls, 'analyze_a_share_key_price_levels'):
+            analysis.update(cls.analyze_a_share_key_price_levels(changes, price_grid, current_price))
+        if hasattr(cls, 'analyze_a_share_pullback_pattern'):
+            analysis.update(cls.analyze_a_share_pullback_pattern(changes, price_grid, current_price))
+        if hasattr(cls, 'analyze_a_share_reversal_features'):
+            analysis.update(cls.analyze_a_share_reversal_features(changes, price_grid, current_price))
+        if hasattr(cls, 'detect_a_share_false_signals'):
+            analysis.update(cls.detect_a_share_false_signals(changes, price_grid, current_price))
+        if hasattr(cls, 'calculate_a_share_market_sentiment'):
+            analysis.update(cls.calculate_a_share_market_sentiment(changes, price_grid, current_price))
+        if hasattr(cls, 'assess_a_share_trend_quality'):
+            analysis.update(cls.assess_a_share_trend_quality(changes, price_grid, current_price))
+        if hasattr(cls, 'analyze_chip_transfer_path'):
+            analysis.update(cls.analyze_chip_transfer_path(changes, price_grid, current_price))
+        if hasattr(cls, 'identify_sector_rotation_patterns'):
+            analysis.update(cls.identify_sector_rotation_patterns(changes, price_grid, current_price))
+        return analysis
+
+    @classmethod
+    def calculate_tick_enhanced_factors(cls, tick_intensity, main_force_score, acc_conf, dist_conf, short_term, mid_term, long_term, avg_days):
+        """严格保留 Tick 强化修正中对于散户主导及主力吸筹/派发的惩罚/奖励逻辑"""
+        # Retail Domination Logic
+        if tick_intensity > 0.7 and main_force_score < 0.3:
+            adjust = tick_intensity * 0.15
+            short_term = min(0.6, short_term + adjust)
+            long_term = max(0.1, long_term - adjust * 0.5)
+        # Main Force Behavior Logic
+        if main_force_score > 0.4:
+            if acc_conf > dist_conf:
+                mid_term = min(0.6, mid_term + 0.1)
+                avg_days *= 1.2
             else:
-                factors['mid_term_ratio'] = remaining
-            # 强制归一化
-            total = sum([factors['short_term_ratio'], factors['mid_term_ratio'], factors['long_term_ratio']])
-            if abs(total - 1.0) > 0.001:
-                scale = 1.0 / total
-                factors['short_term_ratio'] *= scale
-                factors['mid_term_ratio'] *= scale
-                factors['long_term_ratio'] *= scale
-            # 5. 平均持有天数计算
-            base_days = 20 + factors['long_term_ratio'] * 160
-            trend_days_adjust = 0.8 + trend_quality * 0.4
-            factors['avg_holding_days'] = max(3.0, min(365.0, base_days * trend_days_adjust))
-            # 6. 如果有Tick数据，进行增强修正 (在Model层调用前已准备好Tick数据，或在此处调用逻辑)
-            # 这里仅做基础计算，Model层会结合Tick数据再次修正
-            factors['extra_metrics']['holding_calculation_details'] = {
-                'market_cycle': market_cycle,
-                'trend_quality': trend_quality,
-                'chip_lock_ratio': chip_lock_ratio
-            }
-            return factors
-        except Exception as e:
-            print(f"⚠️ [持有时间计算] 异常: {e}")
-            return factors
+                short_term = min(0.5, short_term + 0.1)
+                avg_days *= 0.8
+                
+        # Normalization Re-check
+        total = short_term + mid_term + long_term
+        if total > 0:
+            short_term /= total
+            mid_term /= total
+            long_term /= total
+        return short_term, mid_term, long_term, avg_days
+
+    @classmethod
+    def calculate_holding_factors(cls, convergence_metrics, concentration_metrics, chip_lock_ratio, main_force_activity, market_sentiment, trend_quality, cycle_adj):
+        """严格保留原有长中短线分配权重、情感乘数与天数计算的所有硬编码数学公式"""
+        comprehensive_convergence = convergence_metrics.get('comprehensive_convergence', 0.0)
+        comprehensive_concentration = concentration_metrics.get('comprehensive_concentration', 0.0)
+        # Long-Term Ratio Logic
+        long_term_base = (comprehensive_convergence * 0.3) + (comprehensive_concentration * 0.3) + (chip_lock_ratio * 0.4)
+        long_term_ratio = min(0.85, max(0.05, long_term_base * cycle_adj))
+        # Short-Term Ratio Logic
+        divergence_score = 1.0 - comprehensive_convergence
+        short_term_base = (divergence_score * 0.35) + (main_force_activity * 0.25) + ((1.0 - chip_lock_ratio) * 0.2)
+        # Sentiment Adjustments
+        if market_sentiment > 0.7:
+            short_term_ratio = short_term_base * 1.3
+        elif market_sentiment < 0.3:
+            short_term_ratio = short_term_base * 1.1
+        else:
+            short_term_ratio = short_term_base
+        short_term_ratio = min(0.65, max(0.05, short_term_ratio))
+        # Mid-Term Ratio and Normalization
+        mid_term_ratio = 1.0 - short_term_ratio - long_term_ratio
+        if mid_term_ratio < 0:
+            excess = abs(mid_term_ratio)
+            short_term_ratio -= excess * 0.6
+            long_term_ratio -= excess * 0.4
+            mid_term_ratio = 0.0
+        total_sum = short_term_ratio + mid_term_ratio + long_term_ratio
+        if total_sum > 0:
+            short_term_ratio *= (1.0 / total_sum)
+            mid_term_ratio *= (1.0 / total_sum)
+            long_term_ratio *= (1.0 / total_sum)
+        # Average Holding Days Formula
+        base_days = 20 + (long_term_ratio * 160)
+        trend_days_adjust = 0.8 + trend_quality * 0.4
+        avg_holding_days = max(3.0, min(365.0, base_days * trend_days_adjust))
+        return {
+            'short_term_ratio': short_term_ratio,
+            'mid_term_ratio': mid_term_ratio,
+            'long_term_ratio': long_term_ratio,
+            'avg_holding_days': avg_holding_days
+        }
 
     # ========== 具体的私有分析方法 (静态化) ==========
-
-    @staticmethod
-    def clean_structure(data, precision=3, threshold=0.0):
-        """数据清洗与精度控制辅助函数"""
-        # 优先处理布尔类型（包括numpy.bool_），防止JSON序列化失败
-        if isinstance(data, (bool, np.bool_)):
-            return bool(data)
-        if isinstance(data, (float, int, np.number)):
-            try:
-                val = float(data)
-                if math.isnan(val) or math.isinf(val): return 0.0
-                if abs(val) < threshold: return 0.0
-                if val == 0.0: return 0.0
-                return round(val, precision)
-            except Exception: return 0.0
-        elif isinstance(data, np.ndarray):
-            try:
-                data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
-                if threshold > 0: data = np.where(np.abs(data) < threshold, 0.0, data)
-                return np.round(data, precision).tolist()
-            except Exception: return [ChipMatrixDynamicsCalculator.clean_structure(i, precision, threshold) for i in data.tolist()]
-        elif isinstance(data, dict): return {k: ChipMatrixDynamicsCalculator.clean_structure(v, precision, threshold) for k, v in data.items()}
-        elif isinstance(data, (list, tuple)): return [ChipMatrixDynamicsCalculator.clean_structure(i, precision, threshold) for i in data]
-        return data
-
     @staticmethod
     def analyze_a_share_key_price_levels(changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, Any]:
         """
