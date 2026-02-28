@@ -408,6 +408,21 @@ class FundFlowFactorCalculator:
         if 'amount' in df.columns:
             self.intraday_amount = df['amount'].values.tolist()
 
+    def _emit_probe(self, method_name: str, raw_data: dict, key_nodes: dict, final_score: float) -> None:
+        """
+        [版本号: V_ProbeMatrix_1.0.0]
+        [方法说明: 建立工业级全链路探针输出机制。捕获原始输入张量、非线性变换关键节点及最终标量特征，彻底消除系统黑盒，支持机器学习归因与实盘流式排障。]
+        """
+        import json
+        import numpy as np
+        def _serialize(obj):
+            if isinstance(obj, (np.integer, int)): return int(obj)
+            if isinstance(obj, (np.floating, float)): return float(obj)
+            if isinstance(obj, np.ndarray): return obj.tolist()
+            return str(obj)
+        payload={"probe":method_name,"stock":getattr(self.context,'stock_code','UNKNOWN'),"date":str(getattr(self.context,'trade_date','UNKNOWN')),"raw":{k:_serialize(v) for k,v in raw_data.items()},"nodes":{k:_serialize(v) for k,v in key_nodes.items()},"score":_serialize(final_score)}
+        print(json.dumps(payload,ensure_ascii=False))
+
     # ==================== 1. 绝对量级指标计算 ====================
     def calculate_absolute_metrics(self) -> Dict[str, float]:
         """
@@ -483,47 +498,39 @@ class FundFlowFactorCalculator:
 
     def _calculate_flow_intensity(self, net_amount: float, net_ratio: float, circ_mv: Optional[float]) -> float:
         """
-        v2.2: [大师级深化] 全域攻击能级 (Global Attack Energy)
-        思路：
-        1. 绝对金额和相对占比都存在局限性。
-        2. 真正的强度是：资金相对于这个盘子的推动力。
-        3. 使用 Net / Circ_MV (净流换手率) 作为核心物理量。
-        4. 映射逻辑：
-           - 净买入流通盘的 0.1% (1‰) -> 中等强度 (60分)
-           - 净买入流通盘的 0.5% (5‰) -> 极强攻击 (85分)
-           - 净买入流通盘的 1.0% (10‰) -> 涨停级爆发 (95分)
+        [版本号: V_AdaptiveScale_2.2.0]
+        [方法说明: 降维打击单一常数归一化陷阱。提取个股历史净流换手特征计算滚动波动率，构建自适应缩放因子(adaptive_scale)破除市值规模孤岛，并引入对数平滑惩罚替代硬性阶跃。]
         """
-        # 1. 兜底逻辑：如果没有市值数据，退化回绝对金额逻辑
-        if not circ_mv or circ_mv <= 0:
-            # 退化版：简单的 log 映射
-            # 1000万 -> 60分, 1亿 -> 90分
-            abs_val = abs(net_amount)
-            if abs_val < 100: return 0.0
-            score = 30 + 10 * np.log10(abs_val) # log10(1000)=3 -> 60
-            base_score = min(100.0, score)
-            return base_score if net_amount > 0 else -base_score
-        # 2. 计算净流换手率 (Net Flow Turnover)
-        # net_amount 和 circ_mv 单位一致 (假设都是万元)
-        # 结果为小数，如 0.01 代表 1%
-        net_turnover = net_amount / circ_mv
-        # 3. 双曲正切非线性映射 (Tanh)
-        # 我们设定一个敏感度系数 Scale
-        # 目标：当 net_turnover = 0.5% (0.005) 时，我们希望 tanh 达到约 0.8 (强)
-        # tanh(x) = 0.8 => x ≈ 1.1
-        # Scale * 0.005 = 1.1 => Scale ≈ 220
-        scale = 220.0
-        # 计算归一化强度 (-1.0 到 1.0)
-        normalized_intensity = np.tanh(net_turnover * scale)
-        # 4. 映射到分数 (-100 到 100)
-        # 线性放大
-        intensity_score = normalized_intensity * 100.0
-        # 5. 小市值惩罚 (Micro-Cap Penalty)
-        # 防止微盘股（如市值<20亿）因为少量资金就计算出极高强度，导致误判
-        # 如果市值 < 200,000万元 (20亿)
-        if circ_mv < 200000:
-            penalty = 0.8 + 0.2 * (circ_mv / 200000.0) # 线性过渡 0.8~1.0
-            intensity_score *= penalty
-        return float(np.clip(intensity_score, -100.0, 100.0))
+        import numpy as np
+        if not circ_mv or circ_mv<=0:
+            abs_val=abs(net_amount)
+            if abs_val<100:
+                self._emit_probe("_calculate_flow_intensity",{"net_amount":net_amount,"circ_mv":circ_mv},{"status":"low_abs_val"},0.0)
+                return 0.0
+            score=30.0+10.0*np.log10(abs_val)
+            base_score=min(100.0,score)
+            final_val=float(base_score if net_amount>0 else -base_score)
+            self._emit_probe("_calculate_flow_intensity",{"net_amount":net_amount,"circ_mv":circ_mv},{"fallback":True,"score":score},final_val)
+            return final_val
+        net_turnover=net_amount/circ_mv
+        volatility_context=1.0
+        if hasattr(self,'net_amount_array') and len(self.net_amount_array)>=20:
+            recent_flows=self.net_amount_array[-20:]/circ_mv
+            flow_std=np.std(recent_flows)+1e-6
+            volatility_context=min(5.0,max(0.2,flow_std*100.0))
+        adaptive_scale=220.0/volatility_context
+        normalized_intensity=np.tanh(net_turnover*adaptive_scale)
+        intensity_score=normalized_intensity*100.0
+        penalty=1.0
+        if circ_mv<200000:
+            mv_ratio=circ_mv/200000.0
+            penalty=0.6+0.4*np.power(mv_ratio,0.5)
+        elif circ_mv>5000000:
+            mv_ratio=min(3.0,circ_mv/5000000.0)
+            penalty=1.0+0.15*np.log1p(mv_ratio)
+        final_score=float(np.clip(intensity_score*penalty,-100.0,100.0))
+        self._emit_probe("_calculate_flow_intensity",{"net_amount":net_amount,"net_turnover":net_turnover,"circ_mv":circ_mv},{"adaptive_scale":adaptive_scale,"volatility_context":volatility_context,"normalized_intensity":normalized_intensity,"penalty":penalty},final_score)
+        return final_score
 
     def _determine_intensity_level(self, net_amount: float, net_ratio: float) -> int:
         """
@@ -618,88 +625,68 @@ class FundFlowFactorCalculator:
 
     def _calculate_pushing_score(self, arr: np.ndarray) -> float:
         """
-        [修复] 趋势爆发动量 (Pushing / Trend Impulse)
-        修复点：
-        1. 解决大量 0 值：摒弃"加速度>0"的硬约束。
-        2. 引入物理学"冲量"概念 (Impulse = Force * Delta_Time)。
-           - Force = Net Flow (资金推力)
-           - Result = Price Change (价格位移)
-           - 只有"推力"和"位移"同向且显著时，才得高分。
+        [版本号: V_KineticImpulse_2.1.0]
+        [方法说明: 重构趋势推升冲量测度。强制实行严格的多空物理做功分离，彻底消除负负得正的极性反噬；引入基于流通市值与真实波动的动态质量阻尼，结合指数饱和函数平滑防抖。]
         """
-        n = len(arr)
-        if n < 5: return 0.0
-        nets = arr[-5:]
-        closes = self.close_array[-5:]
-        # 1. 计算每日的"做功" (Work Done)
-        # Work = Net_Flow * Price_Change
-        price_changes = np.diff(closes)
-        # 对齐长度
-        work_arr = nets[1:] * price_changes
-        # 2. 有效做功求和
-        # 只统计正功 (资金买入且价格上涨)
-        valid_work = np.sum(work_arr[work_arr > 0])
-        # 3. 归一化
-        # 基准功 = 平均成交额 * 平均波幅
-        avg_amt = np.mean(self.daily_amount_array[-5:])
-        avg_range = np.mean(closes) * 0.02 # 假设日均 2% 波动
-        base_work = avg_amt * avg_range + 1.0
-        efficiency = valid_work / base_work # 通常在 0 ~ 5 之间
-        # 4. 映射到 0-100
-        # Eff=0.5 -> 25分, Eff=2.0 -> 80分
-        raw_score = efficiency * 50.0
-        # 5. 连续性奖励
-        # 最近3天资金是否为正
-        recent_pos = np.sum(nets[-3:] > 0)
-        continuity_bonus = recent_pos * 5.0
-        return float(np.clip(raw_score + continuity_bonus, 0.0, 100.0))
+        import numpy as np
+        n=len(arr)
+        if n<5:
+            self._emit_probe("_calculate_pushing_score",{"arr_len":n},{"status":"insufficient_data"},0.0)
+            return 0.0
+        nets=arr[-5:]
+        closes=self.close_array[-6:] if len(self.close_array)>=6 else self.close_array[-5:]
+        if len(closes)<6:
+            self._emit_probe("_calculate_pushing_score",{"closes_len":len(closes)},{"status":"insufficient_prices"},0.0)
+            return 0.0
+        price_returns=np.diff(closes)/(closes[:-1]+1e-6)
+        valid_work=0.0
+        for i in range(len(nets)):
+            if nets[i]>0 and price_returns[i]>0:
+                valid_work+=nets[i]*price_returns[i]
+        circ_mv=self.market_cap if getattr(self,'market_cap',None) and self.market_cap>0 else 1e6
+        avg_amt=np.mean(self.daily_amount_array[-5:])+1.0
+        mass_factor=circ_mv/avg_amt if avg_amt>0 else 1.0
+        volatility=np.std(price_returns)+1e-4
+        damping=np.log1p(volatility*10.0)+1e-2
+        normalized_impulse=valid_work/(mass_factor*damping)
+        raw_score=100.0*(1.0-np.exp(-normalized_impulse*50.0))
+        recent_pos=np.sum(nets[-3:]>0)
+        continuity_bonus=recent_pos*5.0
+        final_score=float(np.clip(raw_score+continuity_bonus,0.0,100.0))
+        self._emit_probe("_calculate_pushing_score",{"nets":nets,"price_returns":price_returns,"circ_mv":circ_mv},{"valid_work":valid_work,"mass_factor":mass_factor,"damping":damping,"normalized_impulse":normalized_impulse,"raw_score":raw_score},final_score)
+        return final_score
 
     def _calculate_distribution_score(self, nets: np.ndarray, closes: np.ndarray, vols: np.ndarray) -> float:
         """
-        [大师级深化] 派发/出货模式 (Distribution)
-        特征：
-        1. 隐性抛压 (Divergence): 价格涨/平，但资金持续流出 (边拉边撤)。
-        2. 放量滞涨 (Churning): 高换手率，但价格涨幅微小 (主力对倒出货给散户)。
+        [版本号: V_ArctanTopo_3.0.0]
+        [方法说明: 根除极值硬除法导致的导数梯度消失。在放量滞涨侦测中，采用反正切拓扑映射(Arctangent Mapping)，将价格微动导致的分母零值爆炸平滑收敛于物理有界区间。]
         """
-        n = len(nets)
-        if n < 5: return 0.0
-        # 1. 量价背离 (Price-Flow Divergence)
-        # 逻辑：价格在高位，资金却在流出
-        price_trend = (closes[-1] - closes[0])
-        net_sum = np.sum(nets)
-        divergence_score = 0.0
-        if price_trend > 0 and net_sum < 0:
-            # 典型顶背离
-            divergence_score = 80.0
-        elif price_trend > 0 and net_sum > 0:
-            # 资金还是流入的，检查速率
-            # 如果价格涨幅远大于资金流入幅度 (无量空涨)，也是派发前兆
-            pass 
-        # 2. 放量滞涨检测 (High Volume Stagnation / Churning)
-        # 计算每日的 "单位振幅换手率" (Turnover per Unit Volatility)
-        # 出货时，主力需要巨大的成交量来派发，但为了稳住K线，价格波动往往被控制
-        recent_vols = vols[-5:]
-        avg_vol = np.mean(vols[:-5]) if len(vols) > 5 else np.mean(vols)
-        # 计算相对放量程度
-        vol_ratio = np.mean(recent_vols) / (avg_vol + 1e-6)
-        # 计算价格绝对涨幅
-        price_changes = np.abs(np.diff(closes[-6:]))
-        avg_change = np.mean(price_changes) + 1e-6
-        # 价格基准 (防止除以极小值)
-        avg_price = np.mean(closes[-5:])
-        pct_change = avg_change / avg_price * 100.0
-        # Churning Index: 成交量倍数 / 价格波动率
-        # 意义: 用了很大的量(>1.5倍)，结果只波动了很小(<1%)，说明抛压极重，全靠承接
-        churning_score = 0.0
-        if vol_ratio > 1.2 and pct_change < 1.5:
-            # 放量滞涨，极高风险
-            churning_score = min(100.0, (vol_ratio / pct_change) * 40.0)
-        # 3. 连续流出 (Consecutive Outflow)
-        neg_days = np.sum(nets < 0)
-        outflow_score = (neg_days / n) * 100.0
-        # 综合加权
-        # 背离和滞涨是更高级的信号，权重更高
-        final_score = divergence_score * 0.4 + churning_score * 0.4 + outflow_score * 0.2
-        return float(np.clip(final_score, 0.0, 100.0))
+        import numpy as np
+        n=len(nets)
+        if n<5:
+            self._emit_probe("_calculate_distribution_score",{"n":n},{"status":"insufficient"},0.0)
+            return 0.0
+        price_trend=(closes[-1]-closes[0])
+        net_sum=np.sum(nets)
+        divergence_score=0.0
+        if price_trend>0 and net_sum<0:
+            divergence_score=80.0
+        recent_vols=vols[-5:]
+        avg_vol=np.mean(vols[:-5]) if len(vols)>5 else np.mean(vols)
+        vol_ratio=np.mean(recent_vols)/(avg_vol+1e-6)
+        price_changes=np.abs(np.diff(closes[-6:])) if len(closes)>=6 else np.abs(np.diff(closes))
+        avg_change=np.mean(price_changes)+1e-6
+        avg_price=np.mean(closes[-5:])
+        pct_change=avg_change/avg_price*100.0
+        churn_factor=vol_ratio/(pct_change+1e-4)
+        churning_score=0.0
+        if vol_ratio>1.2:
+            churning_score=(np.arctan(churn_factor/2.0)/(np.pi/2.0))*100.0
+        neg_days=np.sum(nets<0)
+        outflow_score=(neg_days/n)*100.0
+        final_score=float(np.clip(divergence_score*0.4+churning_score*0.4+outflow_score*0.2,0.0,100.0))
+        self._emit_probe("_calculate_distribution_score",{"price_trend":price_trend,"net_sum":net_sum,"vol_ratio":vol_ratio,"pct_change":pct_change},{"churn_factor":churn_factor,"divergence":divergence_score,"churning":churning_score,"outflow":outflow_score},final_score)
+        return final_score
 
     def _calculate_shakeout_score(self, nets: np.ndarray, closes: np.ndarray, vols: np.ndarray) -> float:
         """
@@ -872,69 +859,41 @@ class FundFlowFactorCalculator:
 
     def _calculate_flow_consistency(self) -> float:
         """
-        [修复] 资金一致性
-        修复点：
-        1. 引入向量余弦相似度思想，而非简单的符号加分。
-        2. 增加"散户对冲"的考量，避免满分泛滥。
-        3. 使用 Sigmoid 压缩高分段。
+        [版本号: V_VectorGame_3.0.0]
+        [方法说明: 重构博弈资金一致性评估。废除导致信息孤岛的 sign 零值死锁，将四档资金映射至高维向量空间，通过计算真实资金向量与理想主升逼空向量的余弦相似度，全局量化盘口共识。]
         """
-        data = self.context.current_flow_data
-        if not data: return 50.0
+        data=self.context.current_flow_data
+        if not data:
+            self._emit_probe("_calculate_flow_consistency",{},{"status":"no_data"},50.0)
+            return 50.0
         try:
+            import numpy as np
             def get_net(level):
-                buy = float(data.get(f'buy_{level}_amount', 0) or 0)
-                sell = float(data.get(f'sell_{level}_amount', 0) or 0)
-                return buy - sell
-            # 向量分量
-            elg = get_net('elg')
-            lg = get_net('lg')
-            md = get_net('md')
-            sm = get_net('sm') # 散户
-            # 主力总向量
-            main_force = elg + lg
-            if abs(main_force) < 10.0: return 50.0
-            # 1. 内部团结度 (Internal Unity)
-            # ELG 和 LG 是否同向?
-            # 使用加权乘积: 如果同号，结果为正；异号，结果为负
-            unity_score = 0.0
-            if abs(elg) + abs(lg) > 0:
-                # 归一化权重
-                w_elg = 0.65
-                w_lg = 0.35
-                # 符号一致性检测 (-1 到 1)
-                sign_consistency = np.sign(elg) * np.sign(lg)
-                # 如果同向，得分为 1.0；如果异向，看谁力量大
-                if sign_consistency > 0:
-                    unity_score = 100.0
-                else:
-                    # 异向：如果 ELG 远大于 LG，一致性依然较高(听老大的)
-                    # 比如 ELG=100, LG=-10 -> Net=90. 还是比较一致的。
-                    # 比如 ELG=50, LG=-50 -> Net=0. 完全分歧。
-                    net_ratio = abs(elg + lg) / (abs(elg) + abs(lg) + 1e-6)
-                    unity_score = net_ratio * 100.0
-            else:
-                unity_score = 50.0
-            # 2. 对手盘逻辑 (Counterparty Logic)
-            # 最健康的主力买入，应该是散户卖出 (SM < 0)
-            # 如果主力买，散户也买 (全场一致看多)，往往是短线高点，一致性反而不纯粹（因为没有对手盘了）
-            counterparty_score = 0.0
-            if main_force > 0:
-                if sm < 0: counterparty_score = 10.0 # 良性
-                else: counterparty_score = -10.0 # 羊群效应，扣分
-            else:
-                if sm > 0: counterparty_score = 10.0 # 良性
-                else: counterparty_score = -10.0 # 恐慌踩踏，扣分
-            # 3. 综合计算
-            raw_score = unity_score + counterparty_score
-            # 4. 强度压缩
-            # 只有主力净占比很高时，才能突破 90 分
-            total_vol = abs(elg) + abs(lg) + abs(md) + abs(sm) + 1.0
-            dominance = abs(main_force) / total_vol # 0~1
-            # 最终分 = 基础一致性(0~100) * (0.5 + 0.5 * 统治力)
-            # 这样如果统治力弱，一致性得分会被压缩在 50-70 之间
-            final_score = raw_score * (0.6 + 0.4 * dominance)
-            return float(np.clip(final_score, 0.0, 100.0))
+                buy=float(data.get(f'buy_{level}_amount',0)or 0)
+                sell=float(data.get(f'sell_{level}_amount',0)or 0)
+                return buy-sell
+            elg=get_net('elg')
+            lg=get_net('lg')
+            md=get_net('md')
+            sm=get_net('sm')
+            v_real=np.array([elg,lg,md,sm],dtype=np.float64)
+            v_ideal_bull=np.array([1.0,0.5,-0.2,-1.0],dtype=np.float64)
+            norm_real=np.linalg.norm(v_real)
+            norm_ideal=np.linalg.norm(v_ideal_bull)
+            if norm_real<1e-6:
+                self._emit_probe("_calculate_flow_consistency",{"elg":elg,"lg":lg,"md":md,"sm":sm},{"status":"zero_vector_deadlock"},50.0)
+                return 50.0
+            cosine_similarity=np.dot(v_real,v_ideal_bull)/(norm_real*norm_ideal)
+            main_force_abs=abs(elg)+abs(lg)
+            total_abs=np.sum(np.abs(v_real))+1e-6
+            dominance=main_force_abs/total_abs
+            base_score=(cosine_similarity+1.0)*50.0
+            final_score=float(np.clip(base_score*(0.4+0.6*dominance),0.0,100.0))
+            self._emit_probe("_calculate_flow_consistency",{"elg":elg,"lg":lg,"md":md,"sm":sm},{"v_real":v_real,"cosine_similarity":cosine_similarity,"dominance":dominance},final_score)
+            return final_score
         except Exception as e:
+            import logging
+            logger=logging.getLogger(__name__)
             logger.error(f"计算资金一致性出错: {e}")
             return 50.0
 
@@ -975,33 +934,37 @@ class FundFlowFactorCalculator:
     # ==================== 5. 多周期资金共振指标 ====================
     def calculate_multi_period_sync(self) -> Dict[str, float]:
         """
-        多周期资金共振计算
-        版本: V2.4
-        说明: 共振参数对齐至21日和55日
+        [版本号: V_CausalEMA_3.1.0]
+        [方法说明: 彻底剿灭历史数据的未来函数污染(Look-ahead Bias)。废弃非因果滤波器savgol_filter，引入符合时间序列因果律的指数移动平均(EMA)平滑逻辑，保障实盘与回测严格对齐。]
         """
-        sync_metrics = {}
-        for key in ['daily_weekly_sync', 'daily_monthly_sync', 
-                   'short_mid_sync', 'mid_long_sync']:
-            sync_metrics[key] = None
-        arr = self.net_amount_array
-        if len(arr) < 55: return sync_metrics
-        def calc_wma(data, window):
-            weights = np.arange(1, window + 1)
-            return np.convolve(data, weights/weights.sum(), mode='valid')
-        smooth_arr = savgol_filter(arr, window_length=5, polyorder=2) if len(arr) > 5 else arr
-        ma5 = calc_wma(smooth_arr, 5)
-        ma21 = calc_wma(smooth_arr, 21)
-        ma55 = calc_wma(smooth_arr, 55)
-        min_len = min(len(ma5), len(ma21), len(ma55))
-        if min_len < 5: return sync_metrics
-        s_short = ma5[-5:]
-        s_mid = ma21[-5:]
-        s_long = ma55[-5:]
-        sync_metrics['short_mid_sync'] = self._calculate_vector_resonance(s_short, s_mid, check_energy=False)
-        sync_metrics['mid_long_sync'] = self._calculate_vector_resonance(s_mid, s_long, check_energy=True)
-        daily_slice = smooth_arr[-5:]
-        sync_metrics['daily_weekly_sync'] = self._calculate_vector_resonance(daily_slice, s_short)
-        sync_metrics['daily_monthly_sync'] = self._calculate_vector_resonance(daily_slice, s_mid)
+        import numpy as np
+        import pandas as pd
+        import pandas_ta as ta
+        sync_metrics={'daily_weekly_sync':None,'daily_monthly_sync':None,'short_mid_sync':None,'mid_long_sync':None}
+        arr=self.net_amount_array
+        if len(arr)<55:
+            self._emit_probe("calculate_multi_period_sync",{"arr_len":len(arr)},{"status":"insufficient_data"},0.0)
+            return sync_metrics
+        series_arr=pd.Series(arr)
+        smooth_series=ta.ema(series_arr,length=3) if len(arr)>=3 else series_arr
+        if smooth_series is None: smooth_series=series_arr
+        ma5_series=ta.ema(smooth_series,length=5)
+        ma21_series=ta.ema(smooth_series,length=21)
+        ma55_series=ta.ema(smooth_series,length=55)
+        if ma5_series is None or ma21_series is None or ma55_series is None:
+            return sync_metrics
+        ma5=ma5_series.fillna(0).values
+        ma21=ma21_series.fillna(0).values
+        ma55=ma55_series.fillna(0).values
+        s_short=ma5[-5:]
+        s_mid=ma21[-5:]
+        s_long=ma55[-5:]
+        sync_metrics['short_mid_sync']=self._calculate_vector_resonance(s_short,s_mid,check_energy=False)
+        sync_metrics['mid_long_sync']=self._calculate_vector_resonance(s_mid,s_long,check_energy=True)
+        daily_slice=smooth_series.fillna(0).values[-5:]
+        sync_metrics['daily_weekly_sync']=self._calculate_vector_resonance(daily_slice,s_short)
+        sync_metrics['daily_monthly_sync']=self._calculate_vector_resonance(daily_slice,s_mid)
+        self._emit_probe("calculate_multi_period_sync",{"arr_tail":arr[-1]},{"ma5_tail":s_short[-1],"ma21_tail":s_mid[-1],"ma55_tail":s_long[-1]},sync_metrics['short_mid_sync'])
         return sync_metrics
 
     def _calculate_vector_resonance(self, s1: np.ndarray, s2: np.ndarray, check_energy: bool = False) -> float:
