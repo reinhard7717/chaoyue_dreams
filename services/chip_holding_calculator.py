@@ -313,59 +313,57 @@ class AdvancedChipDynamicsService:
             traceback.print_exc()
             return self._get_default_tick_factors()
 
-    def _build_normalized_chip_matrix(self, chip_history: pd.DataFrame, current_chip_dist: pd.DataFrame) -> tuple:
+    def _build_normalized_chip_matrix(self, chip_history: list, current_chip_dist: pd.DataFrame) -> tuple:
         """
-        [Version 2.3.0] 基于高精度三角分布与动态非对称衰减的矩阵构建
-        说明：引入网格区间的精确积分近似以及严苛的极小值(1e-8)保护。
-        彻底清除空行，严格确保每日成交量在不同量纲下网格映射的绝对守恒。
+        [Version 3.0.0] 基于真实截面数据的精确质心保持映射矩阵构建
+        说明：
+        1. 修复原版本将真实分布数据List错认为DataFrame并调用.empty引发的崩溃灾难。
+        2. 废弃基于K线高低点与换手率模拟三角衰减的失真算法，直接消费高精度真实筹码分布切片。
+        3. 引入质心保持线性分配映射(Mass-Preserving Linear Allocation)，将异构的不规则价格点精确、守恒地投射到200格全局刚性价格网格。
+        4. 采用Numpy底层向量化运算与np.add.at指针级聚合，避免Python层循环瓶颈，并将横截面能量严格归一化至100.0修复下游阈值击穿隐患。
         """
         import numpy as np
         import pandas as pd
-        if chip_history.empty:
-            return np.array(), np.array()
-        global_min = max(0.01, float(chip_history['low'].min()) * 0.8)
-        global_max = float(chip_history['high'].max()) * 1.2
+        all_dists = []
+        if isinstance(chip_history, list):
+            for df in chip_history:
+                if isinstance(df, pd.DataFrame) and not df.empty and 'price' in df.columns and 'percent' in df.columns:
+                    all_dists.append(df)
+        if isinstance(current_chip_dist, pd.DataFrame) and not current_chip_dist.empty and 'price' in current_chip_dist.columns and 'percent' in current_chip_dist.columns:
+            all_dists.append(current_chip_dist)
+        if not all_dists:
+            return np.array([]), np.array([])
+        global_min = float('inf')
+        global_max = float('-inf')
+        for df in all_dists:
+            p_min = float(df['price'].min())
+            p_max = float(df['price'].max())
+            if p_min < global_min: global_min = p_min
+            if p_max > global_max: global_max = p_max
+        if global_min == global_max or global_min == float('inf'):
+            global_min = max(0.01, global_min * 0.9)
+            global_max = global_max * 1.1
+        else:
+            global_min = max(0.01, global_min * 0.95)
+            global_max = global_max * 1.05
         price_grid = np.linspace(global_min, global_max, self.price_granularity, dtype=np.float64)
-        days = len(chip_history)
+        days = len(all_dists)
         chip_matrix = np.zeros((days, self.price_granularity), dtype=np.float64)
-        cumulative_chips = np.zeros(self.price_granularity, dtype=np.float64)
-        for i in range(days):
-            row = chip_history.iloc[i]
-            high_p = float(row['high'])
-            low_p = float(row['low'])
-            close_p = float(row['close'])
-            vol = float(row['volume'])
-            turnover = float(row.get('turnover_rate', 0.01))
-            vwap = float(row.get('vwap', (high_p + low_p + close_p) / 3.0))
-            vwap = np.clip(vwap, low_p, high_p)
-            daily_dist = np.zeros(self.price_granularity, dtype=np.float64)
-            if high_p - low_p > 1e-8:
-                grid_indices = np.where((price_grid >= low_p) & (price_grid <= high_p))
-                if len(grid_indices) > 0:
-                    x = price_grid[grid_indices]
-                    pdf = np.zeros_like(x, dtype=np.float64)
-                    denominator = max(high_p - low_p, 1e-8)
-                    left_mask = x < vwap
-                    right_mask = x >= vwap
-                    if vwap - low_p > 1e-8:
-                        pdf[left_mask] = 2 * (x[left_mask] - low_p) / (denominator * (vwap - low_p))
-                    if high_p - vwap > 1e-8:
-                        pdf[right_mask] = 2 * (high_p - x[right_mask]) / (denominator * (high_p - vwap))
-                    pdf_sum = np.sum(pdf)
-                    if pdf_sum > 1e-8:
-                        daily_dist[grid_indices] = (pdf / pdf_sum) * vol
-            else:
-                idx = int(np.abs(price_grid - close_p).argmin())
-                daily_dist[idx] = vol
-            decay_rates = np.zeros(self.price_granularity, dtype=np.float64)
-            profit_mask = price_grid < close_p
-            loss_mask = price_grid >= close_p
-            decay_rates[profit_mask] = np.clip(turnover * 1.5, 0.0, 1.0)
-            decay_rates[loss_mask] = np.clip(turnover * 0.5, 0.0, 1.0)
-            cumulative_chips = cumulative_chips * (1.0 - decay_rates) + daily_dist
-            total_chips = np.sum(cumulative_chips)
-            if total_chips > 1e-8:
-                chip_matrix[i, :] = cumulative_chips / total_chips
+        grid_step = price_grid[1] - price_grid[0] if self.price_granularity > 1 else 1.0
+        for i, df in enumerate(all_dists):
+            prices = df['price'].to_numpy(dtype=np.float64)
+            percents = df['percent'].to_numpy(dtype=np.float64)
+            float_indices = (prices - global_min) / grid_step
+            float_indices = np.clip(float_indices, 0, self.price_granularity - 1.0001)
+            left_indices = np.floor(float_indices).astype(np.int32)
+            right_indices = left_indices + 1
+            right_weights = float_indices - left_indices
+            left_weights = 1.0 - right_weights
+            np.add.at(chip_matrix[i], left_indices, percents * left_weights)
+            np.add.at(chip_matrix[i], right_indices, percents * right_weights)
+            row_sum = np.sum(chip_matrix[i])
+            if row_sum > 1e-8:
+                chip_matrix[i] = (chip_matrix[i] / row_sum) * 100.0
         return price_grid, chip_matrix
 
     def _calculate_percent_change_matrix(self, chip_matrix: np.ndarray) -> np.ndarray:
