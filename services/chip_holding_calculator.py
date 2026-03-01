@@ -52,145 +52,57 @@ class AdvancedChipDynamicsService:
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """
-        分析单日筹码动态 - 主入口函数（增强版：支持tick数据）
-        Args:
-            tick_data: 可选的tick数据DataFrame，包含['trade_time', 'price', 'volume', 'type']
-        修改思路:
-        1. 调用_calculate_tick_enhanced_factors时传入trade_date，确保底层能获取准确日期。
+        [Version 4.0.0] 分析单日筹码动态主入口（全节点探针植入版）
+        说明：在计算中枢的关键生命周期节点（拦截、成功、异常）分别植入全局探针，解决因缺数据或异常导致的静默跳过行为。
         """
         try:
-            # 1. 获取筹码分布历史数据
-            chip_data = await self._fetch_chip_percent_data(
-                stock_code, trade_date, lookback_days
-            )
-            # PROBE: 检查数据获取结果
+            chip_data = await self._fetch_chip_percent_data(stock_code, trade_date, lookback_days)
             history_len = len(chip_data['chip_history']) if chip_data else 0
             if not chip_data or len(chip_data['chip_history']) < 5:
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'history_len': int(history_len)}, {'reason': '数据不足或获取失败被兜底拦截'}, {'status': 'failed'})
                 return self._get_default_result(stock_code, trade_date)
-            # 2. 构建价格网格和归一化筹码矩阵
-            price_grid, chip_matrix = self._build_normalized_chip_matrix(
-                chip_data['chip_history'],
-                chip_data['current_chip_dist']
-            )
-            # 3. 计算百分比变化矩阵（核心）
+            price_grid, chip_matrix = self._build_normalized_chip_matrix(chip_data['chip_history'], chip_data['current_chip_dist'])
             percent_change_matrix = self._calculate_percent_change_matrix(chip_matrix)
-            # 4. 基于绝对变化的行为分析
-            absolute_signals = self._analyze_absolute_changes(
-                percent_change_matrix,
-                price_grid,
-                chip_data['current_price']
-            )
-            # 5. 计算筹码集中度指标
-            concentration_metrics = self._calculate_concentration_metrics(
-                chip_matrix[-1],  # 当前筹码分布
-                price_grid
-            )
-            # 6. 计算压力与支撑指标
-            pressure_metrics = self._calculate_pressure_metrics(
-                chip_matrix[-1],
-                price_grid,
-                chip_data['current_price'],
-                chip_data['price_history']
-            )
-            # 7. 识别主力行为模式
-            behavior_patterns = self._identify_behavior_patterns(
-                percent_change_matrix,
-                chip_matrix,
-                price_grid,
-                chip_data['current_price']
-            )
-            # 8. 计算筹码迁移模式
-            migration_patterns = self._calculate_migration_patterns(
-                percent_change_matrix,
-                chip_matrix,
-                price_grid
-            )
-            # 9. 计算综合聚散度
-            convergence_metrics = self._calculate_convergence_metrics(
-                chip_matrix,
-                percent_change_matrix,
-                price_grid
-            )
-            # 10. 计算博弈能量场
-            game_energy_result = self._calculate_game_energy(
-                percent_change_matrix,
-                price_grid,
-                chip_data['current_price'],
-                chip_data['price_history'],
-                stock_code,
-                trade_date
-            )
-            # 11. 计算直接吸收/派发
-            direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(
-                percent_change_matrix,
-                chip_matrix,
-                price_grid,
-                chip_data['current_price'],
-                chip_data['price_history']
-            )
-            # =======================================================
-            # 新增：计算tick数据增强因子
-            # =======================================================
+            absolute_signals = self._analyze_absolute_changes(percent_change_matrix, price_grid, chip_data['current_price'])
+            concentration_metrics = self._calculate_concentration_metrics(chip_matrix[-1], price_grid)
+            pressure_metrics = self._calculate_pressure_metrics(chip_matrix[-1], price_grid, chip_data['current_price'], chip_data['price_history'])
+            behavior_patterns = self._identify_behavior_patterns(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'])
+            migration_patterns = self._calculate_migration_patterns(percent_change_matrix, chip_matrix, price_grid)
+            convergence_metrics = self._calculate_convergence_metrics(chip_matrix, percent_change_matrix, price_grid)
+            game_energy_result = self._calculate_game_energy(percent_change_matrix, price_grid, chip_data['current_price'], chip_data['price_history'], stock_code, trade_date)
+            direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'], chip_data['price_history'])
             tick_enhanced_factors = {}
             if tick_data is not None and not tick_data.empty:
                 try:
-                    # 修改：传入trade_date参数
-                    tick_enhanced_factors = await self._calculate_tick_enhanced_factors(
-                        tick_data, chip_data, price_grid, chip_matrix[-1], trade_date
-                    )
+                    tick_enhanced_factors = await self._calculate_tick_enhanced_factors(tick_data, chip_data, price_grid, chip_matrix[-1], trade_date)
                 except Exception as e:
                     print(f"⚠️ [tick因子] 计算失败: {e}")
                     tick_enhanced_factors = self._get_default_tick_factors()
             else:
                 tick_enhanced_factors = self._get_default_tick_factors()
-            # =======================================================
-            # 构建验证信息
-            # =======================================================
             validation_warnings = []
             validation_score = absolute_signals.get('signal_quality', 0.5)
-            # 检查数据长度
             if history_len < lookback_days:
                 validation_warnings.append(f"历史数据不足: {history_len}/{lookback_days}")
                 validation_score *= 0.8
-            # 检查价格覆盖
             current_price = chip_data['current_price']
             if current_price > price_grid.max() or current_price < price_grid.min():
                 validation_warnings.append("当前价格超出网格范围")
                 validation_score *= 0.9
-            # tick数据质量检查
             if 'tick_data_quality_score' in tick_enhanced_factors:
                 tick_quality = tick_enhanced_factors['tick_data_quality_score']
                 if tick_quality < 0.3:
                     validation_warnings.append(f"tick数据质量低: {tick_quality:.2f}")
                     validation_score *= 0.9
-            result = {
-                'stock_code': stock_code,
-                'trade_date': trade_date,
-                'price_grid': price_grid.tolist(),
-                'chip_matrix': chip_matrix.tolist(),
-                'percent_change_matrix': percent_change_matrix.tolist(),
-                'absolute_change_signals': absolute_signals,
-                'concentration_metrics': concentration_metrics,
-                'pressure_metrics': pressure_metrics,
-                'behavior_patterns': behavior_patterns,
-                'migration_patterns': migration_patterns,
-                'convergence_metrics': convergence_metrics,
-                'game_energy_result': game_energy_result,
-                'direct_ad_result': direct_ad_result,
-                # 新增tick增强因子
-                'tick_enhanced_factors': tick_enhanced_factors,
-                # 验证字段
-                'validation_score': round(validation_score, 2),
-                'validation_warnings': validation_warnings,
-                'analysis_status': 'success',
-                'analysis_time': datetime.now().isoformat()
-            }
+            result = {'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': price_grid.tolist(), 'chip_matrix': chip_matrix.tolist(), 'percent_change_matrix': percent_change_matrix.tolist(), 'absolute_change_signals': absolute_signals, 'concentration_metrics': concentration_metrics, 'pressure_metrics': pressure_metrics, 'behavior_patterns': behavior_patterns, 'migration_patterns': migration_patterns, 'convergence_metrics': convergence_metrics, 'game_energy_result': game_energy_result, 'direct_ad_result': direct_ad_result, 'tick_enhanced_factors': tick_enhanced_factors, 'validation_score': round(validation_score, 2), 'validation_warnings': validation_warnings, 'analysis_status': 'success', 'analysis_time': datetime.now().isoformat()}
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'current_price': float(current_price)}, {'validation_warnings': validation_warnings}, {'validation_score': float(validation_score), 'analysis_status': 'success'})
             return result
         except Exception as e:
             logger.error(f"筹码动态分析失败 {stock_code} {trade_date}: {e}")
             print(f"❌ [筹码动态分析异常] {e}")
             import traceback
             traceback.print_exc()
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e)}, {'status': 'exception'})
             return self._get_default_result(stock_code, trade_date)
 
     async def _calculate_tick_enhanced_factors(self, tick_data: pd.DataFrame, chip_data: Dict[str, Any],price_grid: np.ndarray,current_chip_dist: np.ndarray, trade_date: str = "") -> Dict[str, Any]:
@@ -854,30 +766,22 @@ class AdvancedChipDynamicsService:
     
     async def _fetch_chip_percent_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
         """
-        获取筹码百分比数据
+        [Version 6.1.0] 获取筹码百分比数据（数据孤岛破壁版）
+        说明: 针对日K或截面数据由于停牌、缺失等原因引发的底层异常建立刚性探针捕获，隔离数据空洞。
         """
         try:
             chips_model = get_cyq_chips_model_by_code(stock_code)
             if not chips_model:
                 print(f"🕵️ [PROBE-FETCH] 无法获取模型 {stock_code}")
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {'stock_code': stock_code}, {'error': 'model_not_found'}, {'status': 'failed'})
                 return None
             trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
-            # 获取当前日期的筹码分布
-            current_chip_qs = chips_model.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time=trade_date_dt
-            ).values('price', 'percent')
+            current_chip_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt).values('price', 'percent')
             current_chip_list = await sync_to_async(list)(current_chip_qs)
             current_chip_df = pd.DataFrame(current_chip_list) if current_chip_list else pd.DataFrame()
-            # 获取历史筹码分布
             start_date = trade_date_dt - timedelta(days=lookback_days * 2)
-            history_chip_qs = chips_model.objects.filter(
-                stock__stock_code=stock_code,
-                trade_time__gte=start_date,
-                trade_time__lt=trade_date_dt
-            ).order_by('trade_time').values('trade_time', 'price', 'percent')
+            history_chip_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lt=trade_date_dt).order_by('trade_time').values('trade_time', 'price', 'percent')
             history_chip_list = await sync_to_async(list)(history_chip_qs)
-            # 按日期分组
             chip_history = []
             if history_chip_list:
                 history_df = pd.DataFrame(history_chip_list)
@@ -885,38 +789,27 @@ class AdvancedChipDynamicsService:
                 for date in unique_dates:
                     day_df = history_df[history_df['trade_time'] == date][['price', 'percent']]
                     chip_history.append(day_df)
-            # 获取价格历史
             daily_model = get_daily_data_model_by_code(stock_code)
             price_history = pd.DataFrame()
             if daily_model:
                 from stock_models.stock_basic import StockInfo
                 stock = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
-                price_qs = daily_model.objects.filter(
-                    stock=stock,
-                    trade_time__gte=start_date,
-                    trade_time__lte=trade_date_dt
-                ).order_by('trade_time').values('trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq')
+                price_qs = daily_model.objects.filter(stock=stock, trade_time__gte=start_date, trade_time__lte=trade_date_dt).order_by('trade_time').values('trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq')
                 price_list = await sync_to_async(list)(price_qs)
                 price_history = pd.DataFrame(price_list) if price_list else pd.DataFrame()
-            # 修改价格获取逻辑
             current_price = 0
-            # 优先使用日线收盘价
             if not price_history.empty and 'close_qfq' in price_history.columns:
                 current_price = price_history['close_qfq'].iloc[-1]
-            # 如果没有日线数据，使用筹码平均价作为后备
             elif not current_chip_df.empty:
                 current_price = current_chip_df['price'].mean()
-            return {
-                'current_chip_dist': current_chip_df,
-                'chip_history': chip_history,
-                'price_history': price_history,
-                'current_price': current_price
-            }
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {'stock_code': stock_code, 'trade_date': trade_date}, {'chip_history_len': len(chip_history), 'price_history_len': len(price_history)}, {'current_price': float(current_price), 'status': 'success'})
+            return {'current_chip_dist': current_chip_df, 'chip_history': chip_history, 'price_history': price_history, 'current_price': current_price}
         except Exception as e:
             logger.error(f"获取筹码数据失败 {stock_code}: {e}")
             print(f"❌ [PROBE-FETCH-ERROR] {e}")
             import traceback
             traceback.print_exc()
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e)}, {'status': 'exception'})
             return None
 
     # ============== 默认结果方法 ==============
@@ -1031,38 +924,28 @@ class DirectAccumulationDistributionCalculator:
     
     def calculate_direct_ad(self, percent_change_matrix: np.ndarray,chip_matrix: np.ndarray,price_grid: np.ndarray,current_price: float,price_history: pd.DataFrame) -> Dict[str, any]:
         """
-        直接计算吸收/派发（基于绝对变化）
-        返回：
-        {
-            'accumulation_volume': float,    # 吸收量（%）
-            'distribution_volume': float,    # 派发量（%）
-            'net_ad_ratio': float,          # 净吸收率
-            'accumulation_quality': float,   # 吸收质量（0-1）
-            'distribution_quality': float,   # 派发质量（0-1）
-            'false_distribution_flag': bool, # 虚假派发标志
-            'breakout_acceleration': float,  # 突破加速系数
-            'price_level_ad': Dict[str, List],  # 各价格层级吸收/派发
-        }
+        [Version 2.3.0] 直接计算吸收/派发（全链路探针纠偏版）
+        说明：植入多空交锋拦截探针，精准捕获由于空矩阵异常兜底引发的静态假数据，曝光博弈结果。
         """
         if percent_change_matrix.shape[0] == 0:
-            return self._get_default_ad_result()
-        # 1. 获取最近一天的变化
-        latest_change = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
-        # 2. 计算价格相对位置
-        price_rel = (price_grid - current_price) / current_price
-        # 3. 基于绝对变化的直接计算
-        result = self._calculate_absolute_ad(latest_change, price_rel)
-        # 4. 拉升初期纠偏计算
-        if not price_history.empty and len(price_history) >= 5:
-            result = self._correct_pullback_ad(result, price_history, current_price)
-        # 5. 计算质量评分
-        result = self._calculate_ad_quality(result, chip_matrix, price_grid, current_price)
-        # 6. 添加层级分析
-        result['price_level_ad'] = self._analyze_price_levels(
-            latest_change, price_grid, current_price
-        )
-        return result
-    
+            result = self._get_default_ad_result()
+            QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price)}, {'reason': 'empty_percent_change_matrix'}, {'net_ad_ratio': 0.0, 'status': 'aborted'})
+            return result
+        try:
+            latest_change = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
+            price_rel = (price_grid - current_price) / current_price
+            result = self._calculate_absolute_ad(latest_change, price_rel)
+            if not price_history.empty and len(price_history) >= 5:
+                result = self._correct_pullback_ad(result, price_history, current_price)
+            result = self._calculate_ad_quality(result, chip_matrix, price_grid, current_price)
+            result['price_level_ad'] = self._analyze_price_levels(latest_change, price_grid, current_price)
+            QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price), 'history_len': len(price_history)}, {'accumulation_volume': float(result.get('accumulation_volume', 0.0)), 'distribution_volume': float(result.get('distribution_volume', 0.0)), 'false_distribution_flag': bool(result.get('false_distribution_flag', False))}, {'net_ad_ratio': float(result.get('net_ad_ratio', 0.0)), 'status': 'success'})
+            return result
+        except Exception as e:
+            result = self._get_default_ad_result()
+            QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price)}, {'error': str(e)}, {'net_ad_ratio': 0.0, 'status': 'failed'})
+            return result
+
     def _calculate_absolute_ad(self, changes: np.ndarray, price_rel: np.ndarray) -> Dict[str, any]:
         """
         版本: v2.1
@@ -1229,7 +1112,7 @@ class DirectAccumulationDistributionCalculator:
             'distribution_quality': float(distrib_quality),
         })
         return ad_result
-    
+
     def _analyze_price_levels(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, List]:
         """
         版本: v2.1
@@ -1286,7 +1169,7 @@ class DirectAccumulationDistributionCalculator:
         top_20 = int(len(chip_dist) * 0.2)
         concentration = np.sum(sorted_chips[:top_20]) / 100.0
         return float(concentration)
-    
+
     def _calculate_price_position_factor(self, chip_matrix: np.ndarray,price_grid: np.ndarray,current_price: float) -> Dict[str, float]:
         """计算价格位置因子"""
         if chip_matrix.shape[0] < 2:
@@ -1307,7 +1190,7 @@ class DirectAccumulationDistributionCalculator:
             'accumulation_factor': max(0.5, min(2.0, accum_factor)),
             'distribution_factor': max(0.5, min(2.0, distrib_factor)),
         }
-    
+
     def _get_default_ad_result(self) -> Dict[str, any]:
         return {
             'accumulation_volume': 0.0,
@@ -1338,48 +1221,41 @@ class GameEnergyCalculator:
             'fake_distribution_discount': 0.6,
         }
     
-    def calculate_game_energy(self, percent_change_matrix: np.ndarray,
-                            price_grid: np.ndarray,
-                            current_price: float, close_price: float,
-                            volume_history: pd.Series = None,
-                            stock_code: str = "",
-                            trade_date: str = "") -> Dict[str, Any]:
+    def calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, volume_history: pd.Series = None, stock_code: str = "", trade_date: str = "") -> Dict[str, Any]:
         """
-        计算博弈能量场 - 修复空数据问题
+        [Version 6.1.0] 博弈能量场主控器（边界截断拦截探针版）
+        说明：修复因极端市场行情（一字跌停、无成交）引发的输入无效或零变化触发兜底时未曾暴露的静默跳过行为。
         """
-        # 优先使用收盘价作为参考价格
         reference_price = close_price if close_price > 0 else current_price
         if percent_change_matrix.shape[0] == 0 or len(price_grid) == 0 or reference_price <= 0:
             print(f"❌ [探针] 输入数据无效: 变化矩阵{percent_change_matrix.shape}, 价格网格{len(price_grid)}, 参考价{reference_price}")
             result = self._get_default_energy()
+            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '输入数据矩阵无效或无参考价'}, {'status': 'aborted'})
             return result
         try:
-            # 1. 获取最近一天的变化（确保有数据）
             if len(percent_change_matrix) == 0:
                 print("❌ [探针] 变化矩阵为空")
                 result = self._get_default_energy()
                 print(f"   返回默认值: absorption={result['absorption_energy']}, distribution={result['distribution_energy']}")
+                QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '提取的变化矩阵为空'}, {'status': 'aborted'})
                 return result
             latest_change = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
-            # 2. 如果变化数据全为0，返回默认值
             change_sum = np.sum(np.abs(latest_change))
             if change_sum < 0.01:
                 print("⚠️ [探针] 变化数据几乎全为0，返回默认值")
                 result = self._get_default_energy()
                 print(f"   返回默认值: absorption={result['absorption_energy']}, distribution={result['distribution_energy']}")
+                QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '绝对变化和过低触发拦截', 'change_sum': float(change_sum)}, {'status': 'aborted'})
                 return result
-            # 3. 计算博弈能量场
             energy_result = self._calculate_energy_field(latest_change, price_grid, reference_price, close_price)
-            # 5. 判断虚假派发（只有在有成交量数据时才判断）
             fake_distribution = False
             if volume_history is not None and len(volume_history) > 5:
                 fake_distribution = self._detect_fake_distribution(latest_change, price_grid, reference_price, volume_history)
             else:
-                # 没有成交量数据时，基于价格变化判断
                 fake_distribution = self._detect_fake_distribution_advanced(latest_change, price_grid, reference_price, close_price)
             energy_result['fake_distribution_flag'] = fake_distribution
-            # 6. 修正能量值（确保不为0）
             energy_result = self._ensure_nonzero_energy(energy_result)
+            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'fake_distribution': fake_distribution}, {'status': 'success'})
             return energy_result
         except Exception as e:
             print(f"❌ [探针] 能量场计算异常: {e}")
@@ -1387,6 +1263,7 @@ class GameEnergyCalculator:
             traceback.print_exc()
             result = self._get_default_energy()
             print(f"   返回默认值: absorption={result['absorption_energy']}, distribution={result['distribution_energy']}")
+            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e)}, {'status': 'failed'})
             return result
 
     def _calculate_energy_field(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, stock_code: str = "", trade_date: str = "") -> Dict[str, Any]:
@@ -1584,7 +1461,7 @@ class GameEnergyCalculator:
             distance_factor = 1 / (avg_distance + 0.1)
             return base_potential * distance_factor
         return 0.0
-    
+
     def _calculate_energy_concentration(self, changes: np.ndarray, absorption: float, distribution: float) -> float:
         """计算能量集中度"""
         total_energy = absorption + distribution + 1e-10
@@ -1741,13 +1618,26 @@ class QuantitativeTelemetryProbe:
     """
     @classmethod
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
+        """
+        [Version 2.0.0] 工业级量化全链路探针输出组件（反序列化黑洞修复版）
+        说明：植入Numpy兼容的定制JSON序列化器，突破数据解析异常导致的死锁静默，彻底废除pass掩耳盗铃机制，让探针恢复生命体征。
+        """
         import json
+        import numpy as np
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                return super(NumpyEncoder, self).default(obj)
         payload = {"module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
         try:
-            print(f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False)}")
-        except Exception:
-            pass
-
+            print(f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False, cls=NumpyEncoder)}")
+        except Exception as e:
+            print(f"⚠️ [QUANT-PROBE ERROR] 探针自身序列化/输出致命异常: {e}")
 
 
 
