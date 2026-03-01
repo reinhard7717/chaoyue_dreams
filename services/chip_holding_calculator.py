@@ -156,28 +156,27 @@ class AdvancedChipDynamicsService:
         except Exception as e:
             return self._get_default_tick_factors()
 
-    def _identify_peak_morphology(self, current_chip_dist: np.ndarray, price_grid: np.ndarray) -> Dict[str, Any]:
+    def _identify_peak_morphology(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, is_history: bool = False) -> Dict[str, Any]:
         """
-        [Version 8.0.0] 筹码拓扑形态提取器（高斯平滑动态寻峰版）
-        说明：消除孤岛毛刺，利用 scipy.signal.find_peaks 计算主次峰数量及相对位置，为基础模型提供核心特征支撑。
+        [Version 35.0.0] 筹码拓扑形态提取器（主峰价格突触输出版）
+        说明：修复因未返回 main_peak_price 导致下游 peak_migration_speed_5d 永远为 0 的严重信息孤岛。
+        输出完整的峰值位置与价格突触，供时序共振网络使用。支持 is_history 阻断探针污染。禁止使用空行。
         """
         import numpy as np
         from scipy.signal import find_peaks
         try:
-            if len(current_chip_dist) < 10:
-                return {'peak_count': 0, 'main_peak_position': 0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
+            if len(current_chip_dist) < 10: return {'peak_count': 0, 'main_peak_position': 0, 'main_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
             kernel_size = 5
             kernel = np.ones(kernel_size) / kernel_size
             smoothed_dist = np.convolve(current_chip_dist, kernel, mode='same')
             dynamic_prominence = max(0.5, float(np.percentile(smoothed_dist, 75)) * 0.2)
             peaks, properties = find_peaks(smoothed_dist, prominence=dynamic_prominence, distance=10)
             peak_count = len(peaks)
-            if peak_count == 0:
-                return {'peak_count': 0, 'main_peak_position': 0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
+            if peak_count == 0: return {'peak_count': 0, 'main_peak_position': 0, 'main_peak_price': float(np.mean(price_grid)), 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
             peak_prominences = properties['prominences']
             sorted_indices = np.argsort(peak_prominences)[::-1]
             main_peak_idx = peaks[sorted_indices[0]]
-            main_peak_price = price_grid[main_peak_idx]
+            main_peak_price = float(price_grid[main_peak_idx])
             grid_min, grid_max = price_grid.min(), price_grid.max()
             price_range = max(grid_max - grid_min, 1e-5)
             relative_pos = (main_peak_price - grid_min) / price_range
@@ -188,12 +187,13 @@ class AdvancedChipDynamicsService:
                 second_peak_idx = peaks[sorted_indices[1]]
                 peak_concentration += float(smoothed_dist[second_peak_idx])
                 peak_distance_ratio = float(abs(price_grid[main_peak_idx] - price_grid[second_peak_idx]) / price_range)
-            result = {'peak_count': int(peak_count), 'main_peak_position': int(main_peak_position), 'peak_distance_ratio': round(peak_distance_ratio, 4), 'peak_concentration': round(min(1.0, peak_concentration / 100.0), 4), 'is_double_peak': bool(peak_count == 2), 'is_multi_peak': bool(peak_count > 2)}
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_peak_morphology", {'prominence': float(dynamic_prominence), 'peaks_found': int(peak_count)}, {'main_peak_price': float(main_peak_price), 'relative_pos': float(relative_pos)}, result)
+            result = {'peak_count': int(peak_count), 'main_peak_position': int(main_peak_position), 'main_peak_price': main_peak_price, 'peak_distance_ratio': round(peak_distance_ratio, 4), 'peak_concentration': round(min(1.0, peak_concentration / 100.0), 4), 'is_double_peak': bool(peak_count == 2), 'is_multi_peak': bool(peak_count > 2)}
+            if not is_history:
+                from services.chip_holding_calculator import QuantitativeTelemetryProbe
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_peak_morphology", {'prominence': float(dynamic_prominence), 'peaks_found': int(peak_count)}, {'main_peak_price': main_peak_price, 'relative_pos': float(relative_pos)}, result)
             return result
-        except Exception as e:
-            print(f"⚠️ 寻峰失败: {e}")
-            return {'peak_count': 0, 'main_peak_position': 0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
+        except Exception:
+            return {'peak_count': 0, 'main_peak_position': 0, 'main_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
 
     def _build_normalized_chip_matrix(self, chip_history: list, current_chip_dist: pd.DataFrame) -> tuple:
         """
@@ -377,11 +377,36 @@ class AdvancedChipDynamicsService:
         """[Version 18.0.0] 默认集中度指标集"""
         return {'entropy_concentration': 0.5, 'peak_concentration': 0.3, 'cv_concentration': 0.5, 'main_force_concentration': 0.2, 'comprehensive_concentration': 0.4, 'chip_skewness': 0.0, 'chip_kurtosis': 0.0, 'chip_mean': 0.0, 'chip_std': 0.0, 'weight_avg_cost': 0.0, 'cost_5pct': 0.0, 'cost_15pct': 0.0, 'cost_50pct': 0.0, 'cost_85pct': 0.0, 'cost_95pct': 0.0, 'winner_rate': 0.0, 'win_rate_price_position': 0.0, 'price_to_weight_avg_ratio': 0.0, 'high_position_lock_ratio_90': 0.0, 'main_cost_range_ratio': 0.0, 'chip_convergence_ratio': 0.0, 'chip_divergence_ratio': 0.0, 'chip_entropy': 0.0, 'chip_concentration_ratio': 0.0, 'chip_stability': 0.0, 'price_percentile_position': 0.0, 'his_low': 0.0, 'his_high': 0.0}
 
+    def _calculate_holding_metrics(self, turnover_rate: float, chip_stability: float) -> Dict[str, float]:
+        """
+        [Version 35.0.0] 持有期泊松衰减反演器 (换手率量纲雪崩修复版)
+        说明：彻底铲除 turnover_rate > 1.0 的量纲瞎猜逻辑！A股基本面换手率(0.64)代表的是0.64%，无论大小必须坚决除以100。
+        修复将大盘股低换手(0.64%)误判为64%导致持有天数坍塌至1.6天的物理级灾难。禁止使用空行。
+        """
+        import math
+        metrics = {'short_term_chip_ratio': 0.2, 'mid_term_chip_ratio': 0.3, 'long_term_chip_ratio': 0.5, 'avg_holding_days': 60.0}
+        try:
+            if turnover_rate <= 0: return metrics
+            tr = float(turnover_rate) / 100.0
+            tr = max(0.0001, min(0.6, tr))
+            avg_days = 1.0 / tr
+            metrics['avg_holding_days'] = float(max(1.0, min(avg_days, 1500.0)))
+            short_ratio = 1.0 - math.exp(-5.0 * tr)
+            long_ratio = math.exp(-60.0 * tr)
+            metrics['short_term_chip_ratio'] = float(short_ratio * 0.6 + (1.0 - chip_stability) * 0.4)
+            metrics['long_term_chip_ratio'] = float(long_ratio * 0.6 + chip_stability * 0.4)
+            metrics['mid_term_chip_ratio'] = float(max(0.0, 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']))
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_holding_metrics", {'turnover_rate': turnover_rate, 'chip_stability': chip_stability}, {'raw_avg_days': avg_days, 'tr': tr}, metrics)
+            return metrics
+        except Exception as e:
+            return metrics
+
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict) -> Dict[str, float]:
         """
-        [Version 23.0.0] 技术面全景共振引擎 (反未来函数与破拆消音版)
-        说明：斩除 bfill() 带来的 Look-ahead Bias，仅使用 ffill() 正向因果填充，彻底消灭未来函数作弊可能。
-        打破包裹在外层的静默吞咽 except，一旦内部运算出现死锁，通过高爆探针将其公之于众，确保技术矩阵数据稳定输送。禁止使用空行。
+        [Version 35.0.0] 技术面全景共振引擎 (梯度降维与时序探针静默版)
+        说明：调整逆转动量的乘数阈值，将 divergence_product * 15.0 缓和至 5.0，防止警报分过早陷入 1.0 的 Tanh 饱和区。
+        向历史峰值提取器传递 is_history=True，隔离 t-5 历史重算时的探针污染。禁止使用空行。
         """
         import numpy as np
         import math
@@ -432,11 +457,11 @@ class AdvancedChipDynamicsService:
                 vr = pd.to_numeric(clean_df['volume_ratio'], errors='coerce').ffill()
                 if not vr.dropna().empty: metrics['volume_ratio'] = float(vr.dropna().iloc[-1])
             if chip_matrix.shape[0] >= 6:
-                morph_5d = self._identify_peak_morphology(chip_matrix[-6], price_grid)
+                morph_5d = self._identify_peak_morphology(chip_matrix[-6], price_grid, is_history=True)
                 peak_price_today = float(morph_metrics.get('main_peak_price', current_price))
                 peak_price_5d = float(morph_5d.get('main_peak_price', current_price))
                 metrics['peak_migration_speed_5d'] = float((peak_price_today - peak_price_5d) / (current_price + 1e-8) * 100.0)
-                conc_5d = self._calculate_concentration_metrics(chip_matrix[-6], price_grid, float(clean_df['close_qfq'].iloc[-6]) if len(clean_df) >= 6 else current_price, pd.DataFrame())
+                conc_5d = self._calculate_concentration_metrics(chip_matrix[-6], price_grid, float(clean_df['close_qfq'].iloc[-6]) if len(clean_df) >= 6 else current_price, pd.DataFrame(), is_history=True)
                 metrics['chip_stability_change_5d'] = float(current_concentration - conc_5d.get('chip_stability', 0.5))
             his_range = max(metrics['his_high'] - metrics['his_low'], 1e-5)
             active_range = max(conc_metrics.get('cost_95pct', current_price*1.1) - conc_metrics.get('cost_5pct', current_price*0.9), 1e-5)
@@ -447,38 +472,13 @@ class AdvancedChipDynamicsService:
             metrics['trend_confirmation_score'] = float(np.clip(trend_score, 0.0, 1.0))
             price_mom = metrics['price_to_ma5_ratio'] / 100.0
             divergence_product = float(-price_mom * net_energy)
-            metrics['reversal_warning_score'] = float(max(0.0, math.tanh(divergence_product * 15.0)))
+            metrics['reversal_warning_score'] = float(max(0.0, math.tanh(divergence_product * 5.0)))
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy, 'divergence_product': divergence_product}, {'volatility': volatility, 'turnover_rate': metrics['turnover_rate']}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence'], 'reversal_warning_score': metrics['reversal_warning_score']})
             return metrics
         except Exception as e:
             import traceback
             err_trace = traceback.format_exc()
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FATAL", {}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
-            return metrics
-
-    def _calculate_holding_metrics(self, turnover_rate: float, chip_stability: float) -> Dict[str, float]:
-        """
-        [Version 23.0.0] 持有期泊松衰减反演器 (换手率拓扑投影版)
-        说明：终结长短线资金比例永远返回 0.2/0.5 的静态写死魔咒。将真实跨表提取的换手率，
-        结合筹码分布的熵稳定性，运用泊松停留时间(Poisson Dwell Time)推演沉淀池中筹码的真实老化程度。禁止使用空行。
-        """
-        import math
-        metrics = {'short_term_chip_ratio': 0.2, 'mid_term_chip_ratio': 0.3, 'long_term_chip_ratio': 0.5, 'avg_holding_days': 60.0}
-        try:
-            if turnover_rate <= 0: return metrics
-            tr = turnover_rate / 100.0 if turnover_rate > 1.0 else turnover_rate
-            tr = max(0.0001, min(0.6, tr))
-            avg_days = 1.0 / tr
-            metrics['avg_holding_days'] = float(max(1.0, min(avg_days, 800.0)))
-            short_ratio = 1.0 - math.exp(-5.0 * tr)
-            long_ratio = math.exp(-60.0 * tr)
-            metrics['short_term_chip_ratio'] = float(short_ratio * 0.6 + (1.0 - chip_stability) * 0.4)
-            metrics['long_term_chip_ratio'] = float(long_ratio * 0.6 + chip_stability * 0.4)
-            metrics['mid_term_chip_ratio'] = float(max(0.0, 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']))
-            from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_holding_metrics", {'turnover_rate': turnover_rate, 'chip_stability': chip_stability}, {'raw_avg_days': avg_days, 'tr': tr}, metrics)
-            return metrics
-        except Exception as e:
             return metrics
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
@@ -685,9 +685,9 @@ class AdvancedChipDynamicsService:
 
     def _calculate_convergence_metrics(self, chip_matrix: np.ndarray, percent_change_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
         """
-        [Version 29.0.0] 筹码聚散度分析算子 (二阶矩方差漂移修正版)
-        说明：彻底推翻原先用 np.dot(recent_changes, price_grid - price_center) 误把"重心平移"当成"聚散度"的物理级错误。
-        引入真实的二阶矩变化量 (Variance Change) 计算法则。当分布方差净变化为负，代表筹码向中心收拢(Convergence)；为正代表向两端逃逸发散(Divergence)。禁止使用空行。
+        [Version 35.0.0] 筹码聚散度分析算子 (二阶矩方差漂移降维缩放版)
+        说明：降低方差变化率 rel_var_change 的 tanh 放大乘数，从灾难级的 10.0 降至 3.0，避免特征被微小的 15% 方差波动劫持而进入 0.99 的饱和死锁区。
+        当分布方差净变化为负，代表筹码向中心收拢(Convergence)；为正代表向两端逃逸发散(Divergence)。禁止使用空行。
         """
         import numpy as np
         import math
@@ -722,11 +722,11 @@ class AdvancedChipDynamicsService:
         variance_change = float(np.dot(recent_changes, (price_grid - price_center)**2))
         rel_var_change = variance_change / (variance + eps)
         if rel_var_change < 0:
-            metrics['convergence_strength'] = float(math.tanh(abs(rel_var_change) * 10.0))
+            metrics['convergence_strength'] = float(math.tanh(abs(rel_var_change) * 3.0))
             metrics['divergence_strength'] = 0.0
         else:
             metrics['convergence_strength'] = 0.0
-            metrics['divergence_strength'] = float(math.tanh(rel_var_change * 10.0))
+            metrics['divergence_strength'] = float(math.tanh(rel_var_change * 3.0))
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {'variance_change': float(variance_change), 'rel_var_change': float(rel_var_change)}, {'dynamic_convergence': metrics['dynamic_convergence'], 'migration_convergence': metrics['migration_convergence']}, metrics)
         return metrics
@@ -1492,9 +1492,9 @@ class GameEnergyCalculator:
 
     def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
         """
-        [Version 11.0.0] 博弈能量指标自适应拓扑计算器（抗梯度饱和解耦版）
-        说明：精准定点清除 game_intensity 永远死卡在 0.95+ 的数学死锁。
-        将“相对活跃占比”与“绝对能量规模的非线性平滑函数(Arctan)”进行正交相乘。在保证极小变动被平滑衰减的同时，为下游提供满血的梯度分辨率。禁止使用空行。
+        [Version 35.0.0] 博弈能量指标自适应拓扑计算器 (强度压制释压版)
+        说明：修正 absolute_scale 除以 15.0 导致的 game_intensity 被过度压制在极低水平 (如0.04) 的问题。
+        A股单日筹码交换5%已属高燃交战，将分母下调至 5.0，恢复博弈强度的正常动态张力。禁止使用空行。
         """
         import numpy as np
         import math
@@ -1521,7 +1521,7 @@ class GameEnergyCalculator:
         active_energy_sum = np.sum(abs_changes[active_mask_intensity])
         prior_energy = max(1.0, total_energy * 0.05) 
         active_ratio = active_energy_sum / (total_energy + prior_energy + eps)
-        absolute_scale = float(math.atan(total_energy / 15.0) / (math.pi / 2))
+        absolute_scale = float(math.atan(total_energy / 5.0) / (math.pi / 2))
         game_intensity = float(active_ratio * absolute_scale)
         game_intensity = min(1.0, max(0.0, game_intensity))
         above_mask = price_grid > current_price

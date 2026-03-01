@@ -548,9 +548,9 @@ class ChipFactorBase(models.Model):
 
     def update_from_chip_dynamics(self, chip_dynamics_result: Dict[str, any]):
         """
-        [Version 29.0.0] 全息状态映射神经中枢 (严格类型防御版)
-        说明：消除最后的信息孤岛！将所有的 CDF 成本线、泊松衰减持有时间等进行映射。
-        防范 ma_arrangement_status, peak_count 等整型字段被错误灌入 float 引发的数据库底层越界截断报错。禁止使用空行。
+        [Version 35.0.0] 全息状态映射神经中枢 (Numpy布尔跨界崩溃防御版)
+        说明：消除最后的信息孤岛，并彻底剿灭 Numpy.bool_ 注入 Django ORM BooleanField 时引发的隐性底层序列化暴毙。
+        全量、安全地反射所有特征，保证数据血脉畅通。禁止使用空行。
         """
         import numpy as np
         import math
@@ -562,6 +562,9 @@ class ChipFactorBase(models.Model):
         def safe_int(val, default=0):
             try: return int(float(val))
             except (TypeError, ValueError): return default
+        def safe_bool(val, default=False):
+            try: return bool(val)
+            except Exception: return default
         try:
             if not chip_dynamics_result or chip_dynamics_result.get('analysis_status') != 'success': return False
             if 'current_price' in chip_dynamics_result: self.close = safe_flt(chip_dynamics_result['current_price'])
@@ -590,8 +593,8 @@ class ChipFactorBase(models.Model):
             if behav_patterns and hasattr(self, 'chip_structure_state'):
                 accum = safe_flt(behav_patterns.get('accumulation', {}).get('strength', 0.0))
                 distrib = safe_flt(behav_patterns.get('distribution', {}).get('strength', 0.0))
-                consol_detected = behav_patterns.get('consolidation', {}).get('detected', False)
-                breakout_detected = behav_patterns.get('breakout_preparation', {}).get('detected', False)
+                consol_detected = safe_bool(behav_patterns.get('consolidation', {}).get('detected', False))
+                breakout_detected = safe_bool(behav_patterns.get('breakout_preparation', {}).get('detected', False))
                 if accum > 0.2 and accum > distrib * 1.3: self.chip_structure_state = 'accumulation'
                 elif distrib > 0.2 and distrib > accum * 1.3: self.chip_structure_state = 'distribution'
                 elif breakout_detected: self.chip_structure_state = 'lifting'
@@ -601,7 +604,7 @@ class ChipFactorBase(models.Model):
             if morph_metrics:
                 for field in ['peak_count', 'main_peak_position', 'peak_distance_ratio', 'peak_concentration', 'is_double_peak', 'is_multi_peak']:
                     if hasattr(self, field) and field in morph_metrics:
-                        if isinstance(morph_metrics[field], bool): setattr(self, field, morph_metrics[field])
+                        if field in ['is_double_peak', 'is_multi_peak']: setattr(self, field, safe_bool(morph_metrics[field]))
                         elif field in ['peak_count', 'main_peak_position']: setattr(self, field, safe_int(morph_metrics[field]))
                         else: setattr(self, field, safe_flt(morph_metrics[field]))
             tech_metrics = chip_dynamics_result.get('technical_metrics', {})
@@ -619,7 +622,7 @@ class ChipFactorBase(models.Model):
                     if hasattr(self, field) and field in tick_factors: setattr(self, field, safe_flt(tick_factors[field]))
                 for field in ['intraday_support_test_count', 'intraday_resistance_test_count']:
                     if hasattr(self, field) and field in tick_factors: setattr(self, field, safe_int(tick_factors[field]))
-                if hasattr(self, 'intraday_factor_calc_method') and 'intraday_factor_calc_method' in tick_factors: self.intraday_factor_calc_method = tick_factors['intraday_factor_calc_method']
+                if hasattr(self, 'intraday_factor_calc_method') and 'intraday_factor_calc_method' in tick_factors: self.intraday_factor_calc_method = str(tick_factors['intraday_factor_calc_method'])
             self._calculate_trend_score(chip_dynamics_result)
             self.calc_status = 'success'
             return True
@@ -1120,9 +1123,8 @@ class ChipHoldingMatrixBase(models.Model):
 
     def to_factor_dict(self) -> Dict[str, Any]:
         """
-        [Version 29.0.0] 扁平化数据解包提取器（严格类型刚性脱水版）
-        说明：进一步巩固安全脱水阀门。将 ma_arrangement_status、peak_count、main_peak_position 等天然整型字段严格执行 safe_int 约束解析。
-        防范因 Python 浮点漂移引发的数据库 IntegerField 底层溢出或类型冲突。禁止使用空行。
+        [Version 35.0.0] 扁平化数据解包提取器（Numpy布尔跨界崩溃防御版）
+        说明：追加 safe_bool 防火墙，防范 numpy.bool_ 泄露到上层引发 DB Driver 暴毙。全景透传提取高级矩阵特征。禁止使用空行。
         """
         import math
         from typing import Dict, Any
@@ -1135,11 +1137,14 @@ class ChipHoldingMatrixBase(models.Model):
         def safe_int(val, default=0):
             try: return int(float(val))
             except (TypeError, ValueError): return default
+        def safe_bool(val, default=False):
+            try: return bool(val)
+            except Exception: return default
         kbz_zones = self.chart_signals.get('key_battle_zones', []) if self.chart_signals else []
         factors = {
             'absorption_energy': safe_flt(self.absorption_energy), 'distribution_energy': safe_flt(self.distribution_energy), 'net_energy_flow': safe_flt(self.net_energy_flow),
             'game_intensity': safe_flt(self.game_intensity), 'breakout_potential': safe_flt(self.breakout_potential), 'energy_concentration': safe_flt(self.energy_concentration),
-            'fake_distribution_flag': self.fake_distribution_flag if hasattr(self, 'fake_distribution_flag') else False,
+            'fake_distribution_flag': safe_bool(getattr(self, 'fake_distribution_flag', False)),
             'key_battle_intensity': safe_flt(Calculator.calculate_key_battle_intensity(kbz_zones)),
             'trend_score': safe_flt(Calculator.calculate_trend_score(net_flow=self.net_energy_flow or 0, game_intensity=self.game_intensity or 0, intraday_quality=self.intraday_chip_quality_score or 0, tick_flow=getattr(self, 'tick_level_chip_flow', 0))),
             'breakout_probability': safe_flt(Calculator.calculate_breakout_probability(potential=self.breakout_potential or 0, concentration=self.energy_concentration or 0, game_intensity=self.game_intensity or 0, net_flow=self.net_energy_flow or 0)),
@@ -1161,7 +1166,7 @@ class ChipHoldingMatrixBase(models.Model):
             factors['profit_ratio'] = safe_flt(conc.get('winner_rate', 0.0))
             morph = self.extra_metrics.get('morphology', {})
             factors['peak_count'] = safe_int(morph.get('peak_count', 0)); factors['main_peak_position'] = safe_int(morph.get('main_peak_position', 0)); factors['peak_distance_ratio'] = safe_flt(morph.get('peak_distance_ratio', 0.0)); factors['peak_concentration'] = safe_flt(morph.get('peak_concentration', 0.0))
-            factors['is_double_peak'] = morph.get('is_double_peak', False); factors['is_multi_peak'] = morph.get('is_multi_peak', False)
+            factors['is_double_peak'] = safe_bool(morph.get('is_double_peak', False)); factors['is_multi_peak'] = safe_bool(morph.get('is_multi_peak', False))
             mig = self.extra_metrics.get('migration', {})
             factors['chip_flow_direction'] = safe_int(mig.get('chip_flow_direction', 0)); factors['chip_flow_intensity'] = safe_flt(mig.get('chip_flow_intensity', 0.0)); factors['net_migration_direction'] = safe_flt(mig.get('net_migration_direction', 0.0)); factors['migration_convergence_ratio'] = safe_flt(mig.get('migration_convergence', 0.5))
             press = self.extra_metrics.get('pressure', {})
@@ -1176,7 +1181,7 @@ class ChipHoldingMatrixBase(models.Model):
             behav_meta = self.extra_metrics.get('behavior_meta', {})
             factors['main_force_activity_index'] = safe_flt(behav_meta.get('main_force_activity', 0.0))
             behav_acc = safe_flt(self.behavior_accumulation); behav_dist = safe_flt(self.behavior_distribution)
-            brk_out = behav_meta.get('breakout_detected', False); cons_det = behav_meta.get('consolidation_detected', False)
+            brk_out = safe_bool(behav_meta.get('breakout_detected', False)); cons_det = safe_bool(behav_meta.get('consolidation_detected', False))
             if behav_acc > 0.2 and behav_acc > behav_dist * 1.3: factors['chip_structure_state'] = 'accumulation'
             elif behav_dist > 0.2 and behav_dist > behav_acc * 1.3: factors['chip_structure_state'] = 'distribution'
             elif brk_out: factors['chip_structure_state'] = 'lifting'
