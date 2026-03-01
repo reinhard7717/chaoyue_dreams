@@ -1619,26 +1619,36 @@ class QuantitativeTelemetryProbe:
     @classmethod
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
         """
-        [Version 2.0.0] 工业级量化全链路探针输出组件（反序列化黑洞修复版）
-        说明：植入Numpy兼容的定制JSON序列化器，突破数据解析异常导致的死锁静默，彻底废除pass掩耳盗铃机制，让探针恢复生命体征。
+        [Version 4.0.0] 物理落盘级绝对强制探针（破壁版）
+        说明：彻底突破Celery标准输出劫持，强制双写至物理文件，并配备万能异常宽容序列化器，粉碎一切序列化黑洞。
         """
-        import json
+        import json, sys, os, datetime
         import numpy as np
-        class NumpyEncoder(json.JSONEncoder):
+        class UltimateEncoder(json.JSONEncoder):
             def default(self, obj):
-                if isinstance(obj, np.integer):
-                    return int(obj)
-                elif isinstance(obj, np.floating):
-                    return float(obj)
-                elif isinstance(obj, np.ndarray):
-                    return obj.tolist()
-                return super(NumpyEncoder, self).default(obj)
-        payload = {"module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
+                if isinstance(obj, (np.integer, np.int64, np.int32)): return int(obj)
+                if isinstance(obj, (np.floating, np.float64, np.float32)): return float(obj)
+                if isinstance(obj, np.ndarray): return obj.tolist()
+                if isinstance(obj, (datetime.datetime, datetime.date)): return obj.isoformat()
+                try:
+                    import pandas as pd
+                    if isinstance(obj, pd.Timestamp): return obj.isoformat()
+                    if pd.isna(obj): return None
+                except Exception: pass
+                return str(obj)
+        payload = {"time": datetime.datetime.now().isoformat(), "module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
         try:
-            print(f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False, cls=NumpyEncoder)}")
+            out_str = f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False, cls=UltimateEncoder)}\n"
         except Exception as e:
-            print(f"⚠️ [QUANT-PROBE ERROR] 探针自身序列化/输出致命异常: {e}")
-
+            out_str = f"⚠️ [QUANT-PROBE-ERR] 无法序列化: {e} | Module: {module_name} | Method: {method_name}\n"
+        try:
+            sys.stderr.write(out_str)
+            sys.stderr.flush()
+        except Exception: pass
+        try:
+            with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
+                f.write(out_str)
+        except Exception: pass
 
 
 

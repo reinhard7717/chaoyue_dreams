@@ -80,13 +80,17 @@ def get_market_from_code(stock_code: str) -> str:
         return 'SZ'  # 默认
 
 def get_last_trade_date() -> date:
-    """获取最近一个交易日"""
-    # 使用 TradeCalendar 获取最近交易日
-    last_trade_date = TradeCalendar.get_latest_trade_date()
-    if last_trade_date:
-        return last_trade_date
-    # 如果获取失败，返回昨天
-    return (datetime.now() - timedelta(days=1)).date()
+    """
+    [Version 3.0.0] 获取最近交易日防崩溃版
+    说明：合并重复定义，加入自然日兜底，防止数据库空置时返回None导致全局链式崩溃。
+    """
+    from datetime import datetime, timedelta
+    try:
+        last_date = TradeCalendar.get_latest_trade_date()
+        if last_date: return last_date
+        return (datetime.now() - timedelta(days=1)).date()
+    except Exception:
+        return (datetime.now() - timedelta(days=1)).date()
 
 def date_range(start_date: date, end_date: date) -> List[date]:
     """生成交易日范围列表（使用 TradeCalendar）"""
@@ -114,36 +118,21 @@ def parse_date(date_str: str) -> date:
     except ValueError:
         return datetime.strptime(date_str, '%Y-%m-%d').date()
 
-def get_last_trade_date() -> date:
-    """获取最近一个交易日"""
-    # 这里需要根据您的交易日历实现
-    # 简化：返回昨天
-    return TradeCalendar.get_latest_trade_date()
-
 # ========== 调度任务 ==========
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_calculation', queue=ChipTaskConfig.get_queue_name())
-def schedule_chip_factor_calculation(
-    self,  
-    stock_codes: Optional[List[str]] = None, 
-    start_date_str: Optional[str] = None,
-    end_date_str: Optional[str] = None, 
-    batch_mode: bool = True,
-    include_energy_analysis: bool = True,
-    calculation_mode: str = 'comprehensive',
-    incremental: bool = True
-) -> Dict:
-    # [V3.1.0] 新增增量调度逻辑，透传incremental参数避免全量遍历浪费IO
+def schedule_chip_factor_calculation(self, stock_codes: Optional[List[str]] = None, start_date_str: Optional[str] = None, end_date_str: Optional[str] = None, batch_mode: bool = True, include_energy_analysis: bool = True, calculation_mode: str = 'comprehensive', incremental: bool = True) -> Dict:
+    """
+    [Version 6.0.0] 调度总控网关（强制生命体征报告版）
+    说明：在任务唤醒首行强制写入物理日志和stderr，防止Celery静默劫持，暴露任务是否真的被Worker接收。
+    """
+    import sys
+    from services.chip_holding_calculator import QuantitativeTelemetryProbe
+    QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_ENTER", {'mode': calculation_mode, 'incremental': incremental}, {}, {'status': 'Task_Awake'})
     try:
-        logger.info(f"开始调度筹码因子计算任务（模式: {calculation_mode}, 增量模式: {incremental}）")
-        if start_date_str:
-            start_date = parse_date(start_date_str)
-        else:
-            start_date = parse_date(ChipTaskConfig.DEFAULT_START_DATE)
-        if end_date_str:
-            end_date = parse_date(end_date_str)
-        else:
-            end_date = get_last_trade_date()
-        logger.info(f"全局请求日期范围: {start_date} 到 {end_date}")
+        if start_date_str: start_date = parse_date(start_date_str)
+        else: start_date = parse_date(ChipTaskConfig.DEFAULT_START_DATE)
+        if end_date_str: end_date = parse_date(end_date_str)
+        else: end_date = get_last_trade_date()
         if stock_codes is None:
             cache_manager = CacheManager()
             stock_dao = StockBasicInfoDao(cache_manager)
@@ -152,25 +141,17 @@ def schedule_chip_factor_calculation(
             try:
                 stock_list = loop.run_until_complete(stock_dao.get_stock_list())
                 stock_codes = [stock.stock_code for stock in stock_list]
-            finally:
-                loop.close()
-        logger.info(f"需要计算的股票数量: {len(stock_codes)}")
-        if calculation_mode == 'comprehensive':
-            result = schedule_comprehensive_calculation(
-                stock_codes, start_date, end_date, batch_mode, incremental
-            )
+            finally: loop.close()
+        QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_DISPATCH", {'stock_count': len(stock_codes), 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Dispatching'})
+        if calculation_mode == 'comprehensive': result = schedule_comprehensive_calculation(stock_codes, start_date, end_date, batch_mode, incremental)
         elif calculation_mode == 'chip_only':
-            if batch_mode:
-                result = schedule_by_stock_batch(stock_codes, start_date, end_date, incremental)
-            else:
-                result = schedule_by_date_batch(stock_codes, start_date, end_date)
-        elif calculation_mode == 'energy_only':
-            result = schedule_energy_only_calculation(stock_codes, start_date, end_date, incremental)
-        else:
-            raise ValueError(f"未知的计算模式: {calculation_mode}")
+            if batch_mode: result = schedule_by_stock_batch(stock_codes, start_date, end_date, incremental)
+            else: result = schedule_by_date_batch(stock_codes, start_date, end_date)
+        elif calculation_mode == 'energy_only': result = schedule_energy_only_calculation(stock_codes, start_date, end_date, incremental)
+        else: raise ValueError(f"未知的计算模式: {calculation_mode}")
         return result
     except Exception as e:
-        logger.error(f"调度筹码因子计算任务失败: {e}", exc_info=True)
+        QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_FATAL", {}, {'error': str(e)}, {'status': 'Crash'})
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
 def schedule_by_stock_batch(stock_codes: List[str], start_date: date, end_date: date, incremental: bool = True) -> Dict:
@@ -405,115 +386,52 @@ def calculate_single_stock_chip_factors_sync(stock_code: str, start_date: str, e
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def calculate_single_stock_holding_matrix_async(stock_code: str, start_date: date, end_date: date, cm: CacheManager) -> Dict:
-    """异步版本的单个股票持有矩阵计算函数 - 修复数据保存问题"""
+    """
+    [Version 6.0.0] 单股矩阵异步推演（防呆空转曝光版）
+    说明：在防呆拦截的最后一道屏障（检查缓存完整性后continue）处打入宣告证明探针，杜绝内部空转导致的幽灵假死。
+    """
+    from services.chip_holding_calculator import QuantitativeTelemetryProbe
+    QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_ENTER", {'stock': stock_code, 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Started'})
     try:
-        logger.info(f"开始计算股票 {stock_code} 的持有时间矩阵")
-        # 获取持有矩阵模型
         holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
-        # 获取股票基本信息
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
-        if not stock:
-            print(f"❌ [持有矩阵] {stock_code} 股票不存在")
-            return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
-        # 创建动态分析服务
+        if not stock: return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
         service = AdvancedChipDynamicsService(market_type=get_market_from_code(stock_code))
-        processed_dates = 0
-        saved_dates = []
-        failed_dates = []
-        # 获取日期范围内的所有交易日
+        processed_dates, saved_dates, failed_dates = 0, [], []
         get_dates_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_func(start_date, end_date)
-        if not trade_dates:
-            print(f"⚠️ [持有矩阵] {stock_code} 日期范围内无交易日: {start_date} 到 {end_date}")
-            return {'status': 'failed', 'error': '日期范围内无交易日', 'processed_dates': 0}
-        print(f"📅 [持有矩阵] {stock_code} 交易日: {len(trade_dates)} 天")
-        # 按日期循环处理当前股票
+        if not trade_dates: return {'status': 'failed', 'error': '无交易日', 'processed_dates': 0}
         for date_index, current_date in enumerate(trade_dates):
             try:
-                if (date_index + 1) % max(1, len(trade_dates) // 10) == 0:
-                    progress = (date_index + 1) / len(trade_dates) * 100
-                # 检查是否已计算（只检查成功状态）
-                existing = await sync_to_async(holding_matrix_model.objects.filter(
-                    stock=stock, trade_time=current_date, calc_status='success'
-                ).exists)()
+                existing = await sync_to_async(holding_matrix_model.objects.filter(stock=stock, trade_time=current_date, calc_status='success').exists)()
                 if existing:
-                    # 即使已存在，也检查关键字段是否为空
-                    existing_record = await sync_to_async(holding_matrix_model.objects.filter(
-                        stock=stock, trade_time=current_date
-                    ).first)()
-                    # 如果关键字段为空，重新计算
+                    existing_record = await sync_to_async(holding_matrix_model.objects.filter(stock=stock, trade_time=current_date).first)()
                     need_recalculate = False
                     if existing_record:
-                        if (not hasattr(existing_record, 'absolute_change_analysis') or 
-                            existing_record.absolute_change_analysis is None or
-                            existing_record.absolute_change_analysis == {}):
-                            need_recalculate = True
-                            print(f"🔄 [持有矩阵] {stock_code} {current_date} absolute_change_analysis为空，重新计算")
-                        elif (not hasattr(existing_record, 'absorption_energy') or 
-                              existing_record.absorption_energy is None or
-                              existing_record.absorption_energy == 0):
-                            need_recalculate = True
-                            print(f"🔄 [持有矩阵] {stock_code} {current_date} 能量场数据为空，重新计算")
+                        if not hasattr(existing_record, 'absolute_change_analysis') or existing_record.absolute_change_analysis is None or existing_record.absolute_change_analysis == {}: need_recalculate = True
+                        elif not hasattr(existing_record, 'absorption_energy') or existing_record.absorption_energy is None or existing_record.absorption_energy == 0: need_recalculate = True
                     if not need_recalculate:
+                        QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_SKIP", {'stock': stock_code, 'date': str(current_date)}, {'reason': '当日记录已存在且完整，触发缓存跳过'}, {'status': 'Skipped'})
                         continue
-                # 使用AdvancedChipDynamicsService进行动态分析
                 trade_date_str = current_date.strftime('%Y-%m-%d')
                 realtime_dao = StockRealtimeDAO(cm)
                 tick_data = await realtime_dao.get_daily_real_ticks(stock_code, current_date) 
-                dynamics_result = await service.analyze_chip_dynamics_daily(
-                    stock_code=stock_code,
-                    trade_date=trade_date_str,
-                    lookback_days=20,
-                    tick_data=tick_data
-                )
-                # 保存动态分析结果到数据库
+                QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_CALL_ENGINE", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'Calling'})
+                dynamics_result = await service.analyze_chip_dynamics_daily(stock_code=stock_code, trade_date=trade_date_str, lookback_days=20, tick_data=tick_data)
                 if dynamics_result.get('analysis_status') == 'success':
-                    # 获取或创建记录
-                    record, created = await sync_to_async(holding_matrix_model.objects.get_or_create)(
-                        stock=stock,
-                        trade_time=current_date,
-                        defaults={'calc_status': 'pending'}
-                    )
-                    # 确保dynamics_result包含current_price
-                    if 'current_price' not in dynamics_result:
-                        # 尝试从其他字段推断
-                        if 'price_grid' in dynamics_result and dynamics_result['price_grid']:
-                            price_grid = dynamics_result['price_grid']
-                            if len(price_grid) > 0:
-                                # 使用价格网格的中间值作为当前价
-                                dynamics_result['current_price'] = price_grid[len(price_grid)//2]
+                    record, created = await sync_to_async(holding_matrix_model.objects.get_or_create)(stock=stock, trade_time=current_date, defaults={'calc_status': 'pending'})
+                    if 'current_price' not in dynamics_result and 'price_grid' in dynamics_result and dynamics_result['price_grid']: dynamics_result['current_price'] = dynamics_result['price_grid'][len(dynamics_result['price_grid'])//2]
                     save_success = await sync_to_async(record.save_dynamics_result)(dynamics_result)
                     if save_success:
                         processed_dates += 1
                         saved_dates.append(current_date)
-                    else:
-                        failed_dates.append(current_date)
-                        print(f"❌ [持有矩阵] {stock_code} {current_date} 动态分析保存失败")
-                else:
-                    failed.append(current_date)
-                    # 🧨 [终极修复] 提取底层引擎吐出的 error_message 并高亮打印
-                    err_msg = dynamics_result.get('error_message', '未知原因(被系统静默截断)')
-                    print(f"⚠️ [持有矩阵] {stock_code} {current_date} 动态分析被阻断 | 🩸死因: {err_msg}")
-                    
-            except Exception as e:
-                print(f"❌ [持有矩阵] {stock_code} {current_date} 计算失败: {e}")
-                import traceback
-                traceback.print_exc()
-                failed_dates.append(current_date)
-        print(f"✅ [持有矩阵完成] {stock_code} 处理完成")
-        print(f"📊 [持有矩阵统计] 成功: {len(saved_dates)} 个交易日，失败: {len(failed_dates)} 个交易日")
-        return {
-            'status': 'success', 
-            'processed_dates': processed_dates, 
-            'saved_dates': len(saved_dates), 
-            'failed_dates': len(failed_dates), 
-            'date_range': f"{start_date} - {end_date}"
-        }
+                    else: failed_dates.append(current_date)
+                else: failed_dates.append(current_date)
+            except Exception as e: failed_dates.append(current_date)
+        QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_DONE", {'stock': stock_code}, {'success': len(saved_dates), 'failed': len(failed_dates)}, {'status': 'Completed'})
+        return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
     except Exception as e:
-        logger.error(f"计算股票 {stock_code} 持有矩阵失败: {e}", exc_info=True)
-        print(f"❌ [持有矩阵异常] {stock_code}: {e}")
-        import traceback
-        traceback.print_exc()
+        QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_FATAL", {'stock': stock_code}, {'error': str(e)}, {'status': 'Crash'})
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
@@ -822,48 +740,42 @@ async def calculate_single_stock_single_date_async(stock_code: str, trade_date: 
 
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.calculate_holding_matrix_batch', queue=ChipTaskConfig.get_queue_name())
 def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str, end_date: str, market: str = None, incremental: bool = True) -> Dict:
-    # [V3.1.0] 为持有矩阵新增O(1)增量探底，阻断已完成日期的无效运算
+    """
+    [Version 6.0.0] 批量矩阵计算网关（增量逃课曝光版）
+    说明：捕获由于incremental=True且数据已最新时，任务直接continue跳过引擎调用的隐性截流行为。
+    """
     try:
-        logger.info(f"开始批量计算持有时间矩阵，股票数量: {len(stock_codes)}，增量模式: {incremental}")
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_ENTER", {'stock_count': len(stock_codes), 'incremental': incremental}, {}, {'status': 'Started'})
         global_start_date_obj = parse_date(start_date)
         end_date_obj = parse_date(end_date)
         results = {'total': len(stock_codes), 'success': 0, 'failed': 0, 'details': []}
-        print(f"📋 [持有矩阵批量] 开始处理 {len(stock_codes)} 只股票")
         for stock_index, stock_code in enumerate(stock_codes):
             try:
-                print(f"🔴 [持有矩阵单股] 开始处理第 {stock_index + 1}/{len(stock_codes)} 只股票: {stock_code}")
                 actual_start_date_obj = global_start_date_obj
                 if incremental:
                     holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
-                    latest_record = holding_matrix_model.objects.filter(
-                        stock__stock_code=stock_code,
-                        calc_status='success'
-                    ).order_by('-trade_time').first()
+                    latest_record = holding_matrix_model.objects.filter(stock__stock_code=stock_code, calc_status='success').order_by('-trade_time').first()
                     if latest_record:
                         next_trade_date = TradeCalendar.get_next_trade_date(latest_record.trade_time)
-                        if next_trade_date:
-                            actual_start_date_obj = max(global_start_date_obj, next_trade_date)
-                            print(f"🔍 [增量探底] {stock_code} 持有矩阵最新成功日期: {latest_record.trade_time}, 调整为: {actual_start_date_obj}")
+                        if next_trade_date: actual_start_date_obj = max(global_start_date_obj, next_trade_date)
                 if actual_start_date_obj > end_date_obj:
-                    print(f"✅ [增量跳过] {stock_code} 持有矩阵已是最新，跳过计算")
+                    QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_SKIP", {'stock': stock_code}, {'reason': '数据已最新，增量逻辑触发拦截'}, {'status': 'Skipped'})
                     results['success'] += 1
                     results['details'].append({'stock_code': stock_code, 'stock_index': stock_index + 1, 'status': 'success', 'processed_dates': 0})
                     continue
                 result = calculate_single_stock_holding_matrix_sync(stock_code, actual_start_date_obj, end_date_obj)
-                if result.get('status') == 'success':
-                    results['success'] += 1
-                    print(f"✅ [持有矩阵单股完成] {stock_code} 处理完成，成功 {result.get('processed_dates', 0)} 个交易日")
-                else:
-                    results['failed'] += 1
-                    print(f"❌ [持有矩阵单股失败] {stock_code} 处理失败: {result.get('error', '未知错误')}")
+                if result.get('status') == 'success': results['success'] += 1
+                else: results['failed'] += 1
                 results['details'].append({'stock_code': stock_code, 'stock_index': stock_index + 1, **result})
             except Exception as e:
                 results['failed'] += 1
-                print(f"❌ [持有矩阵单股异常] {stock_code} 处理异常: {e}")
                 results['details'].append({'stock_code': stock_code, 'stock_index': stock_index + 1, 'status': 'error', 'error': str(e), 'processed_dates': 0})
+        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_DONE", {'success': results['success'], 'failed': results['failed']}, {}, {'status': 'Finished'})
         return results
     except Exception as e:
-        logger.error(f"批量计算持有时间矩阵失败: {e}", exc_info=True)
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_FATAL", {}, {'error': str(e)}, {'status': 'Crashed'})
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_holding_matrix_calculation', queue=ChipTaskConfig.get_queue_name())
