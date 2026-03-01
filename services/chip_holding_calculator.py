@@ -462,11 +462,11 @@ class AdvancedChipDynamicsService:
         except Exception as e:
             return metrics
 
-    def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict) -> Dict[str, float]:
+    def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 35.0.0] 技术面全景共振引擎 (梯度降维与时序探针静默版)
-        说明：调整逆转动量的乘数阈值，将 divergence_product * 15.0 缓和至 5.0，防止警报分过早陷入 1.0 的 Tanh 饱和区。
-        向历史峰值提取器传递 is_history=True，隔离 t-5 历史重算时的探针污染。禁止使用空行。
+        [Version 51.0.0] 技术面全景共振引擎 (接口契约修复与Tick流体融合版)
+        说明：彻底修复因多传 tick_enhanced_factors 参数引发的 TypeError: takes 10 positional arguments but 11 were given 致命崩溃。
+        正式接入 tick_factors 参数，并将日内主力活跃度与筹码净流向融入趋势得分，完成时空共振的最后一块拼图。禁止使用空行。
         """
         import numpy as np
         import math
@@ -529,10 +529,18 @@ class AdvancedChipDynamicsService:
             metrics['chip_convergence_ratio'] = float(1.0 - metrics['chip_divergence_ratio'])
             net_energy = float(energy_metrics.get('net_energy_flow', 0.0))
             trend_score = 0.5 + (0.2 * metrics['ma_arrangement_status']) + (0.15 * math.tanh(net_energy))
+            tick_quality = float(tick_factors.get('tick_data_quality_score', 0.0)) if tick_factors else 0.0
+            if tick_quality > 0.3:
+                tick_flow = float(tick_factors.get('tick_level_chip_flow', 0.0))
+                trend_score += float(math.tanh(tick_flow * 2.0) * 0.1)
             metrics['trend_confirmation_score'] = float(np.clip(trend_score, 0.0, 1.0))
             price_mom = metrics['price_to_ma5_ratio'] / 100.0
             divergence_product = float(-price_mom * net_energy)
-            metrics['reversal_warning_score'] = float(max(0.0, math.tanh(divergence_product * 5.0)))
+            reversal = float(max(0.0, math.tanh(divergence_product * 5.0)))
+            if tick_quality > 0.3:
+                abnormal_vol = float(tick_factors.get('tick_abnormal_volume_ratio', 0.0))
+                if abnormal_vol > 0.2 and reversal > 0.3: reversal = min(1.0, reversal + abnormal_vol * 0.5)
+            metrics['reversal_warning_score'] = float(np.clip(reversal, 0.0, 1.0))
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy, 'divergence_product': divergence_product}, {'volatility': volatility, 'turnover_rate': metrics['turnover_rate']}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence'], 'reversal_warning_score': metrics['reversal_warning_score']})
             return metrics
         except Exception as e:
@@ -543,9 +551,8 @@ class AdvancedChipDynamicsService:
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """
-        [Version 48.0.0] 分析单日筹码动态主入口（验证分离与数据保全终极版）
-        说明：斩断 validation_score 盲目继承 signal_quality 的逻辑死链！
-        将“市场变动微小(低信噪比)”与“数据源损坏(缺历史、越界)”彻底解耦。保证缩量盘整期的合法数据绝对不会被下游的脏数据过滤器误杀。禁止使用空行。
+        [Version 51.0.0] 分析单日筹码动态主入口（关键字契约强绑定版）
+        说明：全面采用 kwargs (关键字传参) 替换脆弱的 positional arguments (位置传参)，彻底消除后续参数增删导致的 signature mismatch 连环崩塌。禁止使用空行。
         """
         import numpy as np
         from datetime import datetime
@@ -555,22 +562,22 @@ class AdvancedChipDynamicsService:
             if not chip_data or len(chip_data['chip_history']) < 5: return self._get_default_result(stock_code, trade_date)
             price_grid, chip_matrix = self._build_normalized_chip_matrix(chip_data['chip_history'], chip_data['current_chip_dist'])
             percent_change_matrix = self._calculate_percent_change_matrix(chip_matrix)
-            absolute_signals = self._analyze_absolute_changes(percent_change_matrix, price_grid, chip_data['current_price'])
-            concentration_metrics = self._calculate_concentration_metrics(chip_matrix[-1], price_grid, chip_data['current_price'], chip_data['price_history'])
-            pressure_metrics = self._calculate_pressure_metrics(chip_matrix[-1], price_grid, chip_data['current_price'], chip_data['price_history'])
-            behavior_patterns = self._identify_behavior_patterns(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'])
-            migration_patterns = self._calculate_migration_patterns(percent_change_matrix, chip_matrix, price_grid)
-            convergence_metrics = self._calculate_convergence_metrics(chip_matrix, percent_change_matrix, price_grid)
-            game_energy_result = self._calculate_game_energy(percent_change_matrix, price_grid, chip_data['current_price'], chip_data['price_history'], stock_code, trade_date)
-            direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'], chip_data['price_history'])
-            morphology_result = self._identify_peak_morphology(chip_matrix[-1], price_grid)
+            absolute_signals = self._analyze_absolute_changes(percent_change_matrix=percent_change_matrix, price_grid=price_grid, current_price=chip_data['current_price'])
+            concentration_metrics = self._calculate_concentration_metrics(current_chip_dist=chip_matrix[-1], price_grid=price_grid, current_price=chip_data['current_price'], price_history=chip_data['price_history'])
+            pressure_metrics = self._calculate_pressure_metrics(current_chip_dist=chip_matrix[-1], price_grid=price_grid, current_price=chip_data['current_price'], price_history=chip_data['price_history'])
+            behavior_patterns = self._identify_behavior_patterns(percent_change_matrix=percent_change_matrix, chip_matrix=chip_matrix, price_grid=price_grid, current_price=chip_data['current_price'])
+            migration_patterns = self._calculate_migration_patterns(percent_change_matrix=percent_change_matrix, chip_matrix=chip_matrix, price_grid=price_grid)
+            convergence_metrics = self._calculate_convergence_metrics(chip_matrix=chip_matrix, percent_change_matrix=percent_change_matrix, price_grid=price_grid)
+            game_energy_result = self._calculate_game_energy(percent_change_matrix=percent_change_matrix, price_grid=price_grid, current_price=chip_data['current_price'], price_history=chip_data['price_history'], stock_code=stock_code, trade_date=trade_date)
+            direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(percent_change_matrix=percent_change_matrix, chip_matrix=chip_matrix, price_grid=price_grid, current_price=chip_data['current_price'], price_history=chip_data['price_history'])
+            morphology_result = self._identify_peak_morphology(current_chip_dist=chip_matrix[-1], price_grid=price_grid)
             tick_enhanced_factors = {}
             if tick_data is not None and not tick_data.empty:
-                try: tick_enhanced_factors = await self._calculate_tick_enhanced_factors(tick_data, chip_data, price_grid, chip_matrix[-1], trade_date)
+                try: tick_enhanced_factors = await self._calculate_tick_enhanced_factors(tick_data=tick_data, chip_data=chip_data, price_grid=price_grid, current_chip_dist=chip_matrix[-1], trade_date=trade_date)
                 except Exception: tick_enhanced_factors = self._get_default_tick_factors()
             else: tick_enhanced_factors = self._get_default_tick_factors()
-            technical_metrics = self._calculate_technical_metrics(chip_data['price_history'], chip_data['current_price'], float(concentration_metrics.get('chip_mean', chip_data['current_price'])), float(concentration_metrics.get('comprehensive_concentration', 0.5)), chip_matrix, price_grid, morphology_result, game_energy_result, concentration_metrics, tick_enhanced_factors)
-            holding_metrics = self._calculate_holding_metrics(technical_metrics.get('turnover_rate', 0.0), concentration_metrics.get('chip_stability', 0.5))
+            technical_metrics = self._calculate_technical_metrics(price_history=chip_data['price_history'], current_price=chip_data['current_price'], chip_mean=float(concentration_metrics.get('chip_mean', chip_data['current_price'])), current_concentration=float(concentration_metrics.get('comprehensive_concentration', 0.5)), chip_matrix=chip_matrix, price_grid=price_grid, morph_metrics=morphology_result, energy_metrics=game_energy_result, conc_metrics=concentration_metrics, tick_factors=tick_enhanced_factors)
+            holding_metrics = self._calculate_holding_metrics(turnover_rate=technical_metrics.get('turnover_rate', 0.0), chip_stability=concentration_metrics.get('chip_stability', 0.5))
             validation_warnings = []
             base_data_integrity = 1.0
             penalty_exponent = 0.0
