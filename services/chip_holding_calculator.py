@@ -195,6 +195,69 @@ class AdvancedChipDynamicsService:
         except Exception:
             return {'peak_count': 0, 'main_peak_position': 0, 'main_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
 
+    def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
+        """
+        [Version 48.0.0] 行为金融学多空交锋拓扑扫描器 (物理边界重构版)
+        说明：斩除原版基于 current_price 导致的探测盲区。
+        重新定义物理规则：
+        1. 吸筹(Accumulation) = 底部区间(0~40%)筹码显著增加 + 顶部区间(60~100%)筹码显著减少(割肉)。
+        2. 派发(Distribution) = 顶部区间筹码显著增加(接盘) + 底部区间筹码显著减少(获利了结)。
+        引入真实的活跃视界界定高低区域，彻底消灭主力特征为 0 的装死现象。禁止使用空行。
+        """
+        import numpy as np
+        import math
+        if percent_change_matrix.shape[0] < 3: return self._get_default_behavior_patterns()
+        patterns = {'accumulation': {'detected': False, 'strength': 0.0, 'areas': []}, 'distribution': {'detected': False, 'strength': 0.0, 'areas': []}, 'consolidation': {'detected': False, 'strength': 0.0}, 'breakout_preparation': {'detected': False, 'strength': 0.0}, 'main_force_activity': 0.0}
+        lookback = min(5, percent_change_matrix.shape[0])
+        recent_changes = percent_change_matrix[-lookback:, :]
+        changes_last_3 = recent_changes[-3:, :]
+        sum_changes_3 = np.sum(changes_last_3, axis=0)
+        mean_changes_3 = np.mean(changes_last_3, axis=0)
+        current_chip = chip_matrix[-1]
+        active_mask = current_chip > 1e-4
+        if np.any(active_mask):
+            valid_prices = price_grid[active_mask]
+            p_min, p_max = valid_prices[0], valid_prices[-1]
+        else:
+            p_min, p_max = price_grid[0], price_grid[-1]
+        p_range = max(p_max - p_min, 1e-5)
+        low_threshold = p_min + p_range * 0.40
+        high_threshold = p_max - p_range * 0.40
+        low_price_mask = price_grid <= low_threshold
+        high_price_mask = price_grid >= high_threshold
+        total_3d_energy = float(np.sum(np.abs(sum_changes_3)))
+        dynamic_noise_th = max(0.05, total_3d_energy * 0.02)
+        increase_mask = sum_changes_3 > dynamic_noise_th
+        decrease_mask = sum_changes_3 < -dynamic_noise_th
+        accum_inc_indices = np.where(increase_mask & low_price_mask)[0]
+        accum_dec_indices = np.where(decrease_mask & high_price_mask)[0]
+        dist_inc_indices = np.where(increase_mask & high_price_mask)[0]
+        dist_dec_indices = np.where(decrease_mask & low_price_mask)[0]
+        raw_accum_strength = 0.0
+        if len(accum_inc_indices) > 0 or len(accum_dec_indices) > 0:
+            patterns['accumulation']['detected'] = True
+            raw_accum_strength = float(np.sum(sum_changes_3[accum_inc_indices])) + float(np.sum(np.abs(sum_changes_3[accum_dec_indices])))
+            patterns['accumulation']['strength'] = float(math.tanh(raw_accum_strength / max(5.0, total_3d_energy * 0.15)))
+            for idx in accum_inc_indices: patterns['accumulation']['areas'].append({'price': float(price_grid[idx]), 'avg_change': float(mean_changes_3[idx]), 'distance_to_price': float((current_price - price_grid[idx]) / max(current_price, 1e-5))})
+        raw_distrib_strength = 0.0
+        if len(dist_inc_indices) > 0 or len(dist_dec_indices) > 0:
+            patterns['distribution']['detected'] = True
+            raw_distrib_strength = float(np.sum(sum_changes_3[dist_inc_indices])) + float(np.sum(np.abs(sum_changes_3[dist_dec_indices])))
+            patterns['distribution']['strength'] = float(math.tanh(raw_distrib_strength / max(5.0, total_3d_energy * 0.15)))
+            for idx in dist_inc_indices: patterns['distribution']['areas'].append({'price': float(price_grid[idx]), 'avg_change': float(mean_changes_3[idx]), 'distance_to_price': float((price_grid[idx] - current_price) / max(current_price, 1e-5))})
+        abs_recent = np.abs(recent_changes[-1])
+        active_grid_mask = abs_recent > 1e-4
+        if np.any(active_grid_mask):
+            daily_total_energy = float(np.sum(abs_recent))
+            daily_noise_th = max(0.02, daily_total_energy * 0.05)
+            significant_ratio = np.sum(abs_recent > daily_noise_th) / np.sum(active_grid_mask)
+            patterns['main_force_activity'] = float(math.tanh(significant_ratio * 2.0))
+        if patterns['accumulation']['areas']: patterns['accumulation']['areas'] = sorted(patterns['accumulation']['areas'], key=lambda x: x['avg_change'], reverse=True)[:5]
+        if patterns['distribution']['areas']: patterns['distribution']['areas'] = sorted(patterns['distribution']['areas'], key=lambda x: abs(x['avg_change']), reverse=True)[:5]
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns", {'low_threshold': float(low_threshold), 'high_threshold': float(high_threshold), 'total_3d_energy': total_3d_energy}, {'raw_accum_strength': float(raw_accum_strength), 'raw_distrib_strength': float(raw_distrib_strength)}, {'accum_strength': patterns['accumulation']['strength'], 'distrib_strength': patterns['distribution']['strength'], 'main_force_activity': patterns['main_force_activity']})
+        return patterns
+
     def _build_normalized_chip_matrix(self, chip_history: list, current_chip_dist: pd.DataFrame) -> tuple:
         """
         [Version 3.0.0] 基于真实截面数据的精确质心保持映射矩阵构建
@@ -263,28 +326,24 @@ class AdvancedChipDynamicsService:
 
     def _analyze_absolute_changes(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
         """
-        [Version 11.0.0] 绝对变化信号动力学分析算子（活跃视界能量抗噪版）
-        说明：根除全局网格数量稀释导致的 0.09 极低 validation_score 假象。抛弃对网格"数量"的统计，改用实际交战区域的"能量占比"计算信噪比。
-        配合反正切函数(Arctan)实现信号质量的无损拓扑映射，彻底消灭验证得分塌陷。禁止使用空行。
+        [Version 48.0.0] 绝对变化信号动力学算子（自适应全域积分版）
+        说明：粉碎固定阈值导致的信噪比崩塌与网格分辨率稀释效应。
+        引入基于当日截面总变动能量(total_active_energy)的动态基准阈值，将信号质量通过 Tanh(total_active_energy / 2.5) 直接映射。
+        无论横盘还是爆量，确保 validation_score 获得具有区分度的分数。禁止使用空行。
         """
         import numpy as np
         import math
         if percent_change_matrix.shape[0] == 0: return self._get_default_absolute_signals()
         recent_changes = percent_change_matrix[-min(3, len(percent_change_matrix)):, :]
         avg_changes = np.mean(recent_changes, axis=0) if recent_changes.shape[0] > 0 else np.zeros_like(price_grid)
-        noise_th = float(self.params.get('noise_threshold', 0.2))
-        sig_th = float(self.params.get('significant_change_threshold', 1.0))
-        increase_mask = avg_changes > sig_th
-        decrease_mask = avg_changes < -sig_th
         abs_changes = np.abs(avg_changes)
         active_grid_mask = abs_changes > 1e-4
         total_active_energy = float(np.sum(abs_changes[active_grid_mask]))
-        if total_active_energy > 0:
-            noise_energy = float(np.sum(abs_changes[(abs_changes < noise_th) & active_grid_mask]))
-            noise_ratio = noise_energy / total_active_energy
-        else: noise_ratio = 1.0
-        raw_signal_quality = 1.0 - noise_ratio
-        signal_quality = float((math.atan(raw_signal_quality * 5.0) / (math.pi / 2)) * 0.9 + 0.1)
+        signal_quality = float(math.tanh(total_active_energy / 2.5))
+        noise_ratio = float(max(0.0, 1.0 - signal_quality))
+        dynamic_sig_th = max(0.1, total_active_energy * 0.10)
+        increase_mask = avg_changes > dynamic_sig_th
+        decrease_mask = avg_changes < -dynamic_sig_th
         signals = {'significant_increase_areas': [], 'significant_decrease_areas': [], 'accumulation_signals': [], 'distribution_signals': [], 'noise_level': noise_ratio, 'signal_quality': signal_quality}
         dist_to_current = np.abs(price_grid - current_price) / (current_price if current_price > 0 else 1.0)
         inc_indices = np.where(increase_mask)[0]
@@ -292,19 +351,19 @@ class AdvancedChipDynamicsService:
             change_val = float(avg_changes[idx])
             signals['significant_increase_areas'].append({'price': float(price_grid[idx]), 'change': change_val, 'distance_to_current': float(dist_to_current[idx])})
             if price_grid[idx] < current_price * 0.95:
-                strength = float(2.0 / (1.0 + math.exp(-change_val / 5.0)) - 1.0)
+                strength = float(2.0 / (1.0 + math.exp(-change_val / max(0.5, total_active_energy * 0.2))) - 1.0)
                 signals['accumulation_signals'].append({'price': float(price_grid[idx]), 'change': change_val, 'strength': strength})
         dec_indices = np.where(decrease_mask)[0]
         for idx in dec_indices:
             change_val = float(avg_changes[idx])
             signals['significant_decrease_areas'].append({'price': float(price_grid[idx]), 'change': change_val, 'distance_to_current': float(dist_to_current[idx])})
             if price_grid[idx] > current_price * 1.05:
-                strength = float(2.0 / (1.0 + math.exp(-abs(change_val) / 5.0)) - 1.0)
+                strength = float(2.0 / (1.0 + math.exp(-abs(change_val) / max(0.5, total_active_energy * 0.2))) - 1.0)
                 signals['distribution_signals'].append({'price': float(price_grid[idx]), 'change': change_val, 'strength': strength})
         for key in ['significant_increase_areas', 'significant_decrease_areas', 'accumulation_signals', 'distribution_signals']:
             signals[key] = sorted(signals[key], key=lambda x: abs(x['change']), reverse=True)[:10]
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {'total_active_energy': total_active_energy, 'noise_ratio': noise_ratio}, {'raw_signal_quality': raw_signal_quality}, {'signal_quality': signal_quality})
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {'total_active_energy': total_active_energy, 'noise_ratio': noise_ratio}, {'dynamic_sig_th': dynamic_sig_th}, {'signal_quality': signal_quality})
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
@@ -484,8 +543,9 @@ class AdvancedChipDynamicsService:
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """
-        [Version 23.0.0] 分析单日筹码动态主入口（时空锁仓全闭环终极版）
-        说明：全流程注入 _calculate_holding_metrics 反演引擎。确保技术面、换手率与时间衰减矩阵严丝合缝。禁止使用空行。
+        [Version 48.0.0] 分析单日筹码动态主入口（验证分离与数据保全终极版）
+        说明：斩断 validation_score 盲目继承 signal_quality 的逻辑死链！
+        将“市场变动微小(低信噪比)”与“数据源损坏(缺历史、越界)”彻底解耦。保证缩量盘整期的合法数据绝对不会被下游的脏数据过滤器误杀。禁止使用空行。
         """
         import numpy as np
         from datetime import datetime
@@ -504,15 +564,15 @@ class AdvancedChipDynamicsService:
             game_energy_result = self._calculate_game_energy(percent_change_matrix, price_grid, chip_data['current_price'], chip_data['price_history'], stock_code, trade_date)
             direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'], chip_data['price_history'])
             morphology_result = self._identify_peak_morphology(chip_matrix[-1], price_grid)
-            technical_metrics = self._calculate_technical_metrics(chip_data['price_history'], chip_data['current_price'], float(concentration_metrics.get('chip_mean', chip_data['current_price'])), float(concentration_metrics.get('comprehensive_concentration', 0.5)), chip_matrix, price_grid, morphology_result, game_energy_result, concentration_metrics)
-            holding_metrics = self._calculate_holding_metrics(technical_metrics.get('turnover_rate', 0.0), concentration_metrics.get('chip_stability', 0.5))
             tick_enhanced_factors = {}
             if tick_data is not None and not tick_data.empty:
                 try: tick_enhanced_factors = await self._calculate_tick_enhanced_factors(tick_data, chip_data, price_grid, chip_matrix[-1], trade_date)
                 except Exception: tick_enhanced_factors = self._get_default_tick_factors()
             else: tick_enhanced_factors = self._get_default_tick_factors()
+            technical_metrics = self._calculate_technical_metrics(chip_data['price_history'], chip_data['current_price'], float(concentration_metrics.get('chip_mean', chip_data['current_price'])), float(concentration_metrics.get('comprehensive_concentration', 0.5)), chip_matrix, price_grid, morphology_result, game_energy_result, concentration_metrics, tick_enhanced_factors)
+            holding_metrics = self._calculate_holding_metrics(technical_metrics.get('turnover_rate', 0.0), concentration_metrics.get('chip_stability', 0.5))
             validation_warnings = []
-            base_signal_quality = absolute_signals.get('signal_quality', 0.5)
+            base_data_integrity = 1.0
             penalty_exponent = 0.0
             if history_len < lookback_days: validation_warnings.append(f"历史数据不足: {history_len}/{lookback_days}"); penalty_exponent += 0.2
             current_price = chip_data['current_price']
@@ -520,10 +580,11 @@ class AdvancedChipDynamicsService:
             if 'tick_data_quality_score' in tick_enhanced_factors and tick_enhanced_factors['tick_data_quality_score'] < 0.3:
                 days_ago = (datetime.now() - datetime.strptime(trade_date, "%Y-%m-%d")).days
                 if days_ago <= 15: validation_warnings.append(f"近15日内tick数据质量低: {tick_enhanced_factors['tick_data_quality_score']:.2f}"); penalty_exponent += 0.1
-            validation_score = float(base_signal_quality * np.exp(-penalty_exponent))
+            signal_q = float(absolute_signals.get('signal_quality', 0.5))
+            validation_score = float(base_data_integrity * np.exp(-penalty_exponent) * (0.8 + 0.2 * signal_q))
             result = {'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': price_grid.tolist(), 'chip_matrix': chip_matrix.tolist(), 'percent_change_matrix': percent_change_matrix.tolist(), 'absolute_change_signals': absolute_signals, 'concentration_metrics': concentration_metrics, 'pressure_metrics': pressure_metrics, 'behavior_patterns': behavior_patterns, 'migration_patterns': migration_patterns, 'convergence_metrics': convergence_metrics, 'game_energy_result': game_energy_result, 'direct_ad_result': direct_ad_result, 'morphology_metrics': morphology_result, 'technical_metrics': technical_metrics, 'holding_metrics': holding_metrics, 'tick_enhanced_factors': tick_enhanced_factors, 'validation_score': round(validation_score, 4), 'validation_warnings': validation_warnings, 'analysis_status': 'success', 'analysis_time': datetime.now().isoformat()}
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'base_quality': float(base_signal_quality)}, {}, {'validation_score': float(validation_score), 'status': 'success'})
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'signal_quality': float(signal_q), 'penalty': float(penalty_exponent)}, {'validation_warnings': validation_warnings}, {'validation_score': float(validation_score), 'status': 'success'})
             return result
         except Exception as e:
             import traceback
@@ -578,58 +639,6 @@ class AdvancedChipDynamicsService:
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {'total_percent': float(total_percent)}, {'raw_trapped': float(np.sum(trapped_chips)/total_percent), 'damped_trapped': metrics['trapped_pressure']}, metrics)
         return metrics
-
-    def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
-        """
-        [Version 14.0.0] 自适应波带主力行为扫描器 (Adaptive Volatility Behavior Scanner)
-        说明：斩除代码中原有的 price * 0.98 / 1.02 等写死的刻舟求剑阈值。根据当前筹码的高斯标准差(chip_std)动态构建"超卖/超买波带(Dynamic Bands)"。并引入模糊逻辑映射吸筹与派发的综合强度。禁止使用空行。
-        """
-        import numpy as np
-        import math
-        if percent_change_matrix.shape[0] < 3: return self._get_default_behavior_patterns()
-        patterns = {'accumulation': {'detected': False, 'strength': 0.0, 'areas': []}, 'distribution': {'detected': False, 'strength': 0.0, 'areas': []}, 'consolidation': {'detected': False, 'strength': 0.0}, 'breakout_preparation': {'detected': False, 'strength': 0.0}, 'main_force_activity': 0.0}
-        lookback = min(5, percent_change_matrix.shape[0])
-        recent_changes = percent_change_matrix[-lookback:, :]
-        changes_last_3 = recent_changes[-3:, :]
-        sum_changes_3 = np.sum(changes_last_3, axis=0)
-        mean_changes_3 = np.mean(changes_last_3, axis=0)
-        current_chip = chip_matrix[-1]
-        active_mask = current_chip > 1e-4
-        if np.any(active_mask):
-            price_center = np.average(price_grid[active_mask], weights=current_chip[active_mask])
-            price_std = np.sqrt(np.average((price_grid[active_mask] - price_center)**2, weights=current_chip[active_mask]))
-        else:
-            price_center = current_price; price_std = current_price * 0.05
-        dynamic_band = max(current_price * 0.015, price_std * 0.5)
-        low_price_mask = price_grid < (current_price - dynamic_band)
-        high_price_mask = price_grid > (current_price + dynamic_band)
-        noise_th = float(self.params.get('noise_threshold', 0.2))
-        is_accumulating = (sum_changes_3 > noise_th * 1.5)
-        is_distributing = (sum_changes_3 < -noise_th * 1.5)
-        accum_indices = np.where(is_accumulating & low_price_mask)[0]
-        raw_accum_strength = 0.0
-        if len(accum_indices) > 0:
-            patterns['accumulation']['detected'] = True
-            raw_accum_strength = float(np.sum(sum_changes_3[accum_indices]))
-            patterns['accumulation']['strength'] = float(math.tanh(raw_accum_strength / 5.0))
-            for idx in accum_indices: patterns['accumulation']['areas'].append({'price': float(price_grid[idx]), 'avg_change': float(mean_changes_3[idx]), 'distance_to_price': float((current_price - price_grid[idx]) / current_price)})
-        dist_indices = np.where(is_distributing & high_price_mask)[0]
-        raw_distrib_strength = 0.0
-        if len(dist_indices) > 0:
-            patterns['distribution']['detected'] = True
-            raw_distrib_strength = float(np.sum(np.abs(sum_changes_3[dist_indices])))
-            patterns['distribution']['strength'] = float(math.tanh(raw_distrib_strength / 5.0))
-            for idx in dist_indices: patterns['distribution']['areas'].append({'price': float(price_grid[idx]), 'avg_change': float(mean_changes_3[idx]), 'distance_to_price': float((price_grid[idx] - current_price) / current_price)})
-        abs_recent = np.abs(recent_changes)
-        active_grid_mask = abs_recent > 1e-4
-        if np.any(active_grid_mask):
-            significant_ratio = np.sum(abs_recent > noise_th) / np.sum(active_grid_mask)
-            patterns['main_force_activity'] = float(math.tanh(significant_ratio * 2.0))
-        if patterns['accumulation']['areas']: patterns['accumulation']['areas'] = sorted(patterns['accumulation']['areas'], key=lambda x: x['avg_change'], reverse=True)[:5]
-        if patterns['distribution']['areas']: patterns['distribution']['areas'] = sorted(patterns['distribution']['areas'], key=lambda x: abs(x['avg_change']), reverse=True)[:5]
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns", {'price_std': float(price_std), 'dynamic_band': float(dynamic_band)}, {'raw_accum_strength': float(raw_accum_strength) if len(accum_indices)>0 else 0.0, 'raw_distrib_strength': float(raw_distrib_strength) if len(dist_indices)>0 else 0.0}, {'accum_strength': patterns['accumulation']['strength'], 'distrib_strength': patterns['distribution']['strength'], 'main_force_activity': patterns['main_force_activity']})
-        return patterns
 
     def _calculate_migration_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, any]:
         """
@@ -686,9 +695,9 @@ class AdvancedChipDynamicsService:
 
     def _calculate_convergence_metrics(self, chip_matrix: np.ndarray, percent_change_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
         """
-        [Version 38.0.0] 筹码聚散度分析算子 (二阶矩量纲除百纠偏版)
-        说明：彻底消灭方差变动率 (rel_var_change) 因矩阵基底量纲不一致（100.0 vs 1.0）而引发的百倍膨胀暴走！
-        严格将 percent_change_matrix 压缩回归一化的概率空间(除以100)后重新测算二阶矩漂移，并采用 100.0 的 Tanh 映射域精确捕捉 1% 级别的极微观建仓锁筹异动。禁止使用空行。
+        [Version 48.0.0] 筹码聚散度分析算子 (二阶矩方差漂移缓释降维版)
+        说明：将方差变动率 rel_var_change 的 Tanh 放大乘数从 100.0 进一步平滑至 50.0。
+        在保留对 1%~3% 微观波动高敏锐度的同时，为极端发散(>5%)留出足够的梯度游走空间，防止在异动行情中过早陷入 0.99 的饱和死锁区。禁止使用空行。
         """
         import numpy as np
         import math
@@ -724,11 +733,11 @@ class AdvancedChipDynamicsService:
         variance_change = float(np.dot(recent_changes_norm, (price_grid - price_center)**2))
         rel_var_change = variance_change / (variance + eps)
         if rel_var_change < 0:
-            metrics['convergence_strength'] = float(math.tanh(abs(rel_var_change) * 100.0))
+            metrics['convergence_strength'] = float(math.tanh(abs(rel_var_change) * 50.0))
             metrics['divergence_strength'] = 0.0
         else:
             metrics['convergence_strength'] = 0.0
-            metrics['divergence_strength'] = float(math.tanh(rel_var_change * 100.0))
+            metrics['divergence_strength'] = float(math.tanh(rel_var_change * 50.0))
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {'variance_change': float(variance_change), 'rel_var_change': float(rel_var_change)}, {'dynamic_convergence': metrics['dynamic_convergence'], 'migration_convergence': metrics['migration_convergence']}, metrics)
         return metrics
@@ -1494,7 +1503,7 @@ class GameEnergyCalculator:
 
     def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
         """
-        [Version 35.0.0] 博弈能量指标自适应拓扑计算器 (强度压制释压版)
+        [Version 48.0.0] 博弈能量指标自适应拓扑计算器 (强度压制释压版)
         说明：修正 absolute_scale 除以 15.0 导致的 game_intensity 被过度压制在极低水平 (如0.04) 的问题。
         A股单日筹码交换5%已属高燃交战，将分母下调至 5.0，恢复博弈强度的正常动态张力。禁止使用空行。
         """
