@@ -1828,12 +1828,14 @@ class QuantitativeTelemetryProbe:
         except Exception as e:
             out_str = f"⚠️ [QUANT-PROBE-ERR] 无法序列化: {e} | Module: {module_name} | Method: {method_name}\n"
         try:
-            sys.stderr.write(out_str)
-            sys.stderr.flush()
+            # sys.stderr.write(out_str)
+            # sys.stderr.flush()
+            pass
         except Exception: pass
         try:
-            with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
-                f.write(out_str)
+            # with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
+                # f.write(out_str)
+            pass
         except Exception: pass
 
 
