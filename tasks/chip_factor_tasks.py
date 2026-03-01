@@ -258,7 +258,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         cm = CacheManager()
         realtime_dao = StockRealtimeDAO(cm)
         HoldingMatrixModel = get_chip_holding_matrix_model_by_code(stock_code)
-        
         chip_factor_model = get_chip_factor_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
         daily_data_model = get_daily_data_model_by_code(stock_code)
@@ -267,14 +266,12 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             
         historical_df = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
         if historical_df.empty: return {'status': 'failed', 'error': '历史价格数据不足', 'processed_dates': 0}
-        
         get_dates_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_func(start_date, end_date)
         if not trade_dates: return {'status': 'failed', 'error': '无交易日', 'processed_dates': 0}
             
         processed_dates = 0
         saved_dates, failed_dates = [], []
-        
         for date_index, current_date in enumerate(trade_dates):
             try:
                 if await sync_to_async(chip_factor_model.objects.filter(stock=stock, trade_time=current_date, calc_status='success').exists)():
@@ -556,13 +553,45 @@ async def get_historical_chip_factors(chip_factor_model,stock,current_date: date
         return []
 
 async def save_chip_factors(chip_factor_model, stock, trade_date, factors):
-    """保存筹码因子到数据库 - 支持tick相关字段"""
+    """
+    [Version 5.1.0] 保存筹码因子到数据库 - 挂载 ORM 动态反射防爆盾与特征路由
+    说明：自动剥离来自胖模型(Matrix)的高维溢出特征，并映射同义词字段，仅保留当前模型真实存在的列。
+    """
     try:
-        # 创建或更新记录
+        # 1. 🎯 别名路由：将胖模型(HoldingMatrix)的高级特征名映射为标准因子表列名
+        alias_mapping = {
+            'behavior_accumulation': 'accumulation_signal_score',
+            'behavior_distribution': 'distribution_signal_score',
+            'convergence_comprehensive': 'percent_change_convergence',
+            'convergence_migration': 'migration_convergence_ratio',
+            'intraday_chip_quality_score': 'tick_data_quality_score',
+            'intraday_calc_method': 'intraday_factor_calc_method',
+            'intraday_main_force_activity': 'main_force_activity_index',
+            'trend_score': 'trend_confirmation_score'
+        }
+        for old_k, new_k in alias_mapping.items():
+            if old_k in factors:
+                factors[new_k] = factors[old_k]
+
+        # 2. 🧮 复合因子推导：恢复被遗漏的差值与比率计算
+        if 'percent_change_convergence' in factors and factors['percent_change_convergence'] is not None:
+            factors['percent_change_divergence'] = 1.0 - factors['percent_change_convergence']
+        if 'support_strength' in factors and 'resistance_strength' in factors:
+            res = factors['resistance_strength']
+            factors['support_resistance_ratio'] = factors['support_strength'] / res if res and res > 0 else 1.0
+
+        # 3. 🧨 [核弹级防御]：动态反射提取当前 ORM 模型(如 ChipFactorSZ) 真实存在的数据库列名
+        valid_fields = {f.name for f in chip_factor_model._meta.get_fields()}
+        # 4. 🛡️ 特征漏斗：自动剔除字典中越界的高维动态特征，同时屏蔽主键防止与 kwargs 冲突
+        orm_safe_factors = {
+            k: v for k, v in factors.items() 
+            if k in valid_fields and k not in ['stock', 'trade_time', 'id']
+        }
+        # 5. 安全入库：创建或更新记录，传入清洗后的绝对安全字典
         obj, created = await sync_to_async(chip_factor_model.objects.update_or_create)(
             stock=stock,
             trade_time=trade_date,
-            defaults=factors
+            defaults=orm_safe_factors
         )
         return obj
     except Exception as e:

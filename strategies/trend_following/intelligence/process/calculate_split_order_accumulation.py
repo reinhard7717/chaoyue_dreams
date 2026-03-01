@@ -138,10 +138,8 @@ class CalculateSplitOrderAccumulation:
         for col in raw_cols:
             if col in df.columns: raw_signals[col] = df[col].ffill().fillna(0.0).astype(np.float32)
             else: raw_signals[col] = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
         if raw_signals['pct_change_D'].abs().max() > 0.5: raw_signals['pct_change_D'] *= np.float32(0.01)
         if raw_signals['turnover_rate_f_D'].max() > 1.5: raw_signals['turnover_rate_f_D'] *= np.float32(0.01)
-        
         hab_windows = np.array([13, 21, 34, 55], dtype=np.int32)
         hab_targets = ['stealth_flow_ratio_D', 'hidden_accumulation_intensity_D', 'tick_clustering_index_D']
         prefix_map = ['STEALTH', 'HIDDEN_ACCUM', 'TICK_CLUS']
@@ -150,11 +148,9 @@ class CalculateSplitOrderAccumulation:
             for i, w in enumerate([13, 21, 34, 55]):
                 raw_signals[f'HAB_STOCK_{w}_{prefix}'] = pd.Series(stock[i], index=df.index, dtype=np.float32)
                 raw_signals[f'HAB_SHOCK_{w}_{prefix}'] = pd.Series(shock[i], index=df.index, dtype=np.float32)
-        
         drift, diffusion = _numba_langevin_dynamics(raw_signals['hidden_accumulation_intensity_D'].values.astype(np.float32), 21)
         raw_signals['LANGEVIN_DRIFT_ACCUM'] = pd.Series(drift, index=df.index, dtype=np.float32)
         raw_signals['LANGEVIN_DIFF_ACCUM'] = pd.Series(diffusion, index=df.index, dtype=np.float32)
-        
         threshold_map = {'tick_clustering_index_D': (0.01, 0.005), 'stealth_flow_ratio_D': (0.01, 0.005), 'hidden_accumulation_intensity_D': (0.01, 0.005), 'intraday_chip_entropy_D': (0.01, 0.005)}
         fib_wins = [3, 5, 8, 13, 21]
         for col, (abs_th, chg_th) in threshold_map.items():
@@ -174,7 +170,6 @@ class CalculateSplitOrderAccumulation:
         kurt_z = _numba_rolling_robust_norm(raw['high_freq_flow_kurtosis_D'].values, 21)
         stealth_z = _numba_rolling_robust_norm(raw['stealth_flow_ratio_D'].values, 21)
         vpa = _numba_rolling_robust_norm(raw['VPA_MF_ADJUSTED_EFF_D'].values, 21)
-        
         w_stealth = np.clip(1.0 + vpa * 0.2, 0.5, 1.5).astype(np.float32)
         base_ke = (hawkes_z * 0.35 + skew_z * 0.15 + kurt_z * 0.15 + stealth_z * 0.35 * w_stealth).astype(np.float32)
         accel_bonus = np.where(raw['ACCEL_5_stealth_flow_ratio_D'].values > 0, 0.5, 0.0).astype(np.float32)
@@ -187,7 +182,6 @@ class CalculateSplitOrderAccumulation:
         ent_z = _numba_rolling_robust_norm(raw['intraday_chip_entropy_D'].values, 21)
         comp_z = _numba_rolling_robust_norm(raw['MA_POTENTIAL_COMPRESSION_RATE_D'].values, 21)
         trap_z = _numba_rolling_robust_norm(raw['pressure_trapped_D'].values, 21)
-        
         base_pb = (comp_z * 0.3 + conv_z * 0.3 - ent_z * 0.2 + trap_z * 0.2).astype(np.float32)
         pct = raw['pct_change_D'].values
         break_penalty = np.where(pct < -0.05, 1.0, 0.0).astype(np.float32)
@@ -199,7 +193,6 @@ class CalculateSplitOrderAccumulation:
         shock_hidden = raw['HAB_SHOCK_21_HIDDEN_ACCUM'].values
         drift = raw['LANGEVIN_DRIFT_ACCUM'].values
         diffusion = raw['LANGEVIN_DIFF_ACCUM'].values
-        
         snr = drift / (diffusion + 1e-9)
         snr_z = _numba_rolling_robust_norm(snr, 21)
         combined = (shock_stealth * 0.3 + shock_hidden * 0.4 + snr_z * 0.3).astype(np.float32)
@@ -211,12 +204,10 @@ class CalculateSplitOrderAccumulation:
         turn_ma = pd.Series(turn).rolling(21).mean().replace(0, 1e-9).values.astype(np.float32)
         turn_ratio = turn / turn_ma
         pct = raw['pct_change_D'].values
-        
         is_spoofing = (div_z > 1.5) & (turn_ratio > 2.0) & (pct < 0)
         is_dist = (raw['stealth_flow_ratio_D'].values < 0) & (pct < -0.03) & (raw['pressure_trapped_D'].values > 0.8)
         sm_div = raw['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'].values > 0.8
         large_anomaly = raw['large_order_anomaly_D'].values > 0.8
-        
         penalty = np.where(is_spoofing | is_dist | sm_div | large_anomaly, 0.1, 1.0).astype(np.float32)
         return pd.Series(penalty, index=df_index, dtype=np.float32)
 
@@ -226,46 +217,36 @@ class CalculateSplitOrderAccumulation:
         is_debug, probe_ts, debug_output = self._setup_debug_info(df, method_name)
         df_index = df.index
         if not self._validate_all_required_signals(df, method_name, is_debug, probe_ts): return pd.Series(0.0, index=df_index, dtype=np.float32)
-        
         raw = self._get_raw_signals(df, method_name)
         ke = self._calculate_kinetic_energy(raw, df_index)
         pb = self._calculate_potential_barrier(raw, df_index)
         hl = self._calculate_hab_langevin(raw, df_index)
         penalty = self._calculate_anti_spoofing_penalty(raw, df_index)
-        
         ke_val = np.clip(1.0 + ke.values * 0.5, 0.1, 3.0)
         pb_val = np.clip(1.0 - pb.values * 0.5, 0.1, 3.0) 
         tunnel_prob = _numba_quantum_tunneling(ke_val, np.clip(pb.values, 0.1, 3.0), mass=1.0)
         tunnel_val = np.clip(tunnel_prob * 3.0, 0.1, 3.0)
         hl_val = np.clip(1.0 + hl.values * 0.5, 0.1, 3.0)
-        
         num_dim = 4.0
         geom_mean = np.power(np.clip(ke_val * pb_val * tunnel_val * hl_val, 1e-20, None), 1.0/num_dim).astype(np.float32)
         arith_mean = ((ke_val + pb_val + tunnel_val + hl_val) / num_dim).astype(np.float32)
-        
         matrix_scores = np.vstack([ke_val, pb_val, tunnel_val, hl_val])
         min_dim_score = np.min(matrix_scores, axis=0)
         collapse_penalty = np.where(min_dim_score < 0.5, np.clip((min_dim_score / 0.5) ** 2, 0.01, 1.0), 1.0).astype(np.float32)
-        
         blend = (0.7 * geom_mean + 0.3 * arith_mean) * collapse_penalty * penalty.values
-        
         # 【核心修复：单极性截断 Unipolar ReLU】
         # 只要融合分 < 1.0 (未突破吸筹基准线，或被防爆网压制)，直接物理归零。
         accumulation_raw = np.maximum(blend - 1.0, 0.0).astype(np.float32)
         activated = _numba_power_law_activation(accumulation_raw, power=1.5, leak=0.0)
-        
         parabolic = raw['STATE_PARABOLIC_WARNING_D'].values > 0.5
         is_leader = raw['IS_MARKET_LEADER_D'].values > 0.5
         fatal_trap = parabolic & (~is_leader)
-        
         # 截断后输出 0.0 ~ 1.0 的纯净吸筹烈度
         final_vals = np.where(fatal_trap, 0.0, np.clip(activated, 0.0, 1.0)).astype(np.float32)
         final_score = pd.Series(final_vals, index=df_index, dtype=np.float32)
-        
         self._persist_hab_state(raw, df_index, method_name)
         if is_debug and probe_ts in df_index:
             self._print_full_chain_probe(probe_ts, raw, ke, pb, hl, tunnel_prob, penalty, blend, min_dim_score, collapse_penalty, accumulation_raw, activated, fatal_trap, final_score)
-        
         return final_score
 
     def _persist_hab_state(self, raw: Dict[str, pd.Series], df_index: pd.Index, method_name: str):
@@ -290,7 +271,6 @@ class CalculateSplitOrderAccumulation:
         snr = drift / (diff + 1e-9)
         is_fatal = fatal_trap[idx]
         is_leader = raw['IS_MARKET_LEADER_D'].values[idx] > 0.5
-        
         # 修正状态标签显示逻辑
         f_score = final_score.values[idx]
         if f_score > 0.6: status_str = "🚀 强力隐蔽吸筹确认"

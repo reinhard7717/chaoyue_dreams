@@ -439,13 +439,11 @@ class ChipMatrixDynamicsCalculator:
         cycle_adj = float(cls.calculate_market_cycle_adjustment(market_cycle, trend_health))
         comp_conv = float(conv_metrics.get('comprehensive_convergence', 0.0))
         comp_conc = float(conc_metrics.get('comprehensive_concentration', 0.0))
-        
         logit_long = (comp_conv * 1.5 + comp_conc * 1.2 + chip_lock_ratio * 2.0) * cycle_adj
         logit_short = (1.0 - comp_conv) * 1.8 + main_force_activity * 1.5 + (1.0 - chip_lock_ratio) * 1.5
         if market_sentiment > 0.7: logit_short += 0.8
         elif market_sentiment < 0.3: logit_short += 0.5
         logit_mid = trend_quality * 2.0 + market_sentiment * 1.0 + 0.5
-        
         logits = np.array([logit_short, logit_mid, logit_long], dtype=np.float64) / 1.2
         probs = np.exp(logits - np.max(logits)) / np.sum(np.exp(logits - np.max(logits)))
         s_ratio, m_ratio, l_ratio = float(probs[0]), float(probs[1]), float(probs[2])

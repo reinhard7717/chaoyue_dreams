@@ -39,20 +39,16 @@ class CalculateStormEyeCalm:
         self._check_and_fill_data_existence(df, params)
         is_debug_enabled, probe_ts = self._get_debug_info(df, method_name)
         _probe_data = {}
-        
         self._log_probe(_probe_data, "【00. 引擎运行环境 (Engine Env)】", "Engine_Version", self.version, probe_ts)
         self._log_probe(_probe_data, "【00. 引擎运行环境 (Engine Env)】", "Tensor_Fusion_Mode", "Minkowski Power Mean Manifold (p-Norm)", probe_ts)
         self._log_probe(_probe_data, "【00. 引擎运行环境 (Engine Env)】", "Manifold_Activation", "Navier-Stokes Vortex & Quantum Decoherence", probe_ts)
-        
         raw_data = self._get_raw_and_atomic_data(df, method_name, params, _probe_data, probe_ts)
-        
         energy_score = self._calculate_energy_compression_component(df_index, raw_data, {}, params['energy_compression_weights'], _probe_data, probe_ts)
         volume_score = self._calculate_volume_exhaustion_component(df_index, raw_data, {}, params['volume_exhaustion_weights'], _probe_data, probe_ts)
         intent_score, intent_dict = self._calculate_main_force_covert_intent_component(df_index, raw_data, {}, params['main_force_covert_intent_weights'], {}, _probe_data, probe_ts)
         sentiment_score = self._calculate_subdued_market_sentiment_component(df_index, raw_data, params['subdued_market_sentiment_weights'], 21, 55, 1.0, 0.2, _probe_data, probe_ts)
         readiness_score = self._calculate_breakout_readiness_component(df_index, raw_data, params['breakout_readiness_weights'], _probe_data, probe_ts)
         dynamic_threshold = self._calculate_adaptive_phase_transition_threshold(df_index, raw_data, _probe_data, probe_ts)
-        
         component_scores = {
             'energy': pd.Series(energy_score * self._calculate_fermi_dirac_gate(energy_score, threshold=dynamic_threshold, beta=12.0), index=df_index),
             'volume': pd.Series(volume_score * self._calculate_fermi_dirac_gate(volume_score, threshold=dynamic_threshold, beta=12.0), index=df_index),
@@ -60,37 +56,29 @@ class CalculateStormEyeCalm:
             'sentiment': pd.Series(sentiment_score * self._calculate_fermi_dirac_gate(sentiment_score, threshold=dynamic_threshold, beta=12.0), index=df_index),
             'readiness': pd.Series(readiness_score * self._calculate_fermi_dirac_gate(readiness_score, threshold=dynamic_threshold, beta=12.0), index=df_index)
         }
-        
         self._log_probe(_probe_data, "【05. 五大核心维度 (Domains)】", "Energy (能量门控分)", component_scores['energy'], probe_ts)
         self._log_probe(_probe_data, "【05. 五大核心维度 (Domains)】", "Volume (量能门控分)", component_scores['volume'], probe_ts)
         self._log_probe(_probe_data, "【05. 五大核心维度 (Domains)】", "Intent (意图门控分)", component_scores['intent'], probe_ts)
         self._log_probe(_probe_data, "【05. 五大核心维度 (Domains)】", "Sentiment (情绪门控分)", component_scores['sentiment'], probe_ts)
         self._log_probe(_probe_data, "【05. 五大核心维度 (Domains)】", "Readiness (准备门控分)", component_scores['readiness'], probe_ts)
-        
         final_fusion_score = self._perform_final_fusion(df_index, component_scores, raw_data, _probe_data, probe_ts)
         regulator_modulator = self._calculate_market_regulator_modulator(df_index, raw_data, params, _probe_data, probe_ts)
         raw_final_score = pd.Series(final_fusion_score * regulator_modulator, index=df_index)
-        
         ewd_factor = self._calculate_consensus_entropy(component_scores, _probe_data, probe_ts)
         resonance_score_soft = self._norm_kinetic_growth(pd.Series(self._smooth_max_pair(raw_final_score - 0.4, 0.0), index=df_index), sensitivity=5.0)
         resonance_ewd_soft = self._norm_kinetic_growth(pd.Series(self._smooth_max_pair(ewd_factor - 0.7, 0.0), index=df_index), sensitivity=5.0)
         resonance_confirm = pd.Series(resonance_score_soft * resonance_ewd_soft, index=df_index)
-        
         roll_sum = pd.Series(resonance_confirm.rolling(5, min_periods=1).sum().fillna(0.0), index=df_index)
         latch_multiplier = pd.Series(1.0 + 0.2 * self._norm_kinetic_growth(pd.Series(self._smooth_max_pair(roll_sum - 2.5, 0.0), index=df_index), sensitivity=3.0), index=df_index)
         latched_score = pd.Series(raw_final_score.rolling(3, min_periods=1).mean().fillna(raw_final_score) * latch_multiplier, index=df_index)
-        
         veto_factor = self._calculate_kinetic_overflow_veto(df_index, raw_data, self._calculate_oversold_momentum_bipolarization(df_index, raw_data, _probe_data, probe_ts), _probe_data, probe_ts)
         reward_factor = self._calculate_spatio_temporal_asymmetric_reward(df_index, raw_data, resonance_confirm, _probe_data, probe_ts)
         mrkb_factor = self._calculate_mean_reversion_kinetic_bias(df_index, raw_data, _probe_data, probe_ts)
         tes_factor = self._calculate_trend_energy_shearing(df_index, raw_data, _probe_data, probe_ts)
-        
         final_latched_score = self._c_infinity_clamp(pd.Series(latched_score * veto_factor * reward_factor * mrkb_factor * tes_factor, index=df_index), 0.0, 1.0)
-        
         self._log_probe(_probe_data, "【08. 最终归一化输出 (Final)】", "Raw_Final_Score (原始分)", raw_final_score, probe_ts)
         self._log_probe(_probe_data, "【08. 最终归一化输出 (Final)】", "Latched_Score (锁存稳态分)", latched_score, probe_ts)
         self._log_probe(_probe_data, "【08. 最终归一化输出 (Final)】", "Final_StormEye_Score (最终破局点)", final_latched_score, probe_ts)
-        
         if is_debug_enabled and probe_ts is not None:
             self._print_comprehensive_probe(_probe_data, probe_ts, method_name, final_latched_score)
         return final_latched_score.astype(np.float32)
@@ -201,7 +189,6 @@ class CalculateStormEyeCalm:
         req_signals = self._get_required_signals(params)
         missing_base = [c for c in req_signals if c not in df.columns]
         if missing_base: print(f"【{self.version} 探针警报】风暴眼基底缺失列: {missing_base}。系统已启动拉普拉斯安全回退！")
-        
         full_deriv_cols = [
             'VPA_ACCELERATION_13D', 'VPA_MF_ADJUSTED_EFF_D', 'tick_abnormal_volume_ratio_D', 'MA_ACCELERATION_EMA_55_D', 
             'PRICE_ENTROPY_D', 'STATE_GOLDEN_PIT_D', 'BIAS_55_D', 'NDI_14_D', 'PDI_14_D', 'breakout_penalty_score_D', 
@@ -212,7 +199,6 @@ class CalculateStormEyeCalm:
             'concentration_entropy_D', 'industry_rank_accel_D', 'flow_consistency_D', 'turnover_rate_f_D', 'ROC_13_D', 
             'PRICE_FRACTAL_DIM_D', 'MACDh_13_34_8_D', 'profit_pressure_D', 'downtrend_strength_D', 'SMART_MONEY_SYNERGY_BUY_D'
         ]
-        
         missing_deriv_tensors = []
         for col in full_deriv_cols:
             if col in df.columns:
@@ -342,7 +328,6 @@ class CalculateStormEyeCalm:
         base_data = {col: df.get(col, pd.Series(neutral_fills.get(col, 0.0), index=df_index)).ffill().fillna(neutral_fills.get(col, 0.0)) for col in self._get_required_signals(params)}
         base_data['close_D'] = df.get('close_D', df.get('close', pd.Series(0.0, index=df_index))).ffill().fillna(0.0)
         close_base = base_data['close_D'] + 1e-9
-        
         if 'ROC_13_D' in base_data:
             roc_series = base_data['ROC_13_D']
             if not roc_series.empty and roc_series.abs().max() > 2.0:
@@ -354,7 +339,6 @@ class CalculateStormEyeCalm:
         base_data['volume_D'] = pd.Series(base_data['volume_D'] / vol_ma21, index=df_index)
         base_data['net_energy_flow_D'] = pd.Series(base_data['net_energy_flow_D'] / amount_ma21, index=df_index)
         base_data['net_mf_amount_D'] = pd.Series(base_data['net_mf_amount_D'] / amount_ma21, index=df_index)
-        
         base_data['ATR_14_D'] = pd.Series(base_data['ATR_14_D'] / close_base, index=df_index)
         base_data['GEOM_REG_SLOPE_D'] = pd.Series(base_data['GEOM_REG_SLOPE_D'] / close_base, index=df_index)
         base_data['MACDh_13_34_8_D'] = pd.Series(base_data['MACDh_13_34_8_D'] / close_base, index=df_index)
@@ -383,7 +367,6 @@ class CalculateStormEyeCalm:
                 base_data[col] = pd.Series(base_data[col] / scale_factor, index=df_index)
                 
         raw_data = LazyKinematicDict(base_data, df, self._safe_diff)
-        
         probe_keys_raw = ['close_D', 'ROC_13_D', 'pattern_confidence_D', 'breakout_quality_score_D', 'turnover_rate_f_D', 'ADX_14_D', 'PRICE_ENTROPY_D', 'amount_D', 'profit_ratio_D', 'winner_rate_D', 'NDI_14_D', 'PDI_14_D', 'market_sentiment_score_D', 'chip_stability_D', 'stealth_flow_ratio_D', 'pressure_trapped_D', 'consolidation_quality_score_D', 'PRICE_FRACTAL_DIM_D', 'net_energy_flow_D', 'SMART_MONEY_HM_COORDINATED_ATTACK_D', 'accumulation_signal_score_D', 'downtrend_strength_D', 'profit_pressure_D', 'SMART_MONEY_SYNERGY_BUY_D']
         for k in probe_keys_raw:
             if k in raw_data: self._log_probe(_probe_data, "【01. 原始核心数据 (Raw Data)】", k, raw_data[k], probe_ts)
@@ -401,7 +384,6 @@ class CalculateStormEyeCalm:
         raw_data['price_vs_ma_144_ratio'] = pd.Series(raw_data['close_D'] / (ma144 + 1e-9), index=df_index)
         raw_data['pain_index_proxy'] = pd.Series(1.0 - raw_data['profit_ratio_D'], index=df_index)
         raw_data['JERK_5_pain_index_proxy'] = pd.Series(raw_data.get('JERK_5_profit_ratio_D', pd.Series(0.0, index=df_index)) * -1.0, index=df_index)
-        
         self._log_probe(_probe_data, "【02. 微积分动力学 (Kinematics)】", "JERK_5_pain_index_proxy", raw_data['JERK_5_pain_index_proxy'], probe_ts)
         return raw_data
 
@@ -498,10 +480,8 @@ class CalculateStormEyeCalm:
         lrf_score = self._calculate_linear_resonance_failure(df_index, raw_data, _probe_data, probe_ts)
         struct_quality = self._norm_kinetic_growth(raw_data.get('chip_stability_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
         entropy_gain = self._norm_negative_potential(raw_data.get('SLOPE_13_chip_entropy_D', pd.Series(0.0, index=df_index)), sensitivity=5.0, denoise=True)
-        
         vpa_accel = raw_data.get('VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
         vpa_jerk = raw_data.get('SLOPE_13_VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
-        
         phase_space_dist = pd.Series(np.sqrt(np.square(vpa_accel) + np.square(vpa_jerk)), index=df_index)
         phase_attractor = pd.Series(np.exp(-phase_space_dist * 2.0), index=df_index)
         phase_div = self._calculate_phase_space_divergence(df_index, raw_data, _probe_data, probe_ts)
@@ -512,7 +492,6 @@ class CalculateStormEyeCalm:
         bbw_score = self._norm_friction_decay(bbw_raw, sensitivity=5.0)
         tension_raw = raw_data.get('MA_POTENTIAL_TENSION_INDEX_D', pd.Series(0.0, index=df_index))
         tension_score = self._norm_kinetic_growth(tension_raw, sensitivity=2.0)
-        
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "FCC_Score (扇面曲率塌缩)", fcc_factor, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "VVC_Score (波动率真空态)", vvc_factor, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "LRF_Score (线性死寂崩塌)", lrf_score, probe_ts)
@@ -520,7 +499,6 @@ class CalculateStormEyeCalm:
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Entropy_Gain (熵减红利)", entropy_gain, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Phase_Attractor (相空间吸引子)", phase_attractor, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "MA_Comp_Score (均线压缩势能)", ma_comp_score, probe_ts)
-        
         final_energy = self._power_mean_fusion(df_index, [fcc_factor, vvc_factor, lrf_score, entropy_gain, phase_attractor, struct_quality, phase_div, ma_comp_score, ma_comp_hab, bbw_score, tension_score], [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.1], p=0.5)
         return final_energy
 
@@ -536,14 +514,12 @@ class CalculateStormEyeCalm:
         mf_eff = self._norm_kinetic_growth(raw_data.get('VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
         chip_conv_score = self._norm_kinetic_growth(raw_data.get('chip_convergence_ratio_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
         vol_adj_conc_score = self._norm_kinetic_growth(raw_data.get('volatility_adjusted_concentration_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
-        
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Turnover_Score (极小换手得分)", turnover_score, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Trough_Fill (日内波谷填充)", trough_fill, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "MDB_Factor (动量耗散平衡)", mdb_factor, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Solid_Factor (流动性固化)", solid_factor, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "VPA_Jerk (量价加速度归零)", vpa_jerk, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "MF_Eff (主力修正效率)", mf_eff, probe_ts)
-        
         final_vol = self._power_mean_fusion(df_index, [turnover_score, trough_fill, mdb_factor, solid_factor, vpa_jerk, mf_eff, chip_conv_score, vol_adj_conc_score, navier_vortex], [0.12, 0.12, 0.1, 0.1, 0.1, 0.1, 0.13, 0.13, 0.1], p=0.5)
         return final_vol
 
@@ -568,7 +544,6 @@ class CalculateStormEyeCalm:
         hf_skew_score = self._norm_kinetic_growth(hf_skew, sensitivity=2.0)
         intra_acc_conf = self._norm_kinetic_growth(raw_data.get('intraday_accumulation_confidence_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
         intra_acc_hab = self._calculate_qho_historical_accumulation_buffer(raw_data.get('intraday_accumulation_confidence_D', pd.Series(0.0, index=df_index)), windows=[13, 21], name="Intra_Acc", _probe_data=_probe_data, probe_ts=probe_ts)
-        
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Stealth_Score (隐秘潜行占比)", stealth_score, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Migration_Accel (筹码跃迁加速)", migration_accel, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "CHF_Base (协同攻击基准)", chf_base, probe_ts)
@@ -576,7 +551,6 @@ class CalculateStormEyeCalm:
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Energy_Flow (净能量流动)", energy_flow, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "HTC_Factor (猎杀一致性)", htc_factor, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "MF_HAB (主力存量势能)", mf_hab, probe_ts)
-        
         final_intent = self._power_mean_fusion(df_index, [stealth_score, migration_accel, chf_base, chf_jerk_score, energy_flow, htc_factor, mf_hab, flow_cons_score, flow_hab, absorption_score, elg_attack, flow_div_score, hf_skew_score, intra_acc_conf, intra_acc_hab], [0.07, 0.07, 0.08, 0.07, 0.08, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.04, 0.04, 0.07, 0.06], p=2.0)
         return final_intent, {"stealth_score": stealth_score, "htc_factor": htc_factor}
 
@@ -591,7 +565,6 @@ class CalculateStormEyeCalm:
         trapped_pressure = self._norm_kinetic_growth(raw_data.get('pressure_trapped_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
         macd_h = raw_data.get('MACDh_13_34_8_D', pd.Series(0.0, index=df_index))
         macd_calm = self._norm_gaussian_silence(macd_h, sensitivity=5.0, denoise=True)
-        
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Pain_Score (散户痛感释放)", pain_score, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Despair_Burst (绝望极限突变)", despair_burst, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Short_Exhaustion (空头抛压耗尽)", short_exhaustion, probe_ts)
@@ -600,7 +573,6 @@ class CalculateStormEyeCalm:
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Order_Gain (微观有序增益)", order_gain, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Cleanse_Score (浮筹清洗度)", cleanse_score, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "Trapped_Pressure (套牢压迫感)", trapped_pressure, probe_ts)
-        
         final_sentiment = self._power_mean_fusion(df_index, [pain_score, cleanse_score, trapped_pressure, order_gain, short_exhaustion, bipolar_gain, panic_resonance, despair_burst, macd_calm], [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.15, 0.1, 0.15], p=1.0)
         return final_sentiment
 
@@ -609,10 +581,8 @@ class CalculateStormEyeCalm:
         plr_score = self._calculate_phase_locked_resonance(df_index, raw_data, _probe_data, probe_ts)
         sed_score = self._calculate_short_exhaustion_divergence(df_index, raw_data, _probe_data, probe_ts)
         ssd_score = self._calculate_seat_scatter_decay(df_index, raw_data, _probe_data, probe_ts)
-        
         # [核心修复] 重接缺失的方法调用
         egd_score = self._calculate_efficiency_gradient_dissipation(df_index, raw_data, _probe_data, probe_ts)
-        
         sope_score = self._calculate_split_order_pulse_entropy(df_index, raw_data, _probe_data, probe_ts)
         aeo_score = self._calculate_abnormal_energy_overflow(df_index, raw_data, _probe_data, probe_ts)
         neutral_score = self._calculate_game_neutralization_modulator(df_index, raw_data, _probe_data, probe_ts)
@@ -629,15 +599,12 @@ class CalculateStormEyeCalm:
         st_resonance = self._calculate_spatiotemporal_resonance(df_index, raw_data, _probe_data, probe_ts)
         high_lock = raw_data.get('high_position_lock_ratio_90_D', pd.Series(0.0, index=df_index))
         high_lock_score = self._norm_kinetic_growth(high_lock, sensitivity=2.0)
-        
         momentum_part = self._power_mean_fusion(df_index, [grp_score, plr_score, st_resonance], [0.35, 0.35, 0.3], p=1.0)
         friction_part = self._power_mean_fusion(df_index, [sed_score, ssd_score, high_lock_score], [0.4, 0.4, 0.2], p=1.0)
         quality_part = self._power_mean_fusion(df_index, [egd_score, sope_score, aeo_score, consolidation_duration], [0.3, 0.25, 0.25, 0.2], p=1.0)
         state_part = self._power_mean_fusion(df_index, [well_collapse, long_awakening, aded_score, stress_test, neutral_score, consolidation, conviction_proxy, fractal_drop, quantum_tunnel], [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.15, 0.15, 0.1], p=1.0)
-        
         acc_hab = self._calculate_qho_historical_accumulation_buffer(raw_data.get('accumulation_signal_score_D', pd.Series(0.0, index=df_index)), windows=[21, 34], name="Accum_Signal", _probe_data=_probe_data, probe_ts=probe_ts)
         readiness = self._power_mean_fusion(df_index, [momentum_part, friction_part, quality_part, state_part, acc_hab], [0.15, 0.15, 0.2, 0.4, 0.1], p=1.0)
-        
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "GRP_Score (引力回归拉力)", grp_score, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "PLR_Score (量价相位锁定)", plr_score, probe_ts)
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "SSD_Score (跟风散点衰减)", ssd_score, probe_ts)
@@ -660,17 +627,13 @@ class CalculateStormEyeCalm:
         eff_raw = raw_data.get('VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
         eff_slope = raw_data.get('SLOPE_13_VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
         eff_accel = raw_data.get('ACCEL_8_VPA_MF_ADJUSTED_EFF_D', pd.Series(0.0, index=df_index))
-        
         eff_mean = self._smooth_abs(eff_raw).rolling(window=8, min_periods=1).mean().fillna(0.0)
         activity_gate = self._c_infinity_clamp(eff_mean * 5.0, 0.0, 1.0)
         eff_std = eff_slope.rolling(window=8, min_periods=1).std().fillna(0.0)
-        
         slope_stability = pd.Series((1.0 - self._norm_kinetic_growth(eff_std, sensitivity=2.0)) * activity_gate, index=df_index)
         accel_lock = pd.Series(self._norm_gaussian_silence(eff_accel, sensitivity=15.0, denoise=True) * activity_gate, index=df_index)
         mf_activity = self._norm_kinetic_growth(raw_data.get('main_force_activity_index_D', pd.Series(0.0, index=df_index)), sensitivity=2.0)
-        
         egd_score = self._power_mean_fusion(df_index, [slope_stability, accel_lock, mf_activity], [0.4, 0.4, 0.2], p=1.0)
-        
         self._log_probe(_probe_data, "【04. 组件计算节点 (Nodes)】", "EGD_Score (效率梯度耗散)", egd_score, probe_ts)
         return egd_score
     # ========================================================
@@ -678,16 +641,13 @@ class CalculateStormEyeCalm:
     def _perform_final_fusion(self, df_index: pd.Index, component_scores: dict[str, pd.Series], raw_data: dict[str, pd.Series], _probe_data: Dict, probe_ts: pd.Timestamp) -> pd.Series:
         scores_list = [component_scores['energy'], component_scores['volume'], component_scores['intent'], component_scores['sentiment'], component_scores['readiness']]
         base_score = self._power_mean_fusion(df_index, scores_list, [0.25, 0.25, 0.15, 0.15, 0.20], p=1.0)
-        
         ext_calm = self._norm_gaussian_silence(raw_data.get('ROC_13_D', pd.Series(0.0, index=df_index)), sensitivity=10.0, denoise=True)
         struct_boost = self._norm_kinetic_growth(raw_data.get('accumulation_signal_score_D', pd.Series(0.0, index=df_index)), sensitivity=1.0)
         hunting_boost = self._norm_kinetic_growth(raw_data.get('SMART_MONEY_HM_COORDINATED_ATTACK_D', pd.Series(0.0, index=df_index)).rolling(8, min_periods=1).mean().fillna(0.0), sensitivity=2.0)
-        
         core_std = pd.concat(scores_list, axis=1).std(axis=1).fillna(0.0)
         decoherence_penalty = pd.Series(np.exp(-np.square(core_std * 3.0)), index=df_index)
         multiplier = pd.Series(1.0 + 0.2 * struct_boost + 0.15 * ext_calm + 0.15 * hunting_boost, index=df_index)
         final_score = self._c_infinity_clamp(pd.Series(base_score * multiplier * decoherence_penalty, index=df_index), 0.0, 1.0)
-        
         self._log_probe(_probe_data, "【06. 最终融合参数 (Final_Fusion_Params)】", "WGM_Base_Core_Score (基础软与合分)", base_score, probe_ts)
         self._log_probe(_probe_data, "【06. 最终融合参数 (Final_Fusion_Params)】", "Decoherence_Penalty (量子退相干惩罚)", decoherence_penalty, probe_ts)
         self._log_probe(_probe_data, "【06. 最终融合参数 (Final_Fusion_Params)】", "Additive_Multiplier (增强乘数)", multiplier, probe_ts)
@@ -702,12 +662,10 @@ class CalculateStormEyeCalm:
         sector_ignite_score = self._norm_kinetic_growth(clean_sector_jerk, sensitivity=5.0)
         stock_calm = self._norm_gaussian_silence(raw_data.get('ROC_13_D', pd.Series(0.0, index=df_index)), sensitivity=10.0, denoise=True)
         macro_resonance = self._power_mean_fusion(df_index, [sector_ignite_score, stock_calm], [0.5, 0.5], p=1.0)
-        
         adx_raw = raw_data.get('ADX_14_D', pd.Series(20.0, index=df_index))
         adx_supp = pd.Series(1.0 / (1.0 + np.exp(15.0 * (adx_raw - 0.28))), index=df_index)
         t1_premium = raw_data.get('T1_PREMIUM_EXPECTATION_D', pd.Series(0.0, index=df_index))
         t1_premium_score = self._norm_kinetic_growth(t1_premium, sensitivity=10.0)
-        
         final_modulator = self._power_mean_fusion(df_index, [sector_hab, macro_resonance, adx_supp, t1_premium_score], [0.3, 0.4, 0.15, 0.15], p=1.0)
         adj_modulator = pd.Series(final_modulator * 1.5 + 0.5, index=df_index)
         self._log_probe(_probe_data, "【07. 宏观环境调节 (Environment)】", "Market_Regulator (宏观起爆乘数)", adj_modulator, probe_ts)
@@ -783,7 +741,6 @@ class CalculateStormEyeCalm:
         vpa_activity_gate = self._c_infinity_clamp(self._smooth_abs(vpa_raw).rolling(13, min_periods=1).mean() * 10.0, 0.0, 1.0)
         vpa_accel = raw_data.get('VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
         vpa_accel_jerk = raw_data.get('SLOPE_13_VPA_ACCELERATION_13D', pd.Series(0.0, index=df_index))
-        
         dissipation_focus = pd.Series(self._norm_gaussian_silence(vpa_accel, sensitivity=5.0, denoise=True) * vpa_activity_gate, index=df_index)
         jerk_silence = pd.Series(self._norm_gaussian_silence(vpa_accel_jerk, sensitivity=10.0, denoise=True) * vpa_activity_gate, index=df_index)
         price_calm = self._norm_gaussian_silence(raw_data.get('ROC_13_D', pd.Series(0.0, index=df_index)), sensitivity=10.0, denoise=True)
@@ -975,18 +932,15 @@ class CalculateStormEyeCalm:
         turnover = raw_data.get('turnover_rate_f_D', pd.Series(0.0, index=df_index))
         turnover_excess = pd.Series(self._smooth_max_pair(turnover - 0.15, 0.0), index=df_index)
         veto_l2 = pd.Series(np.exp(-np.square(turnover_excess * 15.0)), index=df_index)
-        
         price_v = raw_data.get('ROC_13_D', pd.Series(0.0, index=df_index))
         price_v_excess = pd.Series(self._smooth_max_pair(price_v - 0.20, 0.0) + self._smooth_max_pair(-0.15 - price_v, 0.0), index=df_index)
         veto_l3 = pd.Series(np.exp(-np.square(price_v_excess * 15.0)), index=df_index)
-        
         veto_l4 = self._c_infinity_clamp(turnover * 1000.0, 0.0, 1.0)
         downtrend = raw_data.get('downtrend_strength_D', pd.Series(0.0, index=df_index))
         downtrend_slope = raw_data.get('SLOPE_13_downtrend_strength_D', pd.Series(0.0, index=df_index))
         pit_state = raw_data.get('STATE_GOLDEN_PIT_D', pd.Series(0.0, index=df_index))
         veto_l5 = pd.Series(np.exp(-np.square(self._smooth_max_pair(downtrend + downtrend_slope - pit_state * 1.5 - 0.20, 0.0) * 10.0)), index=df_index)
         final_veto = self._c_infinity_clamp(pd.Series(veto_l1 * veto_l2 * veto_l3 * veto_l4 * veto_l5, index=df_index), 0.0, 1.0)
-        
         self._log_probe(_probe_data, "【07. 宏观环境调节 (Environment)】", "Veto_L1 (RSI超买高位衰竭)", veto_l1, probe_ts)
         self._log_probe(_probe_data, "【07. 宏观环境调节 (Environment)】", "Veto_L2 (量能高位末端脉冲)", veto_l2, probe_ts)
         self._log_probe(_probe_data, "【07. 宏观环境调节 (Environment)】", "Veto_L3 (价格动能脱轨背离)", veto_l3, probe_ts)
