@@ -127,7 +127,7 @@ def schedule_chip_factor_calculation(self, stock_codes: Optional[List[str]] = No
     """
     import sys
     from services.chip_holding_calculator import QuantitativeTelemetryProbe
-    QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_ENTER", {'mode': calculation_mode, 'incremental': incremental}, {}, {'status': 'Task_Awake'})
+    # QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_ENTER", {'mode': calculation_mode, 'incremental': incremental}, {}, {'status': 'Task_Awake'})
     try:
         if start_date_str: start_date = parse_date(start_date_str)
         else: start_date = parse_date(ChipTaskConfig.DEFAULT_START_DATE)
@@ -142,7 +142,7 @@ def schedule_chip_factor_calculation(self, stock_codes: Optional[List[str]] = No
                 stock_list = loop.run_until_complete(stock_dao.get_stock_list())
                 stock_codes = [stock.stock_code for stock in stock_list]
             finally: loop.close()
-        QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_DISPATCH", {'stock_count': len(stock_codes), 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Dispatching'})
+        # QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_DISPATCH", {'stock_count': len(stock_codes), 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Dispatching'})
         if calculation_mode == 'comprehensive': result = schedule_comprehensive_calculation(stock_codes, start_date, end_date, batch_mode, incremental)
         elif calculation_mode == 'chip_only':
             if batch_mode: result = schedule_by_stock_batch(stock_codes, start_date, end_date, incremental)
@@ -151,7 +151,7 @@ def schedule_chip_factor_calculation(self, stock_codes: Optional[List[str]] = No
         else: raise ValueError(f"未知的计算模式: {calculation_mode}")
         return result
     except Exception as e:
-        QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_FATAL", {}, {'error': str(e)}, {'status': 'Crash'})
+        # QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_FATAL", {}, {'error': str(e)}, {'status': 'Crash'})
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
 def schedule_by_stock_batch(stock_codes: List[str], start_date: date, end_date: date, incremental: bool = True) -> Dict:
@@ -391,7 +391,7 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
     说明：在防呆拦截的最后一道屏障（检查缓存完整性后continue）处打入宣告证明探针，杜绝内部空转导致的幽灵假死。
     """
     from services.chip_holding_calculator import QuantitativeTelemetryProbe
-    QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_ENTER", {'stock': stock_code, 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Started'})
+    # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_ENTER", {'stock': stock_code, 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Started'})
     try:
         holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
@@ -411,12 +411,12 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                         if not hasattr(existing_record, 'absolute_change_analysis') or existing_record.absolute_change_analysis is None or existing_record.absolute_change_analysis == {}: need_recalculate = True
                         elif not hasattr(existing_record, 'absorption_energy') or existing_record.absorption_energy is None or existing_record.absorption_energy == 0: need_recalculate = True
                     if not need_recalculate:
-                        QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_SKIP", {'stock': stock_code, 'date': str(current_date)}, {'reason': '当日记录已存在且完整，触发缓存跳过'}, {'status': 'Skipped'})
+                        # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_SKIP", {'stock': stock_code, 'date': str(current_date)}, {'reason': '当日记录已存在且完整，触发缓存跳过'}, {'status': 'Skipped'})
                         continue
                 trade_date_str = current_date.strftime('%Y-%m-%d')
                 realtime_dao = StockRealtimeDAO(cm)
                 tick_data = await realtime_dao.get_daily_real_ticks(stock_code, current_date) 
-                QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_CALL_ENGINE", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'Calling'})
+                # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_CALL_ENGINE", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'Calling'})
                 dynamics_result = await service.analyze_chip_dynamics_daily(stock_code=stock_code, trade_date=trade_date_str, lookback_days=20, tick_data=tick_data)
                 if dynamics_result.get('analysis_status') == 'success':
                     record, created = await sync_to_async(holding_matrix_model.objects.get_or_create)(stock=stock, trade_time=current_date, defaults={'calc_status': 'pending'})
@@ -428,10 +428,10 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                     else: failed_dates.append(current_date)
                 else: failed_dates.append(current_date)
             except Exception as e: failed_dates.append(current_date)
-        QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_DONE", {'stock': stock_code}, {'success': len(saved_dates), 'failed': len(failed_dates)}, {'status': 'Completed'})
+        # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_DONE", {'stock': stock_code}, {'success': len(saved_dates), 'failed': len(failed_dates)}, {'status': 'Completed'})
         return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
     except Exception as e:
-        QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_FATAL", {'stock': stock_code}, {'error': str(e)}, {'status': 'Crash'})
+        # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_FATAL", {'stock': stock_code}, {'error': str(e)}, {'status': 'Crash'})
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
@@ -746,7 +746,7 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
     """
     try:
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_ENTER", {'stock_count': len(stock_codes), 'incremental': incremental}, {}, {'status': 'Started'})
+        # QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_ENTER", {'stock_count': len(stock_codes), 'incremental': incremental}, {}, {'status': 'Started'})
         global_start_date_obj = parse_date(start_date)
         end_date_obj = parse_date(end_date)
         results = {'total': len(stock_codes), 'success': 0, 'failed': 0, 'details': []}
@@ -760,7 +760,7 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
                         next_trade_date = TradeCalendar.get_next_trade_date(latest_record.trade_time)
                         if next_trade_date: actual_start_date_obj = max(global_start_date_obj, next_trade_date)
                 if actual_start_date_obj > end_date_obj:
-                    QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_SKIP", {'stock': stock_code}, {'reason': '数据已最新，增量逻辑触发拦截'}, {'status': 'Skipped'})
+                    # QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_SKIP", {'stock': stock_code}, {'reason': '数据已最新，增量逻辑触发拦截'}, {'status': 'Skipped'})
                     results['success'] += 1
                     results['details'].append({'stock_code': stock_code, 'stock_index': stock_index + 1, 'status': 'success', 'processed_dates': 0})
                     continue
@@ -771,11 +771,11 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
             except Exception as e:
                 results['failed'] += 1
                 results['details'].append({'stock_code': stock_code, 'stock_index': stock_index + 1, 'status': 'error', 'error': str(e), 'processed_dates': 0})
-        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_DONE", {'success': results['success'], 'failed': results['failed']}, {}, {'status': 'Finished'})
+        # QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_DONE", {'success': results['success'], 'failed': results['failed']}, {}, {'status': 'Finished'})
         return results
     except Exception as e:
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_FATAL", {}, {'error': str(e)}, {'status': 'Crashed'})
+        # QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_FATAL", {}, {'error': str(e)}, {'status': 'Crashed'})
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_holding_matrix_calculation', queue=ChipTaskConfig.get_queue_name())
