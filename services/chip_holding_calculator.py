@@ -52,9 +52,10 @@ class AdvancedChipDynamicsService:
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """
-        [Version 4.0.0] 分析单日筹码动态主入口（全节点探针植入版）
-        说明：在计算中枢的关键生命周期节点（拦截、成功、异常）分别植入全局探针，解决因缺数据或异常导致的静默跳过行为。
+        [Version 8.0.0] 分析单日筹码动态主入口（泊松衰减与拓扑增强版）
+        说明：废除粗暴的线性连乘校验衰减，引入泊松指数衰减防止验证分异常崩塌。植入形态拓扑检测，打破数据孤岛。
         """
+        import numpy as np
         try:
             chip_data = await self._fetch_chip_percent_data(stock_code, trade_date, lookback_days)
             history_len = len(chip_data['chip_history']) if chip_data else 0
@@ -71,6 +72,7 @@ class AdvancedChipDynamicsService:
             convergence_metrics = self._calculate_convergence_metrics(chip_matrix, percent_change_matrix, price_grid)
             game_energy_result = self._calculate_game_energy(percent_change_matrix, price_grid, chip_data['current_price'], chip_data['price_history'], stock_code, trade_date)
             direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'], chip_data['price_history'])
+            morphology_result = self._identify_peak_morphology(chip_matrix[-1], price_grid)
             tick_enhanced_factors = {}
             if tick_data is not None and not tick_data.empty:
                 try:
@@ -81,25 +83,28 @@ class AdvancedChipDynamicsService:
             else:
                 tick_enhanced_factors = self._get_default_tick_factors()
             validation_warnings = []
-            validation_score = absolute_signals.get('signal_quality', 0.5)
+            base_signal_quality = absolute_signals.get('signal_quality', 0.5)
+            penalty_exponent = 0.0
             if history_len < lookback_days:
                 validation_warnings.append(f"历史数据不足: {history_len}/{lookback_days}")
-                validation_score *= 0.8
+                penalty_exponent += 0.2
             current_price = chip_data['current_price']
             if current_price > price_grid.max() or current_price < price_grid.min():
                 validation_warnings.append("当前价格超出网格范围")
-                validation_score *= 0.9
+                penalty_exponent += 0.4
             if 'tick_data_quality_score' in tick_enhanced_factors:
                 tick_quality = tick_enhanced_factors['tick_data_quality_score']
                 if tick_quality < 0.3:
                     validation_warnings.append(f"tick数据质量低: {tick_quality:.2f}")
-                    validation_score *= 0.9
-            result = {'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': price_grid.tolist(), 'chip_matrix': chip_matrix.tolist(), 'percent_change_matrix': percent_change_matrix.tolist(), 'absolute_change_signals': absolute_signals, 'concentration_metrics': concentration_metrics, 'pressure_metrics': pressure_metrics, 'behavior_patterns': behavior_patterns, 'migration_patterns': migration_patterns, 'convergence_metrics': convergence_metrics, 'game_energy_result': game_energy_result, 'direct_ad_result': direct_ad_result, 'tick_enhanced_factors': tick_enhanced_factors, 'validation_score': round(validation_score, 2), 'validation_warnings': validation_warnings, 'analysis_status': 'success', 'analysis_time': datetime.now().isoformat()}
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'current_price': float(current_price)}, {'validation_warnings': validation_warnings}, {'validation_score': float(validation_score), 'analysis_status': 'success'})
+                    penalty_exponent += 0.1
+            validation_score = float(base_signal_quality * np.exp(-penalty_exponent))
+            result = {'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': price_grid.tolist(), 'chip_matrix': chip_matrix.tolist(), 'percent_change_matrix': percent_change_matrix.tolist(), 'absolute_change_signals': absolute_signals, 'concentration_metrics': concentration_metrics, 'pressure_metrics': pressure_metrics, 'behavior_patterns': behavior_patterns, 'migration_patterns': migration_patterns, 'convergence_metrics': convergence_metrics, 'game_energy_result': game_energy_result, 'direct_ad_result': direct_ad_result, 'morphology_metrics': morphology_result, 'tick_enhanced_factors': tick_enhanced_factors, 'validation_score': round(validation_score, 4), 'validation_warnings': validation_warnings, 'analysis_status': 'success', 'analysis_time': datetime.now().isoformat()}
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'base_quality': float(base_signal_quality), 'penalty': float(penalty_exponent)}, {'validation_warnings': validation_warnings}, {'validation_score': float(validation_score), 'analysis_status': 'success'})
             return result
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
             logger.error(f"筹码动态分析失败 {stock_code} {trade_date}: {e}")
-            print(f"❌ [筹码动态分析异常] {e}")
             import traceback
             traceback.print_exc()
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e)}, {'status': 'exception'})
@@ -211,6 +216,45 @@ class AdvancedChipDynamicsService:
         except Exception as e:
             return self._get_default_tick_factors()
 
+    def _identify_peak_morphology(self, current_chip_dist: np.ndarray, price_grid: np.ndarray) -> Dict[str, Any]:
+        """
+        [Version 8.0.0] 筹码拓扑形态提取器（高斯平滑动态寻峰版）
+        说明：消除孤岛毛刺，利用 scipy.signal.find_peaks 计算主次峰数量及相对位置，为基础模型提供核心特征支撑。
+        """
+        import numpy as np
+        from scipy.signal import find_peaks
+        try:
+            if len(current_chip_dist) < 10:
+                return {'peak_count': 0, 'main_peak_position': 0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
+            kernel_size = 5
+            kernel = np.ones(kernel_size) / kernel_size
+            smoothed_dist = np.convolve(current_chip_dist, kernel, mode='same')
+            dynamic_prominence = max(0.5, float(np.percentile(smoothed_dist, 75)) * 0.2)
+            peaks, properties = find_peaks(smoothed_dist, prominence=dynamic_prominence, distance=10)
+            peak_count = len(peaks)
+            if peak_count == 0:
+                return {'peak_count': 0, 'main_peak_position': 0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
+            peak_prominences = properties['prominences']
+            sorted_indices = np.argsort(peak_prominences)[::-1]
+            main_peak_idx = peaks[sorted_indices[0]]
+            main_peak_price = price_grid[main_peak_idx]
+            grid_min, grid_max = price_grid.min(), price_grid.max()
+            price_range = max(grid_max - grid_min, 1e-5)
+            relative_pos = (main_peak_price - grid_min) / price_range
+            main_peak_position = 0 if relative_pos < 0.33 else (2 if relative_pos > 0.66 else 1)
+            peak_concentration = float(smoothed_dist[main_peak_idx])
+            peak_distance_ratio = 0.0
+            if peak_count >= 2:
+                second_peak_idx = peaks[sorted_indices[1]]
+                peak_concentration += float(smoothed_dist[second_peak_idx])
+                peak_distance_ratio = float(abs(price_grid[main_peak_idx] - price_grid[second_peak_idx]) / price_range)
+            result = {'peak_count': int(peak_count), 'main_peak_position': int(main_peak_position), 'peak_distance_ratio': round(peak_distance_ratio, 4), 'peak_concentration': round(min(1.0, peak_concentration / 100.0), 4), 'is_double_peak': bool(peak_count == 2), 'is_multi_peak': bool(peak_count > 2)}
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_peak_morphology", {'prominence': float(dynamic_prominence), 'peaks_found': int(peak_count)}, {'main_peak_price': float(main_peak_price), 'relative_pos': float(relative_pos)}, result)
+            return result
+        except Exception as e:
+            print(f"⚠️ 寻峰失败: {e}")
+            return {'peak_count': 0, 'main_peak_position': 0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
+
     def _build_normalized_chip_matrix(self, chip_history: list, current_chip_dist: pd.DataFrame) -> tuple:
         """
         [Version 3.0.0] 基于真实截面数据的精确质心保持映射矩阵构建
@@ -279,54 +323,49 @@ class AdvancedChipDynamicsService:
 
     def _analyze_absolute_changes(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
         """
-        版本: v2.0
-        说明: 基于绝对变化的信号分析（向量化筛选版）
-        优化: 移除对价格网格的循环，使用Numpy掩码和where进行批量筛选
+        [Version 8.0.0] 绝对变化信号动力学分析算子（活跃视界抗噪版）
+        说明：根除全局网格稀释导致的 0.025 极低 validation_score 假象。
+        引入活跃筹码掩码(Active Mask)，仅在实际存在筹码的区间计算信噪比，并使用反正切函数保留梯度。
         """
+        import numpy as np
+        import math
         if percent_change_matrix.shape[0] == 0:
             return self._get_default_absolute_signals()
         recent_changes = percent_change_matrix[-min(3, len(percent_change_matrix)):, :]
         avg_changes = np.mean(recent_changes, axis=0) if recent_changes.shape[0] > 0 else np.zeros_like(price_grid)
-        increase_mask = avg_changes > self.params['significant_change_threshold']
-        decrease_mask = avg_changes < -self.params['significant_change_threshold']
-        noise_mask = np.abs(avg_changes) < self.params['noise_threshold']
-        signals = {
-            'significant_increase_areas': [],
-            'significant_decrease_areas': [],
-            'accumulation_signals': [],
-            'distribution_signals': [],
-            'noise_level': float(np.mean(noise_mask)),
-            'signal_quality': 1.0 - float(np.mean(noise_mask))
-        }
+        noise_th = float(self.params.get('noise_threshold', 0.2))
+        sig_th = float(self.params.get('significant_change_threshold', 1.0))
+        increase_mask = avg_changes > sig_th
+        decrease_mask = avg_changes < -sig_th
+        abs_changes = np.abs(avg_changes)
+        active_grid_mask = abs_changes > 1e-4
+        active_count = np.sum(active_grid_mask)
+        if active_count > 0:
+            noise_count = np.sum((abs_changes < noise_th) & active_grid_mask)
+            noise_ratio = float(noise_count / active_count)
+        else:
+            noise_ratio = 1.0
+        raw_signal_quality = 1.0 - noise_ratio
+        signal_quality = float((math.atan(raw_signal_quality * 5.0) / (math.pi / 2)) * 0.9 + 0.1)
+        signals = {'significant_increase_areas': [], 'significant_decrease_areas': [], 'accumulation_signals': [], 'distribution_signals': [], 'noise_level': noise_ratio, 'signal_quality': signal_quality}
         dist_to_current = np.abs(price_grid - current_price) / (current_price if current_price > 0 else 1.0)
         inc_indices = np.where(increase_mask)[0]
         for idx in inc_indices:
-            signals['significant_increase_areas'].append({
-                'price': float(price_grid[idx]),
-                'change': float(avg_changes[idx]),
-                'distance_to_current': float(dist_to_current[idx])
-            })
+            change_val = float(avg_changes[idx])
+            signals['significant_increase_areas'].append({'price': float(price_grid[idx]), 'change': change_val, 'distance_to_current': float(dist_to_current[idx])})
             if price_grid[idx] < current_price * 0.95:
-                signals['accumulation_signals'].append({
-                    'price': float(price_grid[idx]),
-                    'change': float(avg_changes[idx]),
-                    'strength': min(1.0, float(avg_changes[idx]) / 10.0)
-                })
+                strength = float(2.0 / (1.0 + math.exp(-change_val / 5.0)) - 1.0)
+                signals['accumulation_signals'].append({'price': float(price_grid[idx]), 'change': change_val, 'strength': strength})
         dec_indices = np.where(decrease_mask)[0]
         for idx in dec_indices:
-            signals['significant_decrease_areas'].append({
-                'price': float(price_grid[idx]),
-                'change': float(avg_changes[idx]),
-                'distance_to_current': float(dist_to_current[idx])
-            })
+            change_val = float(avg_changes[idx])
+            signals['significant_decrease_areas'].append({'price': float(price_grid[idx]), 'change': change_val, 'distance_to_current': float(dist_to_current[idx])})
             if price_grid[idx] > current_price * 1.05:
-                signals['distribution_signals'].append({
-                    'price': float(price_grid[idx]),
-                    'change': float(avg_changes[idx]),
-                    'strength': min(1.0, abs(float(avg_changes[idx])) / 10.0)
-                })
+                strength = float(2.0 / (1.0 + math.exp(-abs(change_val) / 5.0)) - 1.0)
+                signals['distribution_signals'].append({'price': float(price_grid[idx]), 'change': change_val, 'strength': strength})
         for key in ['significant_increase_areas', 'significant_decrease_areas', 'accumulation_signals', 'distribution_signals']:
             signals[key] = sorted(signals[key], key=lambda x: abs(x['change']), reverse=True)[:10]
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {'active_count': int(active_count), 'noise_ratio': noise_ratio}, {'raw_signal_quality': raw_signal_quality}, {'signal_quality': signal_quality})
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
@@ -364,36 +403,47 @@ class AdvancedChipDynamicsService:
 
     def _calculate_pressure_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, float]:
         """
-        版本: v2.0
-        说明: 计算压力指标（向量化掩码版）
-        优化: 统一掩码计算逻辑，确保历史数据计算高效
+        [Version 8.0.0] 压力与支撑非对称心理阻尼模型
+        说明：废除硬切片全盘相加。引入人类行为心理学衰减：套牢盘距当前价越远抛压越趋向于"僵尸化"（指数衰减）；获利盘则采用 Sigmoid 映射防止极性阈值越界跳变。
         """
+        import numpy as np
         if len(current_chip_dist) == 0 or current_price <= 0:
             return self._get_default_pressure_metrics()
+        eps = 1e-8
         metrics = {}
-        total_percent = 100.0
-        metrics['profit_pressure'] = np.sum(current_chip_dist[price_grid < current_price]) / total_percent
-        metrics['trapped_pressure'] = np.sum(current_chip_dist[price_grid > current_price * 1.10]) / total_percent
-        mask_recent_trapped = (price_grid > current_price * 1.05) & (price_grid <= current_price * 1.10)
-        metrics['recent_trapped_pressure'] = np.sum(current_chip_dist[mask_recent_trapped]) / total_percent
-        mask_support = (price_grid >= current_price * 0.95) & (price_grid < current_price)
-        metrics['support_strength'] = np.sum(current_chip_dist[mask_support]) / total_percent
-        mask_resistance = (price_grid > current_price) & (price_grid <= current_price * 1.05)
-        metrics['resistance_strength'] = np.sum(current_chip_dist[mask_resistance]) / total_percent
+        total_percent = np.sum(current_chip_dist) + eps
+        price_rel = (price_grid - current_price) / current_price
+        profit_mask = price_rel < 0
+        profit_chips = current_chip_dist[profit_mask]
+        profit_rels = np.abs(price_rel[profit_mask])
+        profit_weights = 1.0 / (1.0 + np.exp(-10.0 * (profit_rels - 0.15)))
+        metrics['profit_pressure'] = float(np.sum(profit_chips * profit_weights) / total_percent)
+        trapped_mask = price_rel > 0
+        trapped_chips = current_chip_dist[trapped_mask]
+        trapped_rels = price_rel[trapped_mask]
+        trapped_weights = np.exp(-3.0 * trapped_rels)
+        metrics['trapped_pressure'] = float(np.sum(trapped_chips * trapped_weights) / total_percent)
+        mask_recent_trapped = (price_rel > 0.0) & (price_rel <= 0.08)
+        metrics['recent_trapped_pressure'] = float(np.sum(current_chip_dist[mask_recent_trapped]) / total_percent)
+        mask_support = (price_rel >= -0.08) & (price_rel < 0.0)
+        support_chips = current_chip_dist[mask_support]
+        support_weights = np.exp(-5.0 * np.abs(price_rel[mask_support]))
+        metrics['support_strength'] = float(np.sum(support_chips * support_weights) / total_percent)
+        mask_resistance = (price_rel > 0.0) & (price_rel <= 0.08)
+        resistance_chips = current_chip_dist[mask_resistance]
+        resistance_weights = np.exp(-5.0 * price_rel[mask_resistance])
+        metrics['resistance_strength'] = float(np.sum(resistance_chips * resistance_weights) / total_percent)
         if not price_history.empty and len(price_history) >= 10:
-            recent_low = float(price_history['low_qfq'].min())
             recent_high = float(price_history['high_qfq'].max())
-            mask_released = (price_grid >= recent_high * 1.05) | (price_grid <= recent_low * 0.95)
-            metrics['pressure_release'] = np.sum(current_chip_dist[mask_released]) / total_percent
+            release_mask = price_grid >= recent_high
+            metrics['pressure_release'] = float(np.sum(current_chip_dist[release_mask]) / total_percent)
         else:
             metrics['pressure_release'] = 0.0
-        metrics['comprehensive_pressure'] = (
-            metrics['trapped_pressure'] * 0.5 +
-            metrics['recent_trapped_pressure'] * 0.3 +
-            (1 - metrics['pressure_release']) * 0.2
-        )
+        metrics['comprehensive_pressure'] = float(metrics['trapped_pressure'] * 0.4 + metrics['recent_trapped_pressure'] * 0.4 + (1.0 - metrics['pressure_release']) * 0.2)
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {'total_percent': float(total_percent)}, {'raw_trapped': float(np.sum(trapped_chips)/total_percent), 'damped_trapped': metrics['trapped_pressure']}, metrics)
         return metrics
-    
+
     def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
         # [V3.4.2] 废除极度苛刻的连续同网格np.all严格断头台，改用“3日累计增量+频率验证”的柔性积分模型，解封海量被误杀的吸筹派发因子。
         if percent_change_matrix.shape[0] < 3:
@@ -573,37 +623,39 @@ class AdvancedChipDynamicsService:
 
     def _calculate_main_force_activity(self, tick_data: pd.DataFrame, intraday_flow: Dict[str, float], abnormal_volume: Dict[str, float]) -> float:
         """
-        [Version 5.0.0] 严格因果序贯主力活跃度判定模型
-        说明：斩断全天P90分位数带来的未来函数泄露(Look-ahead Bias)。
-        引入基于累计移动平均(CMA)的因果序列分析，使得大单异动判定仅依赖已发生的历史时间切片。清除空行并接入探针。
+        [Version 8.0.0] 严格因果序贯主力活跃度探测器（无未来函数版）
+        说明：斩断原代码中 np.mean(volumes) 引发的前瞻偏差(Look-ahead Bias)。
+        改用纯正的 Expanding Mean (扩展移动平均)，并废除硬截断导致的满分溢出，引入双曲正切(Tanh)保留梯度。
         """
         import numpy as np
+        import math
         try:
-            activity_score = 0.0
+            raw_score = 0.0
             if abnormal_volume:
                 abnormal_ratio = abnormal_volume.get('abnormal_volume_ratio', 0.0)
-                activity_score += min(0.4, abnormal_ratio * 3.0)
+                raw_score += abnormal_ratio * 3.5
             if not tick_data.empty:
                 volumes = tick_data['volume'].to_numpy(dtype=np.float32)
                 seq_len = len(volumes)
                 if seq_len > 0:
                     cum_sum = np.cumsum(volumes)
                     seq_indices = np.arange(1, seq_len + 1, dtype=np.float32)
-                    cma_volumes = cum_sum / seq_indices
-                    dynamic_threshold = np.maximum(cma_volumes * 2.5, np.mean(volumes))
+                    expanding_mean = cum_sum / seq_indices
+                    dynamic_threshold = expanding_mean * 2.5
                     large_order_mask = volumes > dynamic_threshold
                     large_order_vol = np.sum(volumes[large_order_mask])
                     total_vol = cum_sum[-1]
-                    large_order_ratio = large_order_vol / total_vol if total_vol > 0 else 0.0
-                    activity_score += min(0.4, large_order_ratio * 1.8)
-                    QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity", {'seq_len': seq_len, 'total_vol': float(total_vol)}, {'large_order_vol': float(large_order_vol), 'large_order_ratio': float(large_order_ratio)}, {'partial_score': float(activity_score)})
+                    large_order_ratio = float(large_order_vol / total_vol) if total_vol > 1e-5 else 0.0
+                    raw_score += large_order_ratio * 2.5
+                    QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_seq", {'seq_len': int(seq_len), 'total_vol': float(total_vol)}, {'large_order_vol': float(large_order_vol), 'expanding_mean_last': float(expanding_mean[-1])}, {'large_order_ratio': float(large_order_ratio)})
             if intraday_flow:
                 buy_ratio = intraday_flow.get('buy_ratio', 0.5)
                 sell_ratio = intraday_flow.get('sell_ratio', 0.5)
-                imbalance = abs(buy_ratio - sell_ratio)
-                activity_score += min(0.2, imbalance * 2.5)
-            final_activity = float(min(1.0, activity_score))
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_final", {'intraday_flow_present': bool(intraday_flow)}, {}, {'final_activity': final_activity})
+                prior_imbalance = 0.05
+                imbalance = abs(buy_ratio - sell_ratio) / (buy_ratio + sell_ratio + prior_imbalance)
+                raw_score += imbalance * 2.0
+            final_activity = float(np.tanh(raw_score / 2.0))
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_final", {'raw_score': float(raw_score)}, {}, {'final_activity': final_activity})
             return final_activity
         except Exception as e:
             return 0.0
@@ -1330,9 +1382,8 @@ class GameEnergyCalculator:
 
     def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
         """
-        [Version 5.0.0] 博弈能量场指标平滑拓扑计算器
-        说明：废除硬截断(max(0, net_above))导致的0值连乘死锁，引入ELU平滑指数转换，保留洗盘期底盘潜力的梯度映射。
-        将多空比率除法替换为贝叶斯不平衡度指数，防御极性反噬与除零爆炸。清除空行并接入探针。
+        [Version 8.0.0] 博弈能量指标自适应拓扑计算器（贝叶斯抗反噬版）
+        说明：根除固定阈值引发的 game_intensity 塌陷现象。引入贝叶斯先验伪计数平滑极性反噬，防范极端行情下的0值连乘暴走。
         """
         import numpy as np
         eps = np.finfo(np.float64).eps
@@ -1349,30 +1400,35 @@ class GameEnergyCalculator:
                 base_concentration = float(top_energy / total_energy)
                 normalized_energy = abs_changes / total_energy
                 hhi = np.sum(normalized_energy ** 2)
-                scale_penalty = min(1.0, active_count / max(1.0, len(changes) * 0.05))
+                scale_penalty = float(np.tanh(active_count / max(1.0, len(changes) * 0.05)))
                 energy_concentration = float(base_concentration * 0.4 + hhi * 0.6) * scale_penalty
-        active_threshold = 0.2
-        active_mask_intensity = abs_changes > active_threshold
-        active_count_intensity = np.sum(active_mask_intensity)
-        total_count = len(changes)
-        game_intensity = float(min(1.0, active_count_intensity / max(1, total_count) * 2.5))
+        prior_energy = max(0.5, total_energy * 0.05)
+        valid_changes = abs_changes[abs_changes > eps]
+        if len(valid_changes) > 5:
+            dynamic_active_threshold = max(0.01, float(np.percentile(valid_changes, 60)))
+        else:
+            dynamic_active_threshold = 0.05
+        active_mask_intensity = abs_changes > dynamic_active_threshold
+        active_energy_sum = np.sum(abs_changes[active_mask_intensity])
+        game_intensity = float(np.tanh(active_energy_sum / max(1.0, total_energy * 0.5)))
         above_mask = price_grid > current_price
         below_mask = price_grid < current_price
         absorption_above = np.sum(changes[above_mask & (changes > 0)])
         distribution_above = np.sum(np.abs(changes[above_mask & (changes < 0)]))
         absorption_below = np.sum(changes[below_mask & (changes > 0)])
         distribution_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
-        below_imbalance = (absorption_below - distribution_below) / (absorption_below + distribution_below + eps)
-        support_strength = 1.0 + below_imbalance
+        below_imbalance = (absorption_below - distribution_below) / (absorption_below + distribution_below + prior_energy + eps)
+        support_strength = 1.0 + float(np.tanh(below_imbalance * 2.0))
         net_above = absorption_above - distribution_above
         if net_above > 0:
-            breakout_potential = float(net_above * support_strength * 10.0)
+            raw_potential = net_above * support_strength * 5.0
         else:
-            breakout_potential = float((np.exp(net_above) - 1.0) * support_strength * 2.0 + 5.0)
-        breakout_potential = max(0.01, breakout_potential)
+            raw_potential = (np.exp(net_above) - 1.0) * support_strength * 2.0 + 2.0
+        breakout_potential = float(max(0.01, raw_potential))
         if energy_concentration > 0.5:
-            breakout_potential *= (1.0 + energy_concentration * 0.5)
-        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'net_above': float(net_above)}, {'below_imbalance': float(below_imbalance), 'support_strength': float(support_strength)}, {'game_intensity': game_intensity, 'breakout_potential': breakout_potential, 'energy_concentration': energy_concentration})
+            breakout_potential *= (1.0 + float(np.tanh((energy_concentration - 0.5) * 2.0)))
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'prior_energy': float(prior_energy), 'dynamic_threshold': float(dynamic_active_threshold)}, {'active_energy_sum': float(active_energy_sum), 'below_imbalance': float(below_imbalance), 'support_strength': float(support_strength)}, {'game_intensity': float(game_intensity), 'breakout_potential': float(breakout_potential), 'energy_concentration': float(energy_concentration)})
         return float(game_intensity), float(breakout_potential), float(energy_concentration)
 
     def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, 
@@ -1573,9 +1629,9 @@ class ChipFactorCalculationHelper:
     @classmethod
     def calculate_core_chip_factors(cls, close: float, cost_percentiles: dict, his_high: float, his_low: float, winner_rate: float, chip_distribution: np.ndarray) -> dict:
         """
-        [Version 5.0.0] 核心筹码因子高精度安全计算引擎
-        说明：根除his_range引发的历史锚定偏差，采用c_95-c_5动态活跃视界。
-        废除导致0值连乘死锁的单极获利抛压模型，引入套牢恐慌盘双轨复合压力模型与反正切平滑归一化。清除所有空行并接入探针。
+        [Version 8.0.0] 核心筹码因子高精度安全计算引擎（双轨博弈防死锁版）
+        说明：根除his_range引发的历史极值锚定畸变，采用c_95-c_5动态活跃视界替代。
+        废除导致0值连乘死锁的单极获利抛压模型，引入套牢恐慌盘双轨复合压力模型，全程采用反正切平滑归一化防止极性反噬。
         """
         import numpy as np
         import math
@@ -1591,10 +1647,10 @@ class ChipFactorCalculationHelper:
         chip_stability = max(0.0, 1.0 - chip_concentration_ratio)
         price_percentile_position = np.clip((close - c_5) / active_range, 0.0, 1.0)
         raw_pressure = (close - c_50) / (core_range + active_range * 0.1)
-        adaptive_pressure = 0.5 + (math.atan(raw_pressure) / math.pi)
+        adaptive_pressure = 0.5 + (math.atan(raw_pressure * 2.0) / math.pi)
         profit_pressure = adaptive_pressure * winner_rate
         trapped_rate = max(0.0, 1.0 - winner_rate)
-        panic_pressure = (1.0 - adaptive_pressure) * trapped_rate * (1.0 - math.exp(-trapped_rate * 2.0))
+        panic_pressure = (1.0 - adaptive_pressure) * trapped_rate * (1.0 - math.exp(-trapped_rate * 3.0))
         comprehensive_pressure = profit_pressure * 0.6 + panic_pressure * 0.4
         win_rate_price_position = winner_rate * 0.6 + float(price_percentile_position) * 0.4
         valid_mask = chip_distribution > eps
@@ -1606,8 +1662,9 @@ class ChipFactorCalculationHelper:
             chip_entropy = 0.0
         chip_convergence_ratio = min(1.0, core_range / active_range)
         macro_range = max(float(his_high) - float(his_low), active_range)
-        chip_divergence_ratio = float(np.log1p(np.exp(active_range / macro_range)) - 0.693147)
-        final_result = {'chip_concentration_ratio': round(float(chip_concentration_ratio), 6),'chip_stability': round(float(chip_stability), 6),'price_percentile_position': round(float(price_percentile_position), 6),'profit_pressure': round(float(comprehensive_pressure), 6),'win_rate_price_position': round(float(win_rate_price_position), 6),'chip_entropy': round(float(chip_entropy), 6),'chip_convergence_ratio': round(float(chip_convergence_ratio), 6),'chip_divergence_ratio': round(float(chip_divergence_ratio), 6)}
+        chip_divergence_ratio = float((math.atan((active_range / macro_range) * 3.0) / (math.pi / 2)))
+        final_result = {'chip_concentration_ratio': round(float(chip_concentration_ratio), 6), 'chip_stability': round(float(chip_stability), 6), 'price_percentile_position': round(float(price_percentile_position), 6), 'profit_pressure': round(float(comprehensive_pressure), 6), 'win_rate_price_position': round(float(win_rate_price_position), 6), 'chip_entropy': round(float(chip_entropy), 6), 'chip_convergence_ratio': round(float(chip_convergence_ratio), 6), 'chip_divergence_ratio': round(float(chip_divergence_ratio), 6)}
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("ChipFactorCalculationHelper", "calculate_core_chip_factors", {'close': close, 'winner_rate': winner_rate, 'active_range': active_range}, {'adaptive_pressure': adaptive_pressure, 'profit_pressure': profit_pressure, 'panic_pressure': panic_pressure}, final_result)
         return final_result
 

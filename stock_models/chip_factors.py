@@ -552,6 +552,7 @@ class ChipFactorBase(models.Model):
         except Exception as e:
             print(f"❌ 计算聚散度失败: {e}")
             return cls._get_default_convergence_factors()
+
     @classmethod
     def _get_default_convergence_factors(cls) -> Dict[str, float]:
         """获取默认聚散度因子"""
@@ -571,32 +572,29 @@ class ChipFactorBase(models.Model):
             'pressure_release_index': 0.0,
             'support_resistance_ratio': 1.0
         }
+
     def update_from_chip_dynamics(self, chip_dynamics_result: Dict[str, any]):
         """
-        从筹码动态分析结果更新因子
-        Args:
-            chip_dynamics_result: AdvancedChipDynamicsService 的分析结果
+        [Version 8.0.0] 动态映射桥接核心（拓扑形态赋能版）
+        说明：从筹码动态分析结果更新因子。全面打通形态学测量结果，将底层拓扑检测数据灌入ORM实体，消灭未使用的哑弹字段，将信息孤岛彻底连通。
         """
+        import numpy as np
         try:
             if not chip_dynamics_result or chip_dynamics_result.get('analysis_status') != 'success':
                 return False
-            # 1. 更新聚散度因子
             convergence_factors = self.calculate_convergence_divergence(chip_dynamics_result)
             for key, value in convergence_factors.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
-            # 2. 更新集中度因子
             concentration_metrics = chip_dynamics_result.get('concentration_metrics', {})
             if concentration_metrics:
                 self.chip_concentration_ratio = concentration_metrics.get('comprehensive_concentration', 0.5)
-                self.chip_entropy = -np.log(concentration_metrics.get('entropy_concentration', 0.5) + 1e-10)
-                self.chip_skewness = concentration_metrics.get('chip_skewness', 0.0)
-                self.chip_kurtosis = concentration_metrics.get('chip_kurtosis', 0.0)
-            # 3. 更新压力因子
+                self.chip_entropy = float(-np.log(concentration_metrics.get('entropy_concentration', 0.5) + 1e-10))
+                self.chip_skewness = float(concentration_metrics.get('chip_skewness', 0.0))
+                self.chip_kurtosis = float(concentration_metrics.get('chip_kurtosis', 0.0))
             pressure_metrics = chip_dynamics_result.get('pressure_metrics', {})
             if pressure_metrics:
-                self.profit_ratio = pressure_metrics.get('profit_pressure', 0.5)
-            # 4. 更新行为模式
+                self.profit_ratio = float(pressure_metrics.get('profit_pressure', 0.5))
             behavior_patterns = chip_dynamics_result.get('behavior_patterns', {})
             if behavior_patterns:
                 accumulation = behavior_patterns.get('accumulation', {})
@@ -610,7 +608,14 @@ class ChipFactorBase(models.Model):
                     self.chip_structure_state = 'consolidation'
                 elif behavior_patterns.get('breakout_preparation', {}).get('detected', False):
                     self.chip_structure_state = 'lifting'
-            # 5. 计算综合趋势得分
+            morphology_metrics = chip_dynamics_result.get('morphology_metrics', {})
+            if morphology_metrics:
+                if hasattr(self, 'peak_count'): self.peak_count = morphology_metrics.get('peak_count', 0)
+                if hasattr(self, 'main_peak_position'): self.main_peak_position = morphology_metrics.get('main_peak_position', 0)
+                if hasattr(self, 'peak_distance_ratio'): self.peak_distance_ratio = morphology_metrics.get('peak_distance_ratio', 0.0)
+                if hasattr(self, 'peak_concentration'): self.peak_concentration = morphology_metrics.get('peak_concentration', 0.0)
+                if hasattr(self, 'is_double_peak'): self.is_double_peak = morphology_metrics.get('is_double_peak', False)
+                if hasattr(self, 'is_multi_peak'): self.is_multi_peak = morphology_metrics.get('is_multi_peak', False)
             self._calculate_trend_score(chip_dynamics_result)
             self.calc_status = 'success'
             return True
@@ -619,6 +624,7 @@ class ChipFactorBase(models.Model):
             self.calc_status = 'failed'
             self.error_message = str(e)
             return False
+
     def _calculate_trend_score(self):
         """基于能量场和tick数据的趋势得分计算"""
         try:
