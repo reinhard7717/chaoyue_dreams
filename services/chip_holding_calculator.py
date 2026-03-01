@@ -68,22 +68,25 @@ class AdvancedChipDynamicsService:
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """
         分析单日筹码动态 - 主入口函数（增强版：支持tick数据）
-        Args:
-            tick_data: 可选的tick数据DataFrame，包含['trade_time', 'price', 'volume', 'type']
-        修改思路:
-        1. 调用_calculate_tick_enhanced_factors时传入trade_date，确保底层能获取准确日期。
         """
+        # 🧨 [新增] 生命探测仪：证明系统确实进来了！
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {"stock": stock_code, "date": trade_date}, {}, {"status": "ENTER_ENGINE"})
+
         try:
             # 1. 获取筹码分布历史数据
             chip_data = await self._fetch_chip_percent_data(
                 stock_code, trade_date, lookback_days
             )
-            # PROBE: 检查数据获取结果
+            
+            # 🧨 [核心修复] 补回丢失的 history_len 定义，阻断 NameError 崩溃！
+            history_len = len(chip_data.get('chip_history', [])) if chip_data else 0
+
             # 🧨 [核心修改] 细化并抛出具体的阻断原因
             if not chip_data:
                 return self._get_default_result(stock_code, trade_date, error_msg="未获取到筹码分布或日线价格(可能是停牌或底层数据库缺失)")
             if history_len < 5:
                 return self._get_default_result(stock_code, trade_date, error_msg=f"历史筹码切片不足(当前仅 {history_len} 天，要求至少 5 天，多发于次新股)")
+            
             # 2. 构建价格网格和归一化筹码矩阵
             price_grid, chip_matrix = self._build_normalized_chip_matrix(
                 chip_data['chip_history'],
@@ -99,7 +102,7 @@ class AdvancedChipDynamicsService:
             )
             # 5. 计算筹码集中度指标
             concentration_metrics = self._calculate_concentration_metrics(
-                chip_matrix[-1],  # 当前筹码分布
+                chip_matrix[-1],  
                 price_grid
             )
             # 6. 计算压力与支撑指标
@@ -151,7 +154,6 @@ class AdvancedChipDynamicsService:
             tick_enhanced_factors = {}
             if tick_data is not None and not tick_data.empty:
                 try:
-                    # 修改：传入trade_date参数
                     tick_enhanced_factors = await self._calculate_tick_enhanced_factors(
                         tick_data, chip_data, price_grid, chip_matrix[-1], trade_date
                     )
@@ -194,9 +196,7 @@ class AdvancedChipDynamicsService:
                 'convergence_metrics': convergence_metrics,
                 'game_energy_result': game_energy_result,
                 'direct_ad_result': direct_ad_result,
-                # 新增tick增强因子
                 'tick_enhanced_factors': tick_enhanced_factors,
-                # 验证字段
                 'validation_score': round(validation_score, 2),
                 'validation_warnings': validation_warnings,
                 'analysis_status': 'success',
