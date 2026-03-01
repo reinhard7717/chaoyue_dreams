@@ -190,7 +190,7 @@ class AdvancedChipDynamicsService:
             result = {'peak_count': int(peak_count), 'main_peak_position': int(main_peak_position), 'main_peak_price': main_peak_price, 'peak_distance_ratio': round(peak_distance_ratio, 4), 'peak_concentration': round(min(1.0, peak_concentration / 100.0), 4), 'is_double_peak': bool(peak_count == 2), 'is_multi_peak': bool(peak_count > 2)}
             if not is_history:
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_peak_morphology", {'prominence': float(dynamic_prominence), 'peaks_found': int(peak_count)}, {'main_peak_price': main_peak_price, 'relative_pos': float(relative_pos)}, result)
+                # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_peak_morphology", {'prominence': float(dynamic_prominence), 'peaks_found': int(peak_count)}, {'main_peak_price': main_peak_price, 'relative_pos': float(relative_pos)}, result)
             return result
         except Exception:
             return {'peak_count': 0, 'main_peak_position': 0, 'main_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
@@ -255,7 +255,7 @@ class AdvancedChipDynamicsService:
         if patterns['accumulation']['areas']: patterns['accumulation']['areas'] = sorted(patterns['accumulation']['areas'], key=lambda x: x['avg_change'], reverse=True)[:5]
         if patterns['distribution']['areas']: patterns['distribution']['areas'] = sorted(patterns['distribution']['areas'], key=lambda x: abs(x['avg_change']), reverse=True)[:5]
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns", {'low_threshold': float(low_threshold), 'high_threshold': float(high_threshold), 'total_3d_energy': total_3d_energy}, {'raw_accum_strength': float(raw_accum_strength), 'raw_distrib_strength': float(raw_distrib_strength)}, {'accum_strength': patterns['accumulation']['strength'], 'distrib_strength': patterns['distribution']['strength'], 'main_force_activity': patterns['main_force_activity']})
+        # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns", {'low_threshold': float(low_threshold), 'high_threshold': float(high_threshold), 'total_3d_energy': total_3d_energy}, {'raw_accum_strength': float(raw_accum_strength), 'raw_distrib_strength': float(raw_distrib_strength)}, {'accum_strength': patterns['accumulation']['strength'], 'distrib_strength': patterns['distribution']['strength'], 'main_force_activity': patterns['main_force_activity']})
         return patterns
 
     def _build_normalized_chip_matrix(self, chip_history: list, current_chip_dist: pd.DataFrame) -> tuple:
@@ -363,7 +363,7 @@ class AdvancedChipDynamicsService:
         for key in ['significant_increase_areas', 'significant_decrease_areas', 'accumulation_signals', 'distribution_signals']:
             signals[key] = sorted(signals[key], key=lambda x: abs(x['change']), reverse=True)[:10]
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {'total_active_energy': total_active_energy, 'noise_ratio': noise_ratio}, {'dynamic_sig_th': dynamic_sig_th}, {'signal_quality': signal_quality})
+        # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {'total_active_energy': total_active_energy, 'noise_ratio': noise_ratio}, {'dynamic_sig_th': dynamic_sig_th}, {'signal_quality': signal_quality})
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
@@ -430,7 +430,7 @@ class AdvancedChipDynamicsService:
         metrics['comprehensive_concentration'] = float(0.3 * metrics['entropy_concentration'] + 0.3 * metrics['peak_concentration'] + 0.2 * metrics['cv_concentration'] + 0.2 * metrics['main_cost_range_ratio'])
         if not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {'current_price': float(current_price), 'macro_range': float(macro_range)}, {'robust_skewness': metrics['chip_skewness'], 'robust_kurtosis': metrics['chip_kurtosis'], 'cost_50pct': metrics['cost_50pct']}, metrics)
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {'current_price': float(current_price), 'macro_range': float(macro_range)}, {'robust_skewness': metrics['chip_skewness'], 'robust_kurtosis': metrics['chip_kurtosis'], 'cost_50pct': metrics['cost_50pct']}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -457,7 +457,7 @@ class AdvancedChipDynamicsService:
             metrics['long_term_chip_ratio'] = float(long_ratio * 0.6 + chip_stability * 0.4)
             metrics['mid_term_chip_ratio'] = float(max(0.0, 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']))
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_holding_metrics", {'turnover_rate': turnover_rate, 'chip_stability': chip_stability}, {'raw_avg_days': avg_days, 'tr': tr}, metrics)
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_holding_metrics", {'turnover_rate': turnover_rate, 'chip_stability': chip_stability}, {'raw_avg_days': avg_days, 'tr': tr}, metrics)
             return metrics
         except Exception as e:
             return metrics
@@ -474,7 +474,7 @@ class AdvancedChipDynamicsService:
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty or 'close_qfq' not in price_history.columns:
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {}, {'reason': 'price_history empty or missing close_qfq'}, {'status': 'aborted'})
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {}, {'reason': 'price_history empty or missing close_qfq'}, {'status': 'aborted'})
             return metrics
         try:
             clean_df = price_history.copy()
@@ -541,12 +541,12 @@ class AdvancedChipDynamicsService:
                 abnormal_vol = float(tick_factors.get('tick_abnormal_volume_ratio', 0.0))
                 if abnormal_vol > 0.2 and reversal > 0.3: reversal = min(1.0, reversal + abnormal_vol * 0.5)
             metrics['reversal_warning_score'] = float(np.clip(reversal, 0.0, 1.0))
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy, 'divergence_product': divergence_product}, {'volatility': volatility, 'turnover_rate': metrics['turnover_rate']}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence'], 'reversal_warning_score': metrics['reversal_warning_score']})
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy, 'divergence_product': divergence_product}, {'volatility': volatility, 'turnover_rate': metrics['turnover_rate']}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence'], 'reversal_warning_score': metrics['reversal_warning_score']})
             return metrics
         except Exception as e:
             import traceback
             err_trace = traceback.format_exc()
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FATAL", {}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FATAL", {}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
             return metrics
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
@@ -591,13 +591,13 @@ class AdvancedChipDynamicsService:
             validation_score = float(base_data_integrity * np.exp(-penalty_exponent) * (0.8 + 0.2 * signal_q))
             result = {'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': price_grid.tolist(), 'chip_matrix': chip_matrix.tolist(), 'percent_change_matrix': percent_change_matrix.tolist(), 'absolute_change_signals': absolute_signals, 'concentration_metrics': concentration_metrics, 'pressure_metrics': pressure_metrics, 'behavior_patterns': behavior_patterns, 'migration_patterns': migration_patterns, 'convergence_metrics': convergence_metrics, 'game_energy_result': game_energy_result, 'direct_ad_result': direct_ad_result, 'morphology_metrics': morphology_result, 'technical_metrics': technical_metrics, 'holding_metrics': holding_metrics, 'tick_enhanced_factors': tick_enhanced_factors, 'validation_score': round(validation_score, 4), 'validation_warnings': validation_warnings, 'analysis_status': 'success', 'analysis_time': datetime.now().isoformat()}
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'signal_quality': float(signal_q), 'penalty': float(penalty_exponent)}, {'validation_warnings': validation_warnings}, {'validation_score': float(validation_score), 'status': 'success'})
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'signal_quality': float(signal_q), 'penalty': float(penalty_exponent)}, {'validation_warnings': validation_warnings}, {'validation_score': float(validation_score), 'status': 'success'})
             return result
         except Exception as e:
             import traceback
             err_trace = traceback.format_exc()
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily_FATAL", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily_FATAL", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
             return self._get_default_result(stock_code, trade_date)
 
     def _get_default_technical_metrics(self) -> Dict[str, float]:
@@ -644,7 +644,7 @@ class AdvancedChipDynamicsService:
             metrics['pressure_release'] = 0.0
         metrics['comprehensive_pressure'] = float(metrics['trapped_pressure'] * 0.4 + metrics['recent_trapped_pressure'] * 0.4 + (1.0 - metrics['pressure_release']) * 0.2)
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {'total_percent': float(total_percent)}, {'raw_trapped': float(np.sum(trapped_chips)/total_percent), 'damped_trapped': metrics['trapped_pressure']}, metrics)
+        # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {'total_percent': float(total_percent)}, {'raw_trapped': float(np.sum(trapped_chips)/total_percent), 'damped_trapped': metrics['trapped_pressure']}, metrics)
         return metrics
 
     def _calculate_migration_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, any]:
@@ -693,7 +693,7 @@ class AdvancedChipDynamicsService:
             idx_div = np.where(mask_mid & (recent_changes < 0))[0][:5]
             patterns['divergence_migration']['areas'] = [{'price': float(price_grid[i]), 'change': float(recent_changes[i])} for i in idx_div]
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_migration_patterns", {'upward_work': upward_work, 'downward_work': downward_work, 'price_center': price_center}, {'up_strength': patterns['upward_migration']['strength'], 'down_strength': patterns['downward_migration']['strength']}, {'net_migration_direction': patterns['net_migration_direction'], 'chip_flow_direction': patterns['chip_flow_direction']})
+        # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_migration_patterns", {'upward_work': upward_work, 'downward_work': downward_work, 'price_center': price_center}, {'up_strength': patterns['upward_migration']['strength'], 'down_strength': patterns['downward_migration']['strength']}, {'net_migration_direction': patterns['net_migration_direction'], 'chip_flow_direction': patterns['chip_flow_direction']})
         return patterns
 
     def _get_default_migration_patterns(self) -> Dict[str, any]:
@@ -746,7 +746,7 @@ class AdvancedChipDynamicsService:
             metrics['convergence_strength'] = 0.0
             metrics['divergence_strength'] = float(math.tanh(rel_var_change * 50.0))
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {'variance_change': float(variance_change), 'rel_var_change': float(rel_var_change)}, {'dynamic_convergence': metrics['dynamic_convergence'], 'migration_convergence': metrics['migration_convergence']}, metrics)
+        # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {'variance_change': float(variance_change), 'rel_var_change': float(rel_var_change)}, {'dynamic_convergence': metrics['dynamic_convergence'], 'migration_convergence': metrics['migration_convergence']}, metrics)
         return metrics
 
     def _calculate_game_energy(self, percent_change_matrix: np.ndarray,price_grid: np.ndarray,current_price: float,price_history: pd.DataFrame,stock_code: str = "",trade_date: str = "") -> Dict[str, Any]:
@@ -797,7 +797,7 @@ class AdvancedChipDynamicsService:
                     total_vol = cum_sum[-1]
                     large_order_ratio = float(large_order_vol / total_vol) if total_vol > 1e-5 else 0.0
                     raw_score += large_order_ratio * 2.5
-                    QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_seq", {'seq_len': int(seq_len), 'total_vol': float(total_vol)}, {'large_order_vol': float(large_order_vol), 'expanding_mean_last': float(expanding_mean[-1])}, {'large_order_ratio': float(large_order_ratio)})
+                    # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_seq", {'seq_len': int(seq_len), 'total_vol': float(total_vol)}, {'large_order_vol': float(large_order_vol), 'expanding_mean_last': float(expanding_mean[-1])}, {'large_order_ratio': float(large_order_ratio)})
             if intraday_flow:
                 buy_ratio = intraday_flow.get('buy_ratio', 0.5)
                 sell_ratio = intraday_flow.get('sell_ratio', 0.5)
@@ -805,7 +805,7 @@ class AdvancedChipDynamicsService:
                 imbalance = abs(buy_ratio - sell_ratio) / (buy_ratio + sell_ratio + prior_imbalance)
                 raw_score += imbalance * 2.0
             final_activity = float(np.tanh(raw_score / 2.0))
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_final", {'raw_score': float(raw_score)}, {}, {'final_activity': final_activity})
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_final", {'raw_score': float(raw_score)}, {}, {'final_activity': final_activity})
             return final_activity
         except Exception as e:
             return 0.0
@@ -1036,13 +1036,13 @@ class AdvancedChipDynamicsService:
             if not price_history.empty and 'turnover_rate' in price_history.columns:
                 if not price_history['turnover_rate'].dropna().empty: has_turnover = True
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {'stock_code': stock_code, 'trade_date': trade_date}, {'chip_history_len': len(chip_history), 'price_history_len': len(price_history), 'has_turnover': has_turnover}, {'current_price': current_price, 'status': 'success'})
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {'stock_code': stock_code, 'trade_date': trade_date}, {'chip_history_len': len(chip_history), 'price_history_len': len(price_history), 'has_turnover': has_turnover}, {'current_price': current_price, 'status': 'success'})
             return {'current_chip_dist': current_chip_df, 'chip_history': chip_history, 'price_history': price_history, 'current_price': current_price}
         except Exception as e:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
             import traceback
             traceback.print_exc()
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data_FATAL", {'stock_code': stock_code}, {'error': str(e)}, {'status': 'exception'})
+            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data_FATAL", {'stock_code': stock_code}, {'error': str(e)}, {'status': 'exception'})
             return None
 
     # ============== 默认结果方法 ==============
@@ -1142,7 +1142,7 @@ class DirectAccumulationDistributionCalculator:
         """
         if percent_change_matrix.shape[0] == 0:
             result = self._get_default_ad_result()
-            QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price)}, {'reason': 'empty_percent_change_matrix'}, {'net_ad_ratio': 0.0, 'status': 'aborted'})
+            # QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price)}, {'reason': 'empty_percent_change_matrix'}, {'net_ad_ratio': 0.0, 'status': 'aborted'})
             return result
         try:
             latest_change = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
@@ -1152,11 +1152,11 @@ class DirectAccumulationDistributionCalculator:
                 result = self._correct_pullback_ad(result, price_history, current_price)
             result = self._calculate_ad_quality(result, chip_matrix, price_grid, current_price)
             result['price_level_ad'] = self._analyze_price_levels(latest_change, price_grid, current_price)
-            QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price), 'history_len': len(price_history)}, {'accumulation_volume': float(result.get('accumulation_volume', 0.0)), 'distribution_volume': float(result.get('distribution_volume', 0.0)), 'false_distribution_flag': bool(result.get('false_distribution_flag', False))}, {'net_ad_ratio': float(result.get('net_ad_ratio', 0.0)), 'status': 'success'})
+            # QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price), 'history_len': len(price_history)}, {'accumulation_volume': float(result.get('accumulation_volume', 0.0)), 'distribution_volume': float(result.get('distribution_volume', 0.0)), 'false_distribution_flag': bool(result.get('false_distribution_flag', False))}, {'net_ad_ratio': float(result.get('net_ad_ratio', 0.0)), 'status': 'success'})
             return result
         except Exception as e:
             result = self._get_default_ad_result()
-            QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price)}, {'error': str(e)}, {'net_ad_ratio': 0.0, 'status': 'failed'})
+            # QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "calculate_direct_ad", {'current_price': float(current_price)}, {'error': str(e)}, {'net_ad_ratio': 0.0, 'status': 'failed'})
             return result
 
     def _calculate_absolute_ad(self, changes: np.ndarray, price_rel: np.ndarray) -> Dict[str, any]:
@@ -1197,7 +1197,7 @@ class DirectAccumulationDistributionCalculator:
         raw_net_ratio = (accumulation_volume - distribution_volume) / total_volume_smoothed
         net_ad_ratio = float(math.atan(raw_net_ratio * 3.0) / (math.pi / 2))
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "_calculate_absolute_ad", {'total_raw_vol': float(total_raw_vol), 'bayesian_prior': float(bayesian_prior)}, {'raw_accum': float(accumulation_volume), 'raw_distrib': float(distribution_volume)}, {'net_ad_ratio': float(net_ad_ratio)})
+        # QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "_calculate_absolute_ad", {'total_raw_vol': float(total_raw_vol), 'bayesian_prior': float(bayesian_prior)}, {'raw_accum': float(accumulation_volume), 'raw_distrib': float(distribution_volume)}, {'net_ad_ratio': float(net_ad_ratio)})
         return {'accumulation_volume': accumulation_volume, 'distribution_volume': distribution_volume, 'net_ad_ratio': net_ad_ratio, 'accumulation_quality': 0.5, 'distribution_quality': 0.5, 'false_distribution_flag': False, 'breakout_acceleration': 1.0}
 
     def _correct_pullback_ad(self, ad_result: Dict[str, any], price_history: pd.DataFrame, current_price: float) -> Dict[str, any]:
@@ -1409,14 +1409,14 @@ class GameEnergyCalculator:
         if percent_change_matrix.shape[0] == 0 or len(price_grid) == 0 or reference_price <= 0:
             print(f"❌ [探针] 输入数据无效: 变化矩阵{percent_change_matrix.shape}, 价格网格{len(price_grid)}, 参考价{reference_price}")
             result = self._get_default_energy()
-            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '输入数据矩阵无效或无参考价'}, {'status': 'aborted'})
+            # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '输入数据矩阵无效或无参考价'}, {'status': 'aborted'})
             return result
         try:
             if len(percent_change_matrix) == 0:
                 print("❌ [探针] 变化矩阵为空")
                 result = self._get_default_energy()
                 print(f"   返回默认值: absorption={result['absorption_energy']}, distribution={result['distribution_energy']}")
-                QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '提取的变化矩阵为空'}, {'status': 'aborted'})
+                # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '提取的变化矩阵为空'}, {'status': 'aborted'})
                 return result
             latest_change = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros(len(price_grid))
             change_sum = np.sum(np.abs(latest_change))
@@ -1424,7 +1424,7 @@ class GameEnergyCalculator:
                 print("⚠️ [探针] 变化数据几乎全为0，返回默认值")
                 result = self._get_default_energy()
                 print(f"   返回默认值: absorption={result['absorption_energy']}, distribution={result['distribution_energy']}")
-                QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '绝对变化和过低触发拦截', 'change_sum': float(change_sum)}, {'status': 'aborted'})
+                # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'reason': '绝对变化和过低触发拦截', 'change_sum': float(change_sum)}, {'status': 'aborted'})
                 return result
             energy_result = self._calculate_energy_field(latest_change, price_grid, reference_price, close_price)
             fake_distribution = False
@@ -1434,7 +1434,7 @@ class GameEnergyCalculator:
                 fake_distribution = self._detect_fake_distribution_advanced(latest_change, price_grid, reference_price, close_price)
             energy_result['fake_distribution_flag'] = fake_distribution
             energy_result = self._ensure_nonzero_energy(energy_result)
-            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'fake_distribution': fake_distribution}, {'status': 'success'})
+            # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'fake_distribution': fake_distribution}, {'status': 'success'})
             return energy_result
         except Exception as e:
             print(f"❌ [探针] 能量场计算异常: {e}")
@@ -1442,7 +1442,7 @@ class GameEnergyCalculator:
             traceback.print_exc()
             result = self._get_default_energy()
             print(f"   返回默认值: absorption={result['absorption_energy']}, distribution={result['distribution_energy']}")
-            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e)}, {'status': 'failed'})
+            # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "calculate_game_energy", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e)}, {'status': 'failed'})
             return result
 
     def _calculate_energy_field(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, stock_code: str = "", trade_date: str = "") -> Dict[str, Any]:
@@ -1503,7 +1503,7 @@ class GameEnergyCalculator:
             key_battle_zones = self._identify_key_battle_zones(changes, price_grid, reference_price, stock_code, trade_date)
             net_energy = float(absorption_advanced - distribution_advanced)
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_field", {'sigma': float(sigma), 'dynamic_sigma': float(dynamic_sigma), 'total_section_energy': float(total_section_energy)}, {'prior_momentum_base': float(prior_momentum_base), 'momentum_ratio': float(momentum_ratio)}, {'net_energy': net_energy, 'absorption': float(absorption_advanced), 'distribution': float(distribution_advanced)})
+            # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_field", {'sigma': float(sigma), 'dynamic_sigma': float(dynamic_sigma), 'total_section_energy': float(total_section_energy)}, {'prior_momentum_base': float(prior_momentum_base), 'momentum_ratio': float(momentum_ratio)}, {'net_energy': net_energy, 'absorption': float(absorption_advanced), 'distribution': float(distribution_advanced)})
             return {'absorption_energy': min(100.0, max(0.01, float(absorption_advanced))), 'distribution_energy': min(100.0, max(0.01, float(distribution_advanced))), 'net_energy_flow': net_energy, 'game_intensity': min(1.0, max(0.0, float(game_intensity))), 'key_battle_zones': key_battle_zones, 'breakout_potential': min(100.0, float(breakout_potential)), 'energy_concentration': min(1.0, max(0.0, float(energy_concentration))), 'reference_price': float(reference_price), 'original_current_price': float(current_price), 'fake_distribution_flag': False}
         except Exception as e:
             return self._get_default_energy()
@@ -1557,7 +1557,7 @@ class GameEnergyCalculator:
         breakout_potential = float(max(0.01, raw_potential))
         if energy_concentration > 0.5: breakout_potential *= (1.0 + float(math.tanh((energy_concentration - 0.5) * 1.5)))
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'prior_energy': float(prior_energy), 'dynamic_threshold': float(dynamic_active_threshold)}, {'active_ratio': float(active_ratio), 'absolute_scale': float(absolute_scale), 'support_strength': float(support_strength)}, {'game_intensity': float(game_intensity), 'breakout_potential': float(breakout_potential), 'energy_concentration': float(energy_concentration)})
+        # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'prior_energy': float(prior_energy), 'dynamic_threshold': float(dynamic_active_threshold)}, {'active_ratio': float(active_ratio), 'absolute_scale': float(absolute_scale), 'support_strength': float(support_strength)}, {'game_intensity': float(game_intensity), 'breakout_potential': float(breakout_potential), 'energy_concentration': float(energy_concentration)})
         return float(game_intensity), float(breakout_potential), float(energy_concentration)
 
     def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, 
@@ -1794,7 +1794,7 @@ class ChipFactorCalculationHelper:
         chip_divergence_ratio = float((math.atan((active_range / macro_range) * 3.0) / (math.pi / 2)))
         final_result = {'chip_concentration_ratio': round(float(chip_concentration_ratio), 6), 'chip_stability': round(float(chip_stability), 6), 'price_percentile_position': round(float(price_percentile_position), 6), 'profit_pressure': round(float(comprehensive_pressure), 6), 'win_rate_price_position': round(float(win_rate_price_position), 6), 'chip_entropy': round(float(chip_entropy), 6), 'chip_convergence_ratio': round(float(chip_convergence_ratio), 6), 'chip_divergence_ratio': round(float(chip_divergence_ratio), 6)}
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("ChipFactorCalculationHelper", "calculate_core_chip_factors", {'close': close, 'winner_rate': winner_rate, 'active_range': active_range}, {'adaptive_pressure': adaptive_pressure, 'profit_pressure': profit_pressure, 'panic_pressure': panic_pressure}, final_result)
+        # QuantitativeTelemetryProbe.emit("ChipFactorCalculationHelper", "calculate_core_chip_factors", {'close': close, 'winner_rate': winner_rate, 'active_range': active_range}, {'adaptive_pressure': adaptive_pressure, 'profit_pressure': profit_pressure, 'panic_pressure': panic_pressure}, final_result)
         return final_result
 
 class QuantitativeTelemetryProbe:
