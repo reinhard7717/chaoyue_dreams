@@ -50,55 +50,6 @@ class AdvancedChipDynamicsService:
         # 初始化tick数据处理器
         self.tick_processor = ChipFactorCalculator()  # 复用ChipFactorCalculator中的tick计算方法
 
-    async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
-        """
-        [Version 18.0.0] 分析单日筹码动态主入口（全息孤岛拆解与安全引擎版）
-        说明：全量注射时序与技术指标集。修正技术面算子的参数传递，贯通 ORM 僵尸特征，确保模型计算不再有任何黑盒逃课现象。禁止使用空行。
-        """
-        import numpy as np
-        from datetime import datetime
-        try:
-            chip_data = await self._fetch_chip_percent_data(stock_code, trade_date, lookback_days)
-            history_len = len(chip_data['chip_history']) if chip_data else 0
-            if not chip_data or len(chip_data['chip_history']) < 5: return self._get_default_result(stock_code, trade_date)
-            price_grid, chip_matrix = self._build_normalized_chip_matrix(chip_data['chip_history'], chip_data['current_chip_dist'])
-            percent_change_matrix = self._calculate_percent_change_matrix(chip_matrix)
-            absolute_signals = self._analyze_absolute_changes(percent_change_matrix, price_grid, chip_data['current_price'])
-            concentration_metrics = self._calculate_concentration_metrics(chip_matrix[-1], price_grid, chip_data['current_price'], chip_data['price_history'])
-            pressure_metrics = self._calculate_pressure_metrics(chip_matrix[-1], price_grid, chip_data['current_price'], chip_data['price_history'])
-            behavior_patterns = self._identify_behavior_patterns(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'])
-            migration_patterns = self._calculate_migration_patterns(percent_change_matrix, chip_matrix, price_grid)
-            convergence_metrics = self._calculate_convergence_metrics(chip_matrix, percent_change_matrix, price_grid)
-            game_energy_result = self._calculate_game_energy(percent_change_matrix, price_grid, chip_data['current_price'], chip_data['price_history'], stock_code, trade_date)
-            direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'], chip_data['price_history'])
-            morphology_result = self._identify_peak_morphology(chip_matrix[-1], price_grid)
-            technical_metrics = self._calculate_technical_metrics(chip_data['price_history'], chip_data['current_price'], float(concentration_metrics.get('chip_mean', chip_data['current_price'])), float(concentration_metrics.get('comprehensive_concentration', 0.5)), chip_matrix, price_grid, morphology_result, game_energy_result, concentration_metrics)
-            tick_enhanced_factors = {}
-            if tick_data is not None and not tick_data.empty:
-                try: tick_enhanced_factors = await self._calculate_tick_enhanced_factors(tick_data, chip_data, price_grid, chip_matrix[-1], trade_date)
-                except Exception: tick_enhanced_factors = self._get_default_tick_factors()
-            else: tick_enhanced_factors = self._get_default_tick_factors()
-            validation_warnings = []
-            base_signal_quality = absolute_signals.get('signal_quality', 0.5)
-            penalty_exponent = 0.0
-            if history_len < lookback_days: validation_warnings.append(f"历史数据不足: {history_len}/{lookback_days}"); penalty_exponent += 0.2
-            current_price = chip_data['current_price']
-            if current_price > price_grid.max() or current_price < price_grid.min(): validation_warnings.append("当前价格超出网格范围"); penalty_exponent += 0.4
-            if 'tick_data_quality_score' in tick_enhanced_factors and tick_enhanced_factors['tick_data_quality_score'] < 0.3:
-                days_ago = (datetime.now() - datetime.strptime(trade_date, "%Y-%m-%d")).days
-                if days_ago <= 15: validation_warnings.append(f"近15日内tick数据质量低: {tick_enhanced_factors['tick_data_quality_score']:.2f}"); penalty_exponent += 0.1
-            validation_score = float(base_signal_quality * np.exp(-penalty_exponent))
-            result = {'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': price_grid.tolist(), 'chip_matrix': chip_matrix.tolist(), 'percent_change_matrix': percent_change_matrix.tolist(), 'absolute_change_signals': absolute_signals, 'concentration_metrics': concentration_metrics, 'pressure_metrics': pressure_metrics, 'behavior_patterns': behavior_patterns, 'migration_patterns': migration_patterns, 'convergence_metrics': convergence_metrics, 'game_energy_result': game_energy_result, 'direct_ad_result': direct_ad_result, 'morphology_metrics': morphology_result, 'technical_metrics': technical_metrics, 'tick_enhanced_factors': tick_enhanced_factors, 'validation_score': round(validation_score, 4), 'validation_warnings': validation_warnings, 'analysis_status': 'success', 'analysis_time': datetime.now().isoformat()}
-            from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'base_quality': float(base_signal_quality)}, {}, {'validation_score': float(validation_score), 'status': 'success'})
-            return result
-        except Exception as e:
-            import traceback
-            err_trace = traceback.format_exc()
-            from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily_FATAL", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
-            return self._get_default_result(stock_code, trade_date)
-
     async def _calculate_tick_enhanced_factors(self, tick_data: pd.DataFrame, chip_data: Dict[str, Any],price_grid: np.ndarray,current_chip_dist: np.ndarray, trade_date: str = "") -> Dict[str, Any]:
         # [V3.4.2] 突破Tick质量分死锁：强制将有容错价值的数据保底分上调至0.35，直接击穿上游 if score > 0.3 的绝对丢弃拦截器。
         try:
@@ -424,9 +375,9 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict) -> Dict[str, float]:
         """
-        [Version 18.0.0] 技术面与时序特征全息融合引擎 (拆除消音器抗NaN版)
-        说明：终结该算子因停牌导致的 NaN 而静默暴毙的隐患。使用 ffill().bfill() 强力清洗序列，并在异常块打入高爆探针曝光死锁。
-        将当前均线偏离度、RSI动能背离度以及换手率(turnover)全量提取并安全映射。禁止使用空行。
+        [Version 23.0.0] 技术面全景共振引擎 (反未来函数与破拆消音版)
+        说明：斩除 bfill() 带来的 Look-ahead Bias，仅使用 ffill() 正向因果填充，彻底消灭未来函数作弊可能。
+        打破包裹在外层的静默吞咽 except，一旦内部运算出现死锁，通过高爆探针将其公之于众，确保技术矩阵数据稳定输送。禁止使用空行。
         """
         import numpy as np
         import math
@@ -438,7 +389,8 @@ class AdvancedChipDynamicsService:
             return metrics
         try:
             clean_df = price_history.copy()
-            clean_df['close_qfq'] = clean_df['close_qfq'].ffill().bfill()
+            clean_df['close_qfq'] = pd.to_numeric(clean_df['close_qfq'], errors='coerce')
+            clean_df['close_qfq'] = clean_df['close_qfq'].ffill().fillna(current_price)
             closes = clean_df['close_qfq'].to_numpy(dtype=np.float64)
             if len(closes) == 0: return metrics
             metrics['his_low'] = float(np.min(closes))
@@ -459,7 +411,7 @@ class AdvancedChipDynamicsService:
             returns = np.diff(closes) / (closes[:-1] + 1e-8)
             volatility = float(np.std(returns[-20:])) if len(returns) >= 20 else 0.02
             if math.isnan(volatility) or math.isinf(volatility): volatility = 0.02
-            metrics['volatility_adjusted_concentration'] = float(current_concentration * math.exp(-volatility * 10.0))
+            metrics['volatility_adjusted_concentration'] = float(current_concentration * math.exp(-volatility * 15.0))
             if len(closes) >= 15:
                 diffs = np.diff(closes[-15:])
                 gains = np.where(diffs > 0, diffs, 0.0)
@@ -470,17 +422,17 @@ class AdvancedChipDynamicsService:
                 energy_norm = float(math.atan(energy_metrics.get('net_energy_flow', 0.0)) / (math.pi/2) * 0.5 + 0.5)
                 metrics['chip_rsi_divergence'] = float(energy_norm - rsi_norm)
             if 'turnover_rate' in clean_df.columns:
-                last_turnover = clean_df['turnover_rate'].ffill().bfill().iloc[-1]
-                if not pd.isna(last_turnover): metrics['turnover_rate'] = float(last_turnover)
+                trn = pd.to_numeric(clean_df['turnover_rate'], errors='coerce').ffill()
+                if not trn.dropna().empty: metrics['turnover_rate'] = float(trn.dropna().iloc[-1])
             if 'volume_ratio' in clean_df.columns:
-                last_vol_ratio = clean_df['volume_ratio'].ffill().bfill().iloc[-1]
-                if not pd.isna(last_vol_ratio): metrics['volume_ratio'] = float(last_vol_ratio)
+                vr = pd.to_numeric(clean_df['volume_ratio'], errors='coerce').ffill()
+                if not vr.dropna().empty: metrics['volume_ratio'] = float(vr.dropna().iloc[-1])
             if chip_matrix.shape[0] >= 6:
                 morph_5d = self._identify_peak_morphology(chip_matrix[-6], price_grid)
                 peak_price_today = float(morph_metrics.get('main_peak_price', current_price))
                 peak_price_5d = float(morph_5d.get('main_peak_price', current_price))
                 metrics['peak_migration_speed_5d'] = float((peak_price_today - peak_price_5d) / (current_price + 1e-8) * 100.0)
-                conc_5d = self._calculate_concentration_metrics(chip_matrix[-6], price_grid, float(clean_df['close_qfq'].iloc[-6]) if len(clean_df) >= 6 else current_price, price_history)
+                conc_5d = self._calculate_concentration_metrics(chip_matrix[-6], price_grid, float(clean_df['close_qfq'].iloc[-6]) if len(clean_df) >= 6 else current_price, pd.DataFrame())
                 metrics['chip_stability_change_5d'] = float(current_concentration - conc_5d.get('chip_stability', 0.5))
             his_range = max(metrics['his_high'] - metrics['his_low'], 1e-5)
             active_range = max(conc_metrics.get('cost_95pct', current_price*1.1) - conc_metrics.get('cost_5pct', current_price*0.9), 1e-5)
@@ -490,17 +442,90 @@ class AdvancedChipDynamicsService:
             trend_score = 0.5 + (0.2 * metrics['ma_arrangement_status']) + (0.15 * math.tanh(net_energy))
             metrics['trend_confirmation_score'] = float(np.clip(trend_score, 0.0, 1.0))
             price_mom = metrics['price_to_ma5_ratio'] / 100.0
-            reversal = 0.0
-            if price_mom > 0.05 and net_energy < -0.5: reversal = math.tanh(abs(price_mom * net_energy))
-            elif price_mom < -0.05 and net_energy > 0.5: reversal = math.tanh(abs(price_mom * net_energy))
-            metrics['reversal_warning_score'] = float(np.clip(reversal, 0.0, 1.0))
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy, 'peak_price_today': peak_price_today if 'peak_price_today' in locals() else 0.0}, {'volatility': volatility, 'turnover_rate': metrics['turnover_rate']}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence']})
+            divergence_product = float(-price_mom * net_energy)
+            metrics['reversal_warning_score'] = float(max(0.0, math.tanh(divergence_product * 15.0)))
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy, 'divergence_product': divergence_product}, {'volatility': volatility, 'turnover_rate': metrics['turnover_rate']}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence'], 'reversal_warning_score': metrics['reversal_warning_score']})
             return metrics
         except Exception as e:
             import traceback
             err_trace = traceback.format_exc()
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FATAL", {}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
             return metrics
+
+    def _calculate_holding_metrics(self, turnover_rate: float, chip_stability: float) -> Dict[str, float]:
+        """
+        [Version 23.0.0] 持有期泊松衰减反演器 (换手率拓扑投影版)
+        说明：终结长短线资金比例永远返回 0.2/0.5 的静态写死魔咒。将真实跨表提取的换手率，
+        结合筹码分布的熵稳定性，运用泊松停留时间(Poisson Dwell Time)推演沉淀池中筹码的真实老化程度。禁止使用空行。
+        """
+        import math
+        metrics = {'short_term_chip_ratio': 0.2, 'mid_term_chip_ratio': 0.3, 'long_term_chip_ratio': 0.5, 'avg_holding_days': 60.0}
+        try:
+            if turnover_rate <= 0: return metrics
+            tr = turnover_rate / 100.0 if turnover_rate > 1.0 else turnover_rate
+            tr = max(0.0001, min(0.6, tr))
+            avg_days = 1.0 / tr
+            metrics['avg_holding_days'] = float(max(1.0, min(avg_days, 800.0)))
+            short_ratio = 1.0 - math.exp(-5.0 * tr)
+            long_ratio = math.exp(-60.0 * tr)
+            metrics['short_term_chip_ratio'] = float(short_ratio * 0.6 + (1.0 - chip_stability) * 0.4)
+            metrics['long_term_chip_ratio'] = float(long_ratio * 0.6 + chip_stability * 0.4)
+            metrics['mid_term_chip_ratio'] = float(max(0.0, 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']))
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_holding_metrics", {'turnover_rate': turnover_rate, 'chip_stability': chip_stability}, {'raw_avg_days': avg_days, 'tr': tr}, metrics)
+            return metrics
+        except Exception as e:
+            return metrics
+
+    async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
+        """
+        [Version 23.0.0] 分析单日筹码动态主入口（时空锁仓全闭环终极版）
+        说明：全流程注入 _calculate_holding_metrics 反演引擎。确保技术面、换手率与时间衰减矩阵严丝合缝。禁止使用空行。
+        """
+        import numpy as np
+        from datetime import datetime
+        try:
+            chip_data = await self._fetch_chip_percent_data(stock_code, trade_date, lookback_days)
+            history_len = len(chip_data['chip_history']) if chip_data else 0
+            if not chip_data or len(chip_data['chip_history']) < 5: return self._get_default_result(stock_code, trade_date)
+            price_grid, chip_matrix = self._build_normalized_chip_matrix(chip_data['chip_history'], chip_data['current_chip_dist'])
+            percent_change_matrix = self._calculate_percent_change_matrix(chip_matrix)
+            absolute_signals = self._analyze_absolute_changes(percent_change_matrix, price_grid, chip_data['current_price'])
+            concentration_metrics = self._calculate_concentration_metrics(chip_matrix[-1], price_grid, chip_data['current_price'], chip_data['price_history'])
+            pressure_metrics = self._calculate_pressure_metrics(chip_matrix[-1], price_grid, chip_data['current_price'], chip_data['price_history'])
+            behavior_patterns = self._identify_behavior_patterns(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'])
+            migration_patterns = self._calculate_migration_patterns(percent_change_matrix, chip_matrix, price_grid)
+            convergence_metrics = self._calculate_convergence_metrics(chip_matrix, percent_change_matrix, price_grid)
+            game_energy_result = self._calculate_game_energy(percent_change_matrix, price_grid, chip_data['current_price'], chip_data['price_history'], stock_code, trade_date)
+            direct_ad_result = self.direct_ad_calculator.calculate_direct_ad(percent_change_matrix, chip_matrix, price_grid, chip_data['current_price'], chip_data['price_history'])
+            morphology_result = self._identify_peak_morphology(chip_matrix[-1], price_grid)
+            technical_metrics = self._calculate_technical_metrics(chip_data['price_history'], chip_data['current_price'], float(concentration_metrics.get('chip_mean', chip_data['current_price'])), float(concentration_metrics.get('comprehensive_concentration', 0.5)), chip_matrix, price_grid, morphology_result, game_energy_result, concentration_metrics)
+            holding_metrics = self._calculate_holding_metrics(technical_metrics.get('turnover_rate', 0.0), concentration_metrics.get('chip_stability', 0.5))
+            tick_enhanced_factors = {}
+            if tick_data is not None and not tick_data.empty:
+                try: tick_enhanced_factors = await self._calculate_tick_enhanced_factors(tick_data, chip_data, price_grid, chip_matrix[-1], trade_date)
+                except Exception: tick_enhanced_factors = self._get_default_tick_factors()
+            else: tick_enhanced_factors = self._get_default_tick_factors()
+            validation_warnings = []
+            base_signal_quality = absolute_signals.get('signal_quality', 0.5)
+            penalty_exponent = 0.0
+            if history_len < lookback_days: validation_warnings.append(f"历史数据不足: {history_len}/{lookback_days}"); penalty_exponent += 0.2
+            current_price = chip_data['current_price']
+            if current_price > price_grid.max() or current_price < price_grid.min(): validation_warnings.append("当前价格超出网格范围"); penalty_exponent += 0.4
+            if 'tick_data_quality_score' in tick_enhanced_factors and tick_enhanced_factors['tick_data_quality_score'] < 0.3:
+                days_ago = (datetime.now() - datetime.strptime(trade_date, "%Y-%m-%d")).days
+                if days_ago <= 15: validation_warnings.append(f"近15日内tick数据质量低: {tick_enhanced_factors['tick_data_quality_score']:.2f}"); penalty_exponent += 0.1
+            validation_score = float(base_signal_quality * np.exp(-penalty_exponent))
+            result = {'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': price_grid.tolist(), 'chip_matrix': chip_matrix.tolist(), 'percent_change_matrix': percent_change_matrix.tolist(), 'absolute_change_signals': absolute_signals, 'concentration_metrics': concentration_metrics, 'pressure_metrics': pressure_metrics, 'behavior_patterns': behavior_patterns, 'migration_patterns': migration_patterns, 'convergence_metrics': convergence_metrics, 'game_energy_result': game_energy_result, 'direct_ad_result': direct_ad_result, 'morphology_metrics': morphology_result, 'technical_metrics': technical_metrics, 'holding_metrics': holding_metrics, 'tick_enhanced_factors': tick_enhanced_factors, 'validation_score': round(validation_score, 4), 'validation_warnings': validation_warnings, 'analysis_status': 'success', 'analysis_time': datetime.now().isoformat()}
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {'stock_code': stock_code, 'trade_date': trade_date, 'base_quality': float(base_signal_quality)}, {}, {'validation_score': float(validation_score), 'status': 'success'})
+            return result
+        except Exception as e:
+            import traceback
+            err_trace = traceback.format_exc()
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily_FATAL", {'stock_code': stock_code, 'trade_date': trade_date}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
+            return self._get_default_result(stock_code, trade_date)
 
     def _get_default_technical_metrics(self) -> Dict[str, float]:
         """[Version 18.0.0] 技术面默认指标初始化"""
@@ -921,9 +946,9 @@ class AdvancedChipDynamicsService:
     
     async def _fetch_chip_percent_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
         """
-        [Version 18.0.0] 全息数据泵 (ORM物理直连抢救版)
-        说明: 修复 Django ORM 跨表关联映射失败及 Pandas 日期索引(dt.date)降级导致的 has_turnover=false 真空断层。
-        强制使用底层物理外键 stock_id 直连，保留原生 DatetimeIndex 保障高速时序对齐。禁止使用空行。
+        [Version 23.0.0] 全息数据泵 (强一致哈希对齐与双重替补版)
+        说明: 彻底消灭 dt.date 强转引发的 Pandas 索引哈希坍塌，修复 has_turnover=false 断层。
+        引入 turnover_rate_f(自由流通换手率) 作为替补，强制转换为 float 类型，确保量比和换手率无损穿透至下游。禁止使用空行。
         """
         import pandas as pd
         from datetime import datetime, timedelta
@@ -934,11 +959,11 @@ class AdvancedChipDynamicsService:
             chips_model = get_cyq_chips_model_by_code(stock_code)
             if not chips_model: return None
             trade_date_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
-            current_chip_qs = chips_model.objects.filter(stock_id=stock_code, trade_time=trade_date_dt).values('price', 'percent')
+            current_chip_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time=trade_date_dt).values('price', 'percent')
             current_chip_list = await sync_to_async(list)(current_chip_qs)
             current_chip_df = pd.DataFrame(current_chip_list) if current_chip_list else pd.DataFrame()
             start_date = trade_date_dt - timedelta(days=max(lookback_days * 2, 100))
-            history_chip_qs = chips_model.objects.filter(stock_id=stock_code, trade_time__gte=start_date, trade_time__lt=trade_date_dt).order_by('trade_time').values('trade_time', 'price', 'percent')
+            history_chip_qs = chips_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lt=trade_date_dt).order_by('trade_time').values('trade_time', 'price', 'percent')
             history_chip_list = await sync_to_async(list)(history_chip_qs)
             chip_history = []
             if history_chip_list:
@@ -948,32 +973,46 @@ class AdvancedChipDynamicsService:
             daily_model = get_daily_data_model_by_code(stock_code)
             price_history = pd.DataFrame()
             if daily_model:
-                price_qs = daily_model.objects.filter(stock_id=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).order_by('trade_time').values('trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'vol', 'amount')
+                price_qs = daily_model.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).order_by('trade_time').values('trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'vol', 'amount')
                 price_list = await sync_to_async(list)(price_qs)
                 if price_list:
                     price_history = pd.DataFrame(price_list)
-                    price_history['trade_time'] = pd.to_datetime(price_history['trade_time'])
+                    price_history['trade_time'] = pd.to_datetime(price_history['trade_time']).dt.normalize()
                     price_history.set_index('trade_time', inplace=True)
+                    basic_list = []
                     try:
                         market = stock_code.split('.')[-1]
                         model_name = f'StockDailyBasic_{market}'
                         try: StockDailyBasic = apps.get_model('stock_models', model_name)
                         except LookupError: StockDailyBasic = apps.get_model('stock_models', 'StockDailyBasic')
-                        basic_qs = StockDailyBasic.objects.filter(stock_id=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).values('trade_time', 'turnover_rate', 'volume_ratio')
+                        basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).values('trade_time', 'turnover_rate', 'turnover_rate_f', 'volume_ratio')
                         basic_list = await sync_to_async(list)(basic_qs)
-                        if basic_list:
-                            basic_df = pd.DataFrame(basic_list)
-                            basic_df['trade_time'] = pd.to_datetime(basic_df['trade_time'])
-                            basic_df.set_index('trade_time', inplace=True)
-                            price_history = price_history.join(basic_df, how='left')
-                    except Exception: pass
+                        if not basic_list:
+                            StockDailyBasic_All = apps.get_model('stock_models', 'StockDailyBasic')
+                            basic_qs_all = StockDailyBasic_All.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).values('trade_time', 'turnover_rate', 'turnover_rate_f', 'volume_ratio')
+                            basic_list = await sync_to_async(list)(basic_qs_all)
+                    except Exception as e: print(f"⚠️ [基本面联查异常] {e}")
+                    if basic_list:
+                        basic_df = pd.DataFrame(basic_list)
+                        basic_df['trade_time'] = pd.to_datetime(basic_df['trade_time']).dt.normalize()
+                        if 'turnover_rate' in basic_df.columns and 'turnover_rate_f' in basic_df.columns:
+                            basic_df['turnover_rate'] = basic_df['turnover_rate'].fillna(basic_df['turnover_rate_f'])
+                        elif 'turnover_rate_f' in basic_df.columns:
+                            basic_df['turnover_rate'] = basic_df['turnover_rate_f']
+                        if 'turnover_rate' in basic_df.columns: basic_df['turnover_rate'] = pd.to_numeric(basic_df['turnover_rate'], errors='coerce')
+                        if 'volume_ratio' in basic_df.columns: basic_df['volume_ratio'] = pd.to_numeric(basic_df['volume_ratio'], errors='coerce')
+                        basic_df.set_index('trade_time', inplace=True)
+                        cols_to_keep = []
+                        if 'turnover_rate' in basic_df.columns: cols_to_keep.append('turnover_rate')
+                        if 'volume_ratio' in basic_df.columns: cols_to_keep.append('volume_ratio')
+                        if cols_to_keep: price_history = price_history.join(basic_df[cols_to_keep], how='left')
                     price_history.reset_index(inplace=True)
             current_price = 0.0
             if not price_history.empty and 'close_qfq' in price_history.columns: current_price = float(price_history['close_qfq'].iloc[-1])
             elif not current_chip_df.empty: current_price = float(current_chip_df['price'].mean())
             has_turnover = False
             if not price_history.empty and 'turnover_rate' in price_history.columns:
-                if not pd.isna(price_history['turnover_rate'].iloc[-1]): has_turnover = True
+                if not price_history['turnover_rate'].dropna().empty: has_turnover = True
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {'stock_code': stock_code, 'trade_date': trade_date}, {'chip_history_len': len(chip_history), 'price_history_len': len(price_history), 'has_turnover': has_turnover}, {'current_price': current_price, 'status': 'success'})
             return {'current_chip_dist': current_chip_df, 'chip_history': chip_history, 'price_history': price_history, 'current_price': current_price}
@@ -981,7 +1020,7 @@ class AdvancedChipDynamicsService:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
             import traceback
             traceback.print_exc()
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {'stock_code': stock_code}, {'error': str(e)}, {'status': 'exception'})
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data_FATAL", {'stock_code': stock_code}, {'error': str(e)}, {'status': 'exception'})
             return None
 
     # ============== 默认结果方法 ==============
