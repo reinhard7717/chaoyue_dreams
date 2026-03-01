@@ -309,9 +309,9 @@ class AdvancedChipDynamicsService:
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, float]:
         """
-        [Version 18.0.0] 概率密度高阶矩与CDF连续插值全景提取器 (无量纲极性约束版)
-        说明：严格基于概率密度函数(PDF)反演真实的均值、标准差、偏度与峰度。引入 np.interp 实现累积分布函数(CDF)的连续插值，
-        精准打通 cost_5pct ~ 95pct、胜率、以及 weight_avg_cost 核心孤岛字段。禁止使用空行。
+        [Version 29.0.0] 概率密度鲁棒高阶矩与CDF连续插值引擎 (Robust Moments 版)
+        说明：彻底废除基于 200 个离散网格的三/四次方求和导致的高阶矩核爆（偏度=6, 峰度=70）。
+        引入 Kelly's Measure (鲁棒偏度) 和 Crow-Siddiqui Kurtosis (鲁棒峰度)，直接利用 CDF 插值消灭拖尾极值感染，向机器学习下游输送极为稳定、有界的特征张量。禁止使用空行。
         """
         import numpy as np
         import math
@@ -323,29 +323,33 @@ class AdvancedChipDynamicsService:
         chip_mean = float(np.sum(p * price_grid))
         variance = float(np.sum(p * (price_grid - chip_mean)**2))
         chip_std = float(np.sqrt(variance))
-        if chip_std > 1e-5:
-            chip_skewness = float(np.sum(p * ((price_grid - chip_mean) / chip_std)**3))
-            chip_kurtosis = float(np.sum(p * ((price_grid - chip_mean) / chip_std)**4) - 3.0)
-        else: chip_skewness, chip_kurtosis = 0.0, 0.0
-        metrics['chip_mean'] = chip_mean; metrics['weight_avg_cost'] = chip_mean
-        metrics['chip_std'] = chip_std; metrics['chip_skewness'] = chip_skewness; metrics['chip_kurtosis'] = chip_kurtosis
+        metrics['chip_mean'] = chip_mean; metrics['weight_avg_cost'] = chip_mean; metrics['chip_std'] = chip_std
         cdf = np.cumsum(p)
-        metrics['cost_5pct'] = float(np.interp(0.05, cdf, price_grid))
-        metrics['cost_15pct'] = float(np.interp(0.15, cdf, price_grid))
-        metrics['cost_50pct'] = float(np.interp(0.50, cdf, price_grid))
-        metrics['cost_85pct'] = float(np.interp(0.85, cdf, price_grid))
-        metrics['cost_95pct'] = float(np.interp(0.95, cdf, price_grid))
+        cost_05 = float(np.interp(0.05, cdf, price_grid))
+        cost_10 = float(np.interp(0.10, cdf, price_grid))
+        cost_15 = float(np.interp(0.15, cdf, price_grid))
+        cost_25 = float(np.interp(0.25, cdf, price_grid))
+        cost_50 = float(np.interp(0.50, cdf, price_grid))
+        cost_75 = float(np.interp(0.75, cdf, price_grid))
+        cost_85 = float(np.interp(0.85, cdf, price_grid))
+        cost_90 = float(np.interp(0.90, cdf, price_grid))
+        cost_95 = float(np.interp(0.95, cdf, price_grid))
+        denom_skew = max(cost_90 - cost_10, eps)
+        metrics['chip_skewness'] = float((cost_90 + cost_10 - 2.0 * cost_50) / denom_skew)
+        denom_kurt = max(cost_75 - cost_25, eps)
+        metrics['chip_kurtosis'] = float((cost_95 - cost_05) / denom_kurt)
+        metrics['cost_5pct'] = cost_05; metrics['cost_15pct'] = cost_15; metrics['cost_50pct'] = cost_50; metrics['cost_85pct'] = cost_85; metrics['cost_95pct'] = cost_95
         metrics['winner_rate'] = float(np.interp(current_price, price_grid, cdf))
         his_low = float(price_history['low_qfq'].min()) if price_history is not None and not price_history.empty and 'low_qfq' in price_history.columns else float(current_price * 0.8)
         his_high = float(price_history['high_qfq'].max()) if price_history is not None and not price_history.empty and 'high_qfq' in price_history.columns else float(current_price * 1.2)
         metrics['his_low'] = his_low; metrics['his_high'] = his_high
         macro_range = max(his_high - his_low, eps)
-        core_range = max(metrics['cost_85pct'] - metrics['cost_15pct'], eps)
-        active_range = max(metrics['cost_95pct'] - metrics['cost_5pct'], eps)
-        metrics['chip_concentration_ratio'] = float(core_range / macro_range)
+        core_range = max(cost_85 - cost_15, eps)
+        active_range = max(cost_95 - cost_05, eps)
+        metrics['chip_concentration_ratio'] = float(math.atan((core_range / macro_range) * 3.0) / (math.pi / 2))
         metrics['chip_stability'] = float(max(0.0, 1.0 - metrics['chip_concentration_ratio']))
-        metrics['chip_divergence_ratio'] = float(active_range / macro_range)
-        price_position = np.clip((current_price - metrics['cost_5pct']) / active_range, 0.0, 1.0)
+        metrics['chip_divergence_ratio'] = float(math.atan((active_range / macro_range) * 3.0) / (math.pi / 2))
+        price_position = np.clip((current_price - cost_05) / active_range, 0.0, 1.0)
         metrics['price_percentile_position'] = float(price_position)
         metrics['win_rate_price_position'] = float(metrics['winner_rate'] * 0.6 + price_position * 0.4)
         raw_price_ratio = (current_price - chip_mean) / max(chip_mean, eps)
@@ -353,7 +357,7 @@ class AdvancedChipDynamicsService:
         max_price = price_grid[-1]
         high_lock_mask = price_grid >= max_price * 0.9
         metrics['high_position_lock_ratio_90'] = float(np.sum(p[high_lock_mask]))
-        main_cost_mask = (price_grid >= metrics['cost_50pct'] * 0.9) & (price_grid <= metrics['cost_50pct'] * 1.1)
+        main_cost_mask = (price_grid >= cost_50 * 0.9) & (price_grid <= cost_50 * 1.1)
         metrics['main_cost_range_ratio'] = float(np.sum(p[main_cost_mask]))
         metrics['chip_convergence_ratio'] = metrics['main_cost_range_ratio']
         smoothed_p = (p + 1e-5) / np.sum(p + 1e-5)
@@ -366,7 +370,7 @@ class AdvancedChipDynamicsService:
         metrics['main_force_concentration'] = metrics['main_cost_range_ratio']
         metrics['comprehensive_concentration'] = float(0.3 * metrics['entropy_concentration'] + 0.3 * metrics['peak_concentration'] + 0.2 * metrics['cv_concentration'] + 0.2 * metrics['main_cost_range_ratio'])
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {'current_price': current_price, 'macro_range': macro_range}, {'chip_std': metrics['chip_std'], 'winner_rate': metrics['winner_rate'], 'cost_50pct': metrics['cost_50pct']}, metrics)
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {'current_price': float(current_price), 'macro_range': float(macro_range)}, {'robust_skewness': metrics['chip_skewness'], 'robust_kurtosis': metrics['chip_kurtosis'], 'cost_50pct': metrics['cost_50pct']}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -681,13 +685,12 @@ class AdvancedChipDynamicsService:
 
     def _calculate_convergence_metrics(self, chip_matrix: np.ndarray, percent_change_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
         """
-        [Version 14.0.0] 筹码聚散度分析算子 (PDF香农熵与二阶矩抗畸变版)
-        说明：废除荒谬的 np.count_nonzero 网格计数法以及易受极值挟持的 max_distance 空间缩放。
-        改用真实能量概率密度(PDF)计算香农熵(Shannon Entropy)，并采用分布内部二阶矩（标准差 Std）作为空间发生变动的物理度量标尺。禁止使用空行。
+        [Version 29.0.0] 筹码聚散度分析算子 (二阶矩方差漂移修正版)
+        说明：彻底推翻原先用 np.dot(recent_changes, price_grid - price_center) 误把"重心平移"当成"聚散度"的物理级错误。
+        引入真实的二阶矩变化量 (Variance Change) 计算法则。当分布方差净变化为负，代表筹码向中心收拢(Convergence)；为正代表向两端逃逸发散(Divergence)。禁止使用空行。
         """
         import numpy as np
         import math
-        from scipy.stats import entropy
         if chip_matrix.shape[0] < 2 or len(percent_change_matrix) == 0: return self._get_default_convergence_metrics()
         metrics = {}
         eps = 1e-10
@@ -716,15 +719,16 @@ class AdvancedChipDynamicsService:
             metrics['migration_convergence'] = float(max(0.0, 1.0 - math.atan(weighted_changes / (chip_std * 1.5)) / (math.pi / 2)))
         else: metrics['migration_convergence'] = 1.0
         metrics['comprehensive_convergence'] = float(0.4 * metrics['static_convergence'] + 0.3 * metrics['dynamic_convergence'] + 0.3 * metrics['migration_convergence'])
-        net_change_direction = float(np.dot(recent_changes, price_grid - price_center))
-        if net_change_direction > 0:
-            metrics['convergence_strength'] = float(math.tanh(net_change_direction / max(price_center * 0.1, eps)))
+        variance_change = float(np.dot(recent_changes, (price_grid - price_center)**2))
+        rel_var_change = variance_change / (variance + eps)
+        if rel_var_change < 0:
+            metrics['convergence_strength'] = float(math.tanh(abs(rel_var_change) * 10.0))
             metrics['divergence_strength'] = 0.0
         else:
             metrics['convergence_strength'] = 0.0
-            metrics['divergence_strength'] = float(math.tanh(abs(net_change_direction) / max(price_center * 0.1, eps)))
+            metrics['divergence_strength'] = float(math.tanh(rel_var_change * 10.0))
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {'chip_std': float(chip_std), 'weighted_changes': float(weighted_changes) if total_change > eps else 0.0}, {'dynamic_convergence': metrics['dynamic_convergence'], 'migration_convergence': metrics['migration_convergence']}, metrics)
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {'variance_change': float(variance_change), 'rel_var_change': float(rel_var_change)}, {'dynamic_convergence': metrics['dynamic_convergence'], 'migration_convergence': metrics['migration_convergence']}, metrics)
         return metrics
 
     def _calculate_game_energy(self, percent_change_matrix: np.ndarray,price_grid: np.ndarray,current_price: float,price_history: pd.DataFrame,stock_code: str = "",trade_date: str = "") -> Dict[str, Any]:
