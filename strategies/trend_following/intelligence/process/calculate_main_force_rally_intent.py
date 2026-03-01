@@ -601,14 +601,11 @@ class CalculateMainForceRallyIntent:
             v_fac = vol_factor[i]
             hab_impact = hab_flow_impact[i]
             k_burst = kine_mult[i]
-            
             hab_imm = 1.0 - (1.0 / (1.0 + np.exp(np.clip(hab_pool * cap_d / 50000.0, -10.0, 10.0))))
             eff_drag = drag[i] * (1.0 - hab_imm)
-            
             energy_match = np.sign(net_buy) * np.sign(raw['net_energy'].values[i])
             net_energy_amp = 1.0 + np.abs(np.tanh(raw['net_energy'].values[i] / 100.0)) * (1.0 if energy_match > 0 else -0.5)
             roc_norm = np.clip(np.tanh(raw['roc_13'].values[i] / 10.0), -1.0, 1.0)
-            
             report = [
                 f"\n=== [PROBE V34.3.0] CalculateMainForceRallyIntent Full-Chain Audit (The Absolute Singularity) @ {ts.strftime('%Y-%m-%d')} ===",
                 f"【0. Raw Data Overview (底层核心数据快照)】",
