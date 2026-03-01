@@ -575,9 +575,8 @@ class ChipFactorBase(models.Model):
 
     def update_from_chip_dynamics(self, chip_dynamics_result: Dict[str, any]):
         """
-        [Version 11.0.0] 全息状态空间映射枢纽 (Holographic State Mapping Hub)
-        说明：打碎信息孤岛围墙！将底层计算提取的高阶距(偏度/峰度)、多峰拓扑参数以及趋势流向向量，全量注射回 ORM 模型。
-        彻底消除模型设计华丽但执行空转的烂尾楼现象。禁止使用空行。
+        [Version 14.0.0] 全息状态空间映射枢纽 (Holographic State Mapping Hub)
+        说明：打碎信息孤岛围墙！将底层引擎提取的高阶距(偏度/峰度)、多峰拓扑参数以及时空全息向量(趋势确认/均线排布/5日极速/换手率)，全量、精准反射注射回 ORM 模型。彻底激活数据库里的每一寸特征血脉。禁止使用空行。
         """
         import numpy as np
         try:
@@ -587,14 +586,8 @@ class ChipFactorBase(models.Model):
                 if hasattr(self, k): setattr(self, k, v)
             conc_metrics = chip_dynamics_result.get('concentration_metrics', {})
             if conc_metrics:
-                if hasattr(self, 'chip_concentration_ratio'): self.chip_concentration_ratio = conc_metrics.get('comprehensive_concentration', 0.5)
-                if hasattr(self, 'chip_entropy'): self.chip_entropy = float(conc_metrics.get('entropy_concentration', 0.0))
-                if hasattr(self, 'chip_skewness'): self.chip_skewness = float(conc_metrics.get('chip_skewness', 0.0))
-                if hasattr(self, 'chip_kurtosis'): self.chip_kurtosis = float(conc_metrics.get('chip_kurtosis', 0.0))
-                if hasattr(self, 'chip_mean'): self.chip_mean = float(conc_metrics.get('chip_mean', 0.0))
-                if hasattr(self, 'chip_std'): self.chip_std = float(conc_metrics.get('chip_std', 0.0))
-                if hasattr(self, 'high_position_lock_ratio_90'): self.high_position_lock_ratio_90 = float(conc_metrics.get('high_position_lock_ratio_90', 0.0))
-                if hasattr(self, 'main_cost_range_ratio'): self.main_cost_range_ratio = float(conc_metrics.get('main_cost_range_ratio', 0.0))
+                for field in ['chip_concentration_ratio', 'chip_entropy', 'chip_skewness', 'chip_kurtosis', 'chip_mean', 'chip_std', 'high_position_lock_ratio_90', 'main_cost_range_ratio']:
+                    if hasattr(self, field) and field in conc_metrics: setattr(self, field, float(conc_metrics[field]))
                 if hasattr(self, 'chip_stability'): self.chip_stability = float(conc_metrics.get('cv_concentration', 0.5))
             press_metrics = chip_dynamics_result.get('pressure_metrics', {})
             if press_metrics and hasattr(self, 'profit_ratio'): self.profit_ratio = float(press_metrics.get('profit_pressure', 0.5))
@@ -612,13 +605,13 @@ class ChipFactorBase(models.Model):
                 elif behav_patterns.get('breakout_preparation', {}).get('detected', False): self.chip_structure_state = 'lifting'
             morph_metrics = chip_dynamics_result.get('morphology_metrics', {})
             if morph_metrics:
-                for field in ['peak_count', 'main_peak_position', 'peak_distance_ratio', 'peak_concentration', 'is_double_peak', 'is_multi_peak', 'peak_migration_speed_5d', 'chip_stability_change_5d']:
+                for field in ['peak_count', 'main_peak_position', 'peak_distance_ratio', 'peak_concentration', 'is_double_peak', 'is_multi_peak']:
                     if hasattr(self, field) and field in morph_metrics: setattr(self, field, morph_metrics[field])
             tech_metrics = chip_dynamics_result.get('technical_metrics', {})
             if tech_metrics:
-                for field in ['price_to_ma5_ratio', 'price_to_ma21_ratio', 'price_to_ma34_ratio', 'price_to_ma55_ratio', 'ma_arrangement_status', 'chip_cost_to_ma21_diff', 'volatility_adjusted_concentration', 'chip_rsi_divergence', 'trend_confirmation_score', 'reversal_warning_score']:
+                for field in ['price_to_ma5_ratio', 'price_to_ma21_ratio', 'price_to_ma34_ratio', 'price_to_ma55_ratio', 'ma_arrangement_status', 'chip_cost_to_ma21_diff', 'volatility_adjusted_concentration', 'chip_rsi_divergence', 'peak_migration_speed_5d', 'chip_stability_change_5d', 'trend_confirmation_score', 'reversal_warning_score', 'turnover_rate', 'volume_ratio']:
                     if hasattr(self, field) and field in tech_metrics: setattr(self, field, tech_metrics[field])
-            self._calculate_trend_score(chip_dynamics_result)
+            self._calculate_trend_score()
             self.calc_status = 'success'
             return True
         except Exception as e:
@@ -1118,13 +1111,11 @@ class ChipHoldingMatrixBase(models.Model):
 
     def to_factor_dict(self) -> Dict[str, Any]:
         """
-        转换为筹码因子字典 - 增强版（包含tick数据因子）
-        使用 ChipMatrixDynamicsCalculator 辅助计算动态指标
+        [Version 14.0.0] 扁平化数据解包提取器（全景透传桥接版）
+        说明：将深埋在 extra_metrics JSON 中的形态拓扑、高阶矩、流动向量以及时序技术指标全部提取，作为字典流转给上游主因子表，彻底摧毁信息孤岛。禁止使用空行。
         """
-        Calculator = ChipMatrixDynamicsCalculator
-        # 提取或构建需要的数据进行即时计算
+        from services.chip_matrix_dynamics_calculator import ChipMatrixDynamicsCalculator as Calculator
         kbz_zones = self.chart_signals.get('key_battle_zones', []) if self.chart_signals else []
-        # 1. 原有能量场因子
         factors = {
             'absorption_energy': round(self.absorption_energy, 2) if self.absorption_energy is not None else 0.0,
             'distribution_energy': round(self.distribution_energy, 2) if self.distribution_energy is not None else 0.0,
@@ -1133,21 +1124,9 @@ class ChipHoldingMatrixBase(models.Model):
             'breakout_potential': round(self.breakout_potential, 2) if self.breakout_potential is not None else 0.0,
             'energy_concentration': round(self.energy_concentration, 3) if self.energy_concentration is not None else 0.0,
             'fake_distribution_flag': self.fake_distribution_flag if hasattr(self, 'fake_distribution_flag') else False,
-            # 使用Calculator计算动态指标
             'key_battle_intensity': Calculator.calculate_key_battle_intensity(kbz_zones),
-            'trend_score': Calculator.calculate_trend_score(
-                net_flow=self.net_energy_flow or 0,
-                game_intensity=self.game_intensity or 0,
-                intraday_quality=self.intraday_chip_quality_score or 0,
-                tick_flow=self.tick_level_chip_flow if hasattr(self, 'tick_level_chip_flow') else 0
-            ),
-            'breakout_probability': Calculator.calculate_breakout_probability(
-                potential=self.breakout_potential or 0,
-                concentration=self.energy_concentration or 0,
-                game_intensity=self.game_intensity or 0,
-                net_flow=self.net_energy_flow or 0
-            ),
-            # 扁平化的核心指标
+            'trend_score': Calculator.calculate_trend_score(net_flow=self.net_energy_flow or 0, game_intensity=self.game_intensity or 0, intraday_quality=self.intraday_chip_quality_score or 0, tick_flow=self.tick_level_chip_flow if hasattr(self, 'tick_level_chip_flow') else 0),
+            'breakout_probability': Calculator.calculate_breakout_probability(potential=self.breakout_potential or 0, concentration=self.energy_concentration or 0, game_intensity=self.game_intensity or 0, net_flow=self.net_energy_flow or 0),
             'concentration_comprehensive': self.concentration_comprehensive if self.concentration_comprehensive is not None else 0.0,
             'concentration_entropy': self.concentration_entropy if self.concentration_entropy is not None else 0.0,
             'concentration_peak': self.concentration_peak if self.concentration_peak is not None else 0.0,
@@ -1159,13 +1138,11 @@ class ChipHoldingMatrixBase(models.Model):
             'convergence_migration': self.convergence_migration if self.convergence_migration is not None else 0.0,
             'behavior_accumulation': self.behavior_accumulation if self.behavior_accumulation is not None else 0.0,
             'behavior_distribution': self.behavior_distribution if self.behavior_distribution is not None else 0.0,
-            # 持有时间因子
             'short_term_chip_ratio': self.short_term_ratio if self.short_term_ratio is not None else 0.2,
             'mid_term_chip_ratio': self.mid_term_ratio if self.mid_term_ratio is not None else 0.3,
             'long_term_chip_ratio': self.long_term_ratio if self.long_term_ratio is not None else 0.5,
             'avg_holding_days': self.avg_holding_days if hasattr(self, 'avg_holding_days') else 60.0,
         }
-        # 2. Tick数据增强因子
         tick_factors = {
             'intraday_chip_quality_score': self.intraday_chip_quality_score if self.intraday_chip_quality_score is not None else 0.0,
             'intraday_calc_method': self.intraday_calc_method if self.intraday_calc_method else 'daily_only',
@@ -1174,14 +1151,36 @@ class ChipHoldingMatrixBase(models.Model):
             'intraday_distribution_confidence': self.intraday_distribution_confidence if self.intraday_distribution_confidence is not None else 0.0,
         }
         factors.update(tick_factors)
-        # 3. 添加交叉验证因子
         if hasattr(self, 'direct_ad_data') and self.direct_ad_data:
-            direct_factors = {
-                'direct_accumulation_volume': self.direct_ad_data.get('accumulation_volume', 0.0),
-                'direct_distribution_volume': self.direct_ad_data.get('distribution_volume', 0.0),
-                'direct_net_ad_ratio': self.direct_ad_data.get('net_ad_ratio', 0.0),
-            }
-            factors.update(direct_factors)
+            factors.update({'direct_accumulation_volume': self.direct_ad_data.get('accumulation_volume', 0.0), 'direct_distribution_volume': self.direct_ad_data.get('distribution_volume', 0.0), 'direct_net_ad_ratio': self.direct_ad_data.get('net_ad_ratio', 0.0)})
+        if self.extra_metrics:
+            conc = self.extra_metrics.get('concentration', {})
+            factors['chip_mean'] = conc.get('chip_mean', 0.0); factors['chip_std'] = conc.get('chip_std', 0.0)
+            factors['chip_skewness'] = conc.get('chip_skewness', 0.0); factors['chip_kurtosis'] = conc.get('chip_kurtosis', 0.0)
+            factors['high_position_lock_ratio_90'] = conc.get('high_position_lock_ratio_90', 0.0); factors['main_cost_range_ratio'] = conc.get('main_cost_range_ratio', 0.0)
+            factors['chip_stability'] = conc.get('cv_concentration', 0.5)
+            morph = self.extra_metrics.get('morphology', {})
+            factors['peak_count'] = morph.get('peak_count', 0); factors['main_peak_position'] = morph.get('main_peak_position', 0)
+            factors['peak_distance_ratio'] = morph.get('peak_distance_ratio', 0.0); factors['peak_concentration'] = morph.get('peak_concentration', 0.0)
+            factors['is_double_peak'] = morph.get('is_double_peak', False); factors['is_multi_peak'] = morph.get('is_multi_peak', False)
+            mig = self.extra_metrics.get('migration', {})
+            factors['chip_flow_direction'] = mig.get('chip_flow_direction', 0); factors['chip_flow_intensity'] = mig.get('chip_flow_intensity', 0.0)
+            factors['net_migration_direction'] = mig.get('net_migration_direction', 0.0)
+            press = self.extra_metrics.get('pressure', {})
+            factors['profit_ratio'] = press.get('profit_pressure', 0.5); factors['pressure_release_index'] = press.get('pressure_release', 0.0)
+            tech = self.extra_metrics.get('technical', {})
+            factors['price_to_ma5_ratio'] = tech.get('price_to_ma5_ratio', 0.0); factors['price_to_ma21_ratio'] = tech.get('price_to_ma21_ratio', 0.0)
+            factors['price_to_ma34_ratio'] = tech.get('price_to_ma34_ratio', 0.0); factors['price_to_ma55_ratio'] = tech.get('price_to_ma55_ratio', 0.0)
+            factors['ma_arrangement_status'] = tech.get('ma_arrangement_status', 0.0); factors['chip_cost_to_ma21_diff'] = tech.get('chip_cost_to_ma21_diff', 0.0)
+            factors['volatility_adjusted_concentration'] = tech.get('volatility_adjusted_concentration', 0.0); factors['chip_rsi_divergence'] = tech.get('chip_rsi_divergence', 0.0)
+            factors['peak_migration_speed_5d'] = tech.get('peak_migration_speed_5d', 0.0); factors['chip_stability_change_5d'] = tech.get('chip_stability_change_5d', 0.0)
+            factors['trend_confirmation_score'] = tech.get('trend_confirmation_score', 0.5); factors['reversal_warning_score'] = tech.get('reversal_warning_score', 0.0)
+            factors['turnover_rate'] = tech.get('turnover_rate', 0.0); factors['volume_ratio'] = tech.get('volume_ratio', 0.0)
+        behav_acc = self.behavior_accumulation if self.behavior_accumulation is not None else 0.0
+        behav_dist = self.behavior_distribution if self.behavior_distribution is not None else 0.0
+        if behav_acc > behav_dist and behav_acc > 0: factors['chip_structure_state'] = 'accumulation'
+        elif behav_dist > 0: factors['chip_structure_state'] = 'distribution'
+        else: factors['chip_structure_state'] = 'consolidation'
         return factors
 
 # 分表模型
