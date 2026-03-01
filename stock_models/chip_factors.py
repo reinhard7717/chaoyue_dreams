@@ -575,8 +575,8 @@ class ChipFactorBase(models.Model):
 
     def update_from_chip_dynamics(self, chip_dynamics_result: Dict[str, any]):
         """
-        [Version 14.0.0] 全息状态空间映射枢纽 (Holographic State Mapping Hub)
-        说明：打碎信息孤岛围墙！将底层引擎提取的高阶距(偏度/峰度)、多峰拓扑参数以及时空全息向量(趋势确认/均线排布/5日极速/换手率)，全量、精准反射注射回 ORM 模型。彻底激活数据库里的每一寸特征血脉。禁止使用空行。
+        [Version 18.0.0] 全息状态空间映射枢纽 (满血基底与全特征链传导版)
+        说明：消除最后的信息孤岛！将所有的 CDF 成本线、历史极值、以及大盘衍生量比指标强制对齐注入 ORM 表中。禁止使用空行。
         """
         import numpy as np
         try:
@@ -586,23 +586,27 @@ class ChipFactorBase(models.Model):
                 if hasattr(self, k): setattr(self, k, v)
             conc_metrics = chip_dynamics_result.get('concentration_metrics', {})
             if conc_metrics:
-                for field in ['chip_concentration_ratio', 'chip_entropy', 'chip_skewness', 'chip_kurtosis', 'chip_mean', 'chip_std', 'high_position_lock_ratio_90', 'main_cost_range_ratio']:
+                for field in ['chip_concentration_ratio', 'chip_entropy', 'chip_skewness', 'chip_kurtosis', 'chip_mean', 'chip_std', 'high_position_lock_ratio_90', 'main_cost_range_ratio', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'weight_avg_cost', 'winner_rate', 'win_rate_price_position', 'price_to_weight_avg_ratio', 'price_percentile_position', 'chip_convergence_ratio', 'chip_divergence_ratio', 'his_low', 'his_high']:
                     if hasattr(self, field) and field in conc_metrics: setattr(self, field, float(conc_metrics[field]))
-                if hasattr(self, 'chip_stability'): self.chip_stability = float(conc_metrics.get('cv_concentration', 0.5))
+                if hasattr(self, 'chip_stability'): self.chip_stability = float(conc_metrics.get('chip_stability', 0.5))
             press_metrics = chip_dynamics_result.get('pressure_metrics', {})
-            if press_metrics and hasattr(self, 'profit_ratio'): self.profit_ratio = float(press_metrics.get('profit_pressure', 0.5))
+            if press_metrics:
+                if hasattr(self, 'profit_ratio'): self.profit_ratio = float(press_metrics.get('profit_pressure', 0.5))
             mig_patterns = chip_dynamics_result.get('migration_patterns', {})
             if mig_patterns:
                 if hasattr(self, 'chip_flow_direction'): self.chip_flow_direction = int(mig_patterns.get('chip_flow_direction', 0))
                 if hasattr(self, 'chip_flow_intensity'): self.chip_flow_intensity = float(mig_patterns.get('chip_flow_intensity', 0.0))
             behav_patterns = chip_dynamics_result.get('behavior_patterns', {})
             if behav_patterns and hasattr(self, 'chip_structure_state'):
-                accum = behav_patterns.get('accumulation', {})
-                distrib = behav_patterns.get('distribution', {})
-                if accum.get('detected', False) and accum.get('strength', 0) > distrib.get('strength', 0): self.chip_structure_state = 'accumulation'
-                elif distrib.get('detected', False): self.chip_structure_state = 'distribution'
-                elif behav_patterns.get('consolidation', {}).get('detected', False): self.chip_structure_state = 'consolidation'
-                elif behav_patterns.get('breakout_preparation', {}).get('detected', False): self.chip_structure_state = 'lifting'
+                accum = float(behav_patterns.get('accumulation', {}).get('strength', 0.0))
+                distrib = float(behav_patterns.get('distribution', {}).get('strength', 0.0))
+                consol_detected = behav_patterns.get('consolidation', {}).get('detected', False)
+                breakout_detected = behav_patterns.get('breakout_preparation', {}).get('detected', False)
+                if accum > 0.2 and accum > distrib * 1.3: self.chip_structure_state = 'accumulation'
+                elif distrib > 0.2 and distrib > accum * 1.3: self.chip_structure_state = 'distribution'
+                elif breakout_detected: self.chip_structure_state = 'lifting'
+                elif consol_detected: self.chip_structure_state = 'consolidation'
+                else: self.chip_structure_state = 'consolidation'
             morph_metrics = chip_dynamics_result.get('morphology_metrics', {})
             if morph_metrics:
                 for field in ['peak_count', 'main_peak_position', 'peak_distance_ratio', 'peak_concentration', 'is_double_peak', 'is_multi_peak']:
@@ -610,8 +614,8 @@ class ChipFactorBase(models.Model):
             tech_metrics = chip_dynamics_result.get('technical_metrics', {})
             if tech_metrics:
                 for field in ['price_to_ma5_ratio', 'price_to_ma21_ratio', 'price_to_ma34_ratio', 'price_to_ma55_ratio', 'ma_arrangement_status', 'chip_cost_to_ma21_diff', 'volatility_adjusted_concentration', 'chip_rsi_divergence', 'peak_migration_speed_5d', 'chip_stability_change_5d', 'trend_confirmation_score', 'reversal_warning_score', 'turnover_rate', 'volume_ratio']:
-                    if hasattr(self, field) and field in tech_metrics: setattr(self, field, tech_metrics[field])
-            self._calculate_trend_score()
+                    if hasattr(self, field) and field in tech_metrics: setattr(self, field, float(tech_metrics[field]))
+            self._calculate_trend_score(chip_dynamics_result)
             self.calc_status = 'success'
             return True
         except Exception as e:
@@ -1111,8 +1115,8 @@ class ChipHoldingMatrixBase(models.Model):
 
     def to_factor_dict(self) -> Dict[str, Any]:
         """
-        [Version 14.0.0] 扁平化数据解包提取器（全景透传桥接版）
-        说明：将深埋在 extra_metrics JSON 中的形态拓扑、高阶矩、流动向量以及时序技术指标全部提取，作为字典流转给上游主因子表，彻底摧毁信息孤岛。禁止使用空行。
+        [Version 18.0.0] 扁平化数据解包提取器（地毯式脱水版）
+        说明：彻底拔除信息孤岛！将深埋在 extra_metrics JSON 中的成本分位(Cost Structure)、均线偏移度、套牢高阶锁定比例、换手率全景反射为标准字典字段，真正交由上层主因子表持久化。禁止使用空行。
         """
         from services.chip_matrix_dynamics_calculator import ChipMatrixDynamicsCalculator as Calculator
         kbz_zones = self.chart_signals.get('key_battle_zones', []) if self.chart_signals else []
@@ -1143,13 +1147,7 @@ class ChipHoldingMatrixBase(models.Model):
             'long_term_chip_ratio': self.long_term_ratio if self.long_term_ratio is not None else 0.5,
             'avg_holding_days': self.avg_holding_days if hasattr(self, 'avg_holding_days') else 60.0,
         }
-        tick_factors = {
-            'intraday_chip_quality_score': self.intraday_chip_quality_score if self.intraday_chip_quality_score is not None else 0.0,
-            'intraday_calc_method': self.intraday_calc_method if self.intraday_calc_method else 'daily_only',
-            'intraday_main_force_activity': self.intraday_main_force_activity if self.intraday_main_force_activity is not None else 0.0,
-            'intraday_accumulation_confidence': self.intraday_accumulation_confidence if self.intraday_accumulation_confidence is not None else 0.0,
-            'intraday_distribution_confidence': self.intraday_distribution_confidence if self.intraday_distribution_confidence is not None else 0.0,
-        }
+        tick_factors = {'intraday_chip_quality_score': self.intraday_chip_quality_score if self.intraday_chip_quality_score is not None else 0.0, 'intraday_calc_method': self.intraday_calc_method if self.intraday_calc_method else 'daily_only', 'intraday_main_force_activity': self.intraday_main_force_activity if self.intraday_main_force_activity is not None else 0.0, 'intraday_accumulation_confidence': self.intraday_accumulation_confidence if self.intraday_accumulation_confidence is not None else 0.0, 'intraday_distribution_confidence': self.intraday_distribution_confidence if self.intraday_distribution_confidence is not None else 0.0}
         factors.update(tick_factors)
         if hasattr(self, 'direct_ad_data') and self.direct_ad_data:
             factors.update({'direct_accumulation_volume': self.direct_ad_data.get('accumulation_volume', 0.0), 'direct_distribution_volume': self.direct_ad_data.get('distribution_volume', 0.0), 'direct_net_ad_ratio': self.direct_ad_data.get('net_ad_ratio', 0.0)})
@@ -1158,7 +1156,14 @@ class ChipHoldingMatrixBase(models.Model):
             factors['chip_mean'] = conc.get('chip_mean', 0.0); factors['chip_std'] = conc.get('chip_std', 0.0)
             factors['chip_skewness'] = conc.get('chip_skewness', 0.0); factors['chip_kurtosis'] = conc.get('chip_kurtosis', 0.0)
             factors['high_position_lock_ratio_90'] = conc.get('high_position_lock_ratio_90', 0.0); factors['main_cost_range_ratio'] = conc.get('main_cost_range_ratio', 0.0)
-            factors['chip_stability'] = conc.get('cv_concentration', 0.5)
+            factors['chip_stability'] = conc.get('chip_stability', 0.5); factors['weight_avg_cost'] = conc.get('weight_avg_cost', 0.0)
+            factors['cost_5pct'] = conc.get('cost_5pct', 0.0); factors['cost_15pct'] = conc.get('cost_15pct', 0.0)
+            factors['cost_50pct'] = conc.get('cost_50pct', 0.0); factors['cost_85pct'] = conc.get('cost_85pct', 0.0)
+            factors['cost_95pct'] = conc.get('cost_95pct', 0.0); factors['winner_rate'] = conc.get('winner_rate', 0.0)
+            factors['win_rate_price_position'] = conc.get('win_rate_price_position', 0.0); factors['price_to_weight_avg_ratio'] = conc.get('price_to_weight_avg_ratio', 0.0)
+            factors['chip_concentration_ratio'] = conc.get('chip_concentration_ratio', 0.0); factors['price_percentile_position'] = conc.get('price_percentile_position', 0.0)
+            factors['chip_entropy'] = conc.get('chip_entropy', 0.0); factors['chip_convergence_ratio'] = conc.get('chip_convergence_ratio', 0.0); factors['chip_divergence_ratio'] = conc.get('chip_divergence_ratio', 0.0)
+            factors['his_low'] = conc.get('his_low', 0.0); factors['his_high'] = conc.get('his_high', 0.0)
             morph = self.extra_metrics.get('morphology', {})
             factors['peak_count'] = morph.get('peak_count', 0); factors['main_peak_position'] = morph.get('main_peak_position', 0)
             factors['peak_distance_ratio'] = morph.get('peak_distance_ratio', 0.0); factors['peak_concentration'] = morph.get('peak_concentration', 0.0)
@@ -1169,17 +1174,15 @@ class ChipHoldingMatrixBase(models.Model):
             press = self.extra_metrics.get('pressure', {})
             factors['profit_ratio'] = press.get('profit_pressure', 0.5); factors['pressure_release_index'] = press.get('pressure_release', 0.0)
             tech = self.extra_metrics.get('technical', {})
-            factors['price_to_ma5_ratio'] = tech.get('price_to_ma5_ratio', 0.0); factors['price_to_ma21_ratio'] = tech.get('price_to_ma21_ratio', 0.0)
-            factors['price_to_ma34_ratio'] = tech.get('price_to_ma34_ratio', 0.0); factors['price_to_ma55_ratio'] = tech.get('price_to_ma55_ratio', 0.0)
-            factors['ma_arrangement_status'] = tech.get('ma_arrangement_status', 0.0); factors['chip_cost_to_ma21_diff'] = tech.get('chip_cost_to_ma21_diff', 0.0)
-            factors['volatility_adjusted_concentration'] = tech.get('volatility_adjusted_concentration', 0.0); factors['chip_rsi_divergence'] = tech.get('chip_rsi_divergence', 0.0)
-            factors['peak_migration_speed_5d'] = tech.get('peak_migration_speed_5d', 0.0); factors['chip_stability_change_5d'] = tech.get('chip_stability_change_5d', 0.0)
-            factors['trend_confirmation_score'] = tech.get('trend_confirmation_score', 0.5); factors['reversal_warning_score'] = tech.get('reversal_warning_score', 0.0)
-            factors['turnover_rate'] = tech.get('turnover_rate', 0.0); factors['volume_ratio'] = tech.get('volume_ratio', 0.0)
+            for tf in ['price_to_ma5_ratio', 'price_to_ma21_ratio', 'price_to_ma34_ratio', 'price_to_ma55_ratio', 'ma_arrangement_status', 'chip_cost_to_ma21_diff', 'volatility_adjusted_concentration', 'chip_rsi_divergence', 'peak_migration_speed_5d', 'chip_stability_change_5d', 'trend_confirmation_score', 'reversal_warning_score', 'turnover_rate', 'volume_ratio']:
+                factors[tf] = tech.get(tf, 0.0)
+            hold = self.extra_metrics.get('holding', {})
+            for hf in ['short_term_chip_ratio', 'mid_term_chip_ratio', 'long_term_chip_ratio', 'avg_holding_days']:
+                factors[hf] = hold.get(hf, factors.get(hf, 0.0))
         behav_acc = self.behavior_accumulation if self.behavior_accumulation is not None else 0.0
         behav_dist = self.behavior_distribution if self.behavior_distribution is not None else 0.0
-        if behav_acc > behav_dist and behav_acc > 0: factors['chip_structure_state'] = 'accumulation'
-        elif behav_dist > 0: factors['chip_structure_state'] = 'distribution'
+        if behav_acc > 0.2 and behav_acc > behav_dist * 1.3: factors['chip_structure_state'] = 'accumulation'
+        elif behav_dist > 0.2 and behav_dist > behav_acc * 1.3: factors['chip_structure_state'] = 'distribution'
         else: factors['chip_structure_state'] = 'consolidation'
         return factors
 
