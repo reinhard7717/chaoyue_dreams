@@ -16,6 +16,21 @@ from utils.model_helpers import get_cyq_chips_model_by_code, get_daily_data_mode
 
 logger = logging.getLogger(__name__)
 
+class QuantitativeTelemetryProbe:
+    """
+    [Version 1.0.0] 工业级量化全链路探针输出组件
+    说明：负责统一收集并格式化输出模型计算全链路的"原始数据、关键计算节点、最终分数"，消除系统信息孤岛。
+    """
+    @classmethod
+    def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
+        import json
+        payload = {"module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
+        try:
+            print(f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False)}")
+        except Exception:
+            pass
+
+
 class AdvancedChipDynamicsService:
     """
     高级筹码动态服务 - 基于百分比绝对变动的精确分析
@@ -686,14 +701,14 @@ class AdvancedChipDynamicsService:
                     total_vol = cum_sum[-1]
                     large_order_ratio = large_order_vol / total_vol if total_vol > 0 else 0.0
                     activity_score += min(0.4, large_order_ratio * 1.8)
-                    # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity", {'seq_len': seq_len, 'total_vol': float(total_vol)}, {'large_order_vol': float(large_order_vol), 'large_order_ratio': float(large_order_ratio)}, {'partial_score': float(activity_score)})
+                    QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity", {'seq_len': seq_len, 'total_vol': float(total_vol)}, {'large_order_vol': float(large_order_vol), 'large_order_ratio': float(large_order_ratio)}, {'partial_score': float(activity_score)})
             if intraday_flow:
                 buy_ratio = intraday_flow.get('buy_ratio', 0.5)
                 sell_ratio = intraday_flow.get('sell_ratio', 0.5)
                 imbalance = abs(buy_ratio - sell_ratio)
                 activity_score += min(0.2, imbalance * 2.5)
             final_activity = float(min(1.0, activity_score))
-            # QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_final", {'intraday_flow_present': bool(intraday_flow)}, {}, {'final_activity': final_activity})
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_final", {'intraday_flow_present': bool(intraday_flow)}, {}, {'final_activity': final_activity})
             return final_activity
         except Exception as e:
             return 0.0
@@ -1447,7 +1462,7 @@ class GameEnergyCalculator:
             game_intensity, breakout_potential, energy_concentration = self._calculate_energy_indicators(changes, price_grid, reference_price, stock_code, trade_date)
             key_battle_zones = self._identify_key_battle_zones(changes, price_grid, reference_price, stock_code, trade_date)
             net_energy = float(absorption_advanced - distribution_advanced)
-            # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_field", {'sigma': float(sigma), 'dynamic_sigma': float(dynamic_sigma), 'momentum_ratio': float(momentum_ratio)}, {'absorption': float(absorption_advanced), 'distribution': float(distribution_advanced)}, {'net_energy': net_energy})
+            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_field", {'sigma': float(sigma), 'dynamic_sigma': float(dynamic_sigma), 'momentum_ratio': float(momentum_ratio)}, {'absorption': float(absorption_advanced), 'distribution': float(distribution_advanced)}, {'net_energy': net_energy})
             return {'absorption_energy': min(100.0, max(0.01, float(absorption_advanced))), 'distribution_energy': min(100.0, max(0.01, float(distribution_advanced))), 'net_energy_flow': net_energy, 'game_intensity': min(1.0, max(0.0, float(game_intensity))), 'key_battle_zones': key_battle_zones, 'breakout_potential': min(100.0, float(breakout_potential)), 'energy_concentration': min(1.0, max(0.0, float(energy_concentration))), 'reference_price': float(reference_price), 'original_current_price': float(current_price), 'fake_distribution_flag': False}
         except Exception as e:
             return self._get_default_energy()
@@ -1496,7 +1511,7 @@ class GameEnergyCalculator:
         breakout_potential = max(0.01, breakout_potential)
         if energy_concentration > 0.5:
             breakout_potential *= (1.0 + energy_concentration * 0.5)
-        # QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'net_above': float(net_above)}, {'below_imbalance': float(below_imbalance), 'support_strength': float(support_strength)}, {'game_intensity': game_intensity, 'breakout_potential': breakout_potential, 'energy_concentration': energy_concentration})
+        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'net_above': float(net_above)}, {'below_imbalance': float(below_imbalance), 'support_strength': float(support_strength)}, {'game_intensity': game_intensity, 'breakout_potential': breakout_potential, 'energy_concentration': energy_concentration})
         return float(game_intensity), float(breakout_potential), float(energy_concentration)
 
     def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, 
@@ -1732,22 +1747,9 @@ class ChipFactorCalculationHelper:
         macro_range = max(float(his_high) - float(his_low), active_range)
         chip_divergence_ratio = float(np.log1p(np.exp(active_range / macro_range)) - 0.693147)
         final_result = {'chip_concentration_ratio': round(float(chip_concentration_ratio), 6),'chip_stability': round(float(chip_stability), 6),'price_percentile_position': round(float(price_percentile_position), 6),'profit_pressure': round(float(comprehensive_pressure), 6),'win_rate_price_position': round(float(win_rate_price_position), 6),'chip_entropy': round(float(chip_entropy), 6),'chip_convergence_ratio': round(float(chip_convergence_ratio), 6),'chip_divergence_ratio': round(float(chip_divergence_ratio), 6)}
-        # QuantitativeTelemetryProbe.emit("ChipFactorCalculationHelper", "calculate_core_chip_factors", {'close': close, 'winner_rate': winner_rate, 'active_range': active_range}, {'adaptive_pressure': adaptive_pressure, 'profit_pressure': profit_pressure, 'panic_pressure': panic_pressure}, final_result)
+        QuantitativeTelemetryProbe.emit("ChipFactorCalculationHelper", "calculate_core_chip_factors", {'close': close, 'winner_rate': winner_rate, 'active_range': active_range}, {'adaptive_pressure': adaptive_pressure, 'profit_pressure': profit_pressure, 'panic_pressure': panic_pressure}, final_result)
         return final_result
 
-class QuantitativeTelemetryProbe:
-    """
-    [Version 1.0.0] 工业级量化全链路探针输出组件
-    说明：负责统一收集并格式化输出模型计算全链路的"原始数据、关键计算节点、最终分数"，消除系统信息孤岛。
-    """
-    @classmethod
-    def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
-        import json
-        payload = {"module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
-        try:
-            print(f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False)}")
-        except Exception:
-            pass
 
 
 
