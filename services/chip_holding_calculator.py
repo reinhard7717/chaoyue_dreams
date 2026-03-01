@@ -307,11 +307,11 @@ class AdvancedChipDynamicsService:
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {'total_active_energy': total_active_energy, 'noise_ratio': noise_ratio}, {'raw_signal_quality': raw_signal_quality}, {'signal_quality': signal_quality})
         return signals
 
-    def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, float]:
+    def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
         """
-        [Version 29.0.0] 概率密度鲁棒高阶矩与CDF连续插值引擎 (Robust Moments 版)
-        说明：彻底废除基于 200 个离散网格的三/四次方求和导致的高阶矩核爆（偏度=6, 峰度=70）。
-        引入 Kelly's Measure (鲁棒偏度) 和 Crow-Siddiqui Kurtosis (鲁棒峰度)，直接利用 CDF 插值消灭拖尾极值感染，向机器学习下游输送极为稳定、有界的特征张量。禁止使用空行。
+        [Version 38.0.0] 概率密度鲁棒高阶矩与CDF连续插值引擎 (历史探针隔离修复版)
+        说明：追加缺失的 is_history 标志位，彻底修复由技术面引擎回溯过去 t-5 日状态时因参数不匹配引发的 TypeError 致命崩溃。
+        同时静默历史切片计算时的探针输出，防止历史数据污染当天的监控面板。禁止使用空行。
         """
         import numpy as np
         import math
@@ -369,8 +369,9 @@ class AdvancedChipDynamicsService:
         metrics['cv_concentration'] = float(1.0 - (math.atan((chip_std / max(chip_mean, eps)) * 5.0) / (math.pi / 2)))
         metrics['main_force_concentration'] = metrics['main_cost_range_ratio']
         metrics['comprehensive_concentration'] = float(0.3 * metrics['entropy_concentration'] + 0.3 * metrics['peak_concentration'] + 0.2 * metrics['cv_concentration'] + 0.2 * metrics['main_cost_range_ratio'])
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {'current_price': float(current_price), 'macro_range': float(macro_range)}, {'robust_skewness': metrics['chip_skewness'], 'robust_kurtosis': metrics['chip_kurtosis'], 'cost_50pct': metrics['cost_50pct']}, metrics)
+        if not is_history:
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {'current_price': float(current_price), 'macro_range': float(macro_range)}, {'robust_skewness': metrics['chip_skewness'], 'robust_kurtosis': metrics['chip_kurtosis'], 'cost_50pct': metrics['cost_50pct']}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -685,9 +686,9 @@ class AdvancedChipDynamicsService:
 
     def _calculate_convergence_metrics(self, chip_matrix: np.ndarray, percent_change_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
         """
-        [Version 35.0.0] 筹码聚散度分析算子 (二阶矩方差漂移降维缩放版)
-        说明：降低方差变化率 rel_var_change 的 tanh 放大乘数，从灾难级的 10.0 降至 3.0，避免特征被微小的 15% 方差波动劫持而进入 0.99 的饱和死锁区。
-        当分布方差净变化为负，代表筹码向中心收拢(Convergence)；为正代表向两端逃逸发散(Divergence)。禁止使用空行。
+        [Version 38.0.0] 筹码聚散度分析算子 (二阶矩量纲除百纠偏版)
+        说明：彻底消灭方差变动率 (rel_var_change) 因矩阵基底量纲不一致（100.0 vs 1.0）而引发的百倍膨胀暴走！
+        严格将 percent_change_matrix 压缩回归一化的概率空间(除以100)后重新测算二阶矩漂移，并采用 100.0 的 Tanh 映射域精确捕捉 1% 级别的极微观建仓锁筹异动。禁止使用空行。
         """
         import numpy as np
         import math
@@ -719,14 +720,15 @@ class AdvancedChipDynamicsService:
             metrics['migration_convergence'] = float(max(0.0, 1.0 - math.atan(weighted_changes / (chip_std * 1.5)) / (math.pi / 2)))
         else: metrics['migration_convergence'] = 1.0
         metrics['comprehensive_convergence'] = float(0.4 * metrics['static_convergence'] + 0.3 * metrics['dynamic_convergence'] + 0.3 * metrics['migration_convergence'])
-        variance_change = float(np.dot(recent_changes, (price_grid - price_center)**2))
+        recent_changes_norm = recent_changes / 100.0
+        variance_change = float(np.dot(recent_changes_norm, (price_grid - price_center)**2))
         rel_var_change = variance_change / (variance + eps)
         if rel_var_change < 0:
-            metrics['convergence_strength'] = float(math.tanh(abs(rel_var_change) * 3.0))
+            metrics['convergence_strength'] = float(math.tanh(abs(rel_var_change) * 100.0))
             metrics['divergence_strength'] = 0.0
         else:
             metrics['convergence_strength'] = 0.0
-            metrics['divergence_strength'] = float(math.tanh(rel_var_change * 3.0))
+            metrics['divergence_strength'] = float(math.tanh(rel_var_change * 100.0))
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {'variance_change': float(variance_change), 'rel_var_change': float(rel_var_change)}, {'dynamic_convergence': metrics['dynamic_convergence'], 'migration_convergence': metrics['migration_convergence']}, metrics)
         return metrics
