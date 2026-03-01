@@ -323,14 +323,13 @@ class AdvancedChipDynamicsService:
 
     def _analyze_absolute_changes(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
         """
-        [Version 8.0.0] 绝对变化信号动力学分析算子（活跃视界抗噪版）
-        说明：根除全局网格稀释导致的 0.025 极低 validation_score 假象。
-        引入活跃筹码掩码(Active Mask)，仅在实际存在筹码的区间计算信噪比，并使用反正切函数保留梯度。
+        [Version 11.0.0] 绝对变化信号动力学分析算子（活跃视界能量抗噪版）
+        说明：根除全局网格数量稀释导致的 0.09 极低 validation_score 假象。抛弃对网格"数量"的统计，改用实际交战区域的"能量占比"计算信噪比。
+        配合反正切函数(Arctan)实现信号质量的无损拓扑映射，彻底消灭验证得分塌陷。禁止使用空行。
         """
         import numpy as np
         import math
-        if percent_change_matrix.shape[0] == 0:
-            return self._get_default_absolute_signals()
+        if percent_change_matrix.shape[0] == 0: return self._get_default_absolute_signals()
         recent_changes = percent_change_matrix[-min(3, len(percent_change_matrix)):, :]
         avg_changes = np.mean(recent_changes, axis=0) if recent_changes.shape[0] > 0 else np.zeros_like(price_grid)
         noise_th = float(self.params.get('noise_threshold', 0.2))
@@ -339,12 +338,11 @@ class AdvancedChipDynamicsService:
         decrease_mask = avg_changes < -sig_th
         abs_changes = np.abs(avg_changes)
         active_grid_mask = abs_changes > 1e-4
-        active_count = np.sum(active_grid_mask)
-        if active_count > 0:
-            noise_count = np.sum((abs_changes < noise_th) & active_grid_mask)
-            noise_ratio = float(noise_count / active_count)
-        else:
-            noise_ratio = 1.0
+        total_active_energy = float(np.sum(abs_changes[active_grid_mask]))
+        if total_active_energy > 0:
+            noise_energy = float(np.sum(abs_changes[(abs_changes < noise_th) & active_grid_mask]))
+            noise_ratio = noise_energy / total_active_energy
+        else: noise_ratio = 1.0
         raw_signal_quality = 1.0 - noise_ratio
         signal_quality = float((math.atan(raw_signal_quality * 5.0) / (math.pi / 2)) * 0.9 + 0.1)
         signals = {'significant_increase_areas': [], 'significant_decrease_areas': [], 'accumulation_signals': [], 'distribution_signals': [], 'noise_level': noise_ratio, 'signal_quality': signal_quality}
@@ -365,41 +363,64 @@ class AdvancedChipDynamicsService:
                 signals['distribution_signals'].append({'price': float(price_grid[idx]), 'change': change_val, 'strength': strength})
         for key in ['significant_increase_areas', 'significant_decrease_areas', 'accumulation_signals', 'distribution_signals']:
             signals[key] = sorted(signals[key], key=lambda x: abs(x['change']), reverse=True)[:10]
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {'active_count': int(active_count), 'noise_ratio': noise_ratio}, {'raw_signal_quality': raw_signal_quality}, {'signal_quality': signal_quality})
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {'total_active_energy': total_active_energy, 'noise_ratio': noise_ratio}, {'raw_signal_quality': raw_signal_quality}, {'signal_quality': signal_quality})
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
         """
-        版本: v2.0
-        说明: 计算集中度指标（精简计算版）
-        优化: 优化数学计算流程，减少临时列表创建
+        [Version 11.0.0] 概率密度高阶矩与多维成本结构提取器（数学勘误版）
+        说明：修正原先对百分比数组直接求偏度的低级统计学谬误。严格基于价格的概率密度函数（PDF）计算均值、标准差、偏度与峰度。
+        打通高位套牢盘(90%+)与主力核心区间(50%±10%)锁定度特征，消除 ORM 模型中的信息孤岛。禁止使用空行。
         """
-        if len(current_chip_dist) == 0:
-            return self._get_default_concentration_metrics()
+        import numpy as np
+        import math
+        if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         metrics = {}
-        chip_prob = current_chip_dist + 1e-10
-        metrics['entropy_concentration'] = 1.0 - (entropy(chip_prob) / np.log(len(current_chip_dist)))
-        sorted_chip = np.sort(current_chip_dist)[::-1]
-        top_20_idx = int(len(current_chip_dist) * 0.2)
-        metrics['peak_concentration'] = np.sum(sorted_chip[:top_20_idx]) / 100.0
-        price_mean = np.dot(price_grid, current_chip_dist) / 100.0
-        if price_mean > 0:
-            price_std = np.sqrt(np.dot(current_chip_dist, (price_grid - price_mean) ** 2) / 100.0)
-            metrics['cv_concentration'] = 1.0 - min(1.0, price_std / price_mean)
-            mask_main = (price_grid >= price_mean * 0.9) & (price_grid <= price_mean * 1.1)
-            metrics['main_force_concentration'] = np.sum(current_chip_dist[mask_main]) / 100.0
+        eps = 1e-10
+        p = current_chip_dist / (np.sum(current_chip_dist) + eps)
+        chip_mean = float(np.sum(p * price_grid))
+        variance = float(np.sum(p * (price_grid - chip_mean)**2))
+        chip_std = float(np.sqrt(variance))
+        if chip_std > 1e-5:
+            chip_skewness = float(np.sum(p * ((price_grid - chip_mean) / chip_std)**3))
+            chip_kurtosis = float(np.sum(p * ((price_grid - chip_mean) / chip_std)**4) - 3.0)
+        else:
+            chip_skewness, chip_kurtosis = 0.0, 0.0
+        metrics['chip_mean'] = chip_mean
+        metrics['chip_std'] = chip_std
+        metrics['chip_skewness'] = chip_skewness
+        metrics['chip_kurtosis'] = chip_kurtosis
+        cdf = np.cumsum(p)
+        median_idx = np.searchsorted(cdf, 0.5)
+        median_price = price_grid[min(median_idx, len(price_grid)-1)]
+        max_price = price_grid.max()
+        high_lock_mask = price_grid >= max_price * 0.9
+        metrics['high_position_lock_ratio_90'] = float(np.sum(p[high_lock_mask]))
+        main_cost_mask = (price_grid >= median_price * 0.9) & (price_grid <= median_price * 1.1)
+        metrics['main_cost_range_ratio'] = float(np.sum(p[main_cost_mask]))
+        smoothed_p = (p + 1e-5) / np.sum(p + 1e-5)
+        entropy_val = float(-np.sum(smoothed_p * np.log(smoothed_p)))
+        max_entropy = np.log(len(smoothed_p))
+        metrics['entropy_concentration'] = float(1.0 - (entropy_val / max_entropy))
+        sorted_p = np.sort(p)[::-1]
+        top_20_idx = max(1, int(len(p) * 0.2))
+        metrics['peak_concentration'] = float(np.sum(sorted_p[:top_20_idx]))
+        if chip_mean > eps:
+            cv = chip_std / chip_mean
+            metrics['cv_concentration'] = float(1.0 - (math.atan(cv * 5.0) / (math.pi / 2)))
+            metrics['main_force_concentration'] = metrics['main_cost_range_ratio']
         else:
             metrics['cv_concentration'] = 0.5
             metrics['main_force_concentration'] = 0.0
-        metrics['comprehensive_concentration'] = (
-            0.3 * metrics['entropy_concentration'] +
-            0.3 * metrics['peak_concentration'] +
-            0.2 * metrics['cv_concentration'] +
-            0.2 * metrics['main_force_concentration']
-        )
-        metrics['chip_skewness'] = float(skew(current_chip_dist))
-        metrics['chip_kurtosis'] = float(kurtosis(current_chip_dist))
+        metrics['comprehensive_concentration'] = float(0.3 * metrics['entropy_concentration'] + 0.3 * metrics['peak_concentration'] + 0.2 * metrics['cv_concentration'] + 0.2 * metrics['main_force_concentration'])
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {'chip_std': chip_std, 'median_price': float(median_price)}, {'chip_skewness': chip_skewness, 'chip_kurtosis': chip_kurtosis, 'high_lock_ratio': metrics['high_position_lock_ratio_90']}, metrics)
         return metrics
+
+    def _get_default_concentration_metrics(self) -> Dict[str, float]:
+        """[Version 11.0.0] 更新默认集中度指标集（包含ORM孤岛字段）"""
+        return {'entropy_concentration': 0.5, 'peak_concentration': 0.3, 'cv_concentration': 0.5, 'main_force_concentration': 0.2, 'comprehensive_concentration': 0.4, 'chip_skewness': 0.0, 'chip_kurtosis': 0.0, 'chip_mean': 0.0, 'chip_std': 0.0, 'high_position_lock_ratio_90': 0.0, 'main_cost_range_ratio': 0.0}
 
     def _calculate_pressure_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, float]:
         """
@@ -898,18 +919,7 @@ class AdvancedChipDynamicsService:
             'noise_level': 1.0,
             'signal_quality': 0.0
         }
-    
-    def _get_default_concentration_metrics(self) -> Dict[str, float]:
-        return {
-            'entropy_concentration': 0.5,
-            'peak_concentration': 0.3,
-            'cv_concentration': 0.5,
-            'main_force_concentration': 0.2,
-            'comprehensive_concentration': 0.4,
-            'chip_skewness': 0.0,
-            'chip_kurtosis': 0.0
-        }
-    
+
     def _get_default_pressure_metrics(self) -> Dict[str, float]:
         return {
             'profit_pressure': 0.5,
@@ -920,7 +930,7 @@ class AdvancedChipDynamicsService:
             'pressure_release': 0.0,
             'comprehensive_pressure': 0.4
         }
-    
+
     def _get_default_behavior_patterns(self) -> Dict[str, any]:
         return {
             'accumulation': {'detected': False, 'strength': 0.0, 'areas': []},
@@ -929,7 +939,7 @@ class AdvancedChipDynamicsService:
             'breakout_preparation': {'detected': False, 'strength': 0.0},
             'main_force_activity': 0.0
         }
-    
+
     def _get_default_migration_patterns(self) -> Dict[str, any]:
         return {
             'upward_migration': {'strength': 0.0, 'volume': 0.0},
@@ -938,7 +948,7 @@ class AdvancedChipDynamicsService:
             'divergence_migration': {'strength': 0.0, 'areas': []},
             'net_migration_direction': 0.0
         }
-    
+
     def _get_default_convergence_metrics(self) -> Dict[str, float]:
         return {
             'static_convergence': 0.5,
@@ -1000,78 +1010,44 @@ class DirectAccumulationDistributionCalculator:
 
     def _calculate_absolute_ad(self, changes: np.ndarray, price_rel: np.ndarray) -> Dict[str, any]:
         """
-        版本: v2.1
-        说明: 基于绝对变化的直接计算吸收/派发（Numpy分箱优化版）
-        修改思路: 
-        1. 使用np.digitize替代多次布尔掩码，将O(K*N)复杂度降为O(N)。
-        2. 使用np.bincount快速聚合各区间的正负变化量。
-        3. 向量化计算各区间的吸收/派发贡献。
+        [Version 11.0.0] 基于绝对变化的直接吸收/派发计算器（贝叶斯抗伪极化版）
+        说明：终结 net_ad_ratio 在缩量行情下惊现 0.9999 的史诗级单边幻觉。
+        植入强效贝叶斯伪计数基底(Bayesian Prior)和反正切非线性挤压(Arctan)。只要没有大盘口真实资金量能的配合，所有的微小噪声波动都将被强制镇压在中性震荡区内，彻底斩断小样本骗线。禁止使用空行。
         """
-        # 过滤噪声
+        import numpy as np
+        import math
         significant_mask = np.abs(changes) > self.params['noise_filter']
         clean_changes = changes[significant_mask]
         clean_rels = price_rel[significant_mask]
-        if len(clean_changes) == 0:
-            return {
-                'accumulation_volume': 0.0,
-                'distribution_volume': 0.0,
-                'net_ad_ratio': 0.0,
-                'accumulation_quality': 0.5,
-                'distribution_quality': 0.5,
-                'false_distribution_flag': False,
-                'breakout_acceleration': 1.0,
-            }
-        # 定义区间边界 [-0.12, -0.03, 0, 0.05, 0.12]
-        # 0: deep_below (< -0.12)
-        # 1: below (-0.12 ~ -0.03)
-        # 2: near_below (-0.03 ~ 0)
-        # 3: near_above (0 ~ 0.05)
-        # 4: above (0.05 ~ 0.12)
-        # 5: deep_above (>= 0.12)
+        if len(clean_changes) == 0: return {'accumulation_volume': 0.0, 'distribution_volume': 0.0, 'net_ad_ratio': 0.0, 'accumulation_quality': 0.5, 'distribution_quality': 0.5, 'false_distribution_flag': False, 'breakout_acceleration': 1.0}
         bins = np.array([-0.12, -0.03, 0, 0.05, 0.12])
         indices = np.digitize(clean_rels, bins)
-        # 分离正负变化
         pos_changes = np.maximum(clean_changes, 0)
         neg_changes = np.abs(np.minimum(clean_changes, 0))
-        # 聚合各区间的总量 (minlength=6 确保所有区间都有值)
         pos_sums = np.bincount(indices, weights=pos_changes, minlength=6)
         neg_sums = np.bincount(indices, weights=neg_changes, minlength=6)
-        # 定义各区间的权重
-        # 索引: 0, 1, 2, 3, 4, 5
         zone_weights = np.array([0.4, 1.3, 1.0, 1.0, 1.2, 0.5])
-        # 吸收系数 (Accumulation Multipliers)
-        # deep_below(1.0), below(1.0), near_below(1.0), near_above(0.6), above(0.3), deep_above(0.3)
         accum_mults = np.array([1.0, 1.0, 1.0, 0.6, 0.3, 0.3])
-        # 派发系数 (Distribution Multipliers)
-        # deep_below(0.8), below(0.8), near_below(0.8), near_above(0.9), above(1.0), deep_above(1.0)
         distrib_mults = np.array([0.8, 0.8, 0.8, 0.9, 1.0, 1.0])
-        # 向量化计算基础吸收/派发量
-        # 逻辑保持一致：
-        # Below区域: Pos -> Accum, Neg -> Distrib
-        # Above区域: Pos -> Accum*0.3, Neg -> Distrib
         raw_accum = pos_sums * zone_weights * accum_mults
         raw_distrib = neg_sums * zone_weights * distrib_mults
-        accumulation_volume = np.sum(raw_accum)
-        distribution_volume = np.sum(raw_distrib)
-        # 趋势修正
-        overall_trend = np.sum(clean_changes)
+        accumulation_volume = float(np.sum(raw_accum))
+        distribution_volume = float(np.sum(raw_distrib))
+        overall_trend = float(np.sum(clean_changes))
         if overall_trend > 0:
             accumulation_volume *= 1.2
             distribution_volume *= 0.8
         elif overall_trend < 0:
             accumulation_volume *= 0.8
             distribution_volume *= 1.2
-        total_volume = accumulation_volume + distribution_volume + 1e-10
-        net_ad_ratio = (accumulation_volume - distribution_volume) / total_volume
-        return {
-            'accumulation_volume': float(accumulation_volume),
-            'distribution_volume': float(distribution_volume),
-            'net_ad_ratio': float(net_ad_ratio),
-            'accumulation_quality': 0.5,
-            'distribution_quality': 0.5,
-            'false_distribution_flag': False,
-            'breakout_acceleration': 1.0,
-        }
+        total_raw_vol = accumulation_volume + distribution_volume
+        bayesian_prior = max(3.0, total_raw_vol * 0.15)
+        total_volume_smoothed = total_raw_vol + bayesian_prior + 1e-8
+        raw_net_ratio = (accumulation_volume - distribution_volume) / total_volume_smoothed
+        net_ad_ratio = float(math.atan(raw_net_ratio * 3.0) / (math.pi / 2))
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "_calculate_absolute_ad", {'total_raw_vol': float(total_raw_vol), 'bayesian_prior': float(bayesian_prior)}, {'raw_accum': float(accumulation_volume), 'raw_distrib': float(distribution_volume)}, {'net_ad_ratio': float(net_ad_ratio)})
+        return {'accumulation_volume': accumulation_volume, 'distribution_volume': distribution_volume, 'net_ad_ratio': net_ad_ratio, 'accumulation_quality': 0.5, 'distribution_quality': 0.5, 'false_distribution_flag': False, 'breakout_acceleration': 1.0}
 
     def _correct_pullback_ad(self, ad_result: Dict[str, any], price_history: pd.DataFrame, current_price: float) -> Dict[str, any]:
         """
@@ -1320,14 +1296,13 @@ class GameEnergyCalculator:
 
     def _calculate_energy_field(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, stock_code: str = "", trade_date: str = "") -> Dict[str, Any]:
         """
-        [Version 5.0.0] 动态波动率自适应能量场核心算子
-        说明：废除硬编码的静态分箱(极性反噬)，代之以基于截面绝对变化量加权的动态sigma自适应分箱，兼容A股各板块异构振幅。
-        植入动量探测器，打破主升浪必定派发的线性错觉。清除空行并接入探针。
+        [Version 11.0.0] 动态波动率自适应能量场核心算子（千万级除零反噬镇压版）
+        说明：根除 momentum_ratio 在派发量微小时爆出两千万级数值的严重数学灾难。
+        强制植入动态贝叶斯势能基底 (Prior Momentum Base)，将动量乘数严格约束在统计学显著性框架内，绝不让极小样本噪声劫持突破信号。禁止使用空行。
         """
         import numpy as np
         reference_price = close_price if close_price > 0 else current_price
-        if len(changes) == 0 or len(price_grid) == 0 or reference_price <= 0:
-            return self._get_default_energy()
+        if len(changes) == 0 or len(price_grid) == 0 or reference_price <= 0: return self._get_default_energy()
         try:
             price_rel = (price_grid - reference_price) / reference_price
             abs_changes = np.abs(changes)
@@ -1338,8 +1313,7 @@ class GameEnergyCalculator:
                 mean_rel = np.average(active_rels, weights=weights)
                 variance = np.average((active_rels - mean_rel)**2, weights=weights)
                 sigma = np.sqrt(variance)
-            else:
-                sigma = 0.05
+            else: sigma = 0.05
             dynamic_sigma = max(0.02, min(sigma, 0.20))
             bins = np.array([-3.0 * dynamic_sigma, -1.0 * dynamic_sigma, 0.0, 1.0 * dynamic_sigma, 3.0 * dynamic_sigma])
             indices = np.digitize(price_rel, bins)
@@ -1353,8 +1327,10 @@ class GameEnergyCalculator:
             for i in range(3):
                 absorption_advanced += pos_sums[i] * weights_arr[i]
                 distribution_advanced += neg_sums[i] * weights_arr[i] * 0.8
-            momentum_ratio = (pos_sums[3] + pos_sums[4]) / (neg_sums[3] + neg_sums[4] + 1e-6)
-            is_momentum_drive = momentum_ratio > 2.5
+            total_section_energy = np.sum(pos_sums) + np.sum(neg_sums)
+            prior_momentum_base = max(2.0, total_section_energy * 0.1)
+            momentum_ratio = (pos_sums[3] + pos_sums[4]) / (neg_sums[3] + neg_sums[4] + prior_momentum_base)
+            is_momentum_drive = momentum_ratio > 2.0
             for i in range(3, 5):
                 if is_momentum_drive:
                     absorption_advanced += pos_sums[i] * weights_arr[i] * 0.8
@@ -1375,17 +1351,20 @@ class GameEnergyCalculator:
             game_intensity, breakout_potential, energy_concentration = self._calculate_energy_indicators(changes, price_grid, reference_price, stock_code, trade_date)
             key_battle_zones = self._identify_key_battle_zones(changes, price_grid, reference_price, stock_code, trade_date)
             net_energy = float(absorption_advanced - distribution_advanced)
-            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_field", {'sigma': float(sigma), 'dynamic_sigma': float(dynamic_sigma), 'momentum_ratio': float(momentum_ratio)}, {'absorption': float(absorption_advanced), 'distribution': float(distribution_advanced)}, {'net_energy': net_energy})
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_field", {'sigma': float(sigma), 'dynamic_sigma': float(dynamic_sigma), 'total_section_energy': float(total_section_energy)}, {'prior_momentum_base': float(prior_momentum_base), 'momentum_ratio': float(momentum_ratio)}, {'net_energy': net_energy, 'absorption': float(absorption_advanced), 'distribution': float(distribution_advanced)})
             return {'absorption_energy': min(100.0, max(0.01, float(absorption_advanced))), 'distribution_energy': min(100.0, max(0.01, float(distribution_advanced))), 'net_energy_flow': net_energy, 'game_intensity': min(1.0, max(0.0, float(game_intensity))), 'key_battle_zones': key_battle_zones, 'breakout_potential': min(100.0, float(breakout_potential)), 'energy_concentration': min(1.0, max(0.0, float(energy_concentration))), 'reference_price': float(reference_price), 'original_current_price': float(current_price), 'fake_distribution_flag': False}
         except Exception as e:
             return self._get_default_energy()
 
     def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
         """
-        [Version 8.0.0] 博弈能量指标自适应拓扑计算器（贝叶斯抗反噬版）
-        说明：根除固定阈值引发的 game_intensity 塌陷现象。引入贝叶斯先验伪计数平滑极性反噬，防范极端行情下的0值连乘暴走。
+        [Version 11.0.0] 博弈能量指标自适应拓扑计算器（抗梯度饱和解耦版）
+        说明：精准定点清除 game_intensity 永远死卡在 0.95+ 的数学死锁。
+        将“相对活跃占比”与“绝对能量规模的非线性平滑函数(Arctan)”进行正交相乘。在保证极小变动被平滑衰减的同时，为下游提供满血的梯度分辨率。禁止使用空行。
         """
         import numpy as np
+        import math
         eps = np.finfo(np.float64).eps
         abs_changes = np.abs(changes)
         total_energy = np.sum(abs_changes)
@@ -1402,33 +1381,32 @@ class GameEnergyCalculator:
                 hhi = np.sum(normalized_energy ** 2)
                 scale_penalty = float(np.tanh(active_count / max(1.0, len(changes) * 0.05)))
                 energy_concentration = float(base_concentration * 0.4 + hhi * 0.6) * scale_penalty
-        prior_energy = max(0.5, total_energy * 0.05)
         valid_changes = abs_changes[abs_changes > eps]
-        if len(valid_changes) > 5:
-            dynamic_active_threshold = max(0.01, float(np.percentile(valid_changes, 60)))
-        else:
-            dynamic_active_threshold = 0.05
+        if len(valid_changes) > 5: dynamic_active_threshold = max(0.01, float(np.percentile(valid_changes, 60)))
+        else: dynamic_active_threshold = 0.05
         active_mask_intensity = abs_changes > dynamic_active_threshold
         active_energy_sum = np.sum(abs_changes[active_mask_intensity])
-        game_intensity = float(np.tanh(active_energy_sum / max(1.0, total_energy * 0.5)))
+        prior_energy = max(1.0, total_energy * 0.05) 
+        active_ratio = active_energy_sum / (total_energy + prior_energy + eps)
+        absolute_scale = float(math.atan(total_energy / 15.0) / (math.pi / 2))
+        game_intensity = float(active_ratio * absolute_scale)
+        game_intensity = min(1.0, max(0.0, game_intensity))
         above_mask = price_grid > current_price
         below_mask = price_grid < current_price
         absorption_above = np.sum(changes[above_mask & (changes > 0)])
         distribution_above = np.sum(np.abs(changes[above_mask & (changes < 0)]))
         absorption_below = np.sum(changes[below_mask & (changes > 0)])
         distribution_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
-        below_imbalance = (absorption_below - distribution_below) / (absorption_below + distribution_below + prior_energy + eps)
-        support_strength = 1.0 + float(np.tanh(below_imbalance * 2.0))
+        imbalance_prior = max(2.0, (absorption_below + distribution_below) * 0.1)
+        below_imbalance = (absorption_below - distribution_below) / (absorption_below + distribution_below + imbalance_prior + eps)
+        support_strength = 1.0 + float(math.tanh(below_imbalance * 1.5))
         net_above = absorption_above - distribution_above
-        if net_above > 0:
-            raw_potential = net_above * support_strength * 5.0
-        else:
-            raw_potential = (np.exp(net_above) - 1.0) * support_strength * 2.0 + 2.0
+        if net_above > 0: raw_potential = net_above * support_strength * 2.0
+        else: raw_potential = (np.exp(net_above) - 1.0) * support_strength * 1.5 + 1.0
         breakout_potential = float(max(0.01, raw_potential))
-        if energy_concentration > 0.5:
-            breakout_potential *= (1.0 + float(np.tanh((energy_concentration - 0.5) * 2.0)))
+        if energy_concentration > 0.5: breakout_potential *= (1.0 + float(math.tanh((energy_concentration - 0.5) * 1.5)))
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'prior_energy': float(prior_energy), 'dynamic_threshold': float(dynamic_active_threshold)}, {'active_energy_sum': float(active_energy_sum), 'below_imbalance': float(below_imbalance), 'support_strength': float(support_strength)}, {'game_intensity': float(game_intensity), 'breakout_potential': float(breakout_potential), 'energy_concentration': float(energy_concentration)})
+        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'prior_energy': float(prior_energy), 'dynamic_threshold': float(dynamic_active_threshold)}, {'active_ratio': float(active_ratio), 'absolute_scale': float(absolute_scale), 'support_strength': float(support_strength)}, {'game_intensity': float(game_intensity), 'breakout_potential': float(breakout_potential), 'energy_concentration': float(energy_concentration)})
         return float(game_intensity), float(breakout_potential), float(energy_concentration)
 
     def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, 

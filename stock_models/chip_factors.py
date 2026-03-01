@@ -575,52 +575,55 @@ class ChipFactorBase(models.Model):
 
     def update_from_chip_dynamics(self, chip_dynamics_result: Dict[str, any]):
         """
-        [Version 8.0.0] 动态映射桥接核心（拓扑形态赋能版）
-        说明：从筹码动态分析结果更新因子。全面打通形态学测量结果，将底层拓扑检测数据灌入ORM实体，消灭未使用的哑弹字段，将信息孤岛彻底连通。
+        [Version 11.0.0] 全息状态空间映射枢纽 (Holographic State Mapping Hub)
+        说明：打碎信息孤岛围墙！将底层计算提取的高阶距(偏度/峰度)、多峰拓扑参数以及趋势流向向量，全量注射回 ORM 模型。
+        彻底消除模型设计华丽但执行空转的烂尾楼现象。禁止使用空行。
         """
         import numpy as np
         try:
-            if not chip_dynamics_result or chip_dynamics_result.get('analysis_status') != 'success':
-                return False
-            convergence_factors = self.calculate_convergence_divergence(chip_dynamics_result)
-            for key, value in convergence_factors.items():
-                if hasattr(self, key):
-                    setattr(self, key, value)
-            concentration_metrics = chip_dynamics_result.get('concentration_metrics', {})
-            if concentration_metrics:
-                self.chip_concentration_ratio = concentration_metrics.get('comprehensive_concentration', 0.5)
-                self.chip_entropy = float(-np.log(concentration_metrics.get('entropy_concentration', 0.5) + 1e-10))
-                self.chip_skewness = float(concentration_metrics.get('chip_skewness', 0.0))
-                self.chip_kurtosis = float(concentration_metrics.get('chip_kurtosis', 0.0))
-            pressure_metrics = chip_dynamics_result.get('pressure_metrics', {})
-            if pressure_metrics:
-                self.profit_ratio = float(pressure_metrics.get('profit_pressure', 0.5))
-            behavior_patterns = chip_dynamics_result.get('behavior_patterns', {})
-            if behavior_patterns:
-                accumulation = behavior_patterns.get('accumulation', {})
-                distribution = behavior_patterns.get('distribution', {})
-                if accumulation.get('detected', False):
-                    if accumulation.get('strength', 0) > distribution.get('strength', 0):
-                        self.chip_structure_state = 'accumulation'
-                elif distribution.get('detected', False):
-                    self.chip_structure_state = 'distribution'
-                elif behavior_patterns.get('consolidation', {}).get('detected', False):
-                    self.chip_structure_state = 'consolidation'
-                elif behavior_patterns.get('breakout_preparation', {}).get('detected', False):
-                    self.chip_structure_state = 'lifting'
-            morphology_metrics = chip_dynamics_result.get('morphology_metrics', {})
-            if morphology_metrics:
-                if hasattr(self, 'peak_count'): self.peak_count = morphology_metrics.get('peak_count', 0)
-                if hasattr(self, 'main_peak_position'): self.main_peak_position = morphology_metrics.get('main_peak_position', 0)
-                if hasattr(self, 'peak_distance_ratio'): self.peak_distance_ratio = morphology_metrics.get('peak_distance_ratio', 0.0)
-                if hasattr(self, 'peak_concentration'): self.peak_concentration = morphology_metrics.get('peak_concentration', 0.0)
-                if hasattr(self, 'is_double_peak'): self.is_double_peak = morphology_metrics.get('is_double_peak', False)
-                if hasattr(self, 'is_multi_peak'): self.is_multi_peak = morphology_metrics.get('is_multi_peak', False)
+            if not chip_dynamics_result or chip_dynamics_result.get('analysis_status') != 'success': return False
+            conv_factors = self.calculate_convergence_divergence(chip_dynamics_result)
+            for k, v in conv_factors.items():
+                if hasattr(self, k): setattr(self, k, v)
+            conc_metrics = chip_dynamics_result.get('concentration_metrics', {})
+            if conc_metrics:
+                if hasattr(self, 'chip_concentration_ratio'): self.chip_concentration_ratio = conc_metrics.get('comprehensive_concentration', 0.5)
+                if hasattr(self, 'chip_entropy'): self.chip_entropy = float(conc_metrics.get('entropy_concentration', 0.0))
+                if hasattr(self, 'chip_skewness'): self.chip_skewness = float(conc_metrics.get('chip_skewness', 0.0))
+                if hasattr(self, 'chip_kurtosis'): self.chip_kurtosis = float(conc_metrics.get('chip_kurtosis', 0.0))
+                if hasattr(self, 'chip_mean'): self.chip_mean = float(conc_metrics.get('chip_mean', 0.0))
+                if hasattr(self, 'chip_std'): self.chip_std = float(conc_metrics.get('chip_std', 0.0))
+                if hasattr(self, 'high_position_lock_ratio_90'): self.high_position_lock_ratio_90 = float(conc_metrics.get('high_position_lock_ratio_90', 0.0))
+                if hasattr(self, 'main_cost_range_ratio'): self.main_cost_range_ratio = float(conc_metrics.get('main_cost_range_ratio', 0.0))
+                if hasattr(self, 'chip_stability'): self.chip_stability = float(conc_metrics.get('cv_concentration', 0.5))
+            press_metrics = chip_dynamics_result.get('pressure_metrics', {})
+            if press_metrics and hasattr(self, 'profit_ratio'): self.profit_ratio = float(press_metrics.get('profit_pressure', 0.5))
+            mig_patterns = chip_dynamics_result.get('migration_patterns', {})
+            if mig_patterns:
+                if hasattr(self, 'chip_flow_direction'): self.chip_flow_direction = int(mig_patterns.get('chip_flow_direction', 0))
+                if hasattr(self, 'chip_flow_intensity'): self.chip_flow_intensity = float(mig_patterns.get('chip_flow_intensity', 0.0))
+            behav_patterns = chip_dynamics_result.get('behavior_patterns', {})
+            if behav_patterns and hasattr(self, 'chip_structure_state'):
+                accum = behav_patterns.get('accumulation', {})
+                distrib = behav_patterns.get('distribution', {})
+                if accum.get('detected', False) and accum.get('strength', 0) > distrib.get('strength', 0): self.chip_structure_state = 'accumulation'
+                elif distrib.get('detected', False): self.chip_structure_state = 'distribution'
+                elif behav_patterns.get('consolidation', {}).get('detected', False): self.chip_structure_state = 'consolidation'
+                elif behav_patterns.get('breakout_preparation', {}).get('detected', False): self.chip_structure_state = 'lifting'
+            morph_metrics = chip_dynamics_result.get('morphology_metrics', {})
+            if morph_metrics:
+                for field in ['peak_count', 'main_peak_position', 'peak_distance_ratio', 'peak_concentration', 'is_double_peak', 'is_multi_peak', 'peak_migration_speed_5d', 'chip_stability_change_5d']:
+                    if hasattr(self, field) and field in morph_metrics: setattr(self, field, morph_metrics[field])
+            tech_metrics = chip_dynamics_result.get('technical_metrics', {})
+            if tech_metrics:
+                for field in ['price_to_ma5_ratio', 'price_to_ma21_ratio', 'price_to_ma34_ratio', 'price_to_ma55_ratio', 'ma_arrangement_status', 'chip_cost_to_ma21_diff', 'volatility_adjusted_concentration', 'chip_rsi_divergence', 'trend_confirmation_score', 'reversal_warning_score']:
+                    if hasattr(self, field) and field in tech_metrics: setattr(self, field, tech_metrics[field])
             self._calculate_trend_score(chip_dynamics_result)
             self.calc_status = 'success'
             return True
         except Exception as e:
-            print(f"❌ 更新因子失败: {e}")
+            import traceback
+            traceback.print_exc()
             self.calc_status = 'failed'
             self.error_message = str(e)
             return False
