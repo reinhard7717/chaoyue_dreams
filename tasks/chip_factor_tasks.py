@@ -237,7 +237,6 @@ def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, 
                 err_trace = traceback.format_exc()
                 QuantitativeTelemetryProbe.emit("BatchWorker", "calc_chip_factors_batch_ERR", {'stock': stock_code}, {'error': str(e), 'trace': err_trace}, {'status': 'failed'})
                 results['failed'] += 1
-        
         QuantitativeTelemetryProbe.emit("BatchWorker", "calc_chip_factors_batch_DONE", {'success': results['success'], 'failed': results['failed']}, {}, {'status': 'Finished'})
         return results
     except Exception as e:
@@ -265,20 +264,16 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         chip_factor_model = get_chip_factor_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
         daily_data_model = get_daily_data_model_by_code(stock_code)
-        
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
         if not stock: return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
             
         historical_df = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
         if historical_df.empty: return {'status': 'failed', 'error': '历史价格数据不足', 'processed_dates': 0}
-        
         get_dates_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_func(start_date, end_date)
         if not trade_dates: return {'status': 'failed', 'error': '无交易日', 'processed_dates': 0}
-        
         processed_dates = 0
         saved_dates, failed_dates = [], []
-        
         for date_index, current_date in enumerate(trade_dates):
             try:
                 if await sync_to_async(chip_factor_model.objects.filter(stock_id=stock_code, trade_time=current_date, calc_status='success').exists)(): 
@@ -539,7 +534,6 @@ async def save_chip_factors(chip_factor_model, stock, trade_date, factors):
 
         valid_fields = {f.name for f in chip_factor_model._meta.get_fields()}
         orm_safe_factors = {}
-        
         # 终极 Numpy 类型降维打击与 NaN 隔离带
         for k, v in factors.items():
             if k in valid_fields and k not in ['stock', 'trade_time', 'id']:
