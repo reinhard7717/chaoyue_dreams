@@ -121,13 +121,9 @@ def parse_date(date_str: str) -> date:
 # ========== 调度任务 ==========
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_chip_factor_calculation', queue=ChipTaskConfig.get_queue_name())
 def schedule_chip_factor_calculation(self, stock_codes: Optional[List[str]] = None, start_date_str: Optional[str] = None, end_date_str: Optional[str] = None, batch_mode: bool = True, include_energy_analysis: bool = True, calculation_mode: str = 'comprehensive', incremental: bool = True) -> Dict:
-    """
-    [Version 6.0.0] 调度总控网关（强制生命体征报告版）
-    说明：在任务唤醒首行强制写入物理日志和stderr，防止Celery静默劫持，暴露任务是否真的被Worker接收。
-    """
+    """[Version 6.1.0] 調度總控網關 - 異常曝光與路由強制標識版"""
     import sys
     from services.chip_holding_calculator import QuantitativeTelemetryProbe
-    # QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_ENTER", {'mode': calculation_mode, 'incremental': incremental}, {}, {'status': 'Task_Awake'})
     try:
         if start_date_str: start_date = parse_date(start_date_str)
         else: start_date = parse_date(ChipTaskConfig.DEFAULT_START_DATE)
@@ -142,16 +138,17 @@ def schedule_chip_factor_calculation(self, stock_codes: Optional[List[str]] = No
                 stock_list = loop.run_until_complete(stock_dao.get_stock_list())
                 stock_codes = [stock.stock_code for stock in stock_list]
             finally: loop.close()
-        # QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_DISPATCH", {'stock_count': len(stock_codes), 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Dispatching'})
+        # [核心修復]：在調度階段就打出探針，確認調度參數是否正確
+        QuantitativeTelemetryProbe.emit("TaskScheduler", "Gateway_ENTRY", {'stock_count': len(stock_codes), 'mode': calculation_mode, 'queue': ChipTaskConfig.get_queue_name()}, {'start': str(start_date), 'end': str(end_date)}, {'incremental': int(incremental)})
         if calculation_mode == 'comprehensive': result = schedule_comprehensive_calculation(stock_codes, start_date, end_date, batch_mode, incremental)
         elif calculation_mode == 'chip_only':
             if batch_mode: result = schedule_by_stock_batch(stock_codes, start_date, end_date, incremental)
             else: result = schedule_by_date_batch(stock_codes, start_date, end_date)
         elif calculation_mode == 'energy_only': result = schedule_energy_only_calculation(stock_codes, start_date, end_date, incremental)
-        else: raise ValueError(f"未知的计算模式: {calculation_mode}")
+        else: raise ValueError(f"未知的計算模式: {calculation_mode}")
         return result
     except Exception as e:
-        QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_FATAL", {}, {'error': str(e)}, {'status': 'Crash'})
+        QuantitativeTelemetryProbe.emit("TaskScheduler", "Gateway_FATAL", {}, {'error': str(e)}, {'status': 'Crash'})
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
 def schedule_by_stock_batch(stock_codes: List[str], start_date: date, end_date: date, incremental: bool = True) -> Dict:
@@ -247,7 +244,7 @@ def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, 
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
 async def calculate_single_stock_chip_factors_async(stock_code: str, start_date: date, end_date: date) -> Dict:
-    """[Version 7.2.0] 芯片因子提取异步引擎 (探针全景透视与防漏版)"""
+    """[Version 7.3.0] 芯片因子提取引擎 - 數據依賴鏈負向探针強化版"""
     import gc
     import math
     import pandas as pd
@@ -255,8 +252,7 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
     import traceback
     from asgiref.sync import sync_to_async
     from services.chip_holding_calculator import QuantitativeTelemetryProbe
-    
-    QuantitativeTelemetryProbe.emit("SingleStockWorker", "chip_factors_async_ENTER", {'stock': stock_code, 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Started'})
+    QuantitativeTelemetryProbe.emit("SingleStockWorker", "Single_ENTRY", {'stock': stock_code}, {'range': f"{start_date} to {end_date}"}, {'status': 'Processing'})
     try:
         cm = CacheManager()
         realtime_dao = StockRealtimeDAO(cm)
@@ -265,26 +261,36 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
         chips_model = get_cyq_chips_model_by_code(stock_code)
         daily_data_model = get_daily_data_model_by_code(stock_code)
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
-        if not stock: return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
-            
+        if not stock: 
+            QuantitativeTelemetryProbe.emit("SingleStockWorker", "MISSING_BASIC", {'stock': stock_code}, {}, {'status': 'Fail'})
+            return {'status': 'failed', 'error': f'未找到股票 {stock_code}', 'processed_dates': 0}
         historical_df = await get_historical_prices_for_stock(stock_code, end_date, ChipTaskConfig.HISTORICAL_DAYS_FOR_MA)
-        if historical_df.empty: return {'status': 'failed', 'error': '历史价格数据不足', 'processed_dates': 0}
+        if historical_df.empty: 
+            QuantitativeTelemetryProbe.emit("SingleStockWorker", "MISSING_PRICE_HIST", {'stock': stock_code}, {}, {'status': 'Fail'})
+            return {'status': 'failed', 'error': '歷史價格數據不足', 'processed_dates': 0}
         get_dates_func = sync_to_async(TradeCalendar.get_trade_dates_between, thread_sensitive=True)
         trade_dates = await get_dates_func(start_date, end_date)
-        if not trade_dates: return {'status': 'failed', 'error': '无交易日', 'processed_dates': 0}
-        processed_dates = 0
-        saved_dates, failed_dates = [], []
+        if not trade_dates: 
+            QuantitativeTelemetryProbe.emit("SingleStockWorker", "NO_TRADE_DATES", {'stock': stock_code}, {'start': str(start_date), 'end': str(end_date)}, {'status': 'Skip'})
+            return {'status': 'failed', 'error': '無交易日', 'processed_dates': 0}
+        processed_dates, saved_dates, failed_dates = 0, [], []
         for date_index, current_date in enumerate(trade_dates):
             try:
                 if await sync_to_async(chip_factor_model.objects.filter(stock_id=stock_code, trade_time=current_date, calc_status='success').exists)(): 
                     continue
                 chip_perf = await sync_to_async(StockCyqPerf.objects.filter(stock_id=stock_code, trade_time=current_date).first)()
-                if not chip_perf: continue
+                if not chip_perf:
+                    QuantitativeTelemetryProbe.emit("SingleStockWorker", "MISSING_PERF", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'Skip_Day'})
+                    continue
                 chips_data = await sync_to_async(list)(chips_model.objects.filter(stock_id=stock_code, trade_time=current_date).values('price', 'percent'))
-                if not chips_data: continue
+                if not chips_data:
+                    QuantitativeTelemetryProbe.emit("SingleStockWorker", "MISSING_CYQ", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'Skip_Day'})
+                    continue
                 chips_df = pd.DataFrame.from_records(chips_data).astype(np.float32)
                 daily_kline = await sync_to_async(daily_data_model.objects.filter(stock_id=stock_code, trade_time=current_date).first)()
-                if not daily_kline: continue
+                if not daily_kline:
+                    QuantitativeTelemetryProbe.emit("SingleStockWorker", "MISSING_KLINE", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'Skip_Day'})
+                    continue
                 get_offset_func = sync_to_async(TradeCalendar.get_trade_date_offset, thread_sensitive=True)
                 prev_date = await get_offset_func(current_date, -1)
                 if prev_date:
@@ -295,9 +301,7 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 historical_prices_series = safe_historical_df['close_qfq'] if 'close_qfq' in safe_historical_df.columns else pd.Series(dtype=np.float32)
                 try:
                     start_date_hist = current_date - pd.Timedelta(days=5)
-                    historical_factors = await sync_to_async(list)(
-                        chip_factor_model.objects.filter(stock_id=stock_code, trade_time__gte=start_date_hist, trade_time__lt=current_date, calc_status='success').order_by('trade_time').values('chip_mean', 'chip_stability', 'chip_concentration_ratio')
-                    )
+                    historical_factors = await sync_to_async(list)(chip_factor_model.objects.filter(stock_id=stock_code, trade_time__gte=start_date_hist, trade_time__lt=current_date, calc_status='success').order_by('trade_time').values('chip_mean', 'chip_stability', 'chip_concentration_ratio'))
                 except Exception: historical_factors = []
                 current_turnover = 0.0
                 if not safe_historical_df.empty and current_date in safe_historical_df.index:
@@ -316,7 +320,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     if hm:
                         dynamic_dict = hm.to_factor_dict()
                         for k, v in dynamic_dict.items():
-                            # Numpy 前置免疫系统
                             if isinstance(v, (np.floating, float)): factors[k] = 0.0 if math.isnan(float(v)) or math.isinf(float(v)) else float(v)
                             elif isinstance(v, (np.integer, int)): factors[k] = int(v)
                             elif isinstance(v, np.bool_): factors[k] = bool(v)
@@ -333,24 +336,21 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     elif isinstance(v, (np.integer, int)): clean_factors[k] = int(v)
                     elif isinstance(v, np.bool_): clean_factors[k] = bool(v)
                     else: clean_factors[k] = v
-                        
                 clean_factors['calc_status'] = 'success'
                 await save_chip_factors(chip_factor_model, stock, current_date, clean_factors)
-                processed_dates += 1
-                saved_dates.append(current_date)
+                processed_dates += 1; saved_dates.append(current_date)
                 del chips_df
                 if tick_data is not None: del tick_data
                 if date_index % 10 == 0: gc.collect()
             except Exception as e:
                 err_trace = traceback.format_exc()
-                QuantitativeTelemetryProbe.emit("TaskWorker", "single_stock_chip_factors_LOOP_ERR", {'stock': stock_code, 'date': str(current_date)}, {'error': str(e), 'trace': err_trace}, {'status': 'failed'})
+                QuantitativeTelemetryProbe.emit("SingleStockWorker", "LOOP_ERR", {'stock': stock_code, 'date': str(current_date)}, {'error': str(e), 'trace': err_trace}, {'status': 'failed'})
                 failed_dates.append(current_date)
-                
-        QuantitativeTelemetryProbe.emit("SingleStockWorker", "chip_factors_async_DONE", {'stock': stock_code}, {'success': len(saved_dates), 'failed': len(failed_dates)}, {'status': 'Completed'})
+        QuantitativeTelemetryProbe.emit("SingleStockWorker", "Single_DONE", {'stock': stock_code}, {'saved': len(saved_dates), 'failed': len(failed_dates)}, {'status': 'Complete'})
         return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
     except Exception as e:
         err_trace = traceback.format_exc()
-        QuantitativeTelemetryProbe.emit("SingleStockWorker", "chip_factors_async_FATAL", {'stock': stock_code}, {'error': str(e), 'trace': err_trace}, {'status': 'Crash'})
+        QuantitativeTelemetryProbe.emit("SingleStockWorker", "Single_FATAL", {'stock': stock_code}, {'error': str(e), 'trace': err_trace}, {'status': 'Crash'})
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def get_historical_prices_for_stock(stock_code: str, end_date: date, days: int) -> pd.DataFrame:
