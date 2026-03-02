@@ -479,40 +479,43 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 38.0.0] 動力學濃度引擎 - 引入指數衰減與波幅自適應模型，消除負值與極性反噬"""
+        """[Version 38.1.0] 藍籌優化版濃度引擎 - 引入市值自適應與信號過濾邏輯"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         eps = 1e-10
         p = current_chip_dist / (np.sum(current_chip_dist) + eps)
-        chip_mean = float(np.sum(p * price_grid))
-        variance = float(np.sum(p * (price_grid - chip_mean)**2))
-        chip_std = float(np.sqrt(variance))
-        metrics = {'chip_mean': chip_mean, 'weight_avg_cost': chip_mean, 'chip_std': chip_std}
+        # 基礎指標計算
         cdf = np.cumsum(p)
         c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
-        metrics.update({'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95})
-        metrics['winner_rate'] = float(np.interp(current_price, price_grid, cdf))
-        h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.8
-        h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.2
+        h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.95
+        h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.05
         m_range = max(h_high - h_low, eps)
-        # 🧪 [優化] 指數衰減模型取代線性相減，確保 [0, 1] 區間穩定性
-        core_range = max(c85 - c15, eps)
-        metrics['chip_concentration_ratio'] = float(math.exp(-2.5 * (core_range / m_range)))
-        # 🧪 [修復] 穩定度負值報錯，採用非線性飽和函數
+        # 🧪 [優化] 市值自適應因子 (Cap-Adaptive Factor)
+        # 如果價格 > 30 且波幅窄，判定為藍籌特徵，縮小衰減系數
+        lambda_adj = 1.8
+        if current_price > 30 and (m_range / current_price) < 0.05:
+            lambda_adj = 0.8 # 放寬衰減，提升藍籌穩定度的靈敏度
         total_range = max(c95 - c05, eps)
-        metrics['chip_stability'] = float(math.exp(-1.8 * (total_range / m_range)))
-        p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
-        metrics['price_percentile_position'] = float(p_pos)
-        high_mark = h_high - m_range * 0.1
-        # 🧪 [優化] 使用 Logistic 函數處理高位套牢壓力
-        h_lock_p = 1.0 / (1.0 + np.exp(-35.0 * (price_grid - high_mark) / m_range))
+        core_range = max(c85 - c15, eps)
+        # 指標輸出
+        metrics = {
+            'chip_mean': float(np.sum(p * price_grid)),
+            'chip_concentration_ratio': float(math.exp(-2.0 * (core_range / m_range))),
+            'chip_stability': float(math.exp(-lambda_adj * (total_range / m_range))),
+            'winner_rate': float(np.interp(current_price, price_grid, cdf)),
+            'price_percentile_position': float(np.clip((current_price - h_low) / m_range, 0.0, 1.0))
+        }
+        # 🧪 [擴充] 高位壓制飽和模型
+        high_mark = h_high - m_range * 0.05
+        h_lock_p = 1.0 / (1.0 + np.exp(-40.0 * (price_grid - high_mark) / m_range))
         metrics['high_position_lock_ratio_90'] = float(np.sum(p * h_lock_p))
-        metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.04 * c50))**2)))
         if not is_history:
-            # 📡 [探針] 執行全鏈路數據輸出
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"price": current_price, "m_range": m_range}, {"core_range": core_range, "total_range": total_range}, metrics)
+            # 📡 [探針] 輸出原始數據與市值修正參數
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
+                {"price": current_price, "lambda": lambda_adj}, 
+                {"core_ratio": core_range/m_range, "total_ratio": total_range/m_range}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -545,30 +548,24 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 26.0.0] 博弈共振技術引擎 - 消除數據孤島，整合能量流與遷移極性"""
+        """[Version 26.1.0] 共振技術引擎 - 強化信號質量門檻過濾"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
-            # 🧪 [優化] 數據共振校驗：如果能量流方向與籌碼遷移方向一致，則信號強度翻倍
+            # 🧪 [優化] 信號質量門檻 (Signal Quality Gate)
+            # 獲取來自 _analyze_absolute_changes 的信號質量
+            sig_q = float(ad_metrics.get('signal_quality', 0.5))
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
-            mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            resonance_multiplier = 1.0 + (0.5 if e_flow * mig_dir > 0 else -0.3)
-            # 🧪 [優化] 集中度動態修正：結合穩定度進行加權
+            # 如果信號質量過低 (如格力的 0.09)，衰減所有趨勢得分
+            quality_penalty = 1.0 if sig_q > 0.2 else (sig_q / 0.2)
+            # 趨勢與能量共振
+            trend_score = 0.5 + (0.5 * (e_flow / (10.0 + abs(e_flow))))
+            metrics['trend_confirmation_score'] = float(np.clip(trend_score * quality_penalty, 0.0, 1.0))
+            # 🧪 [擴充] 藍籌波幅修正後的集中度
             stability = float(conc_metrics.get('chip_stability', 0.5))
-            adj_concentration = current_concentration * (0.7 + 0.3 * stability)
-            # 趨勢得分矩陣化處理
-            closes = price_history['close_qfq'].to_numpy(dtype=np.float64)
-            ma21 = float(np.mean(closes[-21:])) if len(closes) >= 21 else current_price
-            trend_sig = (current_price - ma21) / ma21
-            metrics['trend_confirmation_score'] = float(1.0 / (1.0 + math.exp(-10.0 * trend_sig * resonance_multiplier)))
-            metrics['volatility_adjusted_concentration'] = float(adj_concentration)
-            if tick_factors:
-                t_quality = float(tick_factors.get('tick_data_quality_score', 0.0))
-                metrics['trend_confirmation_score'] *= (0.9 + 0.1 * t_quality)
-            from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {"e_flow": e_flow, "mig_dir": mig_dir}, {"res_mul": resonance_multiplier, "ma21": ma21}, metrics)
+            metrics['volatility_adjusted_concentration'] = float(current_concentration * (1.2 - stability))
             return metrics
         except Exception: return metrics
 
