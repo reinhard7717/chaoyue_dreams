@@ -370,34 +370,49 @@ class AdvancedChipDynamicsService:
         except Exception:
             return {'peak_count': 0, 'main_peak_position': 0, 'main_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
 
-    def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
-        """[Version 25.0.0] 行为金融扫描引擎 (引入能量背景置信度与MM饱和版)"""
+    def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, energy_metrics: Dict = None) -> Dict[str, any]:
+        """[Version 25.3.0] 疊加態行為金融引擎 - 引入行為對焦因子與一致性校準版"""
         import numpy as np
         import math
         if percent_change_matrix.shape[0] < 3: return self._get_default_behavior_patterns()
-        patterns = {'accumulation': {'detected': False, 'strength': 0.0, 'areas': []}, 'distribution': {'detected': False, 'strength': 0.0, 'areas': []}, 'main_force_activity': 0.0}
         lookback = min(5, percent_change_matrix.shape[0])
         recent_changes = percent_change_matrix[-lookback:, :]
         changes_sum = np.sum(recent_changes, axis=0)
         total_energy = np.sum(np.abs(changes_sum))
-        # [模式置信度]：Km = 10.0。当3日总变动能量达到10%时，信号才具有0.5的置信度
-        confidence_scale = total_energy / (10.0 + total_energy)
+        eps = 1e-10
+        # 1. 基礎物理層 - 執行原始邏輯
         p_mean = np.sum(chip_matrix[-1] * price_grid) / 100.0
         p_std = np.sqrt(np.sum(chip_matrix[-1] * (price_grid - p_mean)**2) / 100.0)
-        # 连续映射权重
-        low_w = 1.0 / (1.0 + np.exp(15.0 * (price_grid - (p_mean - 0.5 * p_std)) / p_std))
-        high_w = 1.0 / (1.0 + np.exp(-15.0 * (price_grid - (p_mean + 0.5 * p_std)) / p_std))
-        # 吸筹：价格低位增加 + 价格高位减少
+        low_w = 1.0 / (1.0 + np.exp(15.0 * (price_grid - (p_mean - 0.5 * p_std)) / (p_std + eps)))
+        high_w = 1.0 / (1.0 + np.exp(-15.0 * (price_grid - (p_mean + 0.5 * p_std)) / (p_std + eps)))
         r_acc = np.sum(changes_sum[changes_sum > 0] * low_w[changes_sum > 0]) + np.sum(np.abs(changes_sum[changes_sum < 0]) * high_w[changes_sum < 0])
-        # 派发：价格高位增加 + 价格低位减少
         r_dist = np.sum(changes_sum[changes_sum > 0] * high_w[changes_sum > 0]) + np.sum(np.abs(changes_sum[changes_sum < 0]) * low_w[changes_sum < 0])
-        km_pattern = 6.0 # 模式半饱和常数
-        patterns['accumulation']['strength'] = float((r_acc / (km_pattern + r_acc)) * confidence_scale)
-        patterns['distribution']['strength'] = float((r_dist / (km_pattern + r_dist)) * confidence_scale)
-        patterns['accumulation']['detected'] = patterns['accumulation']['strength'] > 0.15
-        patterns['distribution']['detected'] = patterns['distribution']['strength'] > 0.15
-        patterns['main_force_activity'] = float(confidence_scale)
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns", {"total_energy": total_energy}, {"r_acc": r_acc, "r_dist": r_dist}, {"acc_str": patterns['accumulation']['strength'], "dist_str": patterns['distribution']['strength']})
+        # 🧪 [步驟 4 & 8] 邏輯疊加：引入行為對焦因子 (Focus Factor)
+        # 衡量能量是否集中在特定的價格區間。若行為高度離散，說明是隨機波動。
+        focus_score = np.sum(changes_sum**2) / (total_energy**2 + eps)
+        # 🧪 [步驟 9] 意圖一致性校準：結合能量流極性
+        e_flow = float(energy_metrics.get('net_energy_flow', 0.0)) if energy_metrics else 0.0
+        # 如果計算出的吸籌方向與能量流(+)一致，一致性高
+        acc_consistency = math.tanh(e_flow * 2.0) if e_flow > 0 else 0.1
+        dist_consistency = math.tanh(abs(e_flow) * 2.0) if e_flow < 0 else 0.1
+        # 2. 疊加態強度產出
+        km_pattern = 6.0
+        confidence_base = total_energy / (10.0 + total_energy)
+        # 強度捲積：原始強度 * 對焦修正 * 一致性修正
+        acc_strength = (r_acc / (km_pattern + r_acc)) * confidence_base * (0.5 + 0.5 * focus_score) * acc_consistency
+        dist_strength = (r_dist / (km_pattern + r_dist)) * confidence_base * (0.5 + 0.5 * focus_score) * dist_consistency
+        patterns = {
+            'accumulation': {'strength': float(acc_strength), 'detected': acc_strength > 0.15},
+            'distribution': {'strength': float(dist_strength), 'detected': dist_strength > 0.15},
+            'behavior_focus_index': float(focus_score),
+            'intent_consistency': float(acc_consistency if acc_strength > dist_strength else dist_consistency)
+        }
+        # [步驟 10] 探針輸出
+        if probe_state.get():
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns_SENSOR", 
+                {"total_e": total_energy, "e_flow": e_flow}, 
+                {"focus": focus_score, "acc_cons": acc_consistency, "r_acc": r_acc}, patterns)
         return patterns
 
     def _build_normalized_chip_matrix(self, chip_history: list, current_chip_dist: pd.DataFrame) -> tuple:
@@ -564,33 +579,37 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 27.7.0] 博弈共振引擎 - 實施「獲利盤熔斷」與「掩護式派發」識別疊加態版"""
+        """[Version 27.9.0] 博弈共振引擎 - 實施行為一致性與意圖過濾疊加態版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
-            e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
-            mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            winner_rate = float(conc_metrics.get('winner_rate', 0.5))
-            # 🧪 [步驟 4 & 9] 廣弘 000529 專項場景：掩護式撤退 (Covered Exit)
-            # 特徵：高獲利 (>0.8) + 正遷移 (>0.1) + 負能量流 (< -0.5)
-            is_covered_exit = (winner_rate > 0.8) and (mig_dir > 0.1) and (e_flow < -0.5)
-            modifier_exit = 0.2 if is_covered_exit else 1.0
+            # 🧪 [步驟 9] 向下滲透：獲取行為層的捲積指標
+            behav_p = self._identify_behavior_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, current_price, energy_metrics)
+            acc_str = float(behav_p['accumulation']['strength'])
+            dist_str = float(behav_p['distribution']['strength'])
+            focus_idx = float(behav_p.get('behavior_focus_index', 0.0))
+            # 🧪 [步驟 4] 行為疊加修正子
+            # 若行為對焦度極低，說明市場處於混亂博弈，實施趨勢得分折減
+            modifier_behavior = 0.5 + 0.5 * math.tanh(focus_idx * 5.0)
             # 基礎得分與其他修正子捲積
+            e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.35)
-            modifier_etc = 0.75 + 0.25 * math.tanh(((e_flow * mig_dir) / (abs(e_flow) + 0.1)) * 2.0)
-            # 🧪 [步驟 5] 信號質量 (S 型非線性放大)
+            # 獲取其他層級的疊加態指標
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
             modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.1)))
-            # 最終得分：捲積合攏
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc * modifier_exit * modifier_quality, 0.0, 1.0))
-            metrics['covered_exit_flag'] = float(1.0 if is_covered_exit else 0.0)
+            # 最終得分：全鏈路捲積
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_behavior * modifier_quality, 0.0, 1.0))
+            metrics['behavior_focus_modifier'] = float(modifier_behavior)
+            metrics['accumulation_intent_score'] = acc_str
+            metrics['distribution_intent_score'] = dist_str
+            # 📡 [步驟 10] 全系統神經中樞探針
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_EXIT", 
-                    {"winner": winner_rate, "e_flow": e_flow}, 
-                    {"m_exit": modifier_exit, "is_exit": is_covered_exit}, metrics)
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
+                    {"acc_str": acc_str, "focus": focus_idx}, 
+                    {"m_behav": modifier_behavior, "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
@@ -1674,9 +1693,9 @@ class QuantitativeTelemetryProbe:
         except Exception as e:
             out_str = f"⚠️ [QUANT-PROBE-ERR] 无法序列化: {e} | Module: {module_name} | Method: {method_name}\n"
         try:
-            # sys.stderr.write(out_str)
-            # sys.stderr.flush()
-            pass
+            sys.stderr.write(out_str)
+            sys.stderr.flush()
+            # pass
         except Exception: pass
         try:
             with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
