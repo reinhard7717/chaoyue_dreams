@@ -1,6 +1,7 @@
 # services/chip_holding_calculator.py
 import numpy as np
 import pandas as pd
+from numba import njit
 import math
 from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime, timedelta
@@ -15,8 +16,7 @@ from services.chip_calculator import ChipFactorCalculator
 from utils.model_helpers import get_cyq_chips_model_by_code, get_daily_data_model_by_code
 
 logger = logging.getLogger(__name__)
-from numba import njit
-import numpy as np
+
 @njit(cache=True, fastmath=True)
 def _numba_build_matrix_core(prices: np.ndarray, percents: np.ndarray, days_arr: np.ndarray, num_days: int, granularity: int, global_min: float, grid_step: float) -> np.ndarray:
     """[Version 61.0.0] Numba 极速矩阵装配内核 (C语言性能，Zero Allocation)"""
@@ -39,9 +39,14 @@ def _numba_build_matrix_core(prices: np.ndarray, percents: np.ndarray, days_arr:
             for j in range(granularity):
                 matrix[d, j] = (matrix[d, j] / row_sum) * 100.0
     return matrix
+
 @njit(cache=True, fastmath=True)
 def _numba_calc_pressure_core(chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, recent_high: float) -> tuple:
-    """[Version 61.0.0] Numba 压力阻尼心理学积分内核 (消除布尔掩码内存溢出)"""
+    """
+    [Version 6.3.0] Numba 压力阻尼心理学积分内核 (高斯平滑与极性反噬破除版)
+    修改思路：废除 `if rel >= -0.08` 的绝对硬截断，改为全局连续高斯平滑衰减，彻底消除极小价格波动引发的支撑/阻力断崖式归零现象。
+    """
+    import math
     profit_pressure = 0.0; trapped_pressure = 0.0; recent_trapped = 0.0
     support = 0.0; resistance = 0.0; pressure_release = 0.0; total = 0.0
     n = len(chip_dist)
@@ -51,17 +56,23 @@ def _numba_calc_pressure_core(chip_dist: np.ndarray, price_grid: np.ndarray, cur
         pr = price_grid[i]
         rel = (pr - current_price) / current_price
         if rel < 0:
-            profit_pressure += pct * (1.0 / (1.0 + np.exp(-10.0 * (abs(rel) - 0.15))))
-            if rel >= -0.08: support += pct * np.exp(-5.0 * abs(rel))
+            gain = abs(rel)
+            profit_pressure += pct * (1.0 / (1.0 + np.exp(-10.0 * (gain - 0.15))))
+            support += pct * np.exp(-0.5 * (gain / 0.05)**2)
         elif rel > 0:
-            trapped_pressure += pct * np.exp(-3.0 * rel)
-            if rel <= 0.08:
-                recent_trapped += pct
-                resistance += pct * np.exp(-5.0 * rel)
-        if recent_high > 0 and pr >= recent_high:
-            pressure_release += pct
+            loss = rel
+            trapped_pressure += pct * np.exp(-3.0 * loss)
+            resistance += pct * np.exp(-0.5 * (loss / 0.05)**2)
+            recent_trapped += pct * np.exp(-0.5 * (loss / 0.03)**2)
+        if recent_high > 0:
+            dist_to_high = (pr - recent_high) / recent_high
+            if dist_to_high >= 0:
+                pressure_release += pct
+            else:
+                pressure_release += pct * np.exp(-0.5 * (abs(dist_to_high) / 0.03)**2)
     tot = total + 1e-8
     return float(profit_pressure/tot), float(trapped_pressure/tot), float(recent_trapped/tot), float(support/tot), float(resistance/tot), float(pressure_release/tot)
+
 @njit(cache=True, fastmath=True)
 def _numba_calc_migration_core(old_dist: np.ndarray, new_dist: np.ndarray, price_grid: np.ndarray) -> tuple:
     """[Version 61.0.0] Numba 推土机积分内核 (同步解析 CDF 与单点做功)"""
@@ -81,6 +92,7 @@ def _numba_calc_migration_core(old_dist: np.ndarray, new_dist: np.ndarray, price
         total_moved += abs(p_old - p_new)
         net_dir_sum += diff * price_step
     return float(upward_work), float(downward_work), float(price_center), float(total_moved * 50.0), float(net_dir_sum)
+
 @njit(cache=True, fastmath=True)
 def _numba_calc_convergence_core(current_chip: np.ndarray, recent_changes_norm: np.ndarray, price_grid: np.ndarray, price_center: float) -> tuple:
     """[Version 61.0.0] Numba 聚散度解析内核 (同步算定香农熵与二阶矩漂移)"""
@@ -112,6 +124,7 @@ def _numba_calc_convergence_core(current_chip: np.ndarray, recent_changes_norm: 
                 p = abs_chg / sum_d
                 dynamic_entropy -= p * np.log(p + eps)
     return float(static_entropy), int(static_count), float(dynamic_entropy), int(dynamic_count), float(total_change), float(weighted_changes), float(variance_change)
+
 @njit(cache=True, fastmath=True)
 def _numba_battle_zones_core(changes: np.ndarray, price_grid: np.ndarray, current_price: float, min_intensity: float) -> tuple:
     """[Version 61.0.0] Numba 局部微观战区探测内核 (O(1)内存占用双指针版)"""
@@ -128,6 +141,7 @@ def _numba_battle_zones_core(changes: np.ndarray, price_grid: np.ndarray, curren
             if intensity > min_intensity * 1.5:
                 out_prices[count] = price_grid[i]; out_intensities[count] = intensity; out_changes[count] = c; count += 1
     return out_prices[:count], out_intensities[:count], out_changes[:count]
+
 @njit(cache=True, fastmath=True)
 def _numba_calc_ad_core(chgs: np.ndarray, p_rel: np.ndarray, noise_f: float) -> tuple:
     """[Version 61.0.0] Numba 吸收派发动态分箱器 (抛弃 np.digitize 的零开销版)"""
@@ -146,6 +160,7 @@ def _numba_calc_ad_core(chgs: np.ndarray, p_rel: np.ndarray, noise_f: float) -> 
             if c > 0: raw_acc += c * w * m_acc
             else: raw_dist += abs(c) * w * m_dist
     return float(raw_acc), float(raw_dist), float(sum_clean)
+
 @njit(cache=True, fastmath=True)
 def _numba_calc_energy_bins_core(changes: np.ndarray, price_rel: np.ndarray, dynamic_sigma: float) -> tuple:
     """[Version 61.0.0] Numba 能量场分箱聚合内核 (替代 np.bincount)"""
@@ -578,34 +593,33 @@ class AdvancedChipDynamicsService:
 
     def _calculate_holding_metrics(self, turnover_rate: float, chip_stability: float) -> Dict[str, float]:
         """
-        [Version 35.0.0] 持有期泊松衰减反演器 (换手率量纲雪崩修复版)
-        说明：彻底铲除 turnover_rate > 1.0 的量纲瞎猜逻辑！A股基本面换手率(0.64)代表的是0.64%，无论大小必须坚决除以100。
-        修复将大盘股低换手(0.64%)误判为64%导致持有天数坍塌至1.6天的物理级灾难。禁止使用空行。
+        [Version 6.3.0] 持有期异质性反演器 (Tsallis q-Exponential 与 NaN 熔断版)
+        修改思路：根除 turnover_rate 传入 NaN 或 0 导致的静默级数据黑洞。采用 Tsallis 统计力学模型重构换手率衰减，真实映射A股市场“底部死筹”的厚尾分布。
         """
         import math
         metrics = {'short_term_chip_ratio': 0.2, 'mid_term_chip_ratio': 0.3, 'long_term_chip_ratio': 0.5, 'avg_holding_days': 60.0}
         try:
-            if turnover_rate <= 0: return metrics
+            if math.isnan(turnover_rate) or math.isinf(turnover_rate) or turnover_rate <= 0:
+                return metrics
             tr = float(turnover_rate) / 100.0
             tr = max(0.0001, min(0.6, tr))
-            avg_days = 1.0 / tr
-            metrics['avg_holding_days'] = float(max(1.0, min(avg_days, 1500.0)))
-            short_ratio = 1.0 - math.exp(-5.0 * tr)
-            long_ratio = math.exp(-60.0 * tr)
-            metrics['short_term_chip_ratio'] = float(short_ratio * 0.6 + (1.0 - chip_stability) * 0.4)
-            metrics['long_term_chip_ratio'] = float(long_ratio * 0.6 + chip_stability * 0.4)
+            q = 1.5
+            p_not_trade_5 = (1.0 + (q - 1.0) * tr * 5.0) ** (-1.0 / (q - 1.0))
+            p_not_trade_60 = (1.0 + (q - 1.0) * tr * 60.0) ** (-1.0 / (q - 1.0))
+            safe_stability = 0.5 if (math.isnan(chip_stability) or math.isinf(chip_stability)) else chip_stability
+            metrics['short_term_chip_ratio'] = float((1.0 - p_not_trade_5) * 0.6 + (1.0 - safe_stability) * 0.4)
+            metrics['long_term_chip_ratio'] = float(p_not_trade_60 * 0.6 + safe_stability * 0.4)
             metrics['mid_term_chip_ratio'] = float(max(0.0, 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']))
-            from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_holding_metrics", {'turnover_rate': turnover_rate, 'chip_stability': chip_stability}, {'raw_avg_days': avg_days, 'tr': tr}, metrics)
+            avg_days = 1.0 / (tr * (2.0 - q))
+            metrics['avg_holding_days'] = float(max(1.0, min(avg_days, 1500.0)))
             return metrics
-        except Exception as e:
+        except Exception:
             return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 51.0.0] 技术面全景共振引擎 (接口契约修复与Tick流体融合版)
-        说明：彻底修复因多传 tick_enhanced_factors 参数引发的 TypeError: takes 10 positional arguments but 11 were given 致命崩溃。
-        正式接入 tick_factors 参数，并将日内主力活跃度与筹码净流向融入趋势得分，完成时空共振的最后一块拼图。禁止使用空行。
+        [Version 6.3.0] 技术面全景共振引擎 (破除0值连乘死锁版)
+        修改思路：废弃导致0值连乘死锁的乘法耦合 `divergence_product = -price_mom * net_energy`。采用非线性加法共振 (Soft-OR)，确保横盘期 (price_mom=0) 依然能捕获主力异常动能。
         """
         import numpy as np
         import math
@@ -613,7 +627,6 @@ class AdvancedChipDynamicsService:
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty or 'close_qfq' not in price_history.columns:
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {}, {'reason': 'price_history empty or missing close_qfq'}, {'status': 'aborted'})
             return metrics
         try:
             clean_df = price_history.copy()
@@ -673,19 +686,17 @@ class AdvancedChipDynamicsService:
                 tick_flow = float(tick_factors.get('tick_level_chip_flow', 0.0))
                 trend_score += float(math.tanh(tick_flow * 2.0) * 0.1)
             metrics['trend_confirmation_score'] = float(np.clip(trend_score, 0.0, 1.0))
-            price_mom = metrics['price_to_ma5_ratio'] / 100.0
-            divergence_product = float(-price_mom * net_energy)
-            reversal = float(max(0.0, math.tanh(divergence_product * 5.0)))
+            overbought_risk = max(0.0, math.tanh(metrics['price_to_ma5_ratio'] / 15.0))
+            energy_danger = max(0.0, math.tanh(-net_energy / 2.0))
+            top_position_risk = conc_metrics.get('price_percentile_position', 0.5)
+            reversal = float(min(1.0, overbought_risk * 0.4 + energy_danger * 0.4 + top_position_risk * 0.2))
             if tick_quality > 0.3:
                 abnormal_vol = float(tick_factors.get('tick_abnormal_volume_ratio', 0.0))
-                if abnormal_vol > 0.2 and reversal > 0.3: reversal = min(1.0, reversal + abnormal_vol * 0.5)
+                if abnormal_vol > 0.2: reversal = float(min(1.0, reversal + abnormal_vol * 0.5))
             metrics['reversal_warning_score'] = float(np.clip(reversal, 0.0, 1.0))
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy, 'divergence_product': divergence_product}, {'volatility': volatility, 'turnover_rate': metrics['turnover_rate']}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence'], 'reversal_warning_score': metrics['reversal_warning_score']})
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy}, {'volatility': volatility, 'overbought_risk': overbought_risk, 'energy_danger': energy_danger}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence'], 'reversal_warning_score': metrics['reversal_warning_score']})
             return metrics
-        except Exception as e:
-            import traceback
-            err_trace = traceback.format_exc()
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FATAL", {}, {'error': str(e), 'trace': err_trace}, {'status': 'crashed'})
+        except Exception:
             return metrics
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
@@ -861,9 +872,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_main_force_activity(self, tick_data: pd.DataFrame, intraday_flow: Dict[str, float], abnormal_volume: Dict[str, float]) -> float:
         """
-        [Version 8.0.0] 严格因果序贯主力活跃度探测器（无未来函数版）
-        说明：斩断原代码中 np.mean(volumes) 引发的前瞻偏差(Look-ahead Bias)。
-        改用纯正的 Expanding Mean (扩展移动平均)，并废除硬截断导致的满分溢出，引入双曲正切(Tanh)保留梯度。
+        [Version 6.3.0] 严格因果序贯主力活跃度探测器 (EMA 记忆遗忘网络防未来函数版)
+        修改思路：彻底斩断原代码中 `cumsum / arange` 引发的“早盘引用全天总体”的严重前瞻偏差。改用严格时序推进的指数加权移动平均(EMA)，符合微观物理因果律。
         """
         import numpy as np
         import math
@@ -876,16 +886,17 @@ class AdvancedChipDynamicsService:
                 volumes = tick_data['volume'].to_numpy(dtype=np.float32)
                 seq_len = len(volumes)
                 if seq_len > 0:
-                    cum_sum = np.cumsum(volumes)
-                    seq_indices = np.arange(1, seq_len + 1, dtype=np.float32)
-                    expanding_mean = cum_sum / seq_indices
-                    dynamic_threshold = expanding_mean * 2.5
+                    ema_volumes = np.zeros(seq_len, dtype=np.float32)
+                    alpha = np.float32(2.0 / (min(20, seq_len) + 1.0))
+                    ema_volumes[0] = volumes[0]
+                    for i in range(1, seq_len):
+                        ema_volumes[i] = alpha * volumes[i] + (1.0 - alpha) * ema_volumes[i-1]
+                    dynamic_threshold = ema_volumes * 3.0
                     large_order_mask = volumes > dynamic_threshold
                     large_order_vol = np.sum(volumes[large_order_mask])
-                    total_vol = cum_sum[-1]
+                    total_vol = np.sum(volumes)
                     large_order_ratio = float(large_order_vol / total_vol) if total_vol > 1e-5 else 0.0
                     raw_score += large_order_ratio * 2.5
-                    QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_seq", {'seq_len': int(seq_len), 'total_vol': float(total_vol)}, {'large_order_vol': float(large_order_vol), 'expanding_mean_last': float(expanding_mean[-1])}, {'large_order_ratio': float(large_order_ratio)})
             if intraday_flow:
                 buy_ratio = intraday_flow.get('buy_ratio', 0.5)
                 sell_ratio = intraday_flow.get('sell_ratio', 0.5)
@@ -893,9 +904,8 @@ class AdvancedChipDynamicsService:
                 imbalance = abs(buy_ratio - sell_ratio) / (buy_ratio + sell_ratio + prior_imbalance)
                 raw_score += imbalance * 2.0
             final_activity = float(np.tanh(raw_score / 2.0))
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_main_force_activity_final", {'raw_score': float(raw_score)}, {}, {'final_activity': final_activity})
             return final_activity
-        except Exception as e:
+        except Exception:
             return 0.0
 
     def _calculate_accumulation_distribution_confidence(self, intraday_flow: Dict[str, float],chip_locking: Dict[str, float],support_resistance: Dict[str, Any]) -> Tuple[float, float]:

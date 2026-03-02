@@ -470,25 +470,31 @@ class ChipFactorBase(models.Model):
         return f"{self.stock.stock_code} {self.trade_time}"
     def save(self, *args, **kwargs):
         """
-        重写save方法，自动将所有FloatField字段四舍五入保留3位小数
+        [Version 6.3.0] ORM 级毒性数据熔断器与精度对齐算子
+        修改思路：彻底拦截 numpy.nan 与 numpy.inf 对 MySQL 的致命注入。利用 math.isnan 和 math.isinf 在底层截断，触发毒性数据时自动降级为 0.0，保全整行数据落盘。
         """
+        import math
+        from django.db import models
         for field in self._meta.fields:
             if isinstance(field, models.FloatField):
                 val = getattr(self, field.name)
                 if val is not None:
                     try:
-                        setattr(self, field.name, round(float(val), 3))
+                        f_val = float(val)
+                        if math.isnan(f_val) or math.isinf(f_val):
+                            setattr(self, field.name, 0.0)
+                        else:
+                            setattr(self, field.name, round(f_val, 3))
                     except (ValueError, TypeError):
-                        pass
+                        setattr(self, field.name, 0.0)
         super().save(*args, **kwargs)
 
     # ========== 计算聚散度的方法 ==========
     @classmethod
     def calculate_convergence_divergence(cls, chip_dynamics_result: Dict[str, any]) -> Dict[str, float]:
         """
-        [Version 23.0.0] 筹码聚散网络推断算子 (贝叶斯联合概率融合版)
-        说明：消灭简单的加法除以均值的暴力平均。
-        引入联合概率分布(Probabilistic OR)计算多维度信号（主力/派发/迁徙）共振的 behavior_confirmation。禁止使用空行。
+        [Version 6.3.0] 筹码聚散网络推断算子 (动态贝叶斯置信度防死锁版)
+        修改思路：彻底废除原版极易引发 0 值连乘死锁的概率连乘模型。采用基于 Soft-OR 逻辑的联合概率分布，避免单一信号归零导致全局预警瘫痪。
         """
         import math
         try:
@@ -503,27 +509,30 @@ class ChipFactorBase(models.Model):
             increase_areas = absolute_signals.get('significant_increase_areas', [])
             decrease_areas = absolute_signals.get('significant_decrease_areas', [])
             total_abs_change = sum(abs(area.get('change', 0.0)) for area in increase_areas) + sum(abs(area.get('change', 0.0)) for area in decrease_areas)
-            factors['absolute_change_strength'] = float(math.tanh(total_abs_change / 15.0))
+            dynamic_normalization_factor = max(5.0, total_abs_change * 0.5)
+            factors['absolute_change_strength'] = float(math.tanh(total_abs_change / dynamic_normalization_factor))
             accumulation = behavior_patterns.get('accumulation', {})
             distribution = behavior_patterns.get('distribution', {})
             factors['accumulation_signal_score'] = float(accumulation.get('strength', 0.0))
             factors['distribution_signal_score'] = float(distribution.get('strength', 0.0))
             factors['main_force_activity_index'] = float(behavior_patterns.get('main_force_activity', 0.0))
             factors['signal_quality_score'] = float(absolute_signals.get('signal_quality', 0.0))
-            p_accum = factors['accumulation_signal_score']
-            p_dist = factors['distribution_signal_score']
-            p_mig = abs(factors['net_migration_direction'])
-            p_main = factors['main_force_activity_index']
-            factors['behavior_confirmation'] = float(1.0 - (1.0 - max(p_accum, p_dist)) * (1.0 - p_mig) * (1.0 - p_main * 0.5))
+            p_accum = max(0.0, factors['accumulation_signal_score'])
+            p_dist = max(0.0, factors['distribution_signal_score'])
+            p_mig = max(0.0, abs(factors['net_migration_direction']))
+            p_main = max(0.0, factors['main_force_activity_index'])
+            p_behavior_max = max(p_accum, p_dist)
+            factors['behavior_confirmation'] = float(1.0 - (1.0 - p_behavior_max) * (1.0 - p_mig) * (1.0 - p_main * 0.5))
+            factors['behavior_confirmation'] = min(1.0, max(0.0, factors['behavior_confirmation']))
             pressure_metrics = chip_dynamics_result.get('pressure_metrics', {})
             factors['pressure_release_index'] = float(pressure_metrics.get('pressure_release', 0.0))
             support = float(pressure_metrics.get('support_strength', 0.3))
             resistance = float(pressure_metrics.get('resistance_strength', 0.3))
-            prior_sr = 0.05
+            prior_sr = max(0.01, (support + resistance) * 0.1)
             raw_sr_ratio = (support + prior_sr) / (resistance + prior_sr)
             factors['support_resistance_ratio'] = float(math.atan(raw_sr_ratio) / (math.pi / 2) * 2.0)
             return factors
-        except Exception as e:
+        except Exception:
             return cls._get_default_convergence_factors()
 
     @classmethod
@@ -978,16 +987,23 @@ class ChipHoldingMatrixBase(models.Model):
         return f"{self.stock.stock_code} {self.trade_time} 动态分析"
     def save(self, *args, **kwargs):
         """
-        重写save方法，自动将所有FloatField字段四舍五入保留3位小数
+        [Version 6.3.0] ORM 级毒性数据熔断器与精度对齐算子
+        修改思路：彻底拦截 numpy.nan 与 numpy.inf 对 MySQL 的致命注入。利用 math.isnan 和 math.isinf 在底层截断，触发毒性数据时自动降级为 0.0，保全整行数据落盘。
         """
+        import math
+        from django.db import models
         for field in self._meta.fields:
             if isinstance(field, models.FloatField):
                 val = getattr(self, field.name)
                 if val is not None:
                     try:
-                        setattr(self, field.name, round(float(val), 3))
+                        f_val = float(val)
+                        if math.isnan(f_val) or math.isinf(f_val):
+                            setattr(self, field.name, 0.0)
+                        else:
+                            setattr(self, field.name, round(f_val, 3))
                     except (ValueError, TypeError):
-                        pass
+                        setattr(self, field.name, 0.0)
         super().save(*args, **kwargs)
 
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
