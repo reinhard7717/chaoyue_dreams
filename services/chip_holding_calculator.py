@@ -542,7 +542,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 26.2.0] 共振技術引擎 - 引入能量場與遷徙路徑的背離校驗"""
+        """[Version 26.3.0] 博弈共振引擎 - 強化背離偵測與極性校準邏輯"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -550,17 +550,23 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            # 🧪 [優化] 背離因子：如果能量為正但重心下移，視為無效護盤
-            divergence_penalty = 1.0
-            if e_flow > 0 and mig_dir < -0.05:
-                divergence_penalty = 0.6 # 強制削減趨勢得分 40%
+            # 🧪 [優化] 計算能量-遷移共振因子 (Resonance Factor)
+            # 公式: R = tanh(e_flow * mig_dir * 10)
+            resonance = math.tanh(e_flow * mig_dir * 10.0)
+            # 🧪 [優化] 突破勢能修正：若背離(R < 0)，則視為誘多陷阱
+            raw_breakout = float(energy_metrics.get('breakout_potential', 0.0))
+            adjusted_breakout = raw_breakout * (1.0 + resonance) if resonance > 0 else raw_breakout * math.exp(resonance * 3.0)
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            quality_gate = 1.0 if sig_q > 0.15 else (sig_q / 0.15)
-            closes = price_history['close_qfq'].to_numpy(dtype=np.float64)
-            ma21 = float(np.mean(closes[-21:])) if len(closes) >= 21 else current_price
-            trend_base = 0.5 + (0.5 * (e_flow / (10.0 + abs(e_flow))))
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * divergence_penalty * quality_gate, 0.0, 1.0))
-            metrics['energy_migration_divergence'] = float(1.0 - divergence_penalty)
+            # 趨勢得分矩陣：結合信號質量與共振因子
+            trend_base = 1.0 / (1.0 + math.exp(-5.0 * (e_flow / 10.0)))
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * (0.5 + 0.5 * resonance) * sig_q, 0.0, 1.0))
+            metrics['breakout_potential_adj'] = float(adjusted_breakout)
+            metrics['resonance_divergence_index'] = float(resonance)
+            # 📡 [探針] 全鏈路輸出
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_RES", 
+                {"e_flow": e_flow, "mig_dir": mig_dir}, 
+                {"resonance": resonance, "raw_breakout": raw_breakout}, metrics)
             return metrics
         except Exception: return metrics
 
