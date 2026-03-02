@@ -479,7 +479,7 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 37.0.1] 動力學濃度引擎 - 修復 Telemetry 變量命名錯誤報錯版"""
+        """[Version 38.0.0] 動力學濃度引擎 - 引入指數衰減與波幅自適應模型，消除負值與極性反噬"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
@@ -496,19 +496,23 @@ class AdvancedChipDynamicsService:
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.8
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.2
         m_range = max(h_high - h_low, eps)
-        km_conc = 0.15
-        s_ratio = max(c85 - c15, eps) / m_range
-        metrics['chip_concentration_ratio'] = 1.0 - (s_ratio / (km_conc + s_ratio))
-        metrics['chip_stability'] = 1.0 - (max(c95 - c05, eps) / (0.3 + max(c95 - c05, eps) / m_range))
+        # 🧪 [優化] 指數衰減模型取代線性相減，確保 [0, 1] 區間穩定性
+        core_range = max(c85 - c15, eps)
+        metrics['chip_concentration_ratio'] = float(math.exp(-2.5 * (core_range / m_range)))
+        # 🧪 [修復] 穩定度負值報錯，採用非線性飽和函數
+        total_range = max(c95 - c05, eps)
+        metrics['chip_stability'] = float(math.exp(-1.8 * (total_range / m_range)))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         metrics['price_percentile_position'] = float(p_pos)
         high_mark = h_high - m_range * 0.1
-        h_lock_p = 1.0 / (1.0 + np.exp(-40.0 * (price_grid - high_mark) / m_range))
+        # 🧪 [優化] 使用 Logistic 函數處理高位套牢壓力
+        h_lock_p = 1.0 / (1.0 + np.exp(-35.0 * (price_grid - high_mark) / m_range))
         metrics['high_position_lock_ratio_90'] = float(np.sum(p * h_lock_p))
-        metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50))**2)))
+        metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.04 * c50))**2)))
         if not is_history:
+            # 📡 [探針] 執行全鏈路數據輸出
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"p_pos": p_pos, "s_ratio": s_ratio}, {"km_conc": km_conc, "high_mark": h_high}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"price": current_price, "m_range": m_range}, {"core_range": core_range, "total_range": total_range}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -541,44 +545,30 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 25.0.0] 博弈共振技术引擎 (流形概率融合与信号隔离消除版)"""
+        """[Version 26.0.0] 博弈共振技術引擎 - 消除數據孤島，整合能量流與遷移極性"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
+            # 🧪 [優化] 數據共振校驗：如果能量流方向與籌碼遷移方向一致，則信號強度翻倍
+            e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
+            mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
+            resonance_multiplier = 1.0 + (0.5 if e_flow * mig_dir > 0 else -0.3)
+            # 🧪 [優化] 集中度動態修正：結合穩定度進行加權
+            stability = float(conc_metrics.get('chip_stability', 0.5))
+            adj_concentration = current_concentration * (0.7 + 0.3 * stability)
+            # 趨勢得分矩陣化處理
             closes = price_history['close_qfq'].to_numpy(dtype=np.float64)
             ma21 = float(np.mean(closes[-21:])) if len(closes) >= 21 else current_price
-            # [信号聚合]：提取三大核心动力学特征
-            e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
-            ad_ratio = float(ad_metrics.get('net_ad_ratio', 0.0))
-            t_flow = float(tick_factors.get('tick_level_chip_flow', 0.0)) if tick_factors else 0.0
-            t_quality = float(tick_factors.get('tick_data_quality_score', 0.0)) if tick_factors else 0.0
-            # [MM方程映射：能量动力学归一化] K=10.0
-            p_energy = e_flow / (10.0 + abs(e_flow))
-            p_ad = ad_ratio / (0.5 + abs(ad_ratio))
-            p_tick = (t_flow / (0.2 + abs(t_flow))) * t_quality
-            # [逻辑防死锁：Soft-OR 共振网]
-            # 计算正面共振强度 (Any signal can trigger, but combined is stronger)
-            pos_resonance = 1.0 - (1.0 - max(0, p_energy)) * (1.0 - max(0, p_ad)) * (1.0 - max(0, p_tick))
-            neg_resonance = 1.0 - (1.0 - abs(min(0, p_energy))) * (1.0 - abs(min(0, p_ad))) * (1.0 - abs(min(0, p_tick)))
-            # [冲突压制逻辑]
-            direction_conflict = (p_energy * p_ad < -0.01) or (p_energy * p_tick < -0.01)
-            conflict_penalty = 0.5 if direction_conflict else 1.0
-            # 趋势得分：结合均线排列
-            ma_status = 0
-            if len(closes) >= 55:
-                ma5, ma21, ma34, ma55 = [np.mean(closes[-n:]) for n in [5, 21, 34, 55]]
-                if ma5 > ma21 > ma34 > ma55: ma_status = 1
-                elif ma5 < ma21 < ma34 < ma55: ma_status = -1
-            trend_score = 0.5 + (0.3 * (pos_resonance - neg_resonance)) + (0.2 * ma_status)
-            metrics['trend_confirmation_score'] = float(np.clip(trend_score * conflict_penalty, 0.0, 1.0))
-            # 反转得分：MM方程模拟超买饱和
-            price_to_ma5 = (current_price - np.mean(closes[-5:])) / np.mean(closes[-5:])
-            overbought = price_to_ma5 / (0.1 + abs(price_to_ma5)) # 10%偏离即达半饱和
-            metrics['reversal_warning_score'] = float(np.clip(overbought * 0.5 + neg_resonance * 0.5, 0.0, 1.0))
-            # [全链路探针]
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {"e_flow": e_flow, "ad_ratio": ad_ratio, "t_flow": t_flow}, {"pos_res": pos_resonance, "neg_res": neg_resonance, "conflict": direction_conflict}, metrics)
+            trend_sig = (current_price - ma21) / ma21
+            metrics['trend_confirmation_score'] = float(1.0 / (1.0 + math.exp(-10.0 * trend_sig * resonance_multiplier)))
+            metrics['volatility_adjusted_concentration'] = float(adj_concentration)
+            if tick_factors:
+                t_quality = float(tick_factors.get('tick_data_quality_score', 0.0))
+                metrics['trend_confirmation_score'] *= (0.9 + 0.1 * t_quality)
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {"e_flow": e_flow, "mig_dir": mig_dir}, {"res_mul": resonance_multiplier, "ma21": ma21}, metrics)
             return metrics
         except Exception: return metrics
 
