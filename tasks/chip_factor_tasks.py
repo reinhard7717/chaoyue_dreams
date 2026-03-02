@@ -790,7 +790,7 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
     """
     try:
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        # QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_ENTER", {'stock_count': len(stock_codes), 'incremental': incremental}, {}, {'status': 'Started'})
+        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_ENTER", {'stock_count': len(stock_codes), 'incremental': incremental}, {}, {'status': 'Started'})
         global_start_date_obj = parse_date(start_date)
         end_date_obj = parse_date(end_date)
         results = {'total': len(stock_codes), 'success': 0, 'failed': 0, 'details': []}
@@ -804,7 +804,7 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
                         next_trade_date = TradeCalendar.get_next_trade_date(latest_record.trade_time)
                         if next_trade_date: actual_start_date_obj = max(global_start_date_obj, next_trade_date)
                 if actual_start_date_obj > end_date_obj:
-                    # QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_SKIP", {'stock': stock_code}, {'reason': '数据已最新，增量逻辑触发拦截'}, {'status': 'Skipped'})
+                    QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_SKIP", {'stock': stock_code}, {'reason': '数据已最新，增量逻辑触发拦截'}, {'status': 'Skipped'})
                     results['success'] += 1
                     results['details'].append({'stock_code': stock_code, 'stock_index': stock_index + 1, 'status': 'success', 'processed_dates': 0})
                     continue
@@ -815,11 +815,11 @@ def calculate_holding_matrix_batch(self, stock_codes: List[str], start_date: str
             except Exception as e:
                 results['failed'] += 1
                 results['details'].append({'stock_code': stock_code, 'stock_index': stock_index + 1, 'status': 'error', 'error': str(e), 'processed_dates': 0})
-        # QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_DONE", {'success': results['success'], 'failed': results['failed']}, {}, {'status': 'Finished'})
+        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_DONE", {'success': results['success'], 'failed': results['failed']}, {}, {'status': 'Finished'})
         return results
     except Exception as e:
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        # QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_FATAL", {}, {'error': str(e)}, {'status': 'Crashed'})
+        QuantitativeTelemetryProbe.emit("BatchWorker", "calculate_holding_matrix_batch_FATAL", {}, {'error': str(e)}, {'status': 'Crashed'})
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
 @celery_app.task(bind=True, name='tasks.chip_factor_tasks.schedule_holding_matrix_calculation', queue=ChipTaskConfig.get_queue_name())
