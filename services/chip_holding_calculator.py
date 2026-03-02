@@ -534,7 +534,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 26.4.0] 共振技術引擎 - 引入湍流抑制因子與虛假派發二階修正"""
+        """[Version 26.5.0] 博弈共振引擎 - 引入場景拆解與漂移效率校準邏輯"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -542,26 +542,33 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
+            pressure = float(conc_metrics.get('comprehensive_pressure', 0.5))
+            # 🧪 [步驟 4 & 8] 漂移效率模型：衡量能量流轉化為重心遷移的能力
+            # Drift Efficiency = (Migration / Energy) * Correlation_Sign
+            energy_norm = e_flow / (abs(e_flow) + 1.0)
+            drift_efficiency = (mig_dir * energy_norm) / (energy_norm**2 + 0.1)
+            # 🧪 [步驟 4] 場景拆解：泥潭模式 (Mud Pit Mode)
+            # 特徵：高壓力、有流入、無遷移
+            is_mud_pit = (pressure > 0.8) and (e_flow > 0) and (mig_dir < 0)
+            damping_factor = 0.4 if is_mud_pit else 1.0
+            # 🧪 [步驟 5] 非線性歸一化：信號質量極化處理 (Power Law)
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            # 🧪 [優化] GTI 湍流指數：衡量能量與遷移的脫節程度
-            turbulence = abs(e_flow / (abs(e_flow) + 1.0) - mig_dir)
-            turbulence_penalty = math.exp(-turbulence * 2.0)
-            # 🧪 [優化] 虛假派發深度介入：若判定為真實派發（fake_dist 小），加重趨勢懲罰
-            fake_dist_prob = float(energy_metrics.get('fake_distribution_flag', 0.5))
-            dist_conviction = 1.0 - fake_dist_prob
+            refined_sig_q = math.pow(sig_q, 0.7) # 提升低質量區間的感知力
+            # 🧪 [步驟 9] 消除信息孤島：解套坍縮率
+            # 當收斂強度高且處於高壓區，預示著一次劇烈的解套拋壓釋放
+            conv_str = float(conc_metrics.get('convergence_strength', 0.0))
+            trap_collapse_risk = conv_str * pressure
             # 最終得分計算
-            trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.5)
-            # 共振邏輯：能量與遷移同向則加分，異向則受 GTI 懲罰
-            resonance_multiplier = 1.2 if e_flow * mig_dir > 0.02 else 0.4
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * resonance_multiplier * sig_q * turbulence_penalty, 0.0, 1.0))
-            # 特殊預警：派發定型得分
-            metrics['distribution_conviction_score'] = float(dist_conviction * (1.0 - sig_q))
-            metrics['market_turbulence_index'] = float(turbulence)
-            # 📡 [探針]
+            resonance = math.tanh(e_flow * mig_dir * 5.0)
+            metrics['trend_confirmation_score'] = float(np.clip((0.5 + 0.5 * resonance) * refined_sig_q * damping_factor, 0.0, 1.0))
+            metrics['drift_efficiency_index'] = float(drift_efficiency)
+            metrics['mud_pit_status_flag'] = float(1.0 if is_mud_pit else 0.0)
+            metrics['trap_collapse_risk_score'] = float(trap_collapse_risk)
+            # 📡 [步驟 10] 探針輸出全鏈路
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_EXT", 
-                {"turbulence": turbulence, "fake_dist": fake_dist_prob}, 
-                {"penalty": turbulence_penalty, "sig_q": sig_q}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FP", 
+                {"is_mud": is_mud_pit, "drift": drift_efficiency}, 
+                {"damping": damping_factor, "polar_q": refined_sig_q}, metrics)
             return metrics
         except Exception: return metrics
 
