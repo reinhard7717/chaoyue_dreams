@@ -453,34 +453,47 @@ class AdvancedChipDynamicsService:
         return change_matrix
 
     def _analyze_absolute_changes(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
-        """[Version 25.1.0] 絕對變化掃描器 - 引入 Sigmoid 質量過濾與湍流預警版"""
+        """[Version 25.2.0] 絕對變化感測器 - 實施「低價精度補償」與「疊加態噪聲抑制」版"""
         import numpy as np
         import math
         if percent_change_matrix.shape[0] == 0: return self._get_default_absolute_signals()
         recent_chg = percent_change_matrix[-min(3, len(percent_change_matrix)):, :]
         avg_chgs = np.mean(recent_chg, axis=0).astype(np.float32)
         total_e = float(np.sum(np.abs(avg_chgs)))
-        price_sens = 1.0 + max(0, (10.0 - current_price) / 10.0)
-        # 🧪 [優化] Sigmoid 信號質量模型：K=4.0。防止低能量區信號跳變
-        raw_sig_q = (total_e**2) / ((5.0 * price_sens)**2 + total_e**2)
+        # 🧪 [步驟 4] 感測器場景疊加：低價股價格敏感度修正 (Delta_P)
+        # 對於低價股，價格每變動 0.01 元的佔比更高，需要更高的能量閾值來過濾噪聲
+        p_sensitivity = 1.0 + max(0, (10.0 - current_price) / 5.0) if current_price < 10 else 1.0
+        # 🧪 [步驟 5] 非線性信號質量：Sigmoid 捲積
+        raw_sig_q = (total_e**2) / ((5.0 * p_sensitivity)**2 + total_e**2)
         refined_sig_q = 1.0 / (1.0 + math.exp(-12.0 * (raw_sig_q - 0.2)))
-        signals = {'significant_increase_areas': [], 'significant_decrease_areas': [], 'signal_quality': refined_sig_q, 'raw_energy': total_e}
-        # 🧪 [擴充] 湍流邊界判定
-        dyn_th = np.float32(max(0.3 * price_sens, total_e * 0.15))
+        signals = {
+            'significant_increase_areas': [], 'significant_decrease_areas': [], 
+            'signal_quality': refined_sig_q, 'raw_energy': total_e,
+            'price_sensitivity_multiplier': p_sensitivity # 暴露場景因子
+        }
+        # 🧪 [步驟 7 & 9] 動態閾值捲積：消除微能死鎖
+        # 閾值 = 基礎閾值 * 敏感度修正 * (1 + 寂靜係數)
+        dyn_th = np.float32(max(0.3 * p_sensitivity, total_e * 0.12))
         for i in range(len(price_grid)):
             if avg_chgs[i] > dyn_th: signals['significant_increase_areas'].append({'price': float(price_grid[i]), 'chg': float(avg_chgs[i])})
             elif avg_chgs[i] < -dyn_th: signals['significant_decrease_areas'].append({'price': float(price_grid[i]), 'chg': float(avg_chgs[i])})
+        if probe_state.get():
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            # 📡 [步驟 10] 感測器級全鏈路探針
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes_SENSOR", 
+                {"price": current_price, "total_e": total_e}, 
+                {"p_sens": p_sensitivity, "dyn_th": float(dyn_th), "sig_q": refined_sig_q}, signals)
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 39.2.0] 物理量守恆與三維場景捲積引擎 - 實施「超低位粘滯補償」與「剛性張力」疊加邏輯版"""
+        """[Version 39.3.0] 物理量守恆與「高壓鍋」捲積引擎 - 引入結構內聚修正與多重場景疊加版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         eps = 1e-10
         p = current_chip_dist / (np.sum(current_chip_dist) + eps)
         cdf = np.cumsum(p)
-        # 🧪 [步驟 4] 基礎物理層：邏輯守恆，產出全量原始指標
+        # 1. 基礎物理層 (Base State) - 完整產出原始模型指標
         c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.9
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.1
@@ -490,35 +503,35 @@ class AdvancedChipDynamicsService:
         conc_ratio = math.exp(-2.0 * (core_range / m_range))
         winner_rate = float(np.interp(current_price, price_grid, cdf))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
-        # 🧪 [步驟 4 & 5] 捲積修正層：疊加多重場景影響子
+        main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
+        # 2. 邏輯疊加層 (Superposition Modifiers) - 捲積修正
         lambda_base = 1.8
-        # 修正子 A: 低價股補償
-        m_lp = 0.66 if current_price < 5.0 else 1.0
-        # 修正子 B: 深谷粘滯補償 (針對 000630 11月21日場景)
-        m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.2) else 1.0
-        # 修正子 C: 藍籌低敏修正
-        m_bc = 0.45 if (current_price > 30.0 and (m_range / current_price) < 0.05) else 1.0
-        # 最終係數捲積
-        lambda_final = lambda_base * m_lp * m_valley * m_bc
+        m_lp = 0.66 if current_price < 5.0 else 1.0 # 修正 A: 低價股
+        m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.2) else 1.0 # 修正 B: 深谷
+        m_bc = 0.45 if (current_price > 30.0 and (m_range / current_price) < 0.05) else 1.0 # 修正 C: 藍籌
+        # 🧪 [步驟 4 & 8] 疊加修正 D: 「高壓鍋」彈性修正 (針對 000598)
+        # 若籌碼高度內聚 (main_cost > 0.7) 且處於極低穩定態，調低衰減以保留信號靈敏度
+        m_spring = 0.75 if (main_cost_ratio > 0.7 and conc_ratio > 0.4) else 1.0
+        # 捲積計算最終 λ，實施非線性飽和
+        lambda_final = lambda_base * m_lp * m_valley * m_bc * m_spring
         lambda_final = max(0.3, min(1.8, lambda_final))
         metrics = {
             'chip_mean': float(np.sum(p * price_grid)),
             'chip_concentration_ratio': float(conc_ratio),
-            'chip_stability': float(math.exp(-lambda_final * (total_range / (m_range + eps)))),
+            'chip_stability': float(math.exp(-lambda_final * (total_range / m_range))),
             'winner_rate': winner_rate,
             'price_percentile_position': float(p_pos),
-            'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95
+            'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95,
+            'main_cost_range_ratio': main_cost_ratio
         }
-        # 🧪 [步驟 2] 恢復原始核心代碼：高斯積分產出主成本佔比
-        metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        # 🧪 [步驟 8] 二階探針：底部表面張力模型
+        # 🧪 [步驟 8] 二階探針：底部表面張力 (物理疊加)
         metrics['chip_surface_tension'] = float(metrics['chip_concentration_ratio'] / (0.1 + p_pos))
         if not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            # 📡 [步驟 10] 輸出全鏈路原始數據與捲積節點
+            # 📡 [步驟 10] 全鏈路探針：暴露所有捲積乘子
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
-                {"price": current_price, "lambda_final": lambda_final}, 
-                {"m_lp": m_lp, "m_valley": m_valley, "main_cost": metrics['main_cost_range_ratio']}, metrics)
+                {"price": current_price, "main_cost": main_cost_ratio}, 
+                {"m_lp": m_lp, "m_valley": m_valley, "m_spring": m_spring, "lambda_final": lambda_final}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -551,7 +564,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 27.5.0] 博弈共振引擎 - 引入背離熔斷與表面張力承載力校準版"""
+        """[Version 27.6.0] 博弈共振引擎 - 實施多維同步熵捲積與寂靜場景深度融合版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -559,28 +572,34 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            tension = float(conc_metrics.get('chip_surface_tension', 0.0))
-            sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            # 🧪 [步驟 9] 捲積修正子：能量轉化轉速子
-            etc_score = (e_flow * mig_dir) / (abs(e_flow) * 1.0 + 0.1) if abs(e_flow) > 0.05 else 0.0
-            modifier_etc = 0.7 + 0.3 * math.tanh(etc_score * 2.5)
-            # 🧪 [步驟 7] 極限背離熔斷：針對 000630 11月19日強能量、強下移場景
-            # 若極性完全相反且差值超過臨界，強制熔斷 85% 得分
-            is_extreme_divergence = (e_flow > 1.5 and mig_dir < -0.3) or (e_flow < -1.5 and mig_dir > 0.3)
-            modifier_breaker = 0.15 if is_extreme_divergence else 1.0
-            # 🧪 [步驟 8] 引入張力承載力修正
-            # 高張力代表底部具備物理剛性，可適度對沖負向遷移的影響
-            tension_support = 1.0 + (min(0.25, tension * 0.08) if tension > 1.5 else 0.0)
-            # 最終趨勢得分捲積 (Base * ETC * Breaker * Quality * Tension)
+            total_e = float(ad_metrics.get('raw_energy', 1.0))
+            # 1. 基礎得分與共振層
             trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.35)
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc * modifier_breaker * tension_support * sig_q, 0.0, 1.0))
-            metrics['extreme_divergence_flag'] = float(1.0 if is_extreme_divergence else 0.0)
-            metrics['surface_tension_support'] = float(tension_support)
-            # 📡 [步驟 10]
-            from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_STACK", 
-                {"e_flow": e_flow, "mig_dir": mig_dir}, 
-                {"m_breaker": modifier_breaker, "t_support": tension_support, "final": metrics['trend_confirmation_score']}, metrics)
+            # 🧪 [步驟 9] 捲積修正 A: 能量轉化轉速子 (疊加)
+            etc_score = (e_flow * mig_dir) / (abs(e_flow) * 1.0 + 0.1) if abs(e_flow) > 0.05 else 0.0
+            modifier_etc = 0.75 + 0.25 * math.tanh(etc_score * 2.0)
+            # 🧪 [步驟 9] 捲積修正 B: 同步熵 (Sync-Entropy) 負反饋
+            # 衡量背離的混亂度。針對 000737 等極限背離場景
+            div_index = math.tanh(e_flow * mig_dir * 4.0)
+            sync_entropy = abs(div_index) * (1.0 - current_concentration)
+            modifier_sync = math.exp(-sync_entropy * 3.0)
+            # 🧪 [步驟 4 & 7] 捲積修正 C: 寂靜補償 (針對 000598 11月28日低能態)
+            quiescence_factor = 1.0 / (1.0 + math.exp(-6.0 * (total_e - 1.2)))
+            # 🧪 [步驟 5] 信號質量 (S 型非線性放大)
+            sig_q = float(ad_metrics.get('signal_quality', 0.5))
+            modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.1)))
+            # 3. 最終捲積合攏：不丟棄任何邏輯，實施「邏輯捲積態」
+            # 趨勢分 = 基礎 * ETC效率 * 同步熵穩定性 * 寂靜場景過濾 * 質量門檻
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc * modifier_sync * quiescence_factor * modifier_quality, 0.0, 1.0))
+            metrics['etc_resonance_modifier'] = float(modifier_etc)
+            metrics['sync_stability_modifier'] = float(modifier_sync)
+            metrics['quiescence_modifier'] = float(quiescence_factor)
+            if not is_history:
+                from services.chip_holding_calculator import QuantitativeTelemetryProbe
+                # 📡 [步驟 10] 專業探針：全捲積鏈路輸出
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_STACK", 
+                    {"trend_base": trend_base, "sync_entropy": sync_entropy}, 
+                    {"m_etc": modifier_etc, "m_sync": modifier_sync, "m_quiet": quiescence_factor}, metrics)
             return metrics
         except Exception: return metrics
 
