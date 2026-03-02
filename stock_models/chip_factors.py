@@ -493,8 +493,8 @@ class ChipFactorBase(models.Model):
     @classmethod
     def calculate_convergence_divergence(cls, chip_dynamics_result: Dict[str, any]) -> Dict[str, float]:
         """
-        [Version 7.0.0] 筹码聚散网络推断算子 (动态贝叶斯置信度防死锁版)
-        修改思路：废除易引发0值连乘死锁的概率连乘模型，采用基于 Soft-OR 逻辑的联合概率分布。
+        [Version 36.0.0] 筹码聚散网络推断算子 (绝对去归一化版)
+        修改思路：完全废除 math.tanh 和 math.atan。使用具有真实物理意义的比率与米氏方程。
         """
         import math
         try:
@@ -503,20 +503,31 @@ class ChipFactorBase(models.Model):
             behavior_patterns = chip_dynamics_result.get('behavior_patterns', {})
             migration_patterns = chip_dynamics_result.get('migration_patterns', {})
             absolute_signals = chip_dynamics_result.get('absolute_change_signals', {})
-            factors = {'percent_change_convergence': float(convergence_metrics.get('comprehensive_convergence', 0.5)), 'percent_change_divergence': float(1.0 - convergence_metrics.get('comprehensive_convergence', 0.5)), 'convergence_strength': float(convergence_metrics.get('convergence_strength', 0.0)), 'divergence_strength': float(convergence_metrics.get('divergence_strength', 0.0))}
+            factors = {
+                'percent_change_convergence': float(convergence_metrics.get('comprehensive_convergence', 0.5)), 
+                'percent_change_divergence': float(1.0 - convergence_metrics.get('comprehensive_convergence', 0.5)), 
+                'convergence_strength': float(convergence_metrics.get('convergence_strength', 0.0)), 
+                'divergence_strength': float(convergence_metrics.get('divergence_strength', 0.0))
+            }
             factors['net_migration_direction'] = float(migration_patterns.get('net_migration_direction', 0.0))
             factors['migration_convergence_ratio'] = float(convergence_metrics.get('migration_convergence', 0.5))
+            
             increase_areas = absolute_signals.get('significant_increase_areas', [])
             decrease_areas = absolute_signals.get('significant_decrease_areas', [])
             total_abs_change = sum(abs(area.get('change', 0.0)) for area in increase_areas) + sum(abs(area.get('change', 0.0)) for area in decrease_areas)
-            dynamic_normalization_factor = max(5.0, total_abs_change * 0.5)
-            factors['absolute_change_strength'] = float(math.tanh(total_abs_change / dynamic_normalization_factor))
+            
+            # [米氏动力学] 替代 math.tanh，反映随着变动量增大，边际效应递减的真实自然现象
+            dynamic_km = 15.0 # 半饱和常数
+            factors['absolute_change_strength'] = float(total_abs_change / (total_abs_change + dynamic_km))
+            
             accumulation = behavior_patterns.get('accumulation', {})
             distribution = behavior_patterns.get('distribution', {})
             factors['accumulation_signal_score'] = float(accumulation.get('strength', 0.0))
             factors['distribution_signal_score'] = float(distribution.get('strength', 0.0))
             factors['main_force_activity_index'] = float(behavior_patterns.get('main_force_activity', 0.0))
             factors['signal_quality_score'] = float(absolute_signals.get('signal_quality', 0.0))
+            
+            # [Soft-OR 共振网络] 防止乘法0值掩盖
             p_accum = max(0.0, factors['accumulation_signal_score'])
             p_dist = max(0.0, factors['distribution_signal_score'])
             p_mig = max(0.0, abs(factors['net_migration_direction']))
@@ -524,13 +535,15 @@ class ChipFactorBase(models.Model):
             p_behavior_max = max(p_accum, p_dist)
             factors['behavior_confirmation'] = float(1.0 - (1.0 - p_behavior_max) * (1.0 - p_mig) * (1.0 - p_main * 0.5))
             factors['behavior_confirmation'] = min(1.0, max(0.0, factors['behavior_confirmation']))
+            
             pressure_metrics = chip_dynamics_result.get('pressure_metrics', {})
             factors['pressure_release_index'] = float(pressure_metrics.get('pressure_release', 0.0))
             support = float(pressure_metrics.get('support_strength', 0.3))
             resistance = float(pressure_metrics.get('resistance_strength', 0.3))
-            prior_sr = max(0.01, (support + resistance) * 0.1)
-            raw_sr_ratio = (support + prior_sr) / (resistance + prior_sr)
-            factors['support_resistance_ratio'] = float(math.atan(raw_sr_ratio) / (math.pi / 2) * 2.0)
+            
+            # [还原物理含义]：支撑阻力比，直接输出真实的比例上限约束，取消 atan 压缩！
+            factors['support_resistance_ratio'] = float(support / (resistance + 1e-5))
+            
             return factors
         except Exception:
             return cls._get_default_convergence_factors()
@@ -1124,10 +1137,7 @@ class ChipHoldingMatrixBase(models.Model):
             return False
 
     def to_factor_dict(self) -> Dict[str, Any]:
-        """
-        [Version 35.0.0] 扁平化数据解包提取器（Numpy布尔跨界崩溃防御版）
-        说明：追加 safe_bool 防火墙，防范 numpy.bool_ 泄露到上层引发 DB Driver 暴毙。全景透传提取高级矩阵特征。禁止使用空行。
-        """
+        """[Version 36.0.0] 扁平化解包提取器 (解除 Atan/Tanh 压缩版)"""
         import math
         from typing import Dict, Any
         from services.chip_matrix_dynamics_calculator import ChipMatrixDynamicsCalculator as Calculator
@@ -1142,6 +1152,7 @@ class ChipHoldingMatrixBase(models.Model):
         def safe_bool(val, default=False):
             try: return bool(val)
             except Exception: return default
+            
         kbz_zones = self.chart_signals.get('key_battle_zones', []) if self.chart_signals else []
         factors = {
             'absorption_energy': safe_flt(self.absorption_energy), 'distribution_energy': safe_flt(self.distribution_energy), 'net_energy_flow': safe_flt(self.net_energy_flow),
@@ -1158,6 +1169,7 @@ class ChipHoldingMatrixBase(models.Model):
         tick_factors = {'intraday_chip_quality_score': safe_flt(self.intraday_chip_quality_score), 'intraday_calc_method': getattr(self, 'intraday_calc_method', 'daily_only'), 'intraday_main_force_activity': safe_flt(self.intraday_main_force_activity), 'intraday_accumulation_confidence': safe_flt(self.intraday_accumulation_confidence), 'intraday_distribution_confidence': safe_flt(self.intraday_distribution_confidence)}
         factors.update(tick_factors)
         if hasattr(self, 'direct_ad_data') and self.direct_ad_data: factors.update({'direct_accumulation_volume': safe_flt(self.direct_ad_data.get('accumulation_volume', 0.0)), 'direct_distribution_volume': safe_flt(self.direct_ad_data.get('distribution_volume', 0.0)), 'direct_net_ad_ratio': safe_flt(self.direct_ad_data.get('net_ad_ratio', 0.0))})
+        
         if self.extra_metrics:
             conc = self.extra_metrics.get('concentration', {})
             factors['chip_mean'] = safe_flt(conc.get('chip_mean', 0.0)); factors['chip_std'] = safe_flt(conc.get('chip_std', 0.0)); factors['chip_skewness'] = safe_flt(conc.get('chip_skewness', 0.0)); factors['chip_kurtosis'] = safe_flt(conc.get('chip_kurtosis', 0.0))
@@ -1174,7 +1186,8 @@ class ChipHoldingMatrixBase(models.Model):
             press = self.extra_metrics.get('pressure', {})
             factors['profit_pressure'] = safe_flt(press.get('profit_pressure', 0.0)); factors['pressure_release_index'] = safe_flt(press.get('pressure_release', 0.0))
             sup = safe_flt(press.get('support_strength', 0.0)); res = safe_flt(press.get('resistance_strength', 0.0))
-            factors['support_resistance_ratio'] = safe_flt(math.atan((sup + 0.05)/(res + 0.05)) / (math.pi / 2) * 2.0)
+            # [剥除 atan] 直接使用比值
+            factors['support_resistance_ratio'] = safe_flt(sup / (res + 1e-5))
             tech = self.extra_metrics.get('technical', {})
             for tf in ['price_to_ma5_ratio', 'price_to_ma21_ratio', 'price_to_ma34_ratio', 'price_to_ma55_ratio', 'chip_cost_to_ma21_diff', 'volatility_adjusted_concentration', 'chip_rsi_divergence', 'peak_migration_speed_5d', 'chip_stability_change_5d', 'trend_confirmation_score', 'reversal_warning_score', 'turnover_rate', 'volume_ratio']: factors[tf] = safe_flt(tech.get(tf, 0.0))
             factors['ma_arrangement_status'] = safe_int(tech.get('ma_arrangement_status', 0))
@@ -1191,18 +1204,22 @@ class ChipHoldingMatrixBase(models.Model):
             else: factors['chip_structure_state'] = 'consolidation'
         else:
             factors['chip_structure_state'] = 'consolidation'; factors['absolute_change_strength'] = 0.0; factors['signal_quality_score'] = 0.0
+            
         if self.chart_signals:
             abs_sigs = self.chart_signals.get('absolute_signals', {})
             factors['signal_quality_score'] = safe_flt(abs_sigs.get('signal_quality', 0.0))
             total_inc = sum(abs(a.get('change', 0)) for a in abs_sigs.get('significant_increase_areas', []))
             total_dec = sum(abs(a.get('change', 0)) for a in abs_sigs.get('significant_decrease_areas', []))
-            factors['absolute_change_strength'] = math.tanh((total_inc + total_dec) / 15.0)
+            # [替换 tanh] 使用米氏动力学
+            factors['absolute_change_strength'] = safe_flt((total_inc + total_dec) / (total_inc + total_dec + 15.0))
+            
         behav_acc = safe_flt(self.behavior_accumulation); behav_dist = safe_flt(self.behavior_distribution)
         factors['accumulation_signal_score'] = behav_acc; factors['distribution_signal_score'] = behav_dist
         factors['percent_change_convergence'] = safe_flt(self.convergence_comprehensive)
         factors['percent_change_divergence'] = safe_flt(1.0 - factors['percent_change_convergence'])
         p_accum = behav_acc; p_dist = behav_dist; p_mig = abs(factors.get('net_migration_direction', 0.0)); p_main = factors.get('main_force_activity_index', 0.0)
         factors['behavior_confirmation'] = safe_flt(1.0 - (1.0 - max(p_accum, p_dist)) * (1.0 - p_mig) * (1.0 - p_main * 0.5))
+        
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("ChipHoldingMatrixBase", "to_factor_dict", {'chart_signals_present': bool(self.chart_signals), 'extra_metrics_present': bool(self.extra_metrics)}, {'abs_strength': float(factors.get('absolute_change_strength', 0.0)), 'behavior_confirmation': factors['behavior_confirmation']}, {'exported_keys': len(factors)})
         return factors

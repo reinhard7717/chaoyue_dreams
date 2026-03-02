@@ -41,8 +41,8 @@ def _numba_build_matrix_core(prices: np.ndarray, percents: np.ndarray, days_arr:
     return matrix
 
 @njit(cache=True, fastmath=True)
-def _numba_calc_pressure_core(chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, recent_high: float) -> tuple:
-    """[Version 18.0.0] 压力阻尼心理学积分 (全域高斯平滑与零值黑洞缝合版)"""
+def _numba_calc_pressure_core(chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, recent_high: float, dyn_vol: float) -> tuple:
+    """[Version 36.0.0] Numba 压力积分内核 (动态波动率引力势阱版，彻底废除固定边界)"""
     profit_pressure = 0.0; trapped_pressure = 0.0; recent_trapped = 0.0
     support = 0.0; resistance = 0.0; pressure_release = 0.0; total = 0.0
     n = len(chip_dist)
@@ -52,19 +52,26 @@ def _numba_calc_pressure_core(chip_dist: np.ndarray, price_grid: np.ndarray, cur
         pr = price_grid[i]
         rel = (pr - current_price) / current_price
         gain_loss = abs(rel)
-        # 缝合零值黑洞：当前价(rel==0)的巨量筹码不再被忽略，而是平滑分配至双向引力支撑
-        support += pct * np.exp(-0.5 * (gain_loss / 0.05)**2) * (1.0 if rel < 0 else (0.5 if rel == 0 else 0.1))
-        resistance += pct * np.exp(-0.5 * (gain_loss / 0.05)**2) * (1.0 if rel > 0 else (0.5 if rel == 0 else 0.1))
+        
+        # [动态弹性]：波动率决定支撑阻力的辐射带宽 (带基底为2.0倍波动率)
+        band = dyn_vol * 2.0
+        support += pct * np.exp(-0.5 * (gain_loss / band)**2) * (1.0 if rel < 0 else (0.5 if rel == 0 else 0.1))
+        resistance += pct * np.exp(-0.5 * (gain_loss / band)**2) * (1.0 if rel > 0 else (0.5 if rel == 0 else 0.1))
+        
         if rel < 0:
-            profit_pressure += pct * (1.0 / (1.0 + np.exp(-15.0 * (gain_loss - 0.15))))
+            # 获利兑现阈值随波动率自适应扩展
+            profit_th = dyn_vol * 4.0
+            profit_pressure += pct * (1.0 / (1.0 + np.exp(-15.0 * (gain_loss - profit_th))))
         elif rel > 0:
-            trapped_pressure += pct * np.exp(-3.0 * gain_loss)
-            recent_trapped += pct * np.exp(-0.5 * (gain_loss / 0.03)**2)
+            # 高波动股更容易解套，套牢时间衰减变慢
+            decay_rate = 0.1 / dyn_vol
+            trapped_pressure += pct * np.exp(-decay_rate * gain_loss)
+            recent_trapped += pct * np.exp(-0.5 * (gain_loss / band)**2)
             
         if recent_high > 0:
             dist_to_high = (pr - recent_high) / recent_high
             if dist_to_high >= 0: pressure_release += pct
-            else: pressure_release += pct * np.exp(-0.5 * (abs(dist_to_high) / 0.03)**2)
+            else: pressure_release += pct * np.exp(-0.5 * (abs(dist_to_high) / (dyn_vol * 1.5))**2)
             
     tot = total + 1e-8
     return float(profit_pressure/tot), float(trapped_pressure/tot), float(recent_trapped/tot), float(support/tot), float(resistance/tot), float(pressure_release/tot)
@@ -763,20 +770,35 @@ class AdvancedChipDynamicsService:
         return {'his_low': 0.0, 'his_high': 0.0, 'price_to_ma5_ratio': 0.0, 'price_to_ma21_ratio': 0.0, 'price_to_ma34_ratio': 0.0, 'price_to_ma55_ratio': 0.0, 'ma_arrangement_status': 0.0, 'chip_cost_to_ma21_diff': 0.0, 'volatility_adjusted_concentration': 0.0, 'chip_rsi_divergence': 0.0, 'peak_migration_speed_5d': 0.0, 'chip_stability_change_5d': 0.0, 'chip_divergence_ratio': 0.0, 'chip_convergence_ratio': 0.0, 'trend_confirmation_score': 0.5, 'reversal_warning_score': 0.0, 'turnover_rate': 0.0, 'volume_ratio': 0.0}
 
     def _calculate_pressure_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, float]:
-        """
-        [Version 61.0.0] 压力与支撑非对称心理阻尼模型 (Numba 极限加速版)
-        说明：根除 Numpy 向量切片造成的巨量临时中间数组。转译为底层 JIT 机器码单次汇编迭代。禁止使用空行。
-        """
+        """[Version 36.0.0] 压力计算接口 (波动率感知与零值黑洞缝合版)"""
         import numpy as np
         if len(current_chip_dist) == 0 or current_price <= 0: return self._get_default_pressure_metrics()
         recent_high = -1.0
-        if price_history is not None and not price_history.empty and 'high_qfq' in price_history.columns:
-            recent_high = float(price_history['high_qfq'].max())
-        p_profit, p_trapped, p_recent_trap, p_sup, p_res, p_rel = _numba_calc_pressure_core(current_chip_dist.astype(np.float32), price_grid.astype(np.float32), float(current_price), float(recent_high))
+        dyn_vol = 0.03
+        if price_history is not None and not price_history.empty:
+            if 'high_qfq' in price_history.columns: recent_high = float(price_history['high_qfq'].max())
+            if 'close_qfq' in price_history.columns:
+                closes = price_history['close_qfq'].dropna().values
+                if len(closes) >= 10:
+                    ret = np.diff(closes) / closes[:-1]
+                    dyn_vol = float(np.std(ret[-20:])) if len(ret) > 1 else 0.03
+        dyn_vol = max(0.01, min(0.1, dyn_vol))
+        
+        p_profit, p_trapped, p_recent_trap, p_sup, p_res, p_rel = _numba_calc_pressure_core(
+            current_chip_dist.astype(np.float32), price_grid.astype(np.float32), 
+            float(current_price), float(recent_high), float(dyn_vol)
+        )
+        
         metrics = {'profit_pressure': p_profit, 'trapped_pressure': p_trapped, 'recent_trapped_pressure': p_recent_trap, 'support_strength': p_sup, 'resistance_strength': p_res, 'pressure_release': p_rel}
-        metrics['comprehensive_pressure'] = float(metrics['trapped_pressure'] * 0.4 + metrics['recent_trapped_pressure'] * 0.4 + (1.0 - metrics['pressure_release']) * 0.2)
+        
+        # [调和平均代替算术平均]：只要有一方（获利抛压或套牢抛压）极大，综合压力就会拉高，不再互相掩护
+        if p_profit > 0.05 and p_trapped > 0.05:
+            metrics['comprehensive_pressure'] = float(2.0 / (1.0/p_profit + 1.0/p_trapped))
+        else:
+            metrics['comprehensive_pressure'] = float(p_profit * 0.6 + p_trapped * 0.4)
+            
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {'total_percent': float(np.sum(current_chip_dist))}, {'damped_trapped': metrics['trapped_pressure']}, metrics)
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {'total_percent': float(np.sum(current_chip_dist))}, {'damped_trapped': metrics['trapped_pressure'], 'dyn_vol': dyn_vol}, metrics)
         return metrics
 
     def _calculate_migration_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, any]:
@@ -1752,40 +1774,50 @@ class ChipFactorCalculationHelper:
     @classmethod
     def calculate_core_chip_factors(cls, close: float, cost_percentiles: dict, his_high: float, his_low: float, winner_rate: float, chip_distribution: np.ndarray) -> dict:
         """
-        [Version 8.0.0] 核心筹码因子高精度安全计算引擎（双轨博弈防死锁版）
-        说明：根除his_range引发的历史极值锚定畸变，采用c_95-c_5动态活跃视界替代。
-        废除导致0值连乘死锁的单极获利抛压模型，引入套牢恐慌盘双轨复合压力模型，全程采用反正切平滑归一化防止极性反噬。
+        [Version 36.0.0] 核心筹码因子基线引擎 (去 atan 归一化与极性纠正绝杀版)
+        说明：严格遵守禁用无脑单一归一化法则。
         """
         import numpy as np
         import math
         eps = np.finfo(np.float64).eps
-        c_5 = float(cost_percentiles.get('5pct', close))
-        c_15 = float(cost_percentiles.get('15pct', close))
-        c_50 = float(cost_percentiles.get('50pct', close))
-        c_85 = float(cost_percentiles.get('85pct', close))
+        c_5 = float(cost_percentiles.get('5pct', close)); c_15 = float(cost_percentiles.get('15pct', close))
+        c_50 = float(cost_percentiles.get('50pct', close)); c_85 = float(cost_percentiles.get('85pct', close))
         c_95 = float(cost_percentiles.get('95pct', close))
-        active_range = max(c_95 - c_5, eps)
-        core_range = max(c_85 - c_15, eps)
-        chip_concentration_ratio = core_range / active_range
-        chip_stability = max(0.0, 1.0 - chip_concentration_ratio)
+        
+        active_range = max(c_95 - c_5, eps); core_range = max(c_85 - c_15, eps)
+        macro_range = max(float(his_high) - float(his_low), active_range)
+        
+        # [极性倒置修复]：core_range 越小，代表筹码越集中，采用负指数物理模型逼近 1.0
+        chip_concentration_ratio = math.exp(-2.0 * (core_range / macro_range))
+        chip_stability = math.exp(-1.5 * (active_range / macro_range))
         price_percentile_position = np.clip((close - c_5) / active_range, 0.0, 1.0)
+        
+        # [抛弃 atan] 使用高斯函数处理价格对成本均线的引力衰减
         raw_pressure = (close - c_50) / (core_range + active_range * 0.1)
-        adaptive_pressure = 0.5 + (math.atan(raw_pressure * 2.0) / math.pi)
+        if raw_pressure < 0: adaptive_pressure = math.exp(-0.5 * (abs(raw_pressure) / 0.5)**2)
+        else: adaptive_pressure = 1.0 / (1.0 + math.exp(-5.0 * raw_pressure))
+        
         profit_pressure = adaptive_pressure * winner_rate
         trapped_rate = max(0.0, 1.0 - winner_rate)
         panic_pressure = (1.0 - adaptive_pressure) * trapped_rate * (1.0 - math.exp(-trapped_rate * 3.0))
-        comprehensive_pressure = profit_pressure * 0.6 + panic_pressure * 0.4
-        win_rate_price_position = winner_rate * 0.6 + float(price_percentile_position) * 0.4
+        
+        # [调和平均防止掩护]
+        if profit_pressure > 0.05 and panic_pressure > 0.05: comprehensive_pressure = 2.0 / (1.0/profit_pressure + 1.0/panic_pressure)
+        else: comprehensive_pressure = profit_pressure * 0.6 + panic_pressure * 0.4
+            
+        win_rate_price_position = 1.0 - math.sqrt(max(0.0, price_percentile_position * trapped_rate))
+        
         valid_mask = chip_distribution > eps
         if np.any(valid_mask):
             valid_dist = chip_distribution[valid_mask]
             norm_dist = valid_dist / np.sum(valid_dist)
             chip_entropy = float(-np.sum(norm_dist * np.log(norm_dist)))
-        else:
-            chip_entropy = 0.0
+        else: chip_entropy = 0.0
+            
+        # [抛弃 atan] 空间占有率本质就是 [0, 1] 比例，直接截断
         chip_convergence_ratio = min(1.0, core_range / active_range)
-        macro_range = max(float(his_high) - float(his_low), active_range)
-        chip_divergence_ratio = float((math.atan((active_range / macro_range) * 3.0) / (math.pi / 2)))
+        chip_divergence_ratio = min(1.0, active_range / macro_range)
+        
         final_result = {'chip_concentration_ratio': round(float(chip_concentration_ratio), 6), 'chip_stability': round(float(chip_stability), 6), 'price_percentile_position': round(float(price_percentile_position), 6), 'profit_pressure': round(float(comprehensive_pressure), 6), 'win_rate_price_position': round(float(win_rate_price_position), 6), 'chip_entropy': round(float(chip_entropy), 6), 'chip_convergence_ratio': round(float(chip_convergence_ratio), 6), 'chip_divergence_ratio': round(float(chip_divergence_ratio), 6)}
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("ChipFactorCalculationHelper", "calculate_core_chip_factors", {'close': close, 'winner_rate': winner_rate, 'active_range': active_range}, {'adaptive_pressure': adaptive_pressure, 'profit_pressure': profit_pressure, 'panic_pressure': panic_pressure}, final_result)
