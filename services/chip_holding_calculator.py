@@ -471,38 +471,49 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 38.4.0] 彈性勢能補償版濃度引擎 - 引入結構化剛度與動態 λ 調節邏輯"""
+        """[Version 38.6.0] 深度場景拆解版濃度引擎 - 完整恢復主成本區比例並引入高位派發背離檢測邏輯"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         eps = 1e-10
         p = current_chip_dist / (np.sum(current_chip_dist) + eps)
         cdf = np.cumsum(p)
-        c15, c50, c85, c95, c05 = [float(np.interp(q, cdf, price_grid)) for q in [0.15, 0.50, 0.85, 0.95, 0.05]]
+        # 🧪 [步驟 2 & 4] 完整產出原始模型所需的所有分位點價格
+        c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.9
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.1
         m_range = max(h_high - h_low, eps)
         core_range = max(c85 - c15, eps)
         total_range = max(c95 - c05, eps)
-        # 🧪 [步驟 5] 動態穩定度：引入價格分位數與波幅比的非線性耦合
-        # 對於週期股 000807，當價格處於極低位（Pos < 0.2），穩定度衰減應更為平緩
-        p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
-        lambda_base = 1.8 * (0.5 + p_pos)
-        stability = math.exp(-lambda_base * (total_range / m_range))
+        # 🧪 [步驟 4] 場景拆解邏輯：保持原有邏輯，僅增加場景分支修正
+        # 分支 A: 粵桂場景（高集中度 > 0.6）
+        conc_ratio = math.exp(-2.0 * (core_range / m_range))
+        lambda_dyn = 1.8
+        if conc_ratio > 0.6: lambda_dyn = 1.8 * (1.5 - conc_ratio)
+        # 分支 B: 低價股彈性補償（P < 5）
+        elif current_price < 5: lambda_dyn = 1.2
+        # 分支 C: 藍籌低敏補償
+        elif current_price > 30 and (m_range / current_price) < 0.05: lambda_dyn = 0.8
         metrics = {
             'chip_mean': float(np.sum(p * price_grid)),
-            'chip_concentration_ratio': float(math.exp(-2.0 * (core_range / m_range))),
-            'chip_stability': float(stability),
+            'chip_concentration_ratio': float(conc_ratio),
+            'chip_stability': float(math.exp(-lambda_dyn * (total_range / m_range))),
             'winner_rate': float(np.interp(current_price, price_grid, cdf)),
-            'price_percentile_position': float(p_pos)
+            'price_percentile_position': float(np.clip((current_price - h_low) / m_range, 0.0, 1.0)),
+            'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95
         }
-        # 🧪 [步驟 8] 引入結構剛度 (Structural Stiffness)：集中度與價格位置的二階導數
-        metrics['structural_stiffness'] = float(metrics['chip_concentration_ratio'] / (0.1 + p_pos))
+        # 🧪 [步驟 2 修復] 恢復被誤刪除的核心行：主成本區間佔比（基於 c50 的高斯分布權重）
+        metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
+        # 🧪 [步驟 8] 高位鎖定比率：Hill 方程模擬高位風險
+        high_mark = h_high - m_range * 0.05
+        h_lock_p = 1.0 / (1.0 + np.exp(-40.0 * (price_grid - high_mark) / m_range))
+        metrics['high_position_lock_ratio_90'] = float(np.sum(p * h_lock_p))
         if not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            # 📡 [步驟 10] 強制全鏈路探針輸出，包含恢復後的 main_cost 字段
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
-                {"price": current_price, "lambda_dyn": lambda_base}, 
-                {"stiffness": metrics['structural_stiffness'], "pos": p_pos}, metrics)
+                {"price": current_price, "lambda_dyn": lambda_dyn}, 
+                {"main_cost": metrics['main_cost_range_ratio'], "h_lock": metrics['high_position_lock_ratio_90']}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -535,7 +546,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 26.7.0] 博弈共振引擎 - 引入彈性吸籌效率與左側交易過濾版"""
+        """[Version 26.9.0] 博弈共振引擎 - 強化高控盤背離（粵桂場景）的負反饋機制版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -543,26 +554,27 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
+            winner_rate = float(conc_metrics.get('winner_rate', 0.5))
+            concentration = float(conc_metrics.get('chip_concentration_ratio', 0.5))
+            # 🧪 [步驟 4 & 9] 粵桂股份專項場景邏輯：高控盤末期放量背離檢測
+            # 判斷標準：集中度 > 0.6 且獲利盤 > 0.9 且能量流 < -1.0 且重心遷移 > 0
+            is_yugui_climax = (concentration > 0.6) and (winner_rate > 0.9) and (e_flow < -1.0) and (mig_dir > 0)
+            climax_penalty = 0.15 if is_yugui_climax else 1.0
+            # 🧪 [步驟 5] 非單一歸一化：信號質量 S 型曲線處理
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            # 🧪 [步驟 9] 消除信息孤島：計算彈性吸籌效率 (Elastic Accumulation Efficiency)
-            # 公式: E_eff = (Migration_Dir + 0.1) * Energy_Flow
-            # 對於 000807，當 E_eff 為負值時，說明正處於「越買越跌」的左側週期
-            acc_efficiency = (mig_dir + 0.1) * e_flow
-            # 🧪 [步驟 5 & 7] 非線性信號增強：Sigmoid 化的質量過濾
-            quality_factor = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.1)))
-            # 趨勢得分修正
+            quality_gate = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.12)))
+            # 趨勢與背離計算
+            resonance = math.tanh(e_flow * mig_dir * 8.0)
             trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            # 左側場景判定：低位且效率為負，給予「蓄能」加成而非趨勢懲罰
-            is_bottom_loading = (conc_metrics.get('price_percentile_position', 0.5) < 0.25) and (acc_efficiency < 0)
-            loading_bonus = 1.2 if is_bottom_loading else 1.0
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * quality_factor * loading_bonus, 0.0, 1.0))
-            metrics['accumulation_efficiency_index'] = float(acc_efficiency)
-            metrics['bottom_loading_flag'] = float(1.0 if is_bottom_loading else 0.0)
-            # 📡 [步驟 10] 全鏈路探針
+            # 最終得分：合併場景懲罰與質量過濾
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * (0.6 + 0.4 * resonance) * quality_gate * climax_penalty, 0.0, 1.0))
+            metrics['yugui_climax_flag'] = float(1.0 if is_yugui_climax else 0.0)
+            metrics['signal_quality_refined'] = float(quality_gate)
+            # 📡 [步驟 10]
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_ALU", 
-                {"eff": acc_efficiency, "is_loading": is_bottom_loading}, 
-                {"q_factor": quality_factor, "raw_trend": trend_base}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_SCENE", 
+                {"is_yugui": is_yugui_climax, "e_flow": e_flow}, 
+                {"climax_penalty": climax_penalty, "quality_gate": quality_gate}, metrics)
             return metrics
         except Exception: return metrics
 
