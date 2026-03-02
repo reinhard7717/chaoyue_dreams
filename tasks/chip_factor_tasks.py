@@ -151,7 +151,7 @@ def schedule_chip_factor_calculation(self, stock_codes: Optional[List[str]] = No
         else: raise ValueError(f"未知的计算模式: {calculation_mode}")
         return result
     except Exception as e:
-        # QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_FATAL", {}, {'error': str(e)}, {'status': 'Crash'})
+        QuantitativeTelemetryProbe.emit("TaskScheduler", "schedule_chip_factor_calculation_FATAL", {}, {'error': str(e)}, {'status': 'Crash'})
         raise self.retry(exc=e, countdown=ChipTaskConfig.RETRY_DELAY)
 
 def schedule_by_stock_batch(stock_codes: List[str], start_date: date, end_date: date, incremental: bool = True) -> Dict:
