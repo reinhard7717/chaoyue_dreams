@@ -564,7 +564,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 27.6.0] 博弈共振引擎 - 實施多維同步熵捲積與寂靜場景深度融合版"""
+        """[Version 27.7.0] 博弈共振引擎 - 實施「獲利盤熔斷」與「掩護式派發」識別疊加態版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -572,34 +572,25 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            total_e = float(ad_metrics.get('raw_energy', 1.0))
-            # 1. 基礎得分與共振層
+            winner_rate = float(conc_metrics.get('winner_rate', 0.5))
+            # 🧪 [步驟 4 & 9] 廣弘 000529 專項場景：掩護式撤退 (Covered Exit)
+            # 特徵：高獲利 (>0.8) + 正遷移 (>0.1) + 負能量流 (< -0.5)
+            is_covered_exit = (winner_rate > 0.8) and (mig_dir > 0.1) and (e_flow < -0.5)
+            modifier_exit = 0.2 if is_covered_exit else 1.0
+            # 基礎得分與其他修正子捲積
             trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.35)
-            # 🧪 [步驟 9] 捲積修正 A: 能量轉化轉速子 (疊加)
-            etc_score = (e_flow * mig_dir) / (abs(e_flow) * 1.0 + 0.1) if abs(e_flow) > 0.05 else 0.0
-            modifier_etc = 0.75 + 0.25 * math.tanh(etc_score * 2.0)
-            # 🧪 [步驟 9] 捲積修正 B: 同步熵 (Sync-Entropy) 負反饋
-            # 衡量背離的混亂度。針對 000737 等極限背離場景
-            div_index = math.tanh(e_flow * mig_dir * 4.0)
-            sync_entropy = abs(div_index) * (1.0 - current_concentration)
-            modifier_sync = math.exp(-sync_entropy * 3.0)
-            # 🧪 [步驟 4 & 7] 捲積修正 C: 寂靜補償 (針對 000598 11月28日低能態)
-            quiescence_factor = 1.0 / (1.0 + math.exp(-6.0 * (total_e - 1.2)))
+            modifier_etc = 0.75 + 0.25 * math.tanh(((e_flow * mig_dir) / (abs(e_flow) + 0.1)) * 2.0)
             # 🧪 [步驟 5] 信號質量 (S 型非線性放大)
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
             modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.1)))
-            # 3. 最終捲積合攏：不丟棄任何邏輯，實施「邏輯捲積態」
-            # 趨勢分 = 基礎 * ETC效率 * 同步熵穩定性 * 寂靜場景過濾 * 質量門檻
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc * modifier_sync * quiescence_factor * modifier_quality, 0.0, 1.0))
-            metrics['etc_resonance_modifier'] = float(modifier_etc)
-            metrics['sync_stability_modifier'] = float(modifier_sync)
-            metrics['quiescence_modifier'] = float(quiescence_factor)
-            if not is_history:
+            # 最終得分：捲積合攏
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc * modifier_exit * modifier_quality, 0.0, 1.0))
+            metrics['covered_exit_flag'] = float(1.0 if is_covered_exit else 0.0)
+            if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                # 📡 [步驟 10] 專業探針：全捲積鏈路輸出
-                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_STACK", 
-                    {"trend_base": trend_base, "sync_entropy": sync_entropy}, 
-                    {"m_etc": modifier_etc, "m_sync": modifier_sync, "m_quiet": quiescence_factor}, metrics)
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_EXIT", 
+                    {"winner": winner_rate, "e_flow": e_flow}, 
+                    {"m_exit": modifier_exit, "is_exit": is_covered_exit}, metrics)
             return metrics
         except Exception: return metrics
 
@@ -651,8 +642,8 @@ class AdvancedChipDynamicsService:
         """[Version 18.0.0] 技术面默认指标初始化"""
         return {'his_low': 0.0, 'his_high': 0.0, 'price_to_ma5_ratio': 0.0, 'price_to_ma21_ratio': 0.0, 'price_to_ma34_ratio': 0.0, 'price_to_ma55_ratio': 0.0, 'ma_arrangement_status': 0.0, 'chip_cost_to_ma21_diff': 0.0, 'volatility_adjusted_concentration': 0.0, 'chip_rsi_divergence': 0.0, 'peak_migration_speed_5d': 0.0, 'chip_stability_change_5d': 0.0, 'chip_divergence_ratio': 0.0, 'chip_convergence_ratio': 0.0, 'trend_confirmation_score': 0.5, 'reversal_warning_score': 0.0, 'turnover_rate': 0.0, 'volume_ratio': 0.0}
 
-    def _calculate_pressure_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, float]:
-        """[Version 37.0.0] 非对称压力动力学引擎 (引入Hill方程与焦虑指数模型版)"""
+    def _calculate_pressure_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, ad_metrics: Dict = None) -> Dict[str, float]:
+        """[Version 37.1.0] 疊加態壓力動力學引擎 - 引入獲利飽和乘子與價格敏感度捲積版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0 or current_price <= 0: return self._get_default_pressure_metrics()
@@ -663,46 +654,74 @@ class AdvancedChipDynamicsService:
                 ret = np.diff(price_history['close_qfq'].values) / (price_history['close_qfq'].values[:-1] + 1e-8)
                 dyn_vol = float(np.std(ret[-20:])) if len(ret) > 1 else 0.03
         dyn_vol = max(0.015, min(0.12, dyn_vol))
+        # 1. 基礎物理層 - 執行原始 Numba 內核
         p_profit, p_trapped, p_recent_trap, p_sup, p_res, p_rel = _numba_calc_pressure_core(current_chip_dist.astype(np.float32), price_grid.astype(np.float32), float(current_price), float(recent_high), float(dyn_vol))
-        # [非对称压力建模]
-        # 获利盘：MM方程 (Km=0.15)
-        f_profit = p_profit / (0.15 + p_profit)
-        # 套牢盘：Hill方程 (n=2, Km=0.2 模拟焦虑爆发)
-        f_trapped = (p_trapped**2) / (0.04 + p_trapped**2) # 0.04 = 0.2^2
-        # [Soft-OR 合并] 任何一种压力爆发都将拉高整体水位
-        metrics = {'profit_pressure': f_profit, 'trapped_pressure': f_trapped, 'recent_trapped_pressure': p_recent_trap, 'support_strength': p_sup, 'resistance_strength': p_res, 'pressure_release': p_rel}
+        # 2. 捲積修正層 (疊加態)
+        # 🧪 [步驟 4 & 9] 價格敏感度捲積：從 AD 感測器獲取 p_sens
+        p_sens = float(ad_metrics.get('price_sensitivity_multiplier', 1.0)) if ad_metrics else 1.0
+        # 🧪 [步驟 8] 獲利飽和模型：當 p_profit > 0.7 時，拋壓指數級增強
+        # 針對 000529 12月2日 winner_rate=0.91 場景
+        m_profit_saturation = math.exp(max(0, p_profit - 0.7) * 5.0)
+        # 套牢盤焦慮模型：受價格敏感度加持
+        f_profit = (p_profit * m_profit_saturation) / (0.15 + p_profit * m_profit_saturation)
+        f_trapped = (p_trapped**2) / ((0.2 / p_sens)**2 + p_trapped**2)
+        metrics = {
+            'profit_pressure': float(f_profit),
+            'trapped_pressure': float(f_trapped),
+            'recent_trapped_pressure': float(p_recent_trap),
+            'support_strength': float(p_sup),
+            'resistance_strength': float(p_res),
+            'pressure_release': float(p_rel),
+            'profit_saturation_multiplier': float(m_profit_saturation) # 顯式暴露
+        }
+        # [步驟 9] 邏輯合攏：多維壓力捲積
         metrics['comprehensive_pressure'] = 1.0 - (1.0 - f_profit) * (1.0 - f_trapped)
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {"p_profit": p_profit, "p_trapped": p_trapped}, {"f_profit": f_profit, "f_trapped": f_trapped}, metrics)
+        if probe_state.get():
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            # 📡 [步驟 10] 強制全鏈路探針輸出
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics_SENSOR", 
+                {"p_profit": p_profit, "p_sens": p_sens}, 
+                {"m_sat": m_profit_saturation, "f_trap": f_trapped}, metrics)
         return metrics
 
-    def _calculate_migration_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, any]:
-        """[Version 62.0.0] 筹码迁移动力学引擎 (引入MM饱和方程与重心稳定性校验版)"""
+    def _calculate_migration_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, energy_metrics: Dict = None, conc_metrics: Dict = None) -> Dict[str, any]:
+        """[Version 62.1.0] 疊加態遷移動力學引擎 - 引入流體粘滯力與被動漂移識別版"""
         import numpy as np
         import math
         if chip_matrix.shape[0] < 2 or len(price_grid) == 0: return self._get_default_migration_patterns()
-        patterns = {'upward_migration': {'strength': 0.0, 'volume': 0.0}, 'downward_migration': {'strength': 0.0, 'volume': 0.0}, 'convergence_migration': {'strength': 0.0, 'areas': []}, 'divergence_migration': {'strength': 0.0, 'areas': []}, 'net_migration_direction': 0.0, 'chip_flow_direction': 0, 'chip_flow_intensity': 0.0}
-        eps = 1e-10
+        # 1. 基礎物理層 - 執行原始 Numba 內核產出
         old_dist, new_dist = chip_matrix[-2].astype(np.float32), chip_matrix[-1].astype(np.float32)
         up_work, down_work, p_center, total_vol, net_dir_sum = _numba_calc_migration_core(old_dist, new_dist, price_grid.astype(np.float32))
-        p_center = max(float(p_center), eps)
-        # [MM饱和方程替代tanh]：Km=0.01 (1%做功位移达到半饱和)
-        km_work = 0.01
-        rel_up = up_work / p_center
-        rel_down = down_work / p_center
-        patterns['upward_migration']['strength'] = float(rel_up / (km_work + rel_up))
-        patterns['downward_migration']['strength'] = float(rel_down / (km_work + rel_down))
-        net_rel = (up_work - down_work) / p_center
-        # [非线性迁移方向]：保留极性，但使用Hill方程增强对比度
-        patterns['net_migration_direction'] = float(net_rel / (0.005 + abs(net_rel)))
+        eps = 1e-10
+        # 🧪 [步驟 4 & 9] 邏輯疊加：引入表面張力作為「遷移阻力」
+        tension = float(conc_metrics.get('chip_surface_tension', 1.0)) if conc_metrics else 1.0
+        # 🧪 [步驟 8] 流體粘滯模型：計算能量對位移的「支持效率」
+        e_flow = float(energy_metrics.get('net_energy_flow', 0.0)) if energy_metrics else 0.0
+        # 被動漂移檢測：位移方向(+)與能量方向(-)相反，判定為「空蝕漂移」
+        is_passive_drift = (net_dir_sum > 0 and e_flow < -0.2)
+        # 🧪 [步驟 5] 非線性修正乘子：捲積計算
+        # 阻力修正：張力越高，有效位移越難發生
+        resistance_modifier = 1.0 / (0.8 + 0.2 * tension)
+        # 漂移修正：若是被動漂移，位移強度指數級削減
+        drift_modifier = math.exp(-abs(e_flow) * 2.0) if is_passive_drift else 1.0
+        # 2. 疊加態指標產出
+        km_work = 0.01 * (1.0 + tension * 0.1) # 自適應飽和常數
+        rel_up = (up_work / p_center) * resistance_modifier * drift_modifier
+        rel_down = (down_work / p_center) * resistance_modifier
+        patterns = {
+            'upward_migration': {'strength': float(rel_up / (km_work + rel_up)), 'volume': float(up_work)},
+            'downward_migration': {'strength': float(rel_down / (km_work + rel_down)), 'volume': float(down_work)},
+            'net_migration_direction': float((rel_up - rel_down) / (0.005 + abs(rel_up - rel_down))),
+            'passive_drift_flag': float(1.0 if is_passive_drift else 0.0),
+            'migration_resistance': float(1.0 - resistance_modifier)
+        }
         patterns['chip_flow_direction'] = 1 if patterns['net_migration_direction'] > 0.1 else (-1 if patterns['net_migration_direction'] < -0.1 else 0)
-        patterns['chip_flow_intensity'] = float(abs(patterns['net_migration_direction']))
-        # 聚散迁移逻辑同步优化
-        recent_chg = percent_change_matrix[-1] if len(percent_change_matrix) > 0 else np.zeros_like(price_grid)
-        mask_mid = (price_grid >= p_center * 0.95) & (price_grid <= p_center * 1.05)
-        mid_inc = float(np.sum(recent_chg[mask_mid & (recent_chg > 0)]))
-        patterns['convergence_migration']['strength'] = float(mid_inc / (5.0 + mid_inc)) if mid_inc > 0 else 0.0
-        # [探针输出]
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_migration_patterns", {"up_work": up_work, "p_center": p_center}, {"rel_up": rel_up, "km": km_work}, patterns)
+        # [步驟 10] 探針輸出
+        if probe_state.get():
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_migration_patterns_SENSOR", 
+                {"up_work": up_work, "e_flow": e_flow}, 
+                {"tension": tension, "is_drift": is_passive_drift, "m_drift": drift_modifier}, patterns)
         return patterns
 
     def _get_default_migration_patterns(self) -> Dict[str, any]:
