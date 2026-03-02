@@ -372,7 +372,6 @@ class AdvancedChipDynamicsService:
         """[Version 25.0.0] 行为金融扫描引擎 (引入能量背景置信度与MM饱和版)"""
         import numpy as np
         import math
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         if percent_change_matrix.shape[0] < 3: return self._get_default_behavior_patterns()
         patterns = {'accumulation': {'detected': False, 'strength': 0.0, 'areas': []}, 'distribution': {'detected': False, 'strength': 0.0, 'areas': []}, 'main_force_activity': 0.0}
         lookback = min(5, percent_change_matrix.shape[0])
@@ -455,7 +454,6 @@ class AdvancedChipDynamicsService:
         """[Version 25.0.0] 增强型绝对变化扫描器 (引入低价股价格档位敏感度自适应版)"""
         import numpy as np
         import math
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         if percent_change_matrix.shape[0] == 0: return self._get_default_absolute_signals()
         recent_chg = percent_change_matrix[-min(3, len(percent_change_matrix)):, :]
         avg_chgs = np.mean(recent_chg, axis=0).astype(np.float32)
@@ -549,7 +547,6 @@ class AdvancedChipDynamicsService:
         """[Version 25.0.0] 博弈共振技术引擎 (流形概率融合与信号隔离消除版)"""
         import numpy as np
         import math
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
@@ -591,7 +588,6 @@ class AdvancedChipDynamicsService:
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """[Version 24.0.0] 动态分析主流程 (信号质量-验证分深度耦合版)"""
         from datetime import datetime
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         try:
             chip_data = await self._fetch_chip_percent_data(stock_code, trade_date, lookback_days)
             if not chip_data or len(chip_data['chip_history']) < 5: return self._get_default_result(stock_code, trade_date)
@@ -620,7 +616,6 @@ class AdvancedChipDynamicsService:
         """[Version 37.0.0] 非对称压力动力学引擎 (引入Hill方程与焦虑指数模型版)"""
         import numpy as np
         import math
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         if len(current_chip_dist) == 0 or current_price <= 0: return self._get_default_pressure_metrics()
         recent_high, dyn_vol = -1.0, 0.03
         if price_history is not None and not price_history.empty:
@@ -668,7 +663,6 @@ class AdvancedChipDynamicsService:
         mid_inc = float(np.sum(recent_chg[mask_mid & (recent_chg > 0)]))
         patterns['convergence_migration']['strength'] = float(mid_inc / (5.0 + mid_inc)) if mid_inc > 0 else 0.0
         # [探针输出]
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_migration_patterns", {"up_work": up_work, "p_center": p_center}, {"rel_up": rel_up, "km": km_work}, patterns)
         return patterns
 
@@ -701,7 +695,6 @@ class AdvancedChipDynamicsService:
             metrics['convergence_strength'] = 0.0
             metrics['divergence_strength'] = float(rel_v_chg / (0.05 + rel_v_chg))
         # [探针输出]
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {"v_chg": v_chg, "var": var}, {"rel_v_chg": rel_v_chg, "c_std": c_std}, metrics)
         return metrics
 
@@ -948,7 +941,6 @@ class AdvancedChipDynamicsService:
                 # 物理保底：若无官方换手率，设为基于波动的模拟值，防止下游MM方程除零
                 price_history['turnover_rate'] = 0.5 
             # 全链路探针
-            from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {"stock": stock_code}, {"has_basic": bool(basic_list)}, {"status": "success"})
             return {'current_chip_dist': current_chip_df, 'price_history': price_history, 'current_price': float(price_history['close_qfq'].iloc[-1])}
         except Exception: return None
@@ -1081,7 +1073,6 @@ class DirectAccumulationDistributionCalculator:
         km_ad = 0.1
         net_ad_ratio = float(raw_net / (km_ad + abs(raw_net)))
         # [全链路探针]
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "_calculate_absolute_ad", {"raw_acc": raw_acc, "raw_dist": raw_dist}, {"total_raw": total_raw, "raw_net": raw_net}, {"net_ad_ratio": net_ad_ratio})
         return {'accumulation_volume': float(raw_acc), 'distribution_volume': float(raw_dist), 'net_ad_ratio': net_ad_ratio, 'accumulation_quality': 0.5, 'distribution_quality': 0.5, 'false_distribution_flag': False, 'breakout_acceleration': 1.0}
 
@@ -1368,7 +1359,6 @@ class GameEnergyCalculator:
         """[Version 19.0.0] 自适应博弈能量指标 (基于波动率修正MM常数版)"""
         import numpy as np
         import math
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         eps = 1e-10
         abs_changes = np.abs(changes)
         total_energy = np.sum(abs_changes)
@@ -1584,7 +1574,6 @@ class ChipFactorCalculationHelper:
         chip_divergence_ratio = min(1.0, active_range / macro_range)
         
         final_result = {'chip_concentration_ratio': round(float(chip_concentration_ratio), 6), 'chip_stability': round(float(chip_stability), 6), 'price_percentile_position': round(float(price_percentile_position), 6), 'profit_pressure': round(float(comprehensive_pressure), 6), 'win_rate_price_position': round(float(win_rate_price_position), 6), 'chip_entropy': round(float(chip_entropy), 6), 'chip_convergence_ratio': round(float(chip_convergence_ratio), 6), 'chip_divergence_ratio': round(float(chip_divergence_ratio), 6)}
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("ChipFactorCalculationHelper", "calculate_core_chip_factors", {'close': close, 'winner_rate': winner_rate, 'active_range': active_range}, {'adaptive_pressure': adaptive_pressure, 'profit_pressure': profit_pressure, 'panic_pressure': panic_pressure}, final_result)
         return final_result
 
