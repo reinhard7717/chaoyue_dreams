@@ -369,68 +369,34 @@ class AdvancedChipDynamicsService:
             return {'peak_count': 0, 'main_peak_position': 0, 'main_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
 
     def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
-        """[Version 24.0.0] 行为金融多空扫描 (全域连续映射无掩码版)"""
+        """[Version 25.0.0] 行为金融扫描引擎 (引入能量背景置信度与MM饱和版)"""
         import numpy as np
         import math
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         if percent_change_matrix.shape[0] < 3: return self._get_default_behavior_patterns()
-        patterns = {'accumulation': {'detected': False, 'strength': 0.0, 'areas': []}, 'distribution': {'detected': False, 'strength': 0.0, 'areas': []}, 'consolidation': {'detected': False, 'strength': 0.0}, 'breakout_preparation': {'detected': False, 'strength': 0.0}, 'main_force_activity': 0.0}
+        patterns = {'accumulation': {'detected': False, 'strength': 0.0, 'areas': []}, 'distribution': {'detected': False, 'strength': 0.0, 'areas': []}, 'main_force_activity': 0.0}
         lookback = min(5, percent_change_matrix.shape[0])
         recent_changes = percent_change_matrix[-lookback:, :]
-        changes_last_3 = np.sum(recent_changes[-3:, :], axis=0)
-        mean_changes_3 = np.mean(recent_changes[-3:, :], axis=0)
-        current_chip = chip_matrix[-1]
-        
-        # 使用平滑标准差替代硬性的 active_mask 取极值
-        weights_chip = current_chip / (np.sum(current_chip) + 1e-8)
-        p_mean = np.sum(weights_chip * price_grid)
-        p_std = np.sqrt(np.sum(weights_chip * (price_grid - p_mean)**2))
-        p_min = p_mean - 2.0 * p_std
-        p_max = p_mean + 2.0 * p_std
-        p_range = max(p_max - p_min, 1e-5)
-        
-        low_threshold = p_min + p_range * 0.35
-        high_threshold = p_max - p_range * 0.35
-        k_factor = 20.0 / p_range
-        low_weight = 1.0 - (1.0 / (1.0 + np.exp(-k_factor * (price_grid - low_threshold))))
-        high_weight = 1.0 / (1.0 + np.exp(-k_factor * (price_grid - high_threshold)))
-        
-        total_3d_energy = float(np.sum(np.abs(changes_last_3)))
-        dynamic_noise_th = max(0.05, total_3d_energy * 0.02)
-        
-        # 摒弃 increase_mask 的布尔断层，用流形概率替代
-        k_noise = 10.0 / max(dynamic_noise_th, 1e-5)
-        increase_weight = 1.0 / (1.0 + np.exp(-k_noise * (changes_last_3 - dynamic_noise_th)))
-        decrease_weight = 1.0 / (1.0 + np.exp(k_noise * (changes_last_3 + dynamic_noise_th)))
-        
-        raw_accum_strength = float(np.sum(changes_last_3 * increase_weight * low_weight)) + float(np.sum(np.abs(changes_last_3) * decrease_weight * high_weight))
-        raw_distrib_strength = float(np.sum(changes_last_3 * increase_weight * high_weight)) + float(np.sum(np.abs(changes_last_3) * decrease_weight * low_weight))
-        
-        capacity_bench = max(5.0, total_3d_energy * 0.15)
-        if raw_accum_strength > 0.1:
-            patterns['accumulation']['detected'] = True
-            patterns['accumulation']['strength'] = float(raw_accum_strength / (raw_accum_strength + capacity_bench))
-            accum_idx = np.argsort(changes_last_3 * increase_weight * low_weight)[::-1][:5]
-            for idx in accum_idx: 
-                if (changes_last_3[idx] * increase_weight[idx] * low_weight[idx]) > 0.01:
-                    patterns['accumulation']['areas'].append({'price': float(price_grid[idx]), 'avg_change': float(mean_changes_3[idx]), 'distance_to_price': float((current_price - price_grid[idx]) / max(current_price, 1e-5))})
-        
-        if raw_distrib_strength > 0.1:
-            patterns['distribution']['detected'] = True
-            patterns['distribution']['strength'] = float(raw_distrib_strength / (raw_distrib_strength + capacity_bench))
-            dist_idx = np.argsort(changes_last_3 * increase_weight * high_weight)[::-1][:5]
-            for idx in dist_idx: 
-                if (changes_last_3[idx] * increase_weight[idx] * high_weight[idx]) > 0.01:
-                    patterns['distribution']['areas'].append({'price': float(price_grid[idx]), 'avg_change': float(mean_changes_3[idx]), 'distance_to_price': float((price_grid[idx] - current_price) / max(current_price, 1e-5))})
-            
-        abs_recent = np.abs(recent_changes[-1])
-        daily_total_energy = float(np.sum(abs_recent))
-        daily_noise = max(0.02, daily_total_energy * 0.05)
-        sig_weights = 1.0 / (1.0 + np.exp(-10.0 * (abs_recent - daily_noise) / max(daily_noise, 1e-5)))
-        activity_ratio = float(np.sum(sig_weights * weights_chip))
-        patterns['main_force_activity'] = float(activity_ratio / (activity_ratio + 0.1))
-            
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns", {'total_3d_energy': total_3d_energy}, {'raw_accum_strength': raw_accum_strength, 'raw_distrib_strength': raw_distrib_strength}, {'accum_strength': patterns['accumulation']['strength'], 'distrib_strength': patterns['distribution']['strength'], 'main_force_activity': patterns['main_force_activity']})
+        changes_sum = np.sum(recent_changes, axis=0)
+        total_energy = np.sum(np.abs(changes_sum))
+        # [模式置信度]：Km = 10.0。当3日总变动能量达到10%时，信号才具有0.5的置信度
+        confidence_scale = total_energy / (10.0 + total_energy)
+        p_mean = np.sum(chip_matrix[-1] * price_grid) / 100.0
+        p_std = np.sqrt(np.sum(chip_matrix[-1] * (price_grid - p_mean)**2) / 100.0)
+        # 连续映射权重
+        low_w = 1.0 / (1.0 + np.exp(15.0 * (price_grid - (p_mean - 0.5 * p_std)) / p_std))
+        high_w = 1.0 / (1.0 + np.exp(-15.0 * (price_grid - (p_mean + 0.5 * p_std)) / p_std))
+        # 吸筹：价格低位增加 + 价格高位减少
+        r_acc = np.sum(changes_sum[changes_sum > 0] * low_w[changes_sum > 0]) + np.sum(np.abs(changes_sum[changes_sum < 0]) * high_w[changes_sum < 0])
+        # 派发：价格高位增加 + 价格低位减少
+        r_dist = np.sum(changes_sum[changes_sum > 0] * high_w[changes_sum > 0]) + np.sum(np.abs(changes_sum[changes_sum < 0]) * low_w[changes_sum < 0])
+        km_pattern = 6.0 # 模式半饱和常数
+        patterns['accumulation']['strength'] = float((r_acc / (km_pattern + r_acc)) * confidence_scale)
+        patterns['distribution']['strength'] = float((r_dist / (km_pattern + r_dist)) * confidence_scale)
+        patterns['accumulation']['detected'] = patterns['accumulation']['strength'] > 0.15
+        patterns['distribution']['detected'] = patterns['distribution']['strength'] > 0.15
+        patterns['main_force_activity'] = float(confidence_scale)
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns", {"total_energy": total_energy}, {"r_acc": r_acc, "r_dist": r_dist}, {"acc_str": patterns['accumulation']['strength'], "dist_str": patterns['distribution']['strength']})
         return patterns
 
     def _build_normalized_chip_matrix(self, chip_history: list, current_chip_dist: pd.DataFrame) -> tuple:
@@ -692,35 +658,28 @@ class AdvancedChipDynamicsService:
         return {'his_low': 0.0, 'his_high': 0.0, 'price_to_ma5_ratio': 0.0, 'price_to_ma21_ratio': 0.0, 'price_to_ma34_ratio': 0.0, 'price_to_ma55_ratio': 0.0, 'ma_arrangement_status': 0.0, 'chip_cost_to_ma21_diff': 0.0, 'volatility_adjusted_concentration': 0.0, 'chip_rsi_divergence': 0.0, 'peak_migration_speed_5d': 0.0, 'chip_stability_change_5d': 0.0, 'chip_divergence_ratio': 0.0, 'chip_convergence_ratio': 0.0, 'trend_confirmation_score': 0.5, 'reversal_warning_score': 0.0, 'turnover_rate': 0.0, 'volume_ratio': 0.0}
 
     def _calculate_pressure_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame) -> Dict[str, float]:
-        """[Version 36.0.0] 压力计算接口 (波动率感知与零值黑洞缝合版)"""
+        """[Version 37.0.0] 非对称压力动力学引擎 (引入Hill方程与焦虑指数模型版)"""
         import numpy as np
+        import math
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         if len(current_chip_dist) == 0 or current_price <= 0: return self._get_default_pressure_metrics()
-        recent_high = -1.0
-        dyn_vol = 0.03
+        recent_high, dyn_vol = -1.0, 0.03
         if price_history is not None and not price_history.empty:
             if 'high_qfq' in price_history.columns: recent_high = float(price_history['high_qfq'].max())
             if 'close_qfq' in price_history.columns:
-                closes = price_history['close_qfq'].dropna().values
-                if len(closes) >= 10:
-                    ret = np.diff(closes) / closes[:-1]
-                    dyn_vol = float(np.std(ret[-20:])) if len(ret) > 1 else 0.03
-        dyn_vol = max(0.01, min(0.1, dyn_vol))
-        
-        p_profit, p_trapped, p_recent_trap, p_sup, p_res, p_rel = _numba_calc_pressure_core(
-            current_chip_dist.astype(np.float32), price_grid.astype(np.float32), 
-            float(current_price), float(recent_high), float(dyn_vol)
-        )
-        
-        metrics = {'profit_pressure': p_profit, 'trapped_pressure': p_trapped, 'recent_trapped_pressure': p_recent_trap, 'support_strength': p_sup, 'resistance_strength': p_res, 'pressure_release': p_rel}
-        
-        # [调和平均代替算术平均]：只要有一方（获利抛压或套牢抛压）极大，综合压力就会拉高，不再互相掩护
-        if p_profit > 0.05 and p_trapped > 0.05:
-            metrics['comprehensive_pressure'] = float(2.0 / (1.0/p_profit + 1.0/p_trapped))
-        else:
-            metrics['comprehensive_pressure'] = float(p_profit * 0.6 + p_trapped * 0.4)
-            
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {'total_percent': float(np.sum(current_chip_dist))}, {'damped_trapped': metrics['trapped_pressure'], 'dyn_vol': dyn_vol}, metrics)
+                ret = np.diff(price_history['close_qfq'].values) / (price_history['close_qfq'].values[:-1] + 1e-8)
+                dyn_vol = float(np.std(ret[-20:])) if len(ret) > 1 else 0.03
+        dyn_vol = max(0.015, min(0.12, dyn_vol))
+        p_profit, p_trapped, p_recent_trap, p_sup, p_res, p_rel = _numba_calc_pressure_core(current_chip_dist.astype(np.float32), price_grid.astype(np.float32), float(current_price), float(recent_high), float(dyn_vol))
+        # [非对称压力建模]
+        # 获利盘：MM方程 (Km=0.15)
+        f_profit = p_profit / (0.15 + p_profit)
+        # 套牢盘：Hill方程 (n=2, Km=0.2 模拟焦虑爆发)
+        f_trapped = (p_trapped**2) / (0.04 + p_trapped**2) # 0.04 = 0.2^2
+        # [Soft-OR 合并] 任何一种压力爆发都将拉高整体水位
+        metrics = {'profit_pressure': f_profit, 'trapped_pressure': f_trapped, 'recent_trapped_pressure': p_recent_trap, 'support_strength': p_sup, 'resistance_strength': p_res, 'pressure_release': p_rel}
+        metrics['comprehensive_pressure'] = 1.0 - (1.0 - f_profit) * (1.0 - f_trapped)
+        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_pressure_metrics", {"p_profit": p_profit, "p_trapped": p_trapped}, {"f_profit": f_profit, "f_trapped": f_trapped}, metrics)
         return metrics
 
     def _calculate_migration_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, any]:
@@ -1494,56 +1453,37 @@ class GameEnergyCalculator:
             return self._get_default_energy()
 
     def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
-        """[Version 18.0.0] 博弈能量指标计算器 (引入米氏方程饱和动力学)"""
+        """[Version 19.0.0] 自适应博弈能量指标 (基于波动率修正MM常数版)"""
         import numpy as np
         import math
-        eps = np.finfo(np.float64).eps
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        eps = 1e-10
         abs_changes = np.abs(changes)
         total_energy = np.sum(abs_changes)
+        # 估算局部变动波动率 (利用变动量在价格空间的散度)
         energy_concentration = 0.0
-        if total_energy > eps:
-            active_mask = abs_changes > 1e-5
-            active_count = np.sum(active_mask)
-            if active_count > 0:
-                sorted_valid_changes = np.sort(abs_changes[active_mask])[::-1]
-                top_count = max(1, int(active_count * 0.2))
-                top_energy = np.sum(sorted_valid_changes[:top_count])
-                base_concentration = float(top_energy / total_energy)
-                normalized_energy = abs_changes / total_energy
-                hhi = np.sum(normalized_energy ** 2)
-                scale_penalty = float(active_count / (active_count + len(changes) * 0.05))
-                energy_concentration = float(base_concentration * 0.4 + hhi * 0.6) * scale_penalty
-                
-        valid_changes = abs_changes[abs_changes > eps]
-        dynamic_active_threshold = max(0.01, float(np.percentile(valid_changes, 60))) if len(valid_changes) > 5 else 0.05
-        active_mask_intensity = abs_changes > dynamic_active_threshold
-        active_energy_sum = np.sum(abs_changes[active_mask_intensity])
-        prior_energy = max(1.0, total_energy * 0.05) 
-        active_ratio = active_energy_sum / (total_energy + prior_energy + eps)
-        # [摒弃 atan] 改用米氏动力学方程 (Michaelis-Menten) 映射活跃度饱和极值，更符合自然界物理规律
-        absolute_scale = float(total_energy / (total_energy + 10.0))
-        game_intensity = float(np.clip(active_ratio * absolute_scale, 0.0, 1.0))
-        above_mask = price_grid > current_price
-        below_mask = price_grid < current_price
-        absorption_above = np.sum(changes[above_mask & (changes > 0)])
-        distribution_above = np.sum(np.abs(changes[above_mask & (changes < 0)]))
-        absorption_below = np.sum(changes[below_mask & (changes > 0)])
-        distribution_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
-        imbalance_prior = max(2.0, (absorption_below + distribution_below) * 0.1)
-        below_imbalance = (absorption_below - distribution_below) / (absorption_below + distribution_below + imbalance_prior + eps)
-        # [摒弃 tanh] 直接按比例线性放缩支撑乘数 [0.5, 1.5]
-        support_strength = 1.0 + float(np.clip(below_imbalance, -0.5, 0.5))
-        net_above = absorption_above - distribution_above
-        # 突破势能具备物理上限(Max=100)，负动能直接归零，杜绝指数发散爆炸
-        if net_above > 0: raw_potential = (net_above / (net_above + 15.0)) * support_strength * 100.0
-        else: raw_potential = 0.0
-            
-        breakout_potential = float(np.clip(raw_potential, 0.0, 100.0))
-        if energy_concentration > 0.5: breakout_potential = float(min(100.0, breakout_potential * (1.0 + (energy_concentration - 0.5))))
-            
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
-        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {'total_energy': float(total_energy), 'prior_energy': float(prior_energy), 'dynamic_threshold': float(dynamic_active_threshold)}, {'active_ratio': float(active_ratio), 'absolute_scale': float(absolute_scale), 'support_strength': float(support_strength)}, {'game_intensity': float(game_intensity), 'breakout_potential': float(breakout_potential), 'energy_concentration': float(energy_concentration)})
-        return float(game_intensity), float(breakout_potential), float(energy_concentration)
+        if total_energy > 1.0:
+            p_e = abs_changes / total_energy
+            e_std = np.sqrt(np.sum(p_e * (price_grid - np.sum(p_e * price_grid))**2)) / current_price
+        else: e_std = 0.03
+        # [自适应Km修正]：Km 随 e_std 线性调整，基准 Km=8.0
+        v_km = 8.0 * (1.0 + e_std * 5.0)
+        active_ratio = np.sum(abs_changes[abs_changes > (total_energy * 0.01)]) / (total_energy + eps)
+        # [MM饱和方程] 
+        game_intensity = float(active_ratio * (total_energy / (v_km + total_energy)))
+        above_mask, below_mask = price_grid > current_price, price_grid < current_price
+        abs_above = np.sum(changes[above_mask & (changes > 0)])
+        dist_above = np.sum(np.abs(changes[above_mask & (changes < 0)]))
+        abs_below = np.sum(changes[below_mask & (changes > 0)])
+        dist_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
+        # 突破势能饱和常数调优
+        net_above = abs_above - dist_above
+        km_pot = 12.0 * (1.0 + e_std * 3.0)
+        breakout_potential = float(max(0, net_above / (km_pot + abs(net_above))) * 100.0)
+        # 计算集中度
+        energy_concentration = float(np.sum(np.sort(abs_changes)[-10:]) / (total_energy + eps))
+        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {"total_energy": total_energy, "e_std": e_std}, {"v_km": v_km, "km_pot": km_pot}, {"game_intensity": game_intensity, "breakout_potential": breakout_potential})
+        return game_intensity, breakout_potential, energy_concentration
 
     def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float) -> float:
         """[Version 24.0.0] 高阶虚假派发流形扫描器 (去掩码截断纯连续版)"""
