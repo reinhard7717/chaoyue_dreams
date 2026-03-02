@@ -586,27 +586,47 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
-        """[Version 24.0.0] 动态分析主流程 (信号质量-验证分深度耦合版)"""
-        from datetime import datetime
+        """[Version 25.0.0] 动态分析主引擎 - Step 1-10 深度集成版"""
+        import traceback
         try:
             chip_data = await self._fetch_chip_percent_data(stock_code, trade_date, lookback_days)
-            if not chip_data or len(chip_data['chip_history']) < 5: return self._get_default_result(stock_code, trade_date)
+            if not chip_data or len(chip_data.get('chip_history', [])) < 5:
+                return self._get_default_result(stock_code, trade_date, "Missing chip history or base data")
             p_grid, c_matrix = self._build_normalized_chip_matrix(chip_data['chip_history'], chip_data['current_chip_dist'])
             chg_matrix = self._calculate_percent_change_matrix(c_matrix)
-            abs_sigs = self._analyze_absolute_changes(chg_matrix, p_grid, chip_data['current_price'])
-            # 基础指标计算 (保持原有调用)
-            conc_m = self._calculate_concentration_metrics(c_matrix[-1], p_grid, chip_data['current_price'], chip_data['price_history'])
-            pres_m = self._calculate_pressure_metrics(c_matrix[-1], p_grid, chip_data['current_price'], chip_data['price_history'])
-            behav_p = self._identify_behavior_patterns(chg_matrix, c_matrix, p_grid, chip_data['current_price'])
-            # [验证分逻辑重构]：引入信号质量穿透
+            if chg_matrix.shape[0] == 0:
+                return self._get_default_result(stock_code, trade_date, "Empty change matrix after noise filtering")
+            curr_price = float(chip_data['current_price'])
+            # Step 10: 初始探針
+            QuantitativeTelemetryProbe.emit("ServiceEngine", "StartAnalysis", {'stock': stock_code}, {'matrix_shape': str(c_matrix.shape)}, {'status': 'Init'})
+            # 核心計算鏈
+            abs_sigs = self._analyze_absolute_changes(chg_matrix, p_grid, curr_price)
+            conc_m = self._calculate_concentration_metrics(c_matrix[-1], p_grid, curr_price, chip_data['price_history'])
+            pres_m = self._calculate_pressure_metrics(c_matrix[-1], p_grid, curr_price, chip_data['price_history'])
+            mig_p = self._calculate_migration_patterns(chg_matrix, c_matrix, p_grid)
+            conv_m = self._calculate_convergence_metrics(c_matrix, chg_matrix, p_grid)
+            behav_p = self._identify_behavior_patterns(chg_matrix, c_matrix, p_grid, curr_price)
+            # 博弈能量場 (Step 8: 引入物理模型)
+            energy_res = self._calculate_game_energy(chg_matrix, p_grid, curr_price, chip_data['price_history'].iloc[-1]['close_qfq'], chip_data['price_history']['vol'], stock_code, trade_date)
+            # Tick 增強 (Step 9: 消除孤島)
+            tick_factors = await self._calculate_tick_enhanced_factors(tick_data, {'current_price': curr_price}, p_grid, c_matrix[-1], trade_date) if tick_data is not None else self._get_default_tick_factors()
+            # Step 7: 驗證分數 (防止極性反噬)
             sig_q = float(abs_sigs.get('signal_quality', 0.5))
-            v_score = float(np.exp(-0.1) * (0.6 + 0.4 * sig_q)) # 数据完整度0.9 * 权重函数
-            if sig_q < 0.4: v_score *= 0.5 # 极低能量区强制降权
-            # [探针输出]
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "analyze_chip_dynamics_daily", {"stock": stock_code, "date": trade_date}, {"sig_q": sig_q}, {"v_score": v_score})
-            # 返回逻辑保持一致...
-            return {'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': p_grid.tolist(), 'chip_matrix': c_matrix.tolist(), 'absolute_change_signals': abs_sigs, 'concentration_metrics': conc_m, 'validation_score': round(v_score, 4), 'analysis_status': 'success'}
-        except Exception: return self._get_default_result(stock_code, trade_date)
+            v_score = float(np.exp(-0.1) * (0.6 + 0.4 * sig_q))
+            # 最終結果裝配
+            return {
+                'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': p_grid.tolist(),
+                'chip_matrix': c_matrix.tolist(), 'percent_change_matrix': chg_matrix.tolist(),
+                'absolute_change_signals': abs_sigs, 'concentration_metrics': conc_m,
+                'pressure_metrics': pres_m, 'migration_patterns': mig_p,
+                'convergence_metrics': conv_m, 'behavior_patterns': behav_p,
+                'game_energy_result': energy_res, 'tick_enhanced_factors': tick_factors,
+                'validation_score': round(v_score, 4), 'analysis_status': 'success', 'current_price': curr_price
+            }
+        except Exception as e:
+            err_msg = f"{str(e)}\n{traceback.format_exc()}"
+            QuantitativeTelemetryProbe.emit("ServiceEngine", "FATAL_ERROR", {'stock': stock_code}, {'error': str(e)}, {'status': 'Crashed'})
+            return self._get_default_result(stock_code, trade_date, err_msg)
 
     def _get_default_technical_metrics(self) -> Dict[str, float]:
         """[Version 18.0.0] 技术面默认指标初始化"""
@@ -969,28 +989,21 @@ class AdvancedChipDynamicsService:
 
     # ============== 默认结果方法 ==============
     
-    def _get_default_result(self, stock_code: str = "", trade_date: str = "") -> Dict[str, any]:
-        result = {
-            'stock_code': stock_code,
-            'trade_date': trade_date,
-            'price_grid': [],
-            'percent_change_matrix': [],
+    def _get_default_result(self, stock_code: str = "", trade_date: str = "", error_msg: str = "Unknown") -> Dict[str, any]:
+        """[Version 24.1.0] 增强型默认结果 - 包含错误追踪与全量字段"""
+        return {
+            'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': [],
+            'chip_matrix': [], 'percent_change_matrix': [],
             'absolute_change_signals': self._get_default_absolute_signals(),
             'concentration_metrics': self._get_default_concentration_metrics(),
             'pressure_metrics': self._get_default_pressure_metrics(),
             'behavior_patterns': self._get_default_behavior_patterns(),
             'migration_patterns': self._get_default_migration_patterns(),
             'convergence_metrics': self._get_default_convergence_metrics(),
-            'game_energy_result': {},
-            'direct_ad_result': {},
-            # 新增：默认tick因子
+            'game_energy_result': self.game_energy_calculator._get_default_energy(),
             'tick_enhanced_factors': self._get_default_tick_factors(),
-            'analysis_status': 'failed'
+            'analysis_status': 'failed', 'error_message': error_msg
         }
-        # 确保有默认的game_energy_result
-        if 'game_energy_result' not in result or not result['game_energy_result']:
-            result['game_energy_result'] = self.game_energy_calculator._get_default_energy()
-        return result
 
     def _get_default_absolute_signals(self) -> Dict[str, any]:
         return {
