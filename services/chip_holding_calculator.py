@@ -1463,26 +1463,20 @@ class ChipFactorCalculationHelper:
         return final_result
 
 class QuantitativeTelemetryProbe:
-    """[Version 5.2.0] 捲積疊加態智能探針 - 實施「場景化過濾與異常強制輸出」策略版"""
+    """[Version 6.0.0] 工業級量化全鏈路探針 - Tick 上下文精簡靜默版"""
     @classmethod
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
         """
-        [Version 5.2.0] 修復探針死鎖。
-        邏輯疊加態公式：ShouldEmit = (IsError) OR (IsWorkflow) OR (IsAlgorithm_AND_TickMode)
+        [Version 6.0.0] 精簡版探針發射器。
+        策略：完全依賴 probe_state 上下文變量。若當前任務未傳入 Tick 數據，則立即中斷，拒絕產出任何日誌與文件寫入。
         """
         from services.chip_holding_calculator import probe_state
-        # 🧪 [步驟 4 & 9] 邏輯疊加判定
-        # 1. 異常或崩潰探針強制輸出
-        is_error = any(tag in method_name.upper() for tag in ["ERR", "FATAL", "FAIL", "CRASH", "FUSE"])
-        # 2. 系統工作流（調度、批處理）探針強制輸出，保證生命體徵可見
-        is_workflow = module_name in ["TaskScheduler", "BatchWorker", "SingleStockWorker", "ServiceEngine", "ChipFactorBase"]
-        # 3. 算法細節探針受 Tick 狀態限制
-        is_algo_detail = not is_error and not is_workflow
-        # 最終閘口判定
-        if is_algo_detail and not probe_state.get(): return
+        # 🧪 [步驟 10] 核心門禁：只有當 probe_state 為 True (即存在 Tick 數據時) 才允許向下執行
+        if not probe_state.get(): return
         import json, sys, os, datetime
         import numpy as np
         class UltimateEncoder(json.JSONEncoder):
+            """支持 Numpy 與時間對象的高級序列化器"""
             def default(self, obj):
                 if isinstance(obj, (np.integer, np.int64, np.int32)): return int(obj)
                 if isinstance(obj, (np.floating, np.float64, np.float32)): return float(obj)
@@ -1494,17 +1488,19 @@ class QuantitativeTelemetryProbe:
                     if pd.isna(obj): return None
                 except Exception: pass
                 return str(obj)
+        # 🧪 [步驟 10] 全鏈路探針協議：原始數據、關鍵計算節點、最終分數
         payload = {"time": datetime.datetime.now().isoformat(), "module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
         try:
             out_str = f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False, cls=UltimateEncoder)}\n"
         except Exception as e:
             out_str = f"⚠️ [QUANT-PROBE-ERR] 无法序列化: {e} | Module: {module_name} | Method: {method_name}\n"
-        # 輸出至終端和文件
+        # 物理輸出：標準錯誤流與緊急日誌文件同步寫入
         try:
-            sys.stderr.write(out_str); sys.stderr.flush()
+            sys.stderr.write(out_str)
+            sys.stderr.flush()
         except Exception: pass
         try:
-            with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f: f.write(out_str)
+            with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
+                f.write(out_str)
         except Exception: pass
-
 
