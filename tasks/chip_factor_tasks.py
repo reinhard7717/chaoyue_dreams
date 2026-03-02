@@ -413,10 +413,7 @@ def calculate_single_stock_chip_factors_sync(stock_code: str, start_date: str, e
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def calculate_single_stock_holding_matrix_async(stock_code: str, start_date: date, end_date: date, cm: CacheManager) -> Dict:
-    """
-    [Version 7.0.0] 单股矩阵异步推演 (ORM跨界防死锁与全境曝光版)
-    说明：将 stock=stock 对象级传递彻底降维为 stock_id=stock_code，并在深海 except 块中强制植入 Traceback 探针，根除静默吞噬。
-    """
+    """[Version 7.1.0] 单股矩阵异步推演 - 失败探针补完与字段校准版"""
     from services.chip_holding_calculator import QuantitativeTelemetryProbe
     import traceback
     try:
@@ -435,8 +432,8 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                     existing_record = await sync_to_async(holding_matrix_model.objects.filter(stock_id=stock_code, trade_time=current_date).first)()
                     need_recalculate = False
                     if existing_record:
-                        if not hasattr(existing_record, 'absolute_change_analysis') or existing_record.absolute_change_analysis is None or existing_record.absolute_change_analysis == {}: need_recalculate = True
-                        elif not hasattr(existing_record, 'absorption_energy') or existing_record.absorption_energy is None or existing_record.absorption_energy == 0: need_recalculate = True
+                        if not hasattr(existing_record, 'absolute_change_analysis') or existing_record.absolute_change_analysis is None: need_recalculate = True
+                        elif not hasattr(existing_record, 'absorption_energy') or existing_record.absorption_energy == 0: need_recalculate = True
                     if not need_recalculate: continue
                 trade_date_str = current_date.strftime('%Y-%m-%d')
                 realtime_dao = StockRealtimeDAO(cm)
@@ -444,24 +441,23 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
                 dynamics_result = await service.analyze_chip_dynamics_daily(stock_code=stock_code, trade_date=trade_date_str, lookback_days=20, tick_data=tick_data)
                 if dynamics_result.get('analysis_status') == 'success':
                     record, created = await sync_to_async(holding_matrix_model.objects.get_or_create)(stock_id=stock_code, trade_time=current_date, defaults={'calc_status': 'pending'})
-                    if 'current_price' not in dynamics_result and 'price_grid' in dynamics_result and dynamics_result['price_grid']: dynamics_result['current_price'] = dynamics_result['price_grid'][len(dynamics_result['price_grid'])//2]
                     save_success = await sync_to_async(record.save_dynamics_result)(dynamics_result)
                     if save_success:
-                        processed_dates += 1
-                        saved_dates.append(current_date)
-                    else:
-                        QuantitativeTelemetryProbe.emit("TaskWorker", "matrix_save_FAIL", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'save_dynamics_result returned False'})
-                        failed_dates.append(current_date)
-                else: failed_dates.append(current_date)
+                        processed_dates += 1; saved_dates.append(current_date)
+                    else: failed_dates.append(current_date)
+                else:
+                    # [新增] 分析失败时的探针，揭示原因（如数据不足）
+                    QuantitativeTelemetryProbe.emit("TaskWorker", "analysis_FAIL", {'stock': stock_code, 'date': str(current_date)}, {'result_status': dynamics_result.get('analysis_status')}, {'reason': dynamics_result.get('error_message', 'Unknown failure')})
+                    failed_dates.append(current_date)
             except Exception as e:
                 err_trace = traceback.format_exc()
                 QuantitativeTelemetryProbe.emit("TaskWorker", "matrix_async_LOOP_ERR", {'stock': stock_code, 'date': str(current_date)}, {'error': str(e), 'trace': err_trace}, {'status': 'failed'})
                 failed_dates.append(current_date)
-        return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
+        return {'status': 'success', 'saved_count': len(saved_dates), 'failed_count': len(failed_dates), 'processed_dates': processed_dates}
     except Exception as e:
         err_trace = traceback.format_exc()
         QuantitativeTelemetryProbe.emit("TaskWorker", "matrix_async_FATAL", {'stock': stock_code}, {'error': str(e), 'trace': err_trace}, {'status': 'Crash'})
-        return {'status': 'error', 'error': str(e), 'processed_dates': 0}
+        return {'status': 'error', 'error': str(e)}
 
 def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
     """同步版本的股票持有矩阵计算（按股票循环）版本：重构适配AdvancedChipDynamicsService"""

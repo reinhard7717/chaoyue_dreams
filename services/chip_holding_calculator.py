@@ -915,35 +915,57 @@ class AdvancedChipDynamicsService:
     # ============== 数据获取方法 ==============
     
     async def _fetch_chip_percent_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
-        """[Version 24.0.0] 全息数据泵 (物理成交量替补与隔离版)"""
+        """[Version 25.0.0] 全息数据泵 - 变量逻辑修复与失败探针强化版"""
         import pandas as pd
         from datetime import datetime, timedelta
         from django.apps import apps
         from asgiref.sync import sync_to_async
+        from stock_models.chip import StockCyqPerf
+        from utils.model_helpers import get_cyq_chips_model_by_code, get_daily_data_model_by_code
         try:
-            # 原有筹码模型获取代码...
-            # [优化：基本面联查与物理替补]
+            trade_date_dt = datetime.strptime(trade_date, '%Y-%m-%d').date() if '-' in trade_date else datetime.strptime(trade_date, '%Y%m%d').date()
+            start_date = trade_date_dt - timedelta(days=lookback_days * 2) 
+            daily_model = get_daily_data_model_by_code(stock_code)
+            chips_model = get_cyq_chips_model_by_code(stock_code)
+            price_qs = daily_model.objects.filter(stock_id=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).order_by('trade_time').values('trade_time', 'close_qfq', 'open_qfq', 'high_qfq', 'low_qfq', 'vol', 'amount', 'pct_change')
+            price_list = await sync_to_async(list)(price_qs)
+            if not price_list or len(price_list) < 5:
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "fetch_data_FAIL", {'stock': stock_code, 'date': trade_date}, {'price_count': len(price_list)}, {'reason': 'Insufficient price data'})
+                return None
+            price_history = pd.DataFrame(price_list)
+            price_history['trade_time'] = pd.to_datetime(price_history['trade_time']).dt.date
+            current_chips_qs = chips_model.objects.filter(stock_id=stock_code, trade_time=trade_date_dt).values('price', 'percent')
+            current_chips_list = await sync_to_async(list)(current_chips_qs)
+            if not current_chips_list:
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "fetch_data_FAIL", {'stock': stock_code, 'date': trade_date}, {}, {'reason': 'Missing current chip distribution'})
+                return None
+            current_chip_df = pd.DataFrame(current_chips_list)
+            history_dates = price_history['trade_time'].tolist()[:-1]
+            chip_history = []
+            for h_date in history_dates[-lookback_days:]:
+                h_chips_qs = chips_model.objects.filter(stock_id=stock_code, trade_time=h_date).values('price', 'percent')
+                h_chips_list = await sync_to_async(list)(h_chips_qs)
+                if h_chips_list: chip_history.append(pd.DataFrame(h_chips_list))
             basic_list = []
             try:
                 market = stock_code.split('.')[-1]
                 model_name = f'StockDailyBasic_{market}'
                 StockDailyBasic = apps.get_model('stock_models', model_name)
-                basic_qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).values('trade_time', 'turnover_rate', 'turnover_rate_f', 'volume_ratio')
+                basic_qs = StockDailyBasic.objects.filter(stock_id=stock_code, trade_time__gte=start_date, trade_time__lte=trade_date_dt).values('trade_time', 'turnover_rate', 'turnover_rate_f', 'volume_ratio')
                 basic_list = await sync_to_async(list)(basic_qs)
             except Exception: pass
-            # [物理量能纠偏]：如果没有任何换手率，根据 vol / amount 尝试重建能量场
-            price_history = pd.DataFrame(price_list) # 假设 price_list 已从 daily_model 取得
             if basic_list:
                 basic_df = pd.DataFrame(basic_list)
+                basic_df['trade_time'] = pd.to_datetime(basic_df['trade_time']).dt.date
                 basic_df['turnover_rate'] = basic_df['turnover_rate'].fillna(basic_df['turnover_rate_f']).fillna(0.0)
-                price_history = price_history.merge(basic_df[['trade_time', 'turnover_rate']], on='trade_time', how='left')
-            else:
-                # 物理保底：若无官方换手率，设为基于波动的模拟值，防止下游MM方程除零
-                price_history['turnover_rate'] = 0.5 
-            # 全链路探针
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_fetch_chip_percent_data", {"stock": stock_code}, {"has_basic": bool(basic_list)}, {"status": "success"})
-            return {'current_chip_dist': current_chip_df, 'price_history': price_history, 'current_price': float(price_history['close_qfq'].iloc[-1])}
-        except Exception: return None
+                price_history = price_history.merge(basic_df[['trade_time', 'turnover_rate', 'volume_ratio']], on='trade_time', how='left')
+            else: price_history['turnover_rate'] = 1.0; price_history['volume_ratio'] = 1.0
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "fetch_data_SUCCESS", {'stock': stock_code}, {'chip_hist_len': len(chip_history)}, {'status': 'Ready'})
+            return {'chip_history': chip_history, 'current_chip_dist': current_chip_df, 'price_history': price_history, 'current_price': float(price_history['close_qfq'].iloc[-1])}
+        except Exception as e:
+            import traceback
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "fetch_data_FATAL", {'stock': stock_code}, {'error': str(e), 'trace': traceback.format_exc()}, {'status': 'Failed'})
+            return None
 
     # ============== 默认结果方法 ==============
     
