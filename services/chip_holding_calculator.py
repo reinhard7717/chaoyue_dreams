@@ -741,41 +741,28 @@ class AdvancedChipDynamicsService:
         return energy_result
 
     def _calculate_main_force_activity(self, tick_data: pd.DataFrame, intraday_flow: Dict[str, float], abnormal_volume: Dict[str, float]) -> float:
-        """
-        [Version 18.0.0] 严格因果序贯主力活跃度探测器 (EMA 记忆网络消除未来函数版)
-        修改思路：废除用包含自身数据的 cumsum 来判定自己是否异动的未来函数泄露。强制时间步右移 (用 t-1 的 EMA 评定 t 的爆发)。
-        """
+        """[Version 19.0.0] 主力活跃度探测 - 时间序贯与量价共振版"""
         import numpy as np
-        import math
         try:
-            raw_score = 0.0
-            if abnormal_volume: raw_score += abnormal_volume.get('abnormal_volume_ratio', 0.0) * 3.5
-            if not tick_data.empty:
-                volumes = tick_data['volume'].to_numpy(dtype=np.float32)
-                seq_len = len(volumes)
-                if seq_len > 1:
-                    ema_volumes = np.zeros(seq_len, dtype=np.float32)
-                    dynamic_threshold = np.zeros(seq_len, dtype=np.float32)
-                    alpha = np.float32(2.0 / (min(20, seq_len) + 1.0))
-                    ema_volumes[0] = volumes[0]
-                    dynamic_threshold[0] = volumes[0] * 3.0
-                    for i in range(1, seq_len):
-                        # [严格因果隔离]：用上一时刻(i-1)的 EMA 门限去判定这一时刻(i)的量，杜绝数据偷看未来
-                        dynamic_threshold[i] = ema_volumes[i-1] * 3.0
-                        ema_volumes[i] = alpha * volumes[i] + (1.0 - alpha) * ema_volumes[i-1]
-                    
-                    large_order_mask = volumes > dynamic_threshold
-                    large_order_vol = np.sum(volumes[large_order_mask])
-                    total_vol = np.sum(volumes)
-                    large_order_ratio = float(large_order_vol / total_vol) if total_vol > 1e-5 else 0.0
-                    raw_score += large_order_ratio * 2.5
-            if intraday_flow:
-                buy_ratio = intraday_flow.get('buy_ratio', 0.5)
-                sell_ratio = intraday_flow.get('sell_ratio', 0.5)
-                prior_imbalance = 0.05
-                imbalance = abs(buy_ratio - sell_ratio) / (buy_ratio + sell_ratio + prior_imbalance)
-                raw_score += imbalance * 2.0
-            return float(np.tanh(raw_score / 2.0))
+            if tick_data.empty or len(tick_data) < 20: return 0.0
+            # Step 6: 严格因果过滤 (只使用前序数据计算动态阈值)
+            vols = tick_data['volume'].values.astype(np.float32)
+            prices = tick_data['price'].values.astype(np.float32)
+            # 使用逻辑移位 EMA 避免 Look-ahead Bias
+            alpha = 0.1
+            ema_vol = np.zeros_like(vols)
+            ema_vol[0] = vols[0]
+            for i in range(1, len(vols)):
+                ema_vol[i] = alpha * vols[i-1] + (1.0 - alpha) * ema_vol[i-1]
+            # 异常单判定：当前成交 > 前序均值 4 倍 (Step 9: 联动价格变化)
+            price_chg = np.abs(np.diff(prices, prepend=prices[0]))
+            large_mask = vols > (ema_vol * 4.0)
+            # 只有伴随价格明显异动的巨量才被视为有效主力行为 (共振)
+            effective_large_mask = large_mask & (price_chg > np.median(price_chg))
+            raw_score = np.sum(vols[effective_large_mask]) / (np.sum(vols) + 1e-10)
+            # Step 5: 米氏方程归一化 (Km=0.15, Vmax=1.0)
+            activity_idx = raw_score / (0.15 + raw_score)
+            return float(activity_idx)
         except Exception: return 0.0
 
     def _calculate_accumulation_distribution_confidence(self, intraday_flow: Dict[str, float],chip_locking: Dict[str, float],support_resistance: Dict[str, Any]) -> Tuple[float, float]:
@@ -1095,21 +1082,27 @@ class DirectAccumulationDistributionCalculator:
             return result
 
     def _calculate_absolute_ad(self, changes: np.ndarray, price_rel: np.ndarray) -> Dict[str, any]:
-        """[Version 13.0.0] 吸收派发动力学算子 (引入贝叶斯先验饱和模型替代atan版)"""
+        """[Version 14.0.0] 吸收派发动力学算子 - 米氏方程替换版"""
         import numpy as np
-        import math
+        eps = 1e-10
         noise_f = float(self.params['noise_filter'])
         raw_acc, raw_dist, clean_sum = _numba_calc_ad_core(changes.astype(np.float32), price_rel.astype(np.float32), noise_f)
-        total_raw = raw_acc + raw_dist
-        # [MM饱和替代atan]：Km=0.1。当净吸筹比率达到10%时，信号强度达0.5
-        # 这种方式能让 20%-40% 的主力强力扫货行为在因子中体现出更明显的区分度
-        denom = total_raw + max(3.0, total_raw * 0.15) + 1e-8
-        raw_net = (raw_acc - raw_dist) / denom
-        km_ad = 0.1
-        net_ad_ratio = float(raw_net / (km_ad + abs(raw_net)))
-        # [全链路探针]
-        QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "_calculate_absolute_ad", {"raw_acc": raw_acc, "raw_dist": raw_dist}, {"total_raw": total_raw, "raw_net": raw_net}, {"net_ad_ratio": net_ad_ratio})
-        return {'accumulation_volume': float(raw_acc), 'distribution_volume': float(raw_dist), 'net_ad_ratio': net_ad_ratio, 'accumulation_quality': 0.5, 'distribution_quality': 0.5, 'false_distribution_flag': False, 'breakout_acceleration': 1.0}
+        # Step 5: 非对称归一化 (吸筹比派发更难，需更低的 Km)
+        # 资金吸筹 Km = 5.0%, 派发 Km = 8.0% (派发通常伴随高换手，响应更快)
+        km_acc = 5.0; km_dist = 8.0
+        v_acc = raw_acc / (km_acc + raw_acc) if raw_acc > 0 else 0.0
+        v_dist = raw_dist / (km_dist + raw_dist) if raw_dist > 0 else 0.0
+        # Step 7: 极性纠正与 0 值死锁防御
+        total_v = v_acc + v_dist + eps
+        net_ad_ratio = float((v_acc - v_dist) / total_v)
+        # 信号质量：基于变动分布的熵值确定 (Step 8: 信息熵模型)
+        p_acc = raw_acc / (raw_acc + raw_dist + eps)
+        sig_q = 1.0 - abs(p_acc - 0.5) * 2.0 # 越接近均衡，质量越低（博弈分歧大）
+        return {
+            'accumulation_volume': float(raw_acc), 'distribution_volume': float(raw_dist),
+            'net_ad_ratio': net_ad_ratio, 'signal_quality': sig_q,
+            'v_acc_saturated': v_acc, 'v_dist_saturated': v_dist
+        }
 
     def _correct_pullback_ad(self, ad_result: Dict[str, any], price_history: pd.DataFrame, current_price: float) -> Dict[str, any]:
         """[Version 12.0.0] A股拉升初期纠偏器 (去除耗时 rolling 导致 NaN 毒药注入的安全版)"""

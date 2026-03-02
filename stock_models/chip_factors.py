@@ -469,12 +469,10 @@ class ChipFactorBase(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time}"
     def save(self, *args, **kwargs):
-        """
-        [Version 7.0.0] ORM 级毒性数据物理熔断器 (MySQL 拒写防御版)
-        修改思路：遍历反射字段时，拦截一切可能引发 MySQL OperationalError 回滚的 NaN 与 Inf，强行降级为 0.0。
-        """
+        """[Version 7.0.1] ORM 熔断器 - 字段级异常抛出版"""
         import math
         from django.db import models
+        error_fields = []
         for field in self._meta.fields:
             if isinstance(field, models.FloatField):
                 val = getattr(self, field.name)
@@ -483,10 +481,13 @@ class ChipFactorBase(models.Model):
                         f_val = float(val)
                         if math.isnan(f_val) or math.isinf(f_val):
                             setattr(self, field.name, 0.0)
+                            error_fields.append(field.name)
                         else:
                             setattr(self, field.name, round(f_val, 3))
-                    except (ValueError, TypeError):
-                        setattr(self, field.name, 0.0)
+                    except: setattr(self, field.name, 0.0)
+        if error_fields:
+            # Step 10: 针对熔断行为输出探针
+            print(f"📡 [ORM-FUSE] | Stock: {self.stock_id} | Date: {self.trade_time} | Fixed NaN fields: {error_fields}")
         super().save(*args, **kwargs)
 
     # ========== 计算聚散度的方法 ==========
