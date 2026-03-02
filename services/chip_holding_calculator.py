@@ -1656,7 +1656,6 @@ class QuantitativeTelemetryProbe:
         from services.chip_holding_calculator import probe_state
         if not probe_state.get(): return
         import json, sys, os, datetime
-        import numpy as np
         class UltimateEncoder(json.JSONEncoder):
             def default(self, obj):
                 if isinstance(obj, (np.integer, np.int64, np.int32)): return int(obj)
@@ -1675,8 +1674,9 @@ class QuantitativeTelemetryProbe:
         except Exception as e:
             out_str = f"⚠️ [QUANT-PROBE-ERR] 无法序列化: {e} | Module: {module_name} | Method: {method_name}\n"
         try:
-            sys.stderr.write(out_str)
-            sys.stderr.flush()
+            # sys.stderr.write(out_str)
+            # sys.stderr.flush()
+            pass
         except Exception: pass
         try:
             with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
