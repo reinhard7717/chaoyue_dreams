@@ -14,8 +14,10 @@ import asyncio
 from asgiref.sync import sync_to_async
 from services.chip_calculator import ChipFactorCalculator
 from utils.model_helpers import get_cyq_chips_model_by_code, get_daily_data_model_by_code
+from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
+probe_state: ContextVar[bool] = ContextVar('probe_state', default=False)
 
 @njit(cache=True, fastmath=True)
 def _numba_build_matrix_core(prices: np.ndarray, percents: np.ndarray, days_arr: np.ndarray, num_days: int, granularity: int, global_min: float, grid_step: float) -> np.ndarray:
@@ -471,7 +473,7 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 38.7.0] 邏輯疊加態濃度引擎 - 強化底部坍縮風險與場景自適應校準邏輯"""
+        """[Version 38.8.0] 邏輯疊加態濃度引擎 - 實施低價股寂靜補償與主成本區比例恢復版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
@@ -484,30 +486,30 @@ class AdvancedChipDynamicsService:
         m_range = max(h_high - h_low, eps)
         core_range = max(c85 - c15, eps)
         total_range = max(c95 - c05, eps)
-        # 🧪 [步驟 4 & 5] 疊加態邏輯：針對順鑫農業（低獲利 + 高壓場景）
+        # 🧪 [步驟 4] 疊加態場景拆解：基礎 lambda 為 1.8
         conc_ratio = math.exp(-2.0 * (core_range / m_range))
-        p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
-        winner_rate = float(np.interp(current_price, price_grid, cdf))
-        # 場景係數疊加：當處於「泥潭區」（Winner < 20%），穩定度衰減係數加倍
-        is_mud_zone = winner_rate < 0.2
-        lambda_dyn = 1.8 * (2.0 if is_mud_zone else 1.0)
+        lambda_dyn = 1.8
+        # 場景 A: 極低價股 (P < 3) 穩定度鈍化補償
+        if current_price < 3.0: lambda_dyn = 1.0
+        # 場景 B: 藍籌低敏補償 (P > 30 且波幅窄)
+        elif current_price > 30.0 and (m_range / current_price) < 0.05: lambda_dyn = 0.8
         metrics = {
             'chip_mean': float(np.sum(p * price_grid)),
             'chip_concentration_ratio': float(conc_ratio),
             'chip_stability': float(math.exp(-lambda_dyn * (total_range / m_range))),
-            'winner_rate': winner_rate,
-            'price_percentile_position': float(p_pos),
+            'winner_rate': float(np.interp(current_price, price_grid, cdf)),
+            'price_percentile_position': float(np.clip((current_price - h_low) / m_range, 0.0, 1.0)),
             'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95
         }
-        # 🧪 [恢復邏輯] 保持 main_cost_range_ratio 計算完整性
+        # 🧪 [恢復關鍵代碼] 確保主成本區間佔比不被場景邏輯覆蓋
         metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        # 🧪 [步驟 8] 疊加脆性指數：反映高套牢下的分布脆弱性
-        metrics['brittleness_index'] = float(metrics['chip_concentration_ratio'] * (1.0 - winner_rate))
+        # 🧪 [步驟 8] 疊加脆性指數與低價張力
+        metrics['brittleness_index'] = float(metrics['chip_concentration_ratio'] * (1.0 - metrics['winner_rate']))
         if not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
-                {"price": current_price, "is_mud": is_mud_zone}, 
-                {"main_cost": metrics['main_cost_range_ratio'], "brittle": metrics['brittleness_index']}, metrics)
+                {"price": current_price, "lambda": lambda_dyn}, 
+                {"main_cost": metrics['main_cost_range_ratio'], "winner": metrics['winner_rate']}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -540,7 +542,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 27.0.0] 博弈共振引擎 - 實施能量轉化效率 (ETC) 與泥潭懲罰疊加邏輯版"""
+        """[Version 27.1.0] 博弈共振引擎 - 實施「微能過濾」與「極性背離抑制」疊加邏輯版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -548,33 +550,35 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            winner_rate = float(conc_metrics.get('winner_rate', 0.5))
-            # 🧪 [步驟 9] 消除信息孤島：計算能量轉化效率 (Energy Transformation Efficiency)
-            # ETC 衡量資金流向與重心遷移的共振度。夾角越小，效率越高。
-            etc_score = 0.0
-            if abs(e_flow) > 0.1:
-                # 使用邏輯疊加態：基礎 ETC + 背離懲罰
-                etc_score = (e_flow * mig_dir) / (abs(e_flow) * 1.0 + 0.1)
-            # 🧪 [步驟 4] 順鑫專項：泥潭懲罰疊加
-            # 當 Winner < 0.2 且遷移為負，即便 ETC 為正，也視為「無效對沖」
-            mud_pit_penalty = 0.3 if (winner_rate < 0.2 and mig_dir < 0) else 1.0
+            total_e = float(ad_metrics.get('raw_energy', 1.0))
+            # 🧪 [步驟 4 & 7] 微能寂靜過濾 (Quiescence Filter)
+            # 當 total_energy < 1.5% 時，系統進入「寂靜模式」，降低所有信號對趨勢的貢獻
+            quiescence_factor = 1.0 / (1.0 + math.exp(-5.0 * (total_e - 1.5)))
+            # 🧪 [步驟 9] 消除孤島：能量轉化效率 (ETC) 疊加
+            etc_score = (e_flow * mig_dir) / (abs(e_flow) * 1.0 + 0.1) if abs(e_flow) > 0.05 else 0.0
+            # 🧪 [步驟 7] 極性背離懲罰：針對能量與遷移方向相反的場景 (如 000820 6月18日)
+            divergence_penalty = 0.5 if (e_flow * mig_dir < -0.01) else 1.0
+            # 信號質量非線性處理 (步驟 5)
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            # 趨勢得分：疊加態架構 (Base * Efficiency * Penalty)
-            trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.3)
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * (0.7 + 0.3 * etc_score) * mud_pit_penalty * sig_q, 0.0, 1.0))
-            metrics['energy_transformation_efficiency'] = float(etc_score)
-            metrics['mud_pit_penalty_factor'] = float(mud_pit_penalty)
-            # 📡 [步驟 10]
+            quality_gate = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.1)))
+            # 最終得分：疊加態捲積
+            trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * quality_gate * quiescence_factor * divergence_penalty, 0.0, 1.0))
+            metrics['quiescence_factor'] = float(quiescence_factor)
+            metrics['etc_resonance_score'] = float(etc_score)
+            # 📡 [步驟 10] 專業探針輸出
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_STACK", 
-                {"e_flow": e_flow, "mig_dir": mig_dir}, 
-                {"etc": etc_score, "mud_penalty": mud_pit_penalty}, metrics)
+                {"total_e": total_e, "etc": etc_score}, 
+                {"q_factor": quality_gate, "quiescence": quiescence_factor}, metrics)
             return metrics
         except Exception: return metrics
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
-        """[Version 25.0.0] 动态分析主引擎 - Step 1-10 深度集成版"""
+        """[Version 26.0.0] 动态分析主引擎 - 實施探針上下文鎖定與 Tick 驅動模式版"""
         import traceback
+        # 🧪 [步驟 10] 設置探針上下文狀態位，只有傳入 tick_data 時才激活 emit
+        token = probe_state.set(tick_data is not None)
         try:
             chip_data = await self._fetch_chip_percent_data(stock_code, trade_date, lookback_days)
             if not chip_data or len(chip_data.get('chip_history', [])) < 5:
@@ -584,23 +588,19 @@ class AdvancedChipDynamicsService:
             if chg_matrix.shape[0] == 0:
                 return self._get_default_result(stock_code, trade_date, "Empty change matrix after noise filtering")
             curr_price = float(chip_data['current_price'])
-            # Step 10: 初始探針
+            # 只有在狀態位激活時，此處的 emit 才會生效
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("ServiceEngine", "StartAnalysis", {'stock': stock_code}, {'matrix_shape': str(c_matrix.shape)}, {'status': 'Init'})
-            # 核心計算鏈
             abs_sigs = self._analyze_absolute_changes(chg_matrix, p_grid, curr_price)
             conc_m = self._calculate_concentration_metrics(c_matrix[-1], p_grid, curr_price, chip_data['price_history'])
             pres_m = self._calculate_pressure_metrics(c_matrix[-1], p_grid, curr_price, chip_data['price_history'])
             mig_p = self._calculate_migration_patterns(chg_matrix, c_matrix, p_grid)
             conv_m = self._calculate_convergence_metrics(c_matrix, chg_matrix, p_grid)
             behav_p = self._identify_behavior_patterns(chg_matrix, c_matrix, p_grid, curr_price)
-            # 博弈能量場 (Step 8: 引入物理模型)
             energy_res = self._calculate_game_energy(chg_matrix, p_grid, curr_price, chip_data['price_history'].iloc[-1]['close_qfq'], chip_data['price_history']['vol'], stock_code, trade_date)
-            # Tick 增強 (Step 9: 消除孤島)
             tick_factors = await self._calculate_tick_enhanced_factors(tick_data, {'current_price': curr_price}, p_grid, c_matrix[-1], trade_date) if tick_data is not None else self._get_default_tick_factors()
-            # Step 7: 驗證分數 (防止極性反噬)
             sig_q = float(abs_sigs.get('signal_quality', 0.5))
             v_score = float(np.exp(-0.1) * (0.6 + 0.4 * sig_q))
-            # 最終結果裝配
             return {
                 'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': p_grid.tolist(),
                 'chip_matrix': c_matrix.tolist(), 'percent_change_matrix': chg_matrix.tolist(),
@@ -614,6 +614,9 @@ class AdvancedChipDynamicsService:
             err_msg = f"{str(e)}\n{traceback.format_exc()}"
             QuantitativeTelemetryProbe.emit("ServiceEngine", "FATAL_ERROR", {'stock': stock_code}, {'error': str(e)}, {'status': 'Crashed'})
             return self._get_default_result(stock_code, trade_date, err_msg)
+        finally:
+            # 🛡️ 確保重置狀態位，防止對後續不帶 Tick 的股票任務造成干擾
+            probe_state.reset(token)
 
     def _get_default_technical_metrics(self) -> Dict[str, float]:
         """[Version 18.0.0] 技术面默认指标初始化"""
@@ -1598,9 +1601,12 @@ class QuantitativeTelemetryProbe:
     @classmethod
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
         """
-        [Version 4.0.0] 物理落盘级绝对强制探针（破壁版）
-        说明：彻底突破Celery标准输出劫持，强制双写至物理文件，并配备万能异常宽容序列化器，粉碎一切序列化黑洞。
+        [Version 5.0.0] 物理落盤級絕對強制探針（上下文靜默版）
+        說明：新增 ContextVar 校驗邏輯。若當前上下文未激活探針（即無 Tick 數據場景），則立即中止執行，杜絕 I/O 資源浪費。
         """
+        # 🧪 [核心邏輯修改] 只有當前任務具備 Tick 數據時，才允許探針輸出
+        from services.chip_holding_calculator import probe_state
+        if not probe_state.get(): return
         import json, sys, os, datetime
         import numpy as np
         class UltimateEncoder(json.JSONEncoder):
@@ -1628,7 +1634,6 @@ class QuantitativeTelemetryProbe:
             with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
                 f.write(out_str)
         except Exception: pass
-
 
 
 
