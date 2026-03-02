@@ -1312,11 +1312,10 @@ class DirectAccumulationDistributionCalculator:
         }
 
 class GameEnergyCalculator:
-    """[Version 6.2.3] 捲積疊加態博弈能量引擎 - 徹底修復定義覆蓋死鎖與跨層滲透版"""
+    """[Version 6.2.4] 博弈能量場計算器 - 完整算子成員合攏與跨層疊加態捲積版"""
     def __init__(self, market_type: str = 'A'):
-        """[Version 6.2.3] 初始化基礎物理參數，為疊加態提供底色"""
+        """初始化基礎物理參數"""
         self.market_type = market_type
-        # 🧪 [步驟 4] 基礎物理層參數
         self.params = {
             'absorption_threshold': 0.1,
             'distribution_threshold': 0.1,
@@ -1326,15 +1325,14 @@ class GameEnergyCalculator:
             'fake_distribution_discount': 0.6
         }
     def calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, volume_history: pd.Series = None, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> Dict[str, Any]:
-        """[Version 6.2.3] 捲積入口 - 確保接收 conc_metrics 並應用於博弈判定"""
+        """博弈能量場總入口 - 實施參數向下滲透與疊加態捲積"""
         import numpy as np
         reference_price = close_price if close_price > 0 else current_price
         if percent_change_matrix.shape[0] == 0 or len(price_grid) == 0 or reference_price <= 0: return self._get_default_energy()
         try:
             latest_change = percent_change_matrix[-1]
-            # 🧪 [步驟 9] 消除信息孤島：將空間疊加因子傳遞至指標算子
+            # 🧪 [步驟 9] 向下滲透：調用內部核心場捲積算子
             energy_result = self._calculate_energy_field(latest_change, price_grid, reference_price, close_price, stock_code, trade_date, conc_metrics=conc_metrics)
-            # 🧪 [步驟 8] 疊加態虛假派發檢測：引入動態敏感度
             energy_result['fake_distribution_flag'] = self._detect_fake_distribution_advanced(latest_change, price_grid, reference_price, close_price)
             return self._ensure_nonzero_energy(energy_result)
         except Exception as e:
@@ -1342,29 +1340,68 @@ class GameEnergyCalculator:
             QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "INTERNAL_FATAL_ERR", {"stock": stock_code}, {"error": str(e)}, {"status": "failed"})
             return self._get_default_energy()
     def _calculate_energy_field(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> Dict[str, Any]:
-        """[Version 61.4.0] 捲積能量場核心 - 接收空間張力並實施動能損耗版"""
+        """能量場物理捲積核心"""
         import numpy as np
         reference_price = close_price if close_price > 0 else current_price
-        # 🧪 [步驟 9] 核心共振點：獲取疊加後的強度與勢能指標
+        # 🧪 [步驟 2 修復] 確保調用類內部已恢復的指標算子
         game_intensity, breakout_potential, energy_density = self._calculate_energy_indicators(changes, price_grid, reference_price, stock_code, trade_date, conc_metrics=conc_metrics)
         price_rel = (price_grid - reference_price) / reference_price
-        # 執行 Numba 物理卷積
         pos_sums, neg_sums = _numba_calc_energy_bins_core(changes.astype(np.float32), price_rel.astype(np.float32), 0.05)
         net_energy = float(np.sum(pos_sums) - np.sum(neg_sums))
-        return {
-            'absorption_energy': float(np.sum(pos_sums)), 'distribution_energy': float(np.sum(neg_sums)),
-            'net_energy_flow': net_energy, 'game_intensity': game_intensity,
-            'breakout_potential': breakout_potential, 'energy_concentration': energy_density,
-            'reference_price': float(reference_price)
-        }
+        return {'absorption_energy': float(np.sum(pos_sums)), 'distribution_energy': float(np.sum(neg_sums)), 'net_energy_flow': net_energy, 'game_intensity': game_intensity, 'breakout_potential': breakout_potential, 'energy_concentration': energy_density, 'reference_price': float(reference_price)}
+    def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> tuple:
+        """[Version 19.1.1] 成員化博弈能量算子 - 引入能量密度與表面張力阻尼捲積版"""
+        import numpy as np
+        import math
+        eps = 1e-10
+        abs_changes = np.abs(changes)
+        total_energy = np.sum(abs_changes)
+        # 🧪 [步驟 9] 跨層捲積：引入空間層張力因子作為物理阻尼
+        tension = float(conc_metrics.get('chip_surface_tension', 1.0)) if conc_metrics else 1.0
+        if total_energy > 1.0:
+            p_e = abs_changes / total_energy
+            e_std = np.sqrt(np.sum(p_e * (price_grid - np.sum(p_e * price_grid))**2)) / (current_price + eps)
+        else: e_std = 0.03
+        # 🧪 [步驟 8] 能量密度模型：衡量突破穿透力
+        sorted_e = np.sort(abs_changes)
+        energy_density = np.sum(sorted_e[-10:]) / (total_energy + eps)
+        # 🧪 [步驟 4] 疊加態阻尼修正：張力越高，有效動能轉化越難
+        stiffness_factor = math.exp(-tension * 0.15)
+        v_km_final = 8.0 * (1.0 + e_std * 5.0) * (1.0 / (stiffness_factor + eps))
+        active_ratio = np.sum(abs_changes[abs_changes > (total_energy * 0.01)]) / (total_energy + eps)
+        game_intensity = float(active_ratio * (total_energy / (v_km_final + total_energy)) * (0.8 + 0.2 * energy_density))
+        # 🧪 [步驟 7] 極性熔斷子：防止背離勢能誤導
+        above_mask = price_grid > current_price
+        net_above = np.sum(changes[above_mask & (changes > 0)]) - np.sum(np.abs(changes[above_mask & (changes < 0)]))
+        km_pot = 12.0 * (1.0 + e_std * 3.0) * tension
+        breakout_potential = float(max(0, net_above / (km_pot + abs(net_above))) * 100.0)
+        if probe_state.get():
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators_SENSOR", {"total_e": total_energy, "tension": tension}, {"density": energy_density, "stiff": stiffness_factor}, {"intensity": game_intensity, "breakout": breakout_potential})
+        return game_intensity, breakout_potential, energy_density
+    def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float) -> float:
+        """[Version 24.0.1] 高階虛假派發流形掃描算子版"""
+        import numpy as np
+        import math
+        try:
+            price_rel = (price_grid - current_price) / current_price
+            near_weight = np.exp(-0.5 * (price_rel / 0.08)**2)
+            near_net = np.sum(changes * near_weight)
+            above_weight = 1.0 / (1.0 + np.exp(-30.0 * (price_rel - 0.08)))
+            below_weight = 1.0 / (1.0 + np.exp(30.0 * (price_rel + 0.08)))
+            above_distrib = np.sum(np.abs(changes) * above_weight * (changes < 0))
+            below_accum = np.sum(changes * below_weight * (changes > 0))
+            p_below = 1.0 / (1.0 + np.exp(-5.0 * (below_accum / max(above_distrib, 0.1) - 1.5)))
+            p_near = 1.0 / (1.0 + np.exp(-10.0 * near_net))
+            prob = p_below * p_near * (1.0 / (1.0 + np.exp(-5.0 * (above_distrib - 0.5))))
+            return float(prob)
+        except Exception: return 0.0
     def _get_default_energy(self) -> Dict[str, Any]:
-        """[Version 1.0.0] 默認能量場初始化"""
+        """默認能量場結構"""
         return {'absorption_energy': 0.0, 'distribution_energy': 0.0, 'net_energy_flow': 0.0, 'game_intensity': 0.0, 'key_battle_zones': [], 'breakout_potential': 0.0, 'energy_concentration': 0.0, 'fake_distribution_flag': False}
     def _ensure_nonzero_energy(self, energy_result: Dict[str, Any]) -> Dict[str, Any]:
-        """[Version 1.1.0] 確保能量場結果具備物理意義"""
-        abs_e = energy_result.get('absorption_energy', 0.0)
-        dist_e = energy_result.get('distribution_energy', 0.0)
-        if abs_e == 0 and dist_e == 0:
+        """物理意義保全算子"""
+        if energy_result.get('absorption_energy', 0.0) == 0 and energy_result.get('distribution_energy', 0.0) == 0:
             energy_result['absorption_energy'] = 0.01; energy_result['distribution_energy'] = 0.01
         return energy_result
 
