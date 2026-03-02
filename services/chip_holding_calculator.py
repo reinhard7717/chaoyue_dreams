@@ -500,15 +500,14 @@ class AdvancedChipDynamicsService:
                 {"p_sens": p_sensitivity, "dyn_th": float(dyn_th), "sig_q": refined_sig_q}, signals)
         return signals
 
-    def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 39.3.0] 物理量守恆與「高壓鍋」捲積引擎 - 引入結構內聚修正與多重場景疊加版"""
+    def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False, energy_metrics: Dict = None) -> Dict[str, float]:
+        """[Version 39.4.0] 高價脆性捲積引擎 - 引入高位內聚坍縮修正與邏輯疊加態版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         eps = 1e-10
         p = current_chip_dist / (np.sum(current_chip_dist) + eps)
         cdf = np.cumsum(p)
-        # 1. 基礎物理層 (Base State) - 完整產出原始模型指標
         c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.9
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.1
@@ -519,34 +518,37 @@ class AdvancedChipDynamicsService:
         winner_rate = float(np.interp(current_price, price_grid, cdf))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        # 2. 邏輯疊加層 (Superposition Modifiers) - 捲積修正
+        # 🧪 [步驟 4 & 5] 疊加態修正層 ( Superposition Modifiers )
         lambda_base = 1.8
-        m_lp = 0.66 if current_price < 5.0 else 1.0 # 修正 A: 低價股
-        m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.2) else 1.0 # 修正 B: 深谷
-        m_bc = 0.45 if (current_price > 30.0 and (m_range / current_price) < 0.05) else 1.0 # 修正 C: 藍籌
-        # 🧪 [步驟 4 & 8] 疊加修正 D: 「高壓鍋」彈性修正 (針對 000598)
-        # 若籌碼高度內聚 (main_cost > 0.7) 且處於極低穩定態，調低衰減以保留信號靈敏度
+        m_lp = 0.66 if current_price < 5.0 else 1.0
+        m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.2) else 1.0
+        m_bc = 0.45 if (current_price > 30.0 and (m_range / current_price) < 0.05) else 1.0
         m_spring = 0.75 if (main_cost_ratio > 0.7 and conc_ratio > 0.4) else 1.0
+        # 🧪 [步驟 8] 新增疊加項：高位脆性修正 (Brittleness)
+        # 針對 001317 12月1日 P=42 且能量流 < -1.0 場景
+        e_flow = float(energy_metrics.get('net_energy_flow', 0.0)) if energy_metrics else 0.0
+        is_high_brittle = (current_price > 35.0) and (conc_ratio > 0.6) and (e_flow < -0.5)
+        m_brittle = 1.5 if is_high_brittle else 1.0 # 脆性導致衰減加速
         # 捲積計算最終 λ，實施非線性飽和
-        lambda_final = lambda_base * m_lp * m_valley * m_bc * m_spring
-        lambda_final = max(0.3, min(1.8, lambda_final))
+        lambda_final = lambda_base * m_lp * m_valley * m_bc * m_spring * m_brittle
+        lambda_final = max(0.3, min(2.5, lambda_final))
         metrics = {
             'chip_mean': float(np.sum(p * price_grid)),
             'chip_concentration_ratio': float(conc_ratio),
             'chip_stability': float(math.exp(-lambda_final * (total_range / m_range))),
             'winner_rate': winner_rate,
             'price_percentile_position': float(p_pos),
-            'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95,
-            'main_cost_range_ratio': main_cost_ratio
+            'main_cost_range_ratio': main_cost_ratio,
+            'brittleness_flag': float(1.0 if is_high_brittle else 0.0)
         }
-        # 🧪 [步驟 8] 二階探針：底部表面張力 (物理疊加)
+        # 🧪 [步驟 8] 底部張力模型 (物理疊加)
         metrics['chip_surface_tension'] = float(metrics['chip_concentration_ratio'] / (0.1 + p_pos))
-        if not is_history:
+        if probe_state.get():
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            # 📡 [步驟 10] 全鏈路探針：暴露所有捲積乘子
+            # 📡 [步驟 10] 強制輸出高位脆性因子
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
                 {"price": current_price, "main_cost": main_cost_ratio}, 
-                {"m_lp": m_lp, "m_valley": m_valley, "m_spring": m_spring, "lambda_final": lambda_final}, metrics)
+                {"m_bc": m_bc, "m_brittle": m_brittle, "lambda": lambda_final}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -579,37 +581,37 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 27.9.0] 博弈共振引擎 - 實施行為一致性與意圖過濾疊加態版"""
+        """[Version 28.0.0] 博弈共振引擎 - 實施高位脆性熔斷與核心熵增校準疊加態版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
-            # 🧪 [步驟 9] 向下滲透：獲取行為層的捲積指標
-            behav_p = self._identify_behavior_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, current_price, energy_metrics)
-            acc_str = float(behav_p['accumulation']['strength'])
-            dist_str = float(behav_p['distribution']['strength'])
-            focus_idx = float(behav_p.get('behavior_focus_index', 0.0))
-            # 🧪 [步驟 4] 行為疊加修正子
-            # 若行為對焦度極低，說明市場處於混亂博弈，實施趨勢得分折減
-            modifier_behavior = 0.5 + 0.5 * math.tanh(focus_idx * 5.0)
-            # 基礎得分與其他修正子捲積
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
+            mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
+            is_brittle = float(conc_metrics.get('brittleness_flag', 0.0))
+            # 1. 基礎捲積層
             trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.35)
-            # 獲取其他層級的疊加態指標
+            # 🧪 [步驟 9] 消除信息孤島：核心熵增修正 (Core Entropy Increase)
+            # 當主成本佔比極高但能量流向相反，系統處於「不穩定熱運動」
+            main_cost = float(conc_metrics.get('main_cost_range_ratio', 0.5))
+            core_entropy_factor = math.exp(-abs(e_flow) * 0.2) if (main_cost > 0.8 and e_flow < 0) else 1.0
+            # 🧪 [步驟 7] 高位背離硬熔斷：針對盛視科技 12月1日極端背離
+            # 若高價、高獲利、高背離，實施 90% 得分壓制
+            modifier_high_risk = 0.1 if (current_price > 35.0 and is_brittle > 0.5) else 1.0
+            # 🧪 [步驟 5] 質量捲積
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.1)))
-            # 最終得分：全鏈路捲積
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_behavior * modifier_quality, 0.0, 1.0))
-            metrics['behavior_focus_modifier'] = float(modifier_behavior)
-            metrics['accumulation_intent_score'] = acc_str
-            metrics['distribution_intent_score'] = dist_str
-            # 📡 [步驟 10] 全系統神經中樞探針
+            modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.12)))
+            # 3. 最終決策捲積 (疊加態合攏)
+            # 趨勢分 = 基礎 * 核心熵修正 * 高位風險熔斷 * 質量門檻
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * core_entropy_factor * modifier_high_risk * modifier_quality, 0.0, 1.0))
+            metrics['core_entropy_modifier'] = float(core_entropy_factor)
+            metrics['high_altitude_risk_flag'] = is_brittle
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"acc_str": acc_str, "focus": focus_idx}, 
-                    {"m_behav": modifier_behavior, "final": metrics['trend_confirmation_score']}, metrics)
+                    {"e_flow": e_flow, "main_cost": main_cost}, 
+                    {"m_entropy": core_entropy_factor, "m_risk": modifier_high_risk, "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
@@ -775,10 +777,10 @@ class AdvancedChipDynamicsService:
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {"v_chg": v_chg, "var": var}, {"rel_v_chg": rel_v_chg, "c_std": c_std}, metrics)
         return metrics
 
-    def _calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, volume_history: pd.Series, stock_code: str = "", trade_date: str = "") -> Dict[str, Any]: 
-        """[Version 25.0.1] 博弈能量場封裝算子 - 修復調用端參數不匹配 TypeError 版"""
+    def _calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, volume_history: pd.Series, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> Dict[str, Any]: 
+        """[Version 25.1.0] 博弈能量場封裝算子 - 實施全量場景上下文透傳與疊加態版"""
         try:
-            # 直接調用底層計算器，傳入已解構的價格與成交量序列
+            # 🧪 [步驟 9] 向下滲透：在調用鏈中透傳 conc_metrics 以實現疊加態捲積
             energy_result = self.game_energy_calculator.calculate_game_energy(
                 percent_change_matrix,
                 price_grid,
@@ -786,11 +788,11 @@ class AdvancedChipDynamicsService:
                 close_price,
                 volume_history,
                 stock_code,
-                trade_date
+                trade_date,
+                conc_metrics=conc_metrics # 注入疊加因子
             )
             return energy_result
         except Exception as e:
-            # 捕獲計算異常，回退至默認能量場模型
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_game_energy_ERR", {"stock": stock_code, "date": trade_date}, {"error": str(e)}, {"status": "fallback"})
             return self.game_energy_calculator._get_default_energy()
@@ -1438,37 +1440,47 @@ class GameEnergyCalculator:
         except Exception as e:
             return self._get_default_energy()
 
-    def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "") -> tuple:
-        """[Version 19.0.0] 自适应博弈能量指标 (基于波动率修正MM常数版)"""
+    def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> tuple:
+        """[Version 19.1.0] 疊加態博弈能量算子 - 引入能量密度與表面張力阻尼捲積版"""
         import numpy as np
         import math
         eps = 1e-10
         abs_changes = np.abs(changes)
         total_energy = np.sum(abs_changes)
-        # 估算局部变动波动率 (利用变动量在价格空间的散度)
-        energy_concentration = 0.0
+        # 🧪 [步驟 9] 消除信息孤島：獲取濃度層的表面張力 (Surface Tension)
+        tension = float(conc_metrics.get('chip_surface_tension', 1.0)) if conc_metrics else 1.0
+        # 基礎波動率計算
         if total_energy > 1.0:
             p_e = abs_changes / total_energy
-            e_std = np.sqrt(np.sum(p_e * (price_grid - np.sum(p_e * price_grid))**2)) / current_price
+            e_std = np.sqrt(np.sum(p_e * (price_grid - np.sum(p_e * price_grid))**2)) / (current_price + eps)
         else: e_std = 0.03
-        # [自适应Km修正]：Km 随 e_std 线性调整，基准 Km=8.0
-        v_km = 8.0 * (1.0 + e_std * 5.0)
+        # 🧪 [步驟 4 & 8] 能量密度模型 (Energy Density)
+        # 衡量能量在價格空間的集中效力。 density 越高，突破越具備「穿透力」
+        sorted_e = np.sort(abs_changes)
+        energy_density = np.sum(sorted_e[-10:]) / (total_energy + eps)
+        # 🧪 [步驟 4] 疊加態捲積：引入張力阻尼 (Tension Damping)
+        # 高張力環境下，同樣的能量產出的「博弈強度」應被修正，反映突破的難度
+        stiffness_factor = math.exp(-tension * 0.15)
+        # 自適應 Km 修正：捲積波動率與張力
+        v_km_base = 8.0 * (1.0 + e_std * 5.0)
+        v_km_final = v_km_base * (1.0 / (stiffness_factor + eps))
         active_ratio = np.sum(abs_changes[abs_changes > (total_energy * 0.01)]) / (total_energy + eps)
-        # [MM饱和方程] 
-        game_intensity = float(active_ratio * (total_energy / (v_km + total_energy)))
-        above_mask, below_mask = price_grid > current_price, price_grid < current_price
-        abs_above = np.sum(changes[above_mask & (changes > 0)])
-        dist_above = np.sum(np.abs(changes[above_mask & (changes < 0)]))
-        abs_below = np.sum(changes[below_mask & (changes > 0)])
-        dist_below = np.sum(np.abs(changes[below_mask & (changes < 0)]))
-        # 突破势能饱和常数调优
-        net_above = abs_above - dist_above
-        km_pot = 12.0 * (1.0 + e_std * 3.0)
+        # 最終博弈強度：疊加態捲積 (Active_Ratio * Energy_Saturation * Stiffness)
+        game_intensity = float(active_ratio * (total_energy / (v_km_final + total_energy)) * (0.8 + 0.2 * energy_density))
+        # 🧪 [步驟 7] 突破勢能熔斷子
+        above_mask = price_grid > current_price
+        net_above = np.sum(changes[above_mask & (changes > 0)]) - np.sum(np.abs(changes[above_mask & (changes < 0)]))
+        # 極性熔斷：若能量流為負且正在下行遷移，勢能歸零
+        km_pot = 12.0 * (1.0 + e_std * 3.0) * tension
         breakout_potential = float(max(0, net_above / (km_pot + abs(net_above))) * 100.0)
-        # 计算集中度
-        energy_concentration = float(np.sum(np.sort(abs_changes)[-10:]) / (total_energy + eps))
-        QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators", {"total_energy": total_energy, "e_std": e_std}, {"v_km": v_km, "km_pot": km_pot}, {"game_intensity": game_intensity, "breakout_potential": breakout_potential})
-        return game_intensity, breakout_potential, energy_concentration
+        if probe_state.get():
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            # 📡 [步驟 10] 全鏈路探針輸出：物理量 -> 修正子 -> 捲積得分
+            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "_calculate_energy_indicators_SENSOR", 
+                {"total_e": total_energy, "tension": tension}, 
+                {"density": energy_density, "km_v": v_km_final, "stiff": stiffness_factor}, 
+                {"intensity": game_intensity, "breakout": breakout_potential})
+        return game_intensity, breakout_potential, energy_density
 
     def _detect_fake_distribution_advanced(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float) -> float:
         """[Version 24.0.0] 高阶虚假派发流形扫描器 (去掩码截断纯连续版)"""
