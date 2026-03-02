@@ -1595,17 +1595,23 @@ class ChipFactorCalculationHelper:
         return final_result
 
 class QuantitativeTelemetryProbe:
-    """[Version 5.1.0] 疊加態智能探針 - 實施「計算靜默、異常強制」分級策略版"""
+    """[Version 5.2.0] 捲積疊加態智能探針 - 實施「場景化過濾與異常強制輸出」策略版"""
     @classmethod
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
         """
-        [Version 5.1.0] 修復探針死鎖邏輯。
-        策略：若方法名包含 "ERR"、"FATAL" 或 "FAIL"，則無視 ContextVar 強制輸出，確保系統健康度可見性。
+        [Version 5.2.0] 修復探針死鎖。
+        邏輯疊加態公式：ShouldEmit = (IsError) OR (IsWorkflow) OR (IsAlgorithm_AND_TickMode)
         """
         from services.chip_holding_calculator import probe_state
-        # 🧪 [步驟 10] 修正：若為異常探針，強制擊穿靜默屏障
-        is_error_probe = any(tag in method_name.upper() for tag in ["ERR", "FATAL", "FAIL", "CRASH"])
-        if not probe_state.get() and not is_error_probe: return
+        # 🧪 [步驟 4 & 9] 邏輯疊加判定
+        # 1. 異常或崩潰探針強制輸出
+        is_error = any(tag in method_name.upper() for tag in ["ERR", "FATAL", "FAIL", "CRASH", "FUSE"])
+        # 2. 系統工作流（調度、批處理）探針強制輸出，保證生命體徵可見
+        is_workflow = module_name in ["TaskScheduler", "BatchWorker", "SingleStockWorker", "ServiceEngine", "ChipFactorBase"]
+        # 3. 算法細節探針受 Tick 狀態限制
+        is_algo_detail = not is_error and not is_workflow
+        # 最終閘口判定
+        if is_algo_detail and not probe_state.get(): return
         import json, sys, os, datetime
         import numpy as np
         class UltimateEncoder(json.JSONEncoder):
@@ -1625,12 +1631,12 @@ class QuantitativeTelemetryProbe:
             out_str = f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False, cls=UltimateEncoder)}\n"
         except Exception as e:
             out_str = f"⚠️ [QUANT-PROBE-ERR] 无法序列化: {e} | Module: {module_name} | Method: {method_name}\n"
+        # 輸出至終端和文件
         try:
             sys.stderr.write(out_str); sys.stderr.flush()
         except Exception: pass
         try:
             with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f: f.write(out_str)
         except Exception: pass
-
 
 
