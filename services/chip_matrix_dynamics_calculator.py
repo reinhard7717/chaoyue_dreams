@@ -26,15 +26,22 @@ class ChipMatrixDynamicsCalculator:
 
     @staticmethod
     def clean_structure(data, precision=6, threshold=1e-8):
+        """
+        [Version 7.0.0] Numpy 全序列化防御装甲
+        修改思路：修补漏掉的 numpy.int64 过滤器。任何微小的 Numpy 整型漏网都会导致 downstream json.dumps 触发 TypeError 导致整个 ORM 事务断裂。
+        """
         import numpy as np
         import math
+        import datetime
         if isinstance(data, dict): return {k: ChipMatrixDynamicsCalculator.clean_structure(v, precision, threshold) for k, v in data.items()}
         elif isinstance(data, (list, tuple)): return [ChipMatrixDynamicsCalculator.clean_structure(v, precision, threshold) for v in data]
         elif isinstance(data, np.ndarray): return np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0).tolist()
         elif isinstance(data, (float, np.floating)):
             if math.isnan(data) or math.isinf(data) or abs(data) < threshold: return 0.0
             return round(float(data), precision)
+        elif isinstance(data, (int, np.integer)): return int(data)
         elif isinstance(data, np.bool_): return bool(data)
+        elif isinstance(data, (datetime.date, datetime.datetime)): return data.isoformat()
         return data
 
     @staticmethod

@@ -235,12 +235,14 @@ def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, 
 
 async def calculate_single_stock_chip_factors_async(stock_code: str, start_date: date, end_date: date) -> Dict:
     """
-    [Version 6.3.0] 芯片因子提取异步引擎 (ORM防死锁与全境异常穿透曝光版)
-    修改思路：将被吞噬的 exception 彻底捕获并输出 traceback，防止任务静默死亡。
+    [Version 7.0.0] 芯片因子提取异步引擎 (全境异常穿透曝光版)
+    说明：解除 stock=stock 异步死锁陷阱，将被 except 活埋的报错全部用探针炸出。
     """
     import gc
+    import math
     import pandas as pd
     import numpy as np
+    import traceback
     from asgiref.sync import sync_to_async
     from services.chip_holding_calculator import QuantitativeTelemetryProbe
     try:
@@ -295,7 +297,7 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                     if hm:
                         dynamic_dict = hm.to_factor_dict()
                         for k, v in dynamic_dict.items():
-                            if isinstance(v, (np.floating, float)): factors[k] = 0.0 if np.isnan(v) or np.isinf(v) else float(v)
+                            if isinstance(v, (np.floating, float)): factors[k] = 0.0 if math.isnan(v) or math.isinf(v) else float(v)
                             elif isinstance(v, (np.integer, int)): factors[k] = int(v)
                             else: factors[k] = v
                         conf_score, conf_count = 0.0, 0
@@ -304,7 +306,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         if factors.get('net_migration_direction') and abs(factors['net_migration_direction']) > 0.1: conf_score += min(1.0, abs(factors['net_migration_direction']) / 10.0); conf_count += 1
                         factors['behavior_confirmation'] = conf_score / conf_count if conf_count > 0 else 0.0
                 except Exception: pass
-                import math
                 clean_factors = {k: (0.0 if isinstance(v, (np.floating, float)) and (math.isnan(v) or math.isinf(v)) else (float(v) if isinstance(v, (np.floating, float)) else v)) for k, v in factors.items()}
                 clean_factors['calc_status'] = 'success'
                 await save_chip_factors(chip_factor_model, stock, current_date, clean_factors)
@@ -314,15 +315,13 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                 if tick_data is not None: del tick_data
                 if date_index % 10 == 0: gc.collect()
             except Exception as e:
-                import traceback
                 err_trace = traceback.format_exc()
                 QuantitativeTelemetryProbe.emit("TaskWorker", "single_stock_chip_factors_LOOP_ERR", {'stock': stock_code, 'date': str(current_date)}, {'error': str(e), 'trace': err_trace}, {'status': 'failed'})
                 failed_dates.append(current_date)
         return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
     except Exception as e:
-        import traceback
         err_trace = traceback.format_exc()
-        QuantitativeTelemetryProbe.emit("SingleStockWorker", "chip_factors_async_FATAL", {'stock': stock_code}, {'error': str(e), 'trace': err_trace}, {'status': 'Crash'})
+        QuantitativeTelemetryProbe.emit("TaskWorker", "chip_factors_async_FATAL", {'stock': stock_code}, {'error': str(e), 'trace': err_trace}, {'status': 'Crash'})
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 async def get_historical_prices_for_stock(stock_code: str, end_date: date, days: int) -> pd.DataFrame:
@@ -386,11 +385,11 @@ def calculate_single_stock_chip_factors_sync(stock_code: str, start_date: str, e
 
 async def calculate_single_stock_holding_matrix_async(stock_code: str, start_date: date, end_date: date, cm: CacheManager) -> Dict:
     """
-    [Version 6.0.0] 单股矩阵异步推演（防呆空转曝光版）
-    说明：在防呆拦截的最后一道屏障（检查缓存完整性后continue）处打入宣告证明探针，杜绝内部空转导致的幽灵假死。
+    [Version 7.0.0] 单股矩阵异步推演 (ORM跨界防死锁与全境曝光版)
+    说明：将 stock=stock 对象级传递彻底降维为 stock_id=stock_code，并在深海 except 块中强制植入 Traceback 探针，根除静默吞噬。
     """
     from services.chip_holding_calculator import QuantitativeTelemetryProbe
-    # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_ENTER", {'stock': stock_code, 'start': str(start_date), 'end': str(end_date)}, {}, {'status': 'Started'})
+    import traceback
     try:
         holding_matrix_model = get_chip_holding_matrix_model_by_code(stock_code)
         stock = await sync_to_async(StockInfo.objects.filter(stock_code=stock_code).first)()
@@ -402,35 +401,37 @@ async def calculate_single_stock_holding_matrix_async(stock_code: str, start_dat
         if not trade_dates: return {'status': 'failed', 'error': '无交易日', 'processed_dates': 0}
         for date_index, current_date in enumerate(trade_dates):
             try:
-                existing = await sync_to_async(holding_matrix_model.objects.filter(stock=stock, trade_time=current_date, calc_status='success').exists)()
+                existing = await sync_to_async(holding_matrix_model.objects.filter(stock_id=stock_code, trade_time=current_date, calc_status='success').exists)()
                 if existing:
-                    existing_record = await sync_to_async(holding_matrix_model.objects.filter(stock=stock, trade_time=current_date).first)()
+                    existing_record = await sync_to_async(holding_matrix_model.objects.filter(stock_id=stock_code, trade_time=current_date).first)()
                     need_recalculate = False
                     if existing_record:
                         if not hasattr(existing_record, 'absolute_change_analysis') or existing_record.absolute_change_analysis is None or existing_record.absolute_change_analysis == {}: need_recalculate = True
                         elif not hasattr(existing_record, 'absorption_energy') or existing_record.absorption_energy is None or existing_record.absorption_energy == 0: need_recalculate = True
-                    if not need_recalculate:
-                        # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_SKIP", {'stock': stock_code, 'date': str(current_date)}, {'reason': '当日记录已存在且完整，触发缓存跳过'}, {'status': 'Skipped'})
-                        continue
+                    if not need_recalculate: continue
                 trade_date_str = current_date.strftime('%Y-%m-%d')
                 realtime_dao = StockRealtimeDAO(cm)
-                tick_data = await realtime_dao.get_daily_real_ticks(stock_code, current_date) 
-                # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_CALL_ENGINE", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'Calling'})
+                tick_data = await realtime_dao.get_daily_real_ticks(stock_code, current_date)
                 dynamics_result = await service.analyze_chip_dynamics_daily(stock_code=stock_code, trade_date=trade_date_str, lookback_days=20, tick_data=tick_data)
                 if dynamics_result.get('analysis_status') == 'success':
-                    record, created = await sync_to_async(holding_matrix_model.objects.get_or_create)(stock=stock, trade_time=current_date, defaults={'calc_status': 'pending'})
+                    record, created = await sync_to_async(holding_matrix_model.objects.get_or_create)(stock_id=stock_code, trade_time=current_date, defaults={'calc_status': 'pending'})
                     if 'current_price' not in dynamics_result and 'price_grid' in dynamics_result and dynamics_result['price_grid']: dynamics_result['current_price'] = dynamics_result['price_grid'][len(dynamics_result['price_grid'])//2]
                     save_success = await sync_to_async(record.save_dynamics_result)(dynamics_result)
                     if save_success:
                         processed_dates += 1
                         saved_dates.append(current_date)
-                    else: failed_dates.append(current_date)
+                    else:
+                        QuantitativeTelemetryProbe.emit("TaskWorker", "matrix_save_FAIL", {'stock': stock_code, 'date': str(current_date)}, {}, {'status': 'save_dynamics_result returned False'})
+                        failed_dates.append(current_date)
                 else: failed_dates.append(current_date)
-            except Exception as e: failed_dates.append(current_date)
-        # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_DONE", {'stock': stock_code}, {'success': len(saved_dates), 'failed': len(failed_dates)}, {'status': 'Completed'})
+            except Exception as e:
+                err_trace = traceback.format_exc()
+                QuantitativeTelemetryProbe.emit("TaskWorker", "matrix_async_LOOP_ERR", {'stock': stock_code, 'date': str(current_date)}, {'error': str(e), 'trace': err_trace}, {'status': 'failed'})
+                failed_dates.append(current_date)
         return {'status': 'success', 'processed_dates': processed_dates, 'saved_dates': len(saved_dates), 'failed_dates': len(failed_dates), 'date_range': f"{start_date} - {end_date}"}
     except Exception as e:
-        # QuantitativeTelemetryProbe.emit("SingleStockWorker", "calculate_single_stock_holding_matrix_async_FATAL", {'stock': stock_code}, {'error': str(e)}, {'status': 'Crash'})
+        err_trace = traceback.format_exc()
+        QuantitativeTelemetryProbe.emit("TaskWorker", "matrix_async_FATAL", {'stock': stock_code}, {'error': str(e), 'trace': err_trace}, {'status': 'Crash'})
         return {'status': 'error', 'error': str(e), 'processed_dates': 0}
 
 def calculate_holding_matrix_for_stock_sync(stock_code: str, start_date: date, end_date: date) -> Dict:
@@ -471,11 +472,12 @@ async def get_historical_chip_factors(chip_factor_model,stock,current_date: date
 
 async def save_chip_factors(chip_factor_model, stock, trade_date, factors):
     """
-    [Version 6.3.0] 保存筹码因子 - ORM反射装甲与NaN终极净化漏斗
-    修改思路：剥离高维溢出特征，并在写入前做绝对的数值合法性检查。彻底阻断因为单个 NaN 数据导致整个 MySQL 事务回滚的隐性灾难。
+    [Version 7.0.0] 保存筹码因子到数据库 - 挂载 ORM 动态反射防爆盾与特征路由
+    说明：拦截 NaN 剧毒数据并彻底解除外键关联 (stock=stock) 造成的 Celery 级死锁。
     """
     import math
     from services.chip_holding_calculator import QuantitativeTelemetryProbe
+    import traceback
     try:
         alias_mapping = {'behavior_accumulation': 'accumulation_signal_score', 'behavior_distribution': 'distribution_signal_score', 'convergence_comprehensive': 'percent_change_convergence', 'convergence_migration': 'migration_convergence_ratio', 'intraday_chip_quality_score': 'tick_data_quality_score', 'intraday_calc_method': 'intraday_factor_calc_method', 'intraday_main_force_activity': 'main_force_activity_index', 'trend_score': 'trend_confirmation_score'}
         for old_k, new_k in alias_mapping.items():
@@ -484,7 +486,7 @@ async def save_chip_factors(chip_factor_model, stock, trade_date, factors):
             try: factors['percent_change_divergence'] = 1.0 - float(factors['percent_change_convergence'])
             except (ValueError, TypeError): pass
         if 'support_strength' in factors and 'resistance_strength' in factors:
-            try:
+            try: 
                 res = float(factors['resistance_strength'])
                 factors['support_resistance_ratio'] = float(factors['support_strength']) / res if res > 0.001 else 1.0
             except (ValueError, TypeError): pass
@@ -492,16 +494,18 @@ async def save_chip_factors(chip_factor_model, stock, trade_date, factors):
         orm_safe_factors = {}
         for k, v in factors.items():
             if k in valid_fields and k not in ['stock', 'trade_time', 'id']:
-                if isinstance(v, float):
+                if isinstance(v, (float, int)):
                     if math.isnan(v) or math.isinf(v): orm_safe_factors[k] = 0.0
-                    else: orm_safe_factors[k] = v
+                    else: orm_safe_factors[k] = float(v)
                 else: orm_safe_factors[k] = v
-        obj, created = await sync_to_async(chip_factor_model.objects.update_or_create)(stock_id=stock.stock_code, trade_time=trade_date, defaults=orm_safe_factors)
+        obj, created = await sync_to_async(chip_factor_model.objects.update_or_create)(
+            stock_id=stock.stock_code,
+            trade_time=trade_date,
+            defaults=orm_safe_factors
+        )
         return obj
     except Exception as e:
-        import traceback
         err_trace = traceback.format_exc()
-        from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("TaskWorker", "save_chip_factors_FATAL", {'stock': stock.stock_code, 'date': str(trade_date)}, {'error': str(e), 'trace': err_trace}, {'status': 'DB Crash'})
         raise
 

@@ -470,8 +470,8 @@ class ChipFactorBase(models.Model):
         return f"{self.stock.stock_code} {self.trade_time}"
     def save(self, *args, **kwargs):
         """
-        [Version 6.3.0] ORM 级毒性数据熔断器与精度对齐算子
-        修改思路：彻底拦截 numpy.nan 与 numpy.inf 对 MySQL 的致命注入。利用 math.isnan 和 math.isinf 在底层截断，触发毒性数据时自动降级为 0.0，保全整行数据落盘。
+        [Version 7.0.0] ORM 级毒性数据物理熔断器 (MySQL 拒写防御版)
+        修改思路：遍历反射字段时，拦截一切可能引发 MySQL OperationalError 回滚的 NaN 与 Inf，强行降级为 0.0。
         """
         import math
         from django.db import models
@@ -493,8 +493,8 @@ class ChipFactorBase(models.Model):
     @classmethod
     def calculate_convergence_divergence(cls, chip_dynamics_result: Dict[str, any]) -> Dict[str, float]:
         """
-        [Version 6.3.0] 筹码聚散网络推断算子 (动态贝叶斯置信度防死锁版)
-        修改思路：彻底废除原版极易引发 0 值连乘死锁的概率连乘模型。采用基于 Soft-OR 逻辑的联合概率分布，避免单一信号归零导致全局预警瘫痪。
+        [Version 7.0.0] 筹码聚散网络推断算子 (动态贝叶斯置信度防死锁版)
+        修改思路：废除易引发0值连乘死锁的概率连乘模型，采用基于 Soft-OR 逻辑的联合概率分布。
         """
         import math
         try:
@@ -987,8 +987,8 @@ class ChipHoldingMatrixBase(models.Model):
         return f"{self.stock.stock_code} {self.trade_time} 动态分析"
     def save(self, *args, **kwargs):
         """
-        [Version 6.3.0] ORM 级毒性数据熔断器与精度对齐算子
-        修改思路：彻底拦截 numpy.nan 与 numpy.inf 对 MySQL 的致命注入。利用 math.isnan 和 math.isinf 在底层截断，触发毒性数据时自动降级为 0.0，保全整行数据落盘。
+        [Version 7.0.0] ORM 级毒性数据物理熔断器 (MySQL 拒写防御版)
+        修改思路：遍历反射字段时，拦截一切可能引发 MySQL OperationalError 回滚的 NaN 与 Inf，强行降级为 0.0。
         """
         import math
         from django.db import models
@@ -1007,11 +1007,16 @@ class ChipHoldingMatrixBase(models.Model):
         super().save(*args, **kwargs)
 
     def save_dynamics_result(self, dynamics_result: Dict[str, Any]):
-        # [V3.1.3] 方法说明：保存动态分析结果。集成数据类型强制降级(float32)，优化传入计算引擎的矩阵内存布局，激活底层SIMD向量化性能
+        """
+        [Version 7.0.0] 动态分析持久化网关 (JSON爆炸捕获与探针植入版)
+        修改思路：废除原有的 try: save() except: print 死亡掩盖逻辑，强制通过探针向外层抛出序列化或入库时的致命异常，同时在JSON压缩前进行绝对类型保护。
+        """
         import zlib
         import json
         import numpy as np
-        Calculator = ChipMatrixDynamicsCalculator
+        from services.chip_holding_calculator import QuantitativeTelemetryProbe
+        from services.chip_matrix_dynamics_calculator import ChipMatrixDynamicsCalculator as Calculator
+        import traceback
         try:
             if not dynamics_result or dynamics_result.get('analysis_status') != 'success':
                 self.calc_status = 'failed'
@@ -1019,8 +1024,7 @@ class ChipHoldingMatrixBase(models.Model):
                 return False
             required = ['price_grid', 'percent_change_matrix']
             if any(f not in dynamics_result for f in required):
-                self.calc_status = 'failed'
-                self.error_message = "缺少必要字段"
+                self.calc_status = 'failed'; self.error_message = "缺少必要字段"
                 self.save(update_fields=['calc_status', 'error_message'])
                 return False
             tick_factors = dynamics_result.get('tick_enhanced_factors', {})
@@ -1033,12 +1037,10 @@ class ChipHoldingMatrixBase(models.Model):
                 self.used_tick_data = True
                 self.tick_data_summary = Calculator.clean_structure(tick_factors.get('tick_data_summary'), precision=3)
                 microstructure_data = Calculator.clean_structure(tick_factors.get('intraday_market_microstructure'), precision=3)
-                if microstructure_data is None:
-                    microstructure_data = {}
+                if microstructure_data is None: microstructure_data = {}
                 critical_tick_keys = ['intraday_chip_consolidation_degree','intraday_peak_valley_ratio','intraday_price_distribution_skewness','intraday_resistance_test_count','intraday_support_test_count','intraday_trough_filling_degree','tick_abnormal_volume_ratio','tick_chip_balance_ratio','tick_chip_transfer_efficiency','tick_clustering_index','tick_level_chip_flow','intraday_chip_concentration','intraday_chip_entropy','intraday_chip_turnover_intensity','intraday_cost_center_migration','intraday_cost_center_volatility','intraday_low_lock_ratio','intraday_high_lock_ratio','intraday_chip_game_index']
                 for key in critical_tick_keys:
-                    if key in tick_factors:
-                        microstructure_data[key] = tick_factors[key]
+                    if key in tick_factors: microstructure_data[key] = tick_factors[key]
                 self.intraday_market_microstructure = microstructure_data
             try:
                 change_matrix = dynamics_result.get('percent_change_matrix', [])
@@ -1048,12 +1050,9 @@ class ChipHoldingMatrixBase(models.Model):
                     latest_change = np.array(change_matrix[-1], dtype=np.float32)
                     p_grid = np.array(price_grid, dtype=np.float32)
                     self.absolute_change_analysis = Calculator.calculate_absolute_change_analysis(latest_change, p_grid, current_price)
-                else:
-                    self.absolute_change_analysis = Calculator.get_default_absolute_analysis()
+                else: self.absolute_change_analysis = Calculator.get_default_absolute_analysis()
                 self.absolute_change_analysis = Calculator.clean_structure(self.absolute_change_analysis, precision=3)
-            except Exception as e:
-                print(f"⚠️ 绝对变化分析失败: {e}")
-                self.absolute_change_analysis = Calculator.get_default_absolute_analysis()
+            except Exception: self.absolute_change_analysis = Calculator.get_default_absolute_analysis()
             game_energy = dynamics_result.get('game_energy_result', {})
             if game_energy:
                 self.absorption_energy = round(max(0.0, game_energy.get('absorption_energy', 0.0)), 3)
@@ -1064,17 +1063,9 @@ class ChipHoldingMatrixBase(models.Model):
                 self.energy_concentration = round(max(0.0, min(1.0, game_energy.get('energy_concentration', 0.0))), 3)
                 self.fake_distribution_flag = bool(game_energy.get('fake_distribution_flag', False))
                 kbz = game_energy.get('key_battle_zones', [])
-                if not kbz:
-                    kbz = Calculator.create_default_key_battle_zones(price_grid, current_price)
+                if not kbz: kbz = Calculator.create_default_key_battle_zones(price_grid, current_price)
             else:
-                self.absorption_energy = 0.0
-                self.distribution_energy = 0.0
-                self.net_energy_flow = 0.0
-                self.game_intensity = 0.0
-                self.breakout_potential = 0.0
-                self.energy_concentration = 0.0
-                self.fake_distribution_flag = False
-                kbz = []
+                self.absorption_energy = 0.0; self.distribution_energy = 0.0; self.net_energy_flow = 0.0; self.game_intensity = 0.0; self.breakout_potential = 0.0; self.energy_concentration = 0.0; self.fake_distribution_flag = False; kbz = []
             conc_metrics = dynamics_result.get('concentration_metrics', {})
             press_metrics = dynamics_result.get('pressure_metrics', {})
             conv_metrics = dynamics_result.get('convergence_metrics', {})
@@ -1099,7 +1090,8 @@ class ChipHoldingMatrixBase(models.Model):
                     cleaned = Calculator.clean_structure(dynamics_result['percent_change_matrix'], precision=3, threshold=0.05)
                     self.compressed_change_matrix = zlib.compress(json.dumps(cleaned, separators=(',', ':')).encode('utf-8'))
             except Exception as e:
-                print(f"⚠️ 矩阵压缩失败: {e}")
+                err_trace = traceback.format_exc()
+                QuantitativeTelemetryProbe.emit("ChipHoldingMatrixBase", "matrix_compress_WARN", {}, {'error': str(e), 'trace': err_trace}, {'status': 'ignored'})
             self.chart_signals = Calculator.clean_structure({'absolute_signals': dynamics_result.get('absolute_change_signals', {}),'behavior_areas': {'accumulation': behav_patterns.get('accumulation', {}).get('areas', []), 'distribution': behav_patterns.get('distribution', {}).get('areas', [])},'key_battle_zones': kbz[:5],'migration_areas': {'convergence': dynamics_result.get('migration_patterns', {}).get('convergence_migration', {}).get('areas', []),'divergence': dynamics_result.get('migration_patterns', {}).get('divergence_migration', {}).get('areas', [])}}, precision=3)
             self.extra_metrics = Calculator.clean_structure({'concentration': conc_metrics,'pressure': press_metrics,'convergence': conv_metrics,'migration': dynamics_result.get('migration_patterns', {}),'behavior_meta': {'accumulation_detected': behav_patterns.get('accumulation', {}).get('detected'),'distribution_detected': behav_patterns.get('distribution', {}).get('detected'),'main_force_activity': behav_patterns.get('main_force_activity')}}, precision=4)
             self.price_grid = Calculator.clean_structure(dynamics_result.get('price_grid', []), precision=3)
@@ -1110,27 +1102,21 @@ class ChipHoldingMatrixBase(models.Model):
             if tick_factors and self.intraday_chip_quality_score > 0.3:
                 s, m, l, d, reason = Calculator.calculate_tick_enhanced_factors(current_factors, tick_factors, self.intraday_chip_quality_score)
                 self.short_term_ratio, self.mid_term_ratio, self.long_term_ratio, self.avg_holding_days = s, m, l, d
-                if 'extra_metrics' in holding_res:
-                    holding_res['extra_metrics']['tick_adjustment_reason'] = reason
+                if 'extra_metrics' in holding_res: holding_res['extra_metrics']['tick_adjustment_reason'] = reason
             else:
-                self.short_term_ratio = current_factors['short']
-                self.mid_term_ratio = current_factors['mid']
-                self.long_term_ratio = current_factors['long']
-                self.avg_holding_days = current_factors['days']
+                self.short_term_ratio = current_factors['short']; self.mid_term_ratio = current_factors['mid']; self.long_term_ratio = current_factors['long']; self.avg_holding_days = current_factors['days']
             if self.extra_metrics is None: self.extra_metrics = {}
-            if 'extra_metrics' in holding_res:
-                self.extra_metrics.update(holding_res['extra_metrics'])
+            if 'extra_metrics' in holding_res: self.extra_metrics.update(holding_res['extra_metrics'])
             self.calc_status = 'success'
             self.analysis_method = 'advanced_dynamics_v3_tick_enhanced'
             self.used_percent_data = True
-            if not self.used_tick_data and self.intraday_chip_quality_score > 0.3:
-                self.used_tick_data = True
+            if not self.used_tick_data and self.intraday_chip_quality_score > 0.3: self.used_tick_data = True
             self.save()
+            QuantitativeTelemetryProbe.emit("ChipHoldingMatrixBase", "save_dynamics_result_SUCCESS", {'stock_id': getattr(self, 'stock_id', 'unknown'), 'trade_time': str(self.trade_time)}, {}, {'status': 'saved'})
             return True
         except Exception as e:
-            print(f"❌ [保存动态分析] 失败: {e}")
-            import traceback
-            traceback.print_exc()
+            err_trace = traceback.format_exc()
+            QuantitativeTelemetryProbe.emit("ChipHoldingMatrixBase", "save_dynamics_result_FATAL", {'stock_id': getattr(self, 'stock_id', 'unknown'), 'trade_time': str(self.trade_time)}, {'error': str(e), 'trace': err_trace}, {'status': 'failed'})
             self.calc_status = 'failed'
             self.error_message = str(e)
             try: self.save(update_fields=['calc_status', 'error_message', 'calc_time'])
