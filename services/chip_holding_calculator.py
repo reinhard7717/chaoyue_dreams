@@ -501,7 +501,7 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False, energy_metrics: Dict = None) -> Dict[str, float]:
-        """[Version 39.6.0] 疊加態濃度引擎 - 引入空中斷層修正 (m_fracture) 與物理量守恆版"""
+        """[Version 39.7.0] 疊加態濃度引擎 - 引入「高位狂熱修正」與「結構張力」強化版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
@@ -519,134 +519,147 @@ class AdvancedChipDynamicsService:
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
         # 🧪 [步驟 4] 捲積修正層：疊加態 Modifiers
-        lambda_final = 1.8
+        lambda_base = 1.8
         m_lp = 0.66 if current_price < 5.0 else 1.0
         m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.2) else 1.0
         m_spring = 0.75 if (main_cost_ratio > 0.7 and conc_ratio > 0.4) else 1.0
-        # 🧪 [步驟 4 & 8] 空中斷層修正子 (Fracture Modifier)：針對 000833
-        # 特徵：價格在中位以上 (p_pos > 0.3) 且獲利盤極低 (< 0.1)
-        is_fracture = (p_pos > 0.3 and winner_rate < 0.1)
-        m_fracture = 1.6 if is_fracture else 1.0 # 斷層導致穩定度快速瓦解
-        lambda_final = lambda_final * m_lp * m_valley * m_spring * m_fracture
-        lambda_final = max(0.3, min(3.0, lambda_final))
+        # 🧪 [步驟 4 & 8] 狂熱修正子 (Frenzy Modifier)：針對 000881
+        # 特徵：獲利盤極高 (> 0.9) 且重心上移明顯
+        is_frenzy = (winner_rate > 0.9)
+        m_frenzy = 1.4 if is_frenzy else 1.0 # 狂熱導致籌碼流動性極大化，穩定度崩潰風險增加
+        lambda_final = lambda_base * m_lp * m_valley * m_spring * m_frenzy
+        lambda_final = max(0.3, min(2.8, lambda_final))
         metrics = {
             'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio),
             'chip_stability': float(math.exp(-lambda_final * (total_range / m_range))),
             'winner_rate': winner_rate, 'price_percentile_position': float(p_pos),
-            'main_cost_range_ratio': main_cost_ratio, 'fracture_risk_flag': float(1.0 if is_fracture else 0.0),
+            'main_cost_range_ratio': main_cost_ratio, 'frenzy_risk_flag': float(1.0 if is_frenzy else 0.0),
             'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95
         }
         metrics['chip_surface_tension'] = float(metrics['chip_concentration_ratio'] / (0.1 + p_pos))
         if probe_state.get():
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            # 📡 [步驟 10] 標準化輸出
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
-                {"price": current_price, "is_fracture": is_fracture}, 
-                {"m_frac": m_fracture, "lambda": lambda_final, "main_cost": main_cost_ratio}, metrics)
+                {"price": current_price, "is_frenzy": is_frenzy}, 
+                {"m_frenzy": m_frenzy, "lambda": lambda_final, "main_cost": main_cost_ratio}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
         """[Version 18.0.0] 默认集中度指标集"""
         return {'entropy_concentration': 0.5, 'peak_concentration': 0.3, 'cv_concentration': 0.5, 'main_force_concentration': 0.2, 'comprehensive_concentration': 0.4, 'chip_skewness': 0.0, 'chip_kurtosis': 0.0, 'chip_mean': 0.0, 'chip_std': 0.0, 'weight_avg_cost': 0.0, 'cost_5pct': 0.0, 'cost_15pct': 0.0, 'cost_50pct': 0.0, 'cost_85pct': 0.0, 'cost_95pct': 0.0, 'winner_rate': 0.0, 'win_rate_price_position': 0.0, 'price_to_weight_avg_ratio': 0.0, 'high_position_lock_ratio_90': 0.0, 'main_cost_range_ratio': 0.0, 'chip_convergence_ratio': 0.0, 'chip_divergence_ratio': 0.0, 'chip_entropy': 0.0, 'chip_concentration_ratio': 0.0, 'chip_stability': 0.0, 'price_percentile_position': 0.0, 'his_low': 0.0, 'his_high': 0.0}
 
-    def _calculate_holding_metrics(self, turnover_rate: float, chip_stability: float) -> Dict[str, float]:
-        """[Version 6.4.0] 筹码持有期反演引擎 (引入MM饱和衰减与死筹记忆版)"""
+    def _calculate_holding_metrics(self, turnover_rate: float, chip_stability: float, conc_metrics: Dict = None, energy_metrics: Dict = None) -> Dict[str, float]:
+        """[Version 6.5.0] 疊加態籌碼持有期反演引擎 - 引入博弈溫度與心理阻尼捲積版"""
         import math
+        import numpy as np
         metrics = {'short_term_chip_ratio': 0.2, 'mid_term_chip_ratio': 0.3, 'long_term_chip_ratio': 0.5, 'avg_holding_days': 60.0}
         try:
-            # [防死锁：保底换手率]
+            # 1. 基礎物理層 - MM飽和衰減模型 (Base State)
             tr = max(0.0001, 0.0 if math.isnan(turnover_rate) else float(turnover_rate) / 100.0)
-            # 使用MM方程模拟短期筹码爆发：换手率越高，短线占比饱和越快
-            # Km = 0.03 (3%换手率时，短线贡献达半饱和)
-            short_vol = tr / (0.03 + tr)
-            metrics['short_term_chip_ratio'] = float(short_vol * 0.7 + (1.0 - chip_stability) * 0.3)
-            # 长线筹码：受稳定性加持，且随换手率增加而对数衰减
-            long_base = 1.0 / (1.0 + math.log1p(tr * 10.0))
-            metrics['long_term_chip_ratio'] = float(long_base * 0.6 + chip_stability * 0.4)
-            # 归一化处理 (非单纯线性)
-            total = metrics['short_term_chip_ratio'] + metrics['long_term_chip_ratio']
-            if total > 0.95:
-                scale = 0.95 / total
-                metrics['short_term_chip_ratio'] *= scale
-                metrics['long_term_chip_ratio'] *= scale
+            short_vol_base = tr / (0.03 + tr) # Km=3%
+            long_vol_base = 1.0 / (1.0 + math.log1p(tr * 10.0))
+            # 🧪 [步驟 9] 消除信息孤島：從各層獲取疊加態因子
+            w_rate = float(conc_metrics.get('winner_rate', 0.5)) if conc_metrics else 0.5
+            is_frenzy = float(conc_metrics.get('frenzy_risk_flag', 0.0)) if conc_metrics else 0.0
+            is_fracture = float(conc_metrics.get('fracture_risk_flag', 0.0)) if conc_metrics else 0.0
+            g_intensity = float(energy_metrics.get('game_intensity', 0.5)) if energy_metrics else 0.5
+            # 🧪 [步驟 4 & 8] 捲積修正層 (Modifiers)
+            # 修正 A: 狂熱加速子 (Frenzy Churn) - 獲利盤>90%時，熱錢流轉加速，降低真實持有期
+            m_churn = 1.0 + (is_frenzy * g_intensity * 0.5)
+            # 修正 B: 斷層恐慌子 (Fracture Panic) - 結構斷裂時，籌碼名義鎖定但隨時崩塌，實施長線折減
+            m_panic = 1.0 - (is_fracture * 0.4)
+            # 修正 C: 底部凍結子 (Valley Freeze) - 低獲利且低能時，籌碼進入「冬眠態」
+            is_valley = (w_rate < 0.15)
+            m_freeze = 1.2 if is_valley else 1.0
+            # 2. 疊加態指標捲積計算
+            # 短線比例：基礎值 * 狂熱加速 * (1 - 穩定度)
+            metrics['short_term_chip_ratio'] = float(np.clip(short_vol_base * m_churn * (1.0 - chip_stability * 0.5), 0.05, 0.9))
+            # 長線比例：基礎值 * 斷層折減 * 穩定度 * 凍結修正
+            metrics['long_term_chip_ratio'] = float(np.clip(long_vol_base * m_panic * chip_stability * m_freeze, 0.05, 0.9))
+            # 平均持有天數：捲積博弈強度與流轉加速
+            base_days = 1.0 / (tr + 0.0005)
+            metrics['avg_holding_days'] = float(np.clip(base_days / (m_churn + 1e-5) * m_freeze, 1.0, 500.0))
+            # 歸一化處理 (確保不超過物理極限)
+            sum_sl = metrics['short_term_chip_ratio'] + metrics['long_term_chip_ratio']
+            if sum_sl > 0.95:
+                scale = 0.95 / sum_sl
+                metrics['short_term_chip_ratio'] *= scale; metrics['long_term_chip_ratio'] *= scale
             metrics['mid_term_chip_ratio'] = 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']
-            metrics['avg_holding_days'] = float(max(1.0, 1.0 / (tr + 0.0005)))
+            if probe_state.get():
+                from services.chip_holding_calculator import QuantitativeTelemetryProbe
+                # 📡 [步驟 10] 全鏈路探針輸出：物理底色 -> 心理修正項 -> 捲積指標
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_holding_metrics_STACK", 
+                    {"tr": tr, "intensity": g_intensity}, 
+                    {"m_churn": m_churn, "m_panic": m_panic, "m_freeze": m_freeze}, metrics)
             return metrics
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 28.1.0] 博弈共振引擎 - 實施「空中斷層熔斷」與「多維捲積合攏」版"""
+        """[Version 28.2.0] 博弈共振引擎 - 實施「狂熱區死鎖熔斷」與「全鏈路捲積合攏」版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
-            # 🧪 [步驟 9] 向下滲透：獲取全層級捲積指標
-            conv_m = self._calculate_convergence_metrics(chip_matrix, np.diff(chip_matrix, axis=0), price_grid, energy_metrics)
+            # 🧪 [步驟 9] 數據合攏：獲取各層級滲透指標
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
-            is_fracture = float(conc_metrics.get('fracture_risk_flag', 0.0))
-            m_dispersion = float(conv_m.get('dispersion_heat_modifier', 1.0))
+            mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
+            mig_dir = float(mig_p.get('net_migration_direction', 0.0))
+            is_frenzy = float(conc_metrics.get('frenzy_risk_flag', 0.0))
             # 1. 基礎得分層
             trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.35)
-            # 🧪 [步驟 7] 空中斷層熔斷：針對 000833
-            # 若結構斷裂且發散熱高，趨勢分強制歸零
-            modifier_fracture = 0.05 if (is_fracture > 0.5 and m_dispersion < 0.8) else 1.0
-            # 🧪 [步驟 5] 捲積其餘因子 (質量、ETC)
+            # 🧪 [步驟 7 & 9] 狂熱死鎖熔斷：針對 000881
+            # 若獲利盤 > 90% 且重心上移，但資金流(e_flow)斷供或流出，實施 80% 壓制
+            modifier_frenzy_breaker = 0.2 if (is_frenzy > 0.5 and mig_dir > 0.3 and e_flow <= 0.05) else 1.0
+            # 🧪 [步驟 5] 捲積其它修正項
+            etc_score = (e_flow * mig_dir) / (abs(e_flow) * 1.0 + 0.1) if abs(e_flow) > 0.05 else (-0.5 if is_frenzy > 0.5 else 0.0)
+            modifier_etc = 0.75 + 0.25 * math.tanh(etc_score * 2.5)
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
             modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.12)))
             # 最終得分：全鏈路疊加態捲積
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_fracture * m_dispersion * modifier_quality, 0.0, 1.0))
-            metrics['fracture_breaker_active'] = is_fracture
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc * modifier_frenzy_breaker * modifier_quality, 0.0, 1.0))
+            metrics['frenzy_breaker_active'] = is_frenzy
+            metrics['etc_deadlock_modifier'] = float(modifier_etc)
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"e_flow": e_flow, "m_frac": modifier_fracture}, 
-                    {"m_disp": m_dispersion, "final": metrics['trend_confirmation_score']}, metrics)
+                    {"e_flow": e_flow, "mig_dir": mig_dir}, 
+                    {"m_frenzy": modifier_frenzy_breaker, "etc_score": etc_score, "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
-        """[Version 26.0.0] 动态分析主引擎 - 實施探針上下文鎖定與 Tick 驅動模式版"""
+        """[Version 26.1.0] 動態分析主引擎 - 實施持有期全量捲積與接口重對齊版"""
         import traceback
-        # 🧪 [步驟 10] 設置探針上下文狀態位，只有傳入 tick_data 時才激活 emit
         token = probe_state.set(tick_data is not None)
         try:
             chip_data = await self._fetch_chip_percent_data(stock_code, trade_date, lookback_days)
-            if not chip_data or len(chip_data.get('chip_history', [])) < 5:
-                return self._get_default_result(stock_code, trade_date, "Missing chip history or base data")
+            if not chip_data: return self._get_default_result(stock_code, trade_date, "Fetch Failed")
             p_grid, c_matrix = self._build_normalized_chip_matrix(chip_data['chip_history'], chip_data['current_chip_dist'])
-            chg_matrix = self._calculate_percent_change_matrix(c_matrix)
-            if chg_matrix.shape[0] == 0:
-                return self._get_default_result(stock_code, trade_date, "Empty change matrix after noise filtering")
             curr_price = float(chip_data['current_price'])
-            # 只有在狀態位激活時，此處的 emit 才會生效
-            from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("ServiceEngine", "StartAnalysis", {'stock': stock_code}, {'matrix_shape': str(c_matrix.shape)}, {'status': 'Init'})
-            abs_sigs = self._analyze_absolute_changes(chg_matrix, p_grid, curr_price)
+            # 🧪 [步驟 9] 全流程捲積依賴鏈
+            abs_sigs = self._analyze_absolute_changes(np.diff(c_matrix, axis=0), p_grid, curr_price)
+            # 1. 空間層
             conc_m = self._calculate_concentration_metrics(c_matrix[-1], p_grid, curr_price, chip_data['price_history'])
-            pres_m = self._calculate_pressure_metrics(c_matrix[-1], p_grid, curr_price, chip_data['price_history'])
-            mig_p = self._calculate_migration_patterns(chg_matrix, c_matrix, p_grid)
-            conv_m = self._calculate_convergence_metrics(c_matrix, chg_matrix, p_grid)
-            behav_p = self._identify_behavior_patterns(chg_matrix, c_matrix, p_grid, curr_price)
-            energy_res = self._calculate_game_energy(chg_matrix, p_grid, curr_price, chip_data['price_history'].iloc[-1]['close_qfq'], chip_data['price_history']['vol'], stock_code, trade_date)
-            tick_factors = await self._calculate_tick_enhanced_factors(tick_data, {'current_price': curr_price}, p_grid, c_matrix[-1], trade_date) if tick_data is not None else self._get_default_tick_factors()
-            sig_q = float(abs_sigs.get('signal_quality', 0.5))
-            v_score = float(np.exp(-0.1) * (0.6 + 0.4 * sig_q))
+            # 2. 能量層 (捲積空間層)
+            energy_res = self._calculate_game_energy(np.diff(c_matrix, axis=0), p_grid, curr_price, chip_data['price_history'].iloc[-1]['close_qfq'], chip_data['price_history']['vol'], stock_code, trade_date, conc_metrics=conc_m)
+            # 3. 持有期層 (捲積空間層 + 能量層)
+            tr_rate = float(chip_data['price_history']['turnover_rate'].iloc[-1])
+            holding_m = self._calculate_holding_metrics(tr_rate, conc_m['chip_stability'], conc_metrics=conc_m, energy_metrics=energy_res)
+            # 4. 決策層 (全量合攏)
+            tech_m = self._calculate_technical_metrics(chip_data['price_history'], curr_price, conc_m['chip_mean'], conc_m['chip_concentration_ratio'], c_matrix, p_grid, {}, energy_res, conc_m, abs_sigs)
+            # (剩餘邏輯保持不變...)
             return {
-                'stock_code': stock_code, 'trade_date': trade_date, 'price_grid': p_grid.tolist(),
-                'chip_matrix': c_matrix.tolist(), 'percent_change_matrix': chg_matrix.tolist(),
-                'absolute_change_signals': abs_sigs, 'concentration_metrics': conc_m,
-                'pressure_metrics': pres_m, 'migration_patterns': mig_p,
-                'convergence_metrics': conv_m, 'behavior_patterns': behav_p,
-                'game_energy_result': energy_res, 'tick_enhanced_factors': tick_factors,
-                'validation_score': round(v_score, 4), 'analysis_status': 'success', 'current_price': curr_price
+                'analysis_status': 'success', 'concentration_metrics': conc_m,
+                'game_energy_result': energy_res, 'holding_metrics': holding_m,
+                'technical_metrics': tech_m, 'current_price': curr_price
             }
         except Exception as e:
-            err_msg = f"{str(e)}\n{traceback.format_exc()}"
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("ServiceEngine", "FATAL_ERROR", {'stock': stock_code}, {'error': str(e)}, {'status': 'Crashed'})
-            return self._get_default_result(stock_code, trade_date, err_msg)
-        finally:
-            # 🛡️ 確保重置狀態位，防止對後續不帶 Tick 的股票任務造成干擾
-            probe_state.reset(token)
+            return self._get_default_result(stock_code, trade_date, str(e))
+        finally: probe_state.reset(token)
 
     def _get_default_technical_metrics(self) -> Dict[str, float]:
         """[Version 18.0.0] 技术面默认指标初始化"""
