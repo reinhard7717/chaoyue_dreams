@@ -144,32 +144,27 @@ def _numba_battle_zones_core(changes: np.ndarray, price_grid: np.ndarray, curren
 @njit(cache=True, fastmath=True)
 def _numba_calc_ad_core(chgs: np.ndarray, p_rel: np.ndarray, noise_f: float) -> tuple:
     """
-    [Version 10.0.0] Numba 吸收派发连续流形积分内核 (Fuzzy Logic 升维版)
-    说明：废除 if r < -0.12 这种会导致极性反噬的阶跃截断。引入高斯震荡核与 Sigmoid 进行连续平滑过渡，消灭任何价格跨界导致的权重断崖。
+    [Version 12.0.0] Numba 吸收派发连续流形积分内核 (纯净机器码修复版)
+    说明：彻底拔除 import math。利用 Numba 原生支持的 np.exp 构造高斯震荡核与 Sigmoid 曲线，消灭阶跃断崖。
     """
-    import math
     raw_acc = 0.0; raw_dist = 0.0; sum_clean = 0.0
     for i in range(len(chgs)):
         c = chgs[i]
         if abs(c) > noise_f:
             sum_clean += c
             r = p_rel[i]
-            # 活跃交易区双峰核函数：价格越靠近 ±5% 的震荡边界，做功权重越大
-            w = 1.0 + 0.5 * math.exp(-(r + 0.05)**2 / 0.005) + 0.5 * math.exp(-(r - 0.05)**2 / 0.005)
-            # 吸收/派发乘数：利用 Logistic 函数实现连续的概率分布，拒绝硬切分
-            m_acc = 0.3 + 0.7 / (1.0 + math.exp(30.0 * r))
-            m_dist = 0.3 + 0.7 / (1.0 + math.exp(-30.0 * r))
+            # 活跃交易区双峰核函数：价格越靠近 ±5% 的震荡边界，做功乘数越强
+            w = 1.0 + 0.5 * np.exp(-(r + 0.05)**2 / 0.005) + 0.5 * np.exp(-(r - 0.05)**2 / 0.005)
+            # Logistic 平滑概率分布，拒绝对吸筹/派发的硬切分
+            m_acc = 0.3 + 0.7 / (1.0 + np.exp(30.0 * r))
+            m_dist = 0.3 + 0.7 / (1.0 + np.exp(-30.0 * r))
             if c > 0: raw_acc += c * w * m_acc
             else: raw_dist += abs(c) * w * m_dist
     return float(raw_acc), float(raw_dist), float(sum_clean)
 
 @njit(cache=True, fastmath=True)
 def _numba_calc_energy_bins_core(changes: np.ndarray, price_rel: np.ndarray, dynamic_sigma: float) -> tuple:
-    """
-    [Version 10.0.0] Numba 能量场高斯混叠分箱内核
-    说明：废弃 np.digitize 的绝对边界，改用多中心高斯网络进行动能分配。使一笔成交能根据距离平滑辐射到多个能量区间。
-    """
-    import math
+    """[Version 12.0.0] Numba 能量场高斯混叠分箱内核 (消除 IMPORT_NAME 版)"""
     pos_sums = np.zeros(6, dtype=np.float32); neg_sums = np.zeros(6, dtype=np.float32)
     s = dynamic_sigma if dynamic_sigma > 0.01 else 0.01
     centers = np.array([-4.0*s, -2.0*s, -0.5*s, 0.5*s, 2.0*s, 4.0*s], dtype=np.float32)
@@ -180,7 +175,7 @@ def _numba_calc_energy_bins_core(changes: np.ndarray, price_rel: np.ndarray, dyn
         sum_w = 0.0
         weights = np.zeros(6, dtype=np.float32)
         for j in range(6):
-            w = math.exp(-0.5 * ((r - centers[j]) / s)**2)
+            w = np.exp(-0.5 * ((r - centers[j]) / s)**2)
             weights[j] = w
             sum_w += w
         if sum_w > 1e-8:
@@ -534,8 +529,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
         """
-        [Version 10.0.0] 概率密度真实矩积分与高阶浓度引擎 (极性翻转修复版)
-        修改思路：废除用百分位估算偏度的信息折叠法，采用全域 PMF 积分；修复 concentration_ratio 的反向极性。
+        [Version 12.0.0] 概率密度真实矩积分与调和浓度引擎 (极性纠偏版)
+        修改思路：修正极性倒置；用高斯模糊软化掩码边界；用调和平均揭露短板风险。
         """
         import numpy as np
         import math
@@ -545,26 +540,18 @@ class AdvancedChipDynamicsService:
         eps = 1e-10
         p = current_chip_dist / (np.sum(current_chip_dist) + eps)
         
-        # 1. 真实物理矩积分 (PMF Moments)
         chip_mean = float(np.sum(p * price_grid))
         variance = float(np.sum(p * (price_grid - chip_mean)**2))
         chip_std = float(np.sqrt(variance))
-        
         if chip_std > eps:
             chip_skewness = float(np.sum(p * ((price_grid - chip_mean) / chip_std)**3))
             chip_kurtosis = float(np.sum(p * ((price_grid - chip_mean) / chip_std)**4))
-        else:
-            chip_skewness, chip_kurtosis = 0.0, 3.0
+        else: chip_skewness, chip_kurtosis = 0.0, 3.0
             
-        metrics['chip_mean'] = chip_mean; metrics['weight_avg_cost'] = chip_mean
-        metrics['chip_std'] = chip_std; metrics['chip_skewness'] = chip_skewness; metrics['chip_kurtosis'] = chip_kurtosis
-        
-        # 2. 连续 CDF 分位解析
+        metrics['chip_mean'] = chip_mean; metrics['weight_avg_cost'] = chip_mean; metrics['chip_std'] = chip_std; metrics['chip_skewness'] = chip_skewness; metrics['chip_kurtosis'] = chip_kurtosis
         cdf = np.cumsum(p)
-        cost_05 = float(np.interp(0.05, cdf, price_grid))
-        cost_15 = float(np.interp(0.15, cdf, price_grid))
-        cost_50 = float(np.interp(0.50, cdf, price_grid))
-        cost_85 = float(np.interp(0.85, cdf, price_grid))
+        cost_05 = float(np.interp(0.05, cdf, price_grid)); cost_15 = float(np.interp(0.15, cdf, price_grid))
+        cost_50 = float(np.interp(0.50, cdf, price_grid)); cost_85 = float(np.interp(0.85, cdf, price_grid))
         cost_95 = float(np.interp(0.95, cdf, price_grid))
         metrics['cost_5pct'] = cost_05; metrics['cost_15pct'] = cost_15; metrics['cost_50pct'] = cost_50; metrics['cost_85pct'] = cost_85; metrics['cost_95pct'] = cost_95
         metrics['winner_rate'] = float(np.interp(current_price, price_grid, cdf))
@@ -573,31 +560,31 @@ class AdvancedChipDynamicsService:
         his_high = float(price_history['high_qfq'].max()) if price_history is not None and not price_history.empty and 'high_qfq' in price_history.columns else float(current_price * 1.2)
         metrics['his_low'] = his_low; metrics['his_high'] = his_high
         
-        macro_range = max(his_high - his_low, eps)
-        core_range = max(cost_85 - cost_15, eps)
-        active_range = max(cost_95 - cost_05, eps)
+        macro_range = max(his_high - his_low, eps); core_range = max(cost_85 - cost_15, eps); active_range = max(cost_95 - cost_05, eps)
         
-        # 3. 修复极性倒置 (core_range 越小，比值越大，浓度越高)
+        # 极性纠正：核心区越小说明筹码越集中，指数级逼近1.0
         metrics['chip_concentration_ratio'] = float(math.exp(-2.0 * (core_range / macro_range)))
         metrics['chip_stability'] = float(math.exp(-1.5 * (active_range / macro_range)))
         metrics['chip_divergence_ratio'] = float(math.atan((active_range / macro_range) * 3.0) / (math.pi / 2))
         
         price_position = np.clip((current_price - his_low) / macro_range, 0.0, 1.0)
         metrics['price_percentile_position'] = float(price_position)
-        
-        # Copula 联合概率
         copula_risk = price_position * (1.0 - metrics['winner_rate'])
-        metrics['win_rate_price_position'] = float(1.0 - math.sqrt(copula_risk)) 
+        metrics['win_rate_price_position'] = float(1.0 - math.sqrt(max(0.0, copula_risk))) 
         
         raw_price_ratio = (current_price - chip_mean) / max(chip_mean, eps)
         metrics['price_to_weight_avg_ratio'] = float(math.atan(raw_price_ratio * 10.0) / (math.pi / 2))
         
-        # 4. 修复高位套牢盘黑洞 (用真实的 his_high)
+        # 消除套牢盘阶跃截断：Logistic 平滑映射
         high_watermark = his_high - macro_range * 0.10
-        metrics['high_position_lock_ratio_90'] = float(np.sum(p[price_grid >= high_watermark]))
+        dist_to_high = (price_grid - high_watermark) / max(macro_range, eps)
+        high_lock_weights = 1.0 / (1.0 + np.exp(-30.0 * dist_to_high))
+        metrics['high_position_lock_ratio_90'] = float(np.sum(p * high_lock_weights))
         
-        main_cost_mask = (price_grid >= cost_50 * 0.9) & (price_grid <= cost_50 * 1.1)
-        metrics['main_cost_range_ratio'] = float(np.sum(p[main_cost_mask]))
+        # 消除主力控盘区硬边界：高斯权重平滑
+        dist_to_cost_50 = np.abs(price_grid - cost_50) / max(cost_50, eps)
+        main_cost_weights = np.exp(-0.5 * (dist_to_cost_50 / 0.05)**2)
+        metrics['main_cost_range_ratio'] = float(np.sum(p * main_cost_weights))
         metrics['chip_convergence_ratio'] = metrics['main_cost_range_ratio']
         
         smoothed_p = (p + 1e-5) / np.sum(p + 1e-5)
@@ -610,7 +597,7 @@ class AdvancedChipDynamicsService:
         metrics['cv_concentration'] = float(math.exp(- (chip_std / max(chip_mean, eps)) * 2.0))
         metrics['main_force_concentration'] = metrics['main_cost_range_ratio']
         
-        # 5. 调和平均短板效应 (消除算术掩盖陷阱)
+        # 调和平均：任何一个弱势指标偏科，总体立刻坍塌，杜绝危险被平均掩盖
         indicators = [max(0.01, metrics['entropy_concentration']), max(0.01, metrics['peak_concentration']), max(0.01, metrics['cv_concentration']), max(0.01, metrics['main_cost_range_ratio'])]
         metrics['comprehensive_concentration'] = float(len(indicators) / sum(1.0 / x for x in indicators))
         
@@ -650,8 +637,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 10.0.0] 技术面全景共振引擎 (Soft-OR 0值死锁熔断版)
-        修改思路：废弃 price_mom * net_energy 导致的零值死锁。采用 Probabilistic OR (Soft-OR) 结合多维度风险。
+        [Version 12.0.0] 技术面全景共振引擎 (Soft-OR 0值死锁熔断版)
+        修改思路：废弃极度危险的 price_mom * net_energy 乘法死锁。采用 Soft-OR 联合概率机制评估风险。
         """
         import numpy as np
         import math
@@ -678,8 +665,8 @@ class AdvancedChipDynamicsService:
             
             if len(closes) >= 55:
                 align_score = 0.4 * math.tanh((ma5 - ma21) / (ma21 + 1e-8) * 50.0) + 0.3 * math.tanh((ma21 - ma34) / (ma34 + 1e-8) * 50.0) + 0.3 * math.tanh((ma34 - ma55) / (ma55 + 1e-8) * 50.0)
-                metrics['ma_arrangement_status'] = float(np.clip(align_score * 1.5, -1.0, 1.0))
-            else: metrics['ma_arrangement_status'] = 0.0
+                metrics['ma_arrangement_status'] = int(np.sign(align_score)) if abs(align_score) > 0.3 else 0
+            else: metrics['ma_arrangement_status'] = 0
                 
             metrics['chip_cost_to_ma21_diff'] = float((chip_mean - ma21) / (ma21 + 1e-8) * 100.0)
             
@@ -721,7 +708,7 @@ class AdvancedChipDynamicsService:
             if tick_quality > 0.3: trend_score += float(math.tanh(float(tick_factors.get('tick_level_chip_flow', 0.0)) * 2.0) * 0.1)
             metrics['trend_confirmation_score'] = float(np.clip(trend_score, 0.0, 1.0))
             
-            # 核心重构：防死锁 Soft-OR 危险预警机制
+            # 零值死锁消除：Soft-OR 联合风险评估机制
             overbought_risk = max(0.0, 1.0 - math.exp(-max(0.0, metrics['price_to_ma5_ratio'] - 3.0) / 10.0))
             energy_danger = max(0.0, 1.0 - math.exp(-max(0.0, -net_energy) / 3.0))
             top_position_risk = float(conc_metrics.get('price_percentile_position', 0.5) ** 2)
@@ -914,8 +901,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_main_force_activity(self, tick_data: pd.DataFrame, intraday_flow: Dict[str, float], abnormal_volume: Dict[str, float]) -> float:
         """
-        [Version 10.0.0] 严格因果序贯主力活跃度探测器 (EMA 隔离网络版)
-        修改思路：废除 ema_volumes[i] 评定 volume[i] 导致的未来函数自我包庇。强制时间步右移 (t-1)，确保判定只基于历史记忆。
+        [Version 12.0.0] 严格因果序贯主力活跃度探测器 (EMA 因果网络消除未来函数版)
+        修改思路：废除会导致未来函数泄露的全天均值评估，全面换用 T-1 时刻的指数移动平均 (EMA) 评定 T 时刻的爆发。
         """
         import numpy as np
         import math
@@ -932,9 +919,10 @@ class AdvancedChipDynamicsService:
                     ema_volumes[0] = volumes[0]
                     dynamic_threshold[0] = volumes[0] * 3.0
                     for i in range(1, seq_len):
-                        # 因果隔离：用上一刻的 EMA 判断这一刻的量
+                        # 严格因果隔离：用上一时刻(i-1)的 EMA 门限去判定这一时刻(i)的量，杜绝数据偷看
                         dynamic_threshold[i] = ema_volumes[i-1] * 3.0
                         ema_volumes[i] = alpha * volumes[i] + (1.0 - alpha) * ema_volumes[i-1]
+                    
                     large_order_mask = volumes > dynamic_threshold
                     large_order_vol = np.sum(volumes[large_order_mask])
                     total_vol = np.sum(volumes)
@@ -1300,84 +1288,57 @@ class DirectAccumulationDistributionCalculator:
             return result
 
     def _calculate_absolute_ad(self, changes: np.ndarray, price_rel: np.ndarray) -> Dict[str, any]:
-        """
-        [Version 61.0.0] 基于绝对变化的直接吸收/派发计算器（Numba 降维合并版）
-        说明：用 Numba 硬编码边界替换耗时的 np.digitize，维持 float32 带宽降级。禁止使用空行。
-        """
         import numpy as np
         import math
         noise_filter = float(self.params['noise_filter'])
         accumulation_volume, distribution_volume, overall_trend = _numba_calc_ad_core(changes.astype(np.float32), price_rel.astype(np.float32), noise_filter)
-        if accumulation_volume == 0.0 and distribution_volume == 0.0: return {'accumulation_volume': 0.0, 'distribution_volume': 0.0, 'net_ad_ratio': 0.0, 'accumulation_quality': 0.5, 'distribution_quality': 0.5, 'false_distribution_flag': False, 'breakout_acceleration': 1.0}
-        if overall_trend > 0: accumulation_volume *= 1.2; distribution_volume *= 0.8
-        elif overall_trend < 0: accumulation_volume *= 0.8; distribution_volume *= 1.2
+        
         total_raw_vol = accumulation_volume + distribution_volume
         bayesian_prior = max(3.0, total_raw_vol * 0.15)
         total_volume_smoothed = total_raw_vol + bayesian_prior + 1e-8
+        
         raw_net_ratio = (accumulation_volume - distribution_volume) / total_volume_smoothed
         net_ad_ratio = float(math.atan(raw_net_ratio * 3.0) / (math.pi / 2))
+        
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         QuantitativeTelemetryProbe.emit("DirectAccumulationDistributionCalculator", "_calculate_absolute_ad", {'total_raw_vol': float(total_raw_vol), 'bayesian_prior': float(bayesian_prior)}, {'raw_accum': float(accumulation_volume), 'raw_distrib': float(distribution_volume)}, {'net_ad_ratio': float(net_ad_ratio)})
         return {'accumulation_volume': float(accumulation_volume), 'distribution_volume': float(distribution_volume), 'net_ad_ratio': net_ad_ratio, 'accumulation_quality': 0.5, 'distribution_quality': 0.5, 'false_distribution_flag': False, 'breakout_acceleration': 1.0}
 
     def _correct_pullback_ad(self, ad_result: Dict[str, any], price_history: pd.DataFrame, current_price: float) -> Dict[str, any]:
-        """
-        拉升初期纠偏：考虑A股特色
-        A股特色：
-        1. 涨停后的回调多为洗盘
-        2. 连阳后的首阴可能是换手
-        3. 重要均线支撑处的派发多为假派发
-        """
-        if len(price_history) < 10:
+        """[Version 12.0.0] A股拉升初期纠偏器 (去除耗时 rolling 导致 NaN 毒药注入的安全版)"""
+        import numpy as np
+        if price_history is None or price_history.empty or len(price_history) < 10 or 'close_qfq' not in price_history.columns: return ad_result
+        try:
+            closes = price_history['close_qfq'].to_numpy(dtype=np.float32)
+            is_limit_up = False
+            if 'pct_change' in price_history.columns:
+                pct_chg = float(price_history['pct_change'].iloc[-1])
+                is_limit_up = pct_chg >= 9.8
+            is_continuous_up = False
+            if len(closes) >= 5:
+                recent_closes = closes[-5:]
+                recent_up_days = np.sum(np.diff(recent_closes) > 0)
+                is_continuous_up = recent_up_days >= 4
+            is_near_ma = False
+            if len(closes) >= 20:
+                ma20 = float(np.mean(closes[-20:]))
+                ma_distance = abs((current_price - ma20) / max(ma20, 1e-5))
+                is_near_ma = ma_distance < 0.03
+            false_distribution_conditions = []
+            if is_limit_up and ad_result['distribution_volume'] > ad_result['accumulation_volume']: false_distribution_conditions.append('涨停后派发')
+            if is_continuous_up and ad_result['distribution_volume'] > 0:
+                prev_close = float(closes[-2]) if len(closes) > 1 else current_price
+                if current_price > prev_close * 0.97: false_distribution_conditions.append('连阳后回调')
+            if is_near_ma and ad_result['distribution_volume'] > ad_result['accumulation_volume']: false_distribution_conditions.append('均线处派发')
+            if false_distribution_conditions:
+                correction_factor = min(0.5, len(false_distribution_conditions) * 0.15)
+                ad_result['distribution_volume'] *= (1.0 - correction_factor)
+                ad_result['false_distribution_flag'] = True
+                ad_result['accumulation_quality'] = min(1.0, ad_result.get('accumulation_quality', 0.5) * 1.3)
+                ad_result['breakout_acceleration'] = 1.5 if is_limit_up else 1.2
+                ad_result['false_distribution_reason'] = false_distribution_conditions
             return ad_result
-        # 判断是否涨停
-        is_limit_up = False
-        if not price_history.empty:
-            today_pct_change = price_history['pct_change'].iloc[-1] if 'pct_change' in price_history.columns else 0
-            # A股涨停阈值（主板10%，创业板/科创板20%）
-            limit_up_threshold = 9.8  # 接近涨停
-            is_limit_up = today_pct_change >= limit_up_threshold
-        # 判断是否连阳
-        is_continuous_up = False
-        if len(price_history) >= 5:
-            recent_closes = price_history['close_qfq'].values[-5:]
-            recent_up_days = sum([1 for i in range(1, len(recent_closes)) 
-                                 if recent_closes[i] > recent_closes[i-1]])
-            is_continuous_up = recent_up_days >= 4  # 5天4阳
-        # 判断是否在重要均线位置
-        # 这里简化：检查是否在近期均价附近
-        is_near_ma = False
-        if len(price_history) >= 20:
-            ma20 = price_history['close_qfq'].rolling(20).mean().iloc[-1]
-            ma_distance = abs((current_price - ma20) / ma20)
-            is_near_ma = ma_distance < 0.03  # 距离MA20在3%以内
-        # 虚假派发识别条件
-        false_distribution_conditions = []
-        # 条件1：涨停后出现派发信号
-        if is_limit_up and ad_result['distribution_volume'] > ad_result['accumulation_volume']:
-            false_distribution_conditions.append('涨停后派发')
-        # 条件2：连阳后首日调整
-        if is_continuous_up and ad_result['distribution_volume'] > 0:
-            # 检查是否为上涨趋势中的正常回调
-            prev_close = price_history['close_qfq'].iloc[-2] if len(price_history) > 1 else current_price
-            if current_price > prev_close * 0.97:  # 跌幅小于3%
-                false_distribution_conditions.append('连阳后回调')
-        # 条件3：重要均线支撑处的派发
-        if is_near_ma and ad_result['distribution_volume'] > ad_result['accumulation_volume']:
-            # 均线支撑处，派发多为洗盘
-            false_distribution_conditions.append('均线处派发')
-        # 如果满足任意虚假派发条件
-        if false_distribution_conditions:
-            correction_factor = min(0.5, len(false_distribution_conditions) * 0.15)
-            corrected_distribution = ad_result['distribution_volume'] * (1 - correction_factor)
-            ad_result.update({
-                'distribution_volume': corrected_distribution,
-                'false_distribution_flag': True,
-                'accumulation_quality': min(1.0, ad_result['accumulation_quality'] * 1.3),
-                'breakout_acceleration': 1.5 if is_limit_up else 1.2,
-                'false_distribution_reason': false_distribution_conditions,
-            })
-        return ad_result
+        except Exception: return ad_result
 
     def _calculate_ad_quality(self, ad_result: Dict[str, any],chip_matrix: np.ndarray,price_grid: np.ndarray,current_price: float) -> Dict[str, any]:
         """
