@@ -715,27 +715,25 @@ class AdvancedChipDynamicsService:
         QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {"v_chg": v_chg, "var": var}, {"rel_v_chg": rel_v_chg, "c_std": c_std}, metrics)
         return metrics
 
-    def _calculate_game_energy(self, percent_change_matrix: np.ndarray,price_grid: np.ndarray,current_price: float,price_history: pd.DataFrame,stock_code: str = "",trade_date: str = "") -> Dict[str, Any]:
-        """计算博弈能量场"""
-        # 提取成交量历史
-        volume_history = None
-        if not price_history.empty and 'vol' in price_history.columns:
-            volume_history = price_history['vol'].astype(float).fillna(0.0)
-        # 获取收盘价
-        close_price = 0
-        if not price_history.empty and 'close_qfq' in price_history.columns:
-            close_price = price_history['close_qfq'].iloc[-1]
-        # 计算能量场
-        energy_result = self.game_energy_calculator.calculate_game_energy(
-            percent_change_matrix,
-            price_grid,
-            current_price,
-            close_price,
-            volume_history,
-            stock_code,
-            trade_date
-        )
-        return energy_result
+    def _calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, volume_history: pd.Series, stock_code: str = "", trade_date: str = "") -> Dict[str, Any]: 
+        """[Version 25.0.1] 博弈能量場封裝算子 - 修復調用端參數不匹配 TypeError 版"""
+        try:
+            # 直接調用底層計算器，傳入已解構的價格與成交量序列
+            energy_result = self.game_energy_calculator.calculate_game_energy(
+                percent_change_matrix,
+                price_grid,
+                current_price,
+                close_price,
+                volume_history,
+                stock_code,
+                trade_date
+            )
+            return energy_result
+        except Exception as e:
+            # 捕獲計算異常，回退至默認能量場模型
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_game_energy_ERR", {"stock": stock_code, "date": trade_date}, {"error": str(e)}, {"status": "fallback"})
+            return self.game_energy_calculator._get_default_energy()
 
     def _calculate_main_force_activity(self, tick_data: pd.DataFrame, intraday_flow: Dict[str, float], abnormal_volume: Dict[str, float]) -> float:
         """[Version 19.0.0] 主力活跃度探测 - 时间序贯与量价共振版"""
