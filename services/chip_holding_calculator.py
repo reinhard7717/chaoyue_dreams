@@ -479,7 +479,7 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 37.0.0] 动力学浓度引擎 (引入MM饱和方程与非对称高位压制版)"""
+        """[Version 37.0.1] 動力學濃度引擎 - 修復 Telemetry 變量命名錯誤報錯版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
@@ -496,22 +496,19 @@ class AdvancedChipDynamicsService:
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.8
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.2
         m_range = max(h_high - h_low, eps)
-        # [MM饱和方程替代tanh]：K_m=0.15 代表当核心区间占据全幅15%时，浓度达到半饱和
         km_conc = 0.15
         s_ratio = max(c85 - c15, eps) / m_range
         metrics['chip_concentration_ratio'] = 1.0 - (s_ratio / (km_conc + s_ratio))
         metrics['chip_stability'] = 1.0 - (max(c95 - c05, eps) / (0.3 + max(c95 - c05, eps) / m_range))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         metrics['price_percentile_position'] = float(p_pos)
-        # [高位套牢敏感度]：使用Hill方程模拟高位风险爆发
         high_mark = h_high - m_range * 0.1
         h_lock_p = 1.0 / (1.0 + np.exp(-40.0 * (price_grid - high_mark) / m_range))
         metrics['high_position_lock_ratio_90'] = float(np.sum(p * h_lock_p))
         metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50))**2)))
-        # [探针输出]
         if not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"p_pos": p_pos, "s_ratio": s_ratio}, {"km_conc": km_conc, "high_mark": high_high}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"p_pos": p_pos, "s_ratio": s_ratio}, {"km_conc": km_conc, "high_mark": h_high}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
