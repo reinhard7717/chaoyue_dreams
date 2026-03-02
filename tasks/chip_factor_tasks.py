@@ -228,10 +228,8 @@ def calculate_chip_factors_batch(self, stock_codes: List[str], start_date: str, 
                     QuantitativeTelemetryProbe.emit("BatchWorker", "calc_chip_factors_batch_SKIP", {'stock': stock_code}, {'reason': 'Data already up to date'}, {'status': 'Skipped'})
                     results['success'] += 1
                     continue
-                    
                 from asgiref.sync import async_to_sync
                 result = async_to_sync(calculate_single_stock_chip_factors_async)(stock_code, actual_start_date_obj, end_date_obj)
-                
                 if result.get('status') == 'success': results['success'] += 1
                 else: results['failed'] += 1
             except Exception as e:
@@ -285,50 +283,39 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
             try:
                 if await sync_to_async(chip_factor_model.objects.filter(stock_id=stock_code, trade_time=current_date, calc_status='success').exists)(): 
                     continue
-                    
                 chip_perf = await sync_to_async(StockCyqPerf.objects.filter(stock_id=stock_code, trade_time=current_date).first)()
                 if not chip_perf: continue
-                
                 chips_data = await sync_to_async(list)(chips_model.objects.filter(stock_id=stock_code, trade_time=current_date).values('price', 'percent'))
                 if not chips_data: continue
                 chips_df = pd.DataFrame.from_records(chips_data).astype(np.float32)
-                
                 daily_kline = await sync_to_async(daily_data_model.objects.filter(stock_id=stock_code, trade_time=current_date).first)()
                 if not daily_kline: continue
-                
                 get_offset_func = sync_to_async(TradeCalendar.get_trade_date_offset, thread_sensitive=True)
                 prev_date = await get_offset_func(current_date, -1)
                 if prev_date:
                     prev_chips_data = await sync_to_async(list)(chips_model.objects.filter(stock_id=stock_code, trade_time=prev_date).values('price', 'percent'))
                     prev_chips_df = pd.DataFrame.from_records(prev_chips_data).astype(np.float32) if prev_chips_data else pd.DataFrame()
                 else: prev_chips_df = pd.DataFrame()
-                
                 safe_historical_df = historical_df.loc[:current_date]
                 historical_prices_series = safe_historical_df['close_qfq'] if 'close_qfq' in safe_historical_df.columns else pd.Series(dtype=np.float32)
-                
                 try:
                     start_date_hist = current_date - pd.Timedelta(days=5)
                     historical_factors = await sync_to_async(list)(
                         chip_factor_model.objects.filter(stock_id=stock_code, trade_time__gte=start_date_hist, trade_time__lt=current_date, calc_status='success').order_by('trade_time').values('chip_mean', 'chip_stability', 'chip_concentration_ratio')
                     )
                 except Exception: historical_factors = []
-                
                 current_turnover = 0.0
                 if not safe_historical_df.empty and current_date in safe_historical_df.index:
                     v = safe_historical_df.loc[current_date, 'turnover_rate']
                     current_turnover = float(v.iloc[0]) if isinstance(v, pd.Series) else float(v)
-                    
                 tick_data = None
                 try: tick_data = await realtime_dao.get_daily_real_ticks(stock_code, current_date)
                 except Exception: pass
-                
                 chip_perf_dict = {'weight_avg': chip_perf.weight_avg, 'his_high': chip_perf.his_high, 'his_low': chip_perf.his_low, 'cost_5pct': chip_perf.cost_5pct, 'cost_15pct': chip_perf.cost_15pct, 'cost_50pct': chip_perf.cost_50pct, 'cost_85pct': chip_perf.cost_85pct, 'cost_95pct': chip_perf.cost_95pct, 'winner_rate': chip_perf.winner_rate}
                 daily_kline_dict = {'close': daily_kline.close_qfq, 'open': daily_kline.open_qfq, 'high': daily_kline.high_qfq, 'low': daily_kline.low_qfq, 'vol': daily_kline.vol, 'amount': daily_kline.amount, 'pct_change': daily_kline.pct_change}
                 daily_basic_dict = {'turnover_rate': current_turnover}
-                
                 try: factors = ChipFactorCalculator.calculate_complete_factors_with_tick(chip_perf_data=chip_perf_dict, chip_dist_data=chips_df, daily_basic_data=daily_basic_dict, daily_kline_data=daily_kline_dict, prev_chip_dist_data=prev_chips_df, historical_prices=historical_prices_series, historical_chip_factors=historical_factors,tick_data=tick_data)
                 except Exception: factors = ChipFactorCalculator.calculate_complete_factors(chip_perf_data=chip_perf_dict, chip_dist_data=chips_df, daily_basic_data=daily_basic_dict, daily_kline_data=daily_kline_dict, prev_chip_dist_data=prev_chips_df, historical_prices=historical_prices_series, historical_chip_factors=historical_factors)
-                
                 try:
                     hm = await sync_to_async(HoldingMatrixModel.objects.filter(stock_id=stock_code,trade_time=current_date,calc_status='success').first)()
                     if hm:
@@ -345,7 +332,6 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         if factors.get('net_migration_direction') and abs(factors['net_migration_direction']) > 0.1: conf_score += min(1.0, abs(factors['net_migration_direction']) / 10.0); conf_count += 1
                         factors['behavior_confirmation'] = conf_score / conf_count if conf_count > 0 else 0.0
                 except Exception: pass
-                
                 clean_factors = {}
                 for k, v in factors.items():
                     if isinstance(v, (np.floating, float)): clean_factors[k] = 0.0 if math.isnan(float(v)) or math.isinf(float(v)) else float(v)
@@ -355,10 +341,8 @@ async def calculate_single_stock_chip_factors_async(stock_code: str, start_date:
                         
                 clean_factors['calc_status'] = 'success'
                 await save_chip_factors(chip_factor_model, stock, current_date, clean_factors)
-                
                 processed_dates += 1
                 saved_dates.append(current_date)
-                
                 del chips_df
                 if tick_data is not None: del tick_data
                 if date_index % 10 == 0: gc.collect()

@@ -2080,7 +2080,6 @@ class AdvancedFundFlowMetricsService:
                             z_score = total_score * np.sqrt(n-1)
                             # 使用t分布计算双侧p值（更保守的估计）
                             p_value = 2 * (1 - stats.t.cdf(abs(z_score), df=n-1))
-                            
                             # 7. 最终信号：只有当统计显著(p<0.1)且样本足够时，才认为有效
                             if p_value < 0.1 and n > 20:
                                 metrics['imbalance_effectiveness'] = total_score

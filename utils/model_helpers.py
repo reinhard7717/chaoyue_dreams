@@ -544,7 +544,6 @@ def get_fundflow_factors_batch(stock_codes: List[str], trade_date: date) -> Dict
         for factor in queryset:
             result[factor.stock.stock_code] = {
                 # 绝对量级指标
-                
                 'total_net_amount_5d': float(factor.total_net_amount_5d) if factor.total_net_amount_5d else None,
                 'total_net_amount_13d': float(factor.total_net_amount_13d) if factor.total_net_amount_13d else None,
                 'avg_daily_net_5d': float(factor.avg_daily_net_5d) if factor.avg_daily_net_5d else None,
