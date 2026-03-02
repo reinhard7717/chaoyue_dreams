@@ -534,71 +534,39 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """
-        [Version 18.0.0] 概率密度真实矩积分与调和浓度引擎 (极性纠偏与去无脑归一化版)
-        """
+        """[Version 37.0.0] 动力学浓度引擎 (引入MM饱和方程与非对称高位压制版)"""
         import numpy as np
         import math
-        import pandas as pd
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
-        metrics = {}
         eps = 1e-10
         p = current_chip_dist / (np.sum(current_chip_dist) + eps)
         chip_mean = float(np.sum(p * price_grid))
         variance = float(np.sum(p * (price_grid - chip_mean)**2))
         chip_std = float(np.sqrt(variance))
-        if chip_std > eps:
-            chip_skewness = float(np.sum(p * ((price_grid - chip_mean) / chip_std)**3))
-            chip_kurtosis = float(np.sum(p * ((price_grid - chip_mean) / chip_std)**4))
-        else: chip_skewness, chip_kurtosis = 0.0, 3.0
-            
-        metrics['chip_mean'] = chip_mean; metrics['weight_avg_cost'] = chip_mean; metrics['chip_std'] = chip_std; metrics['chip_skewness'] = chip_skewness; metrics['chip_kurtosis'] = chip_kurtosis
+        metrics = {'chip_mean': chip_mean, 'weight_avg_cost': chip_mean, 'chip_std': chip_std}
         cdf = np.cumsum(p)
-        cost_05 = float(np.interp(0.05, cdf, price_grid)); cost_15 = float(np.interp(0.15, cdf, price_grid))
-        cost_50 = float(np.interp(0.50, cdf, price_grid)); cost_85 = float(np.interp(0.85, cdf, price_grid))
-        cost_95 = float(np.interp(0.95, cdf, price_grid))
-        metrics['cost_5pct'] = cost_05; metrics['cost_15pct'] = cost_15; metrics['cost_50pct'] = cost_50; metrics['cost_85pct'] = cost_85; metrics['cost_95pct'] = cost_95
+        c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
+        metrics.update({'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95})
         metrics['winner_rate'] = float(np.interp(current_price, price_grid, cdf))
-        his_low = float(price_history['low_qfq'].min()) if price_history is not None and not price_history.empty and 'low_qfq' in price_history.columns else float(current_price * 0.8)
-        his_high = float(price_history['high_qfq'].max()) if price_history is not None and not price_history.empty and 'high_qfq' in price_history.columns else float(current_price * 1.2)
-        metrics['his_low'] = his_low; metrics['his_high'] = his_high
-        macro_range = max(his_high - his_low, eps); core_range = max(cost_85 - cost_15, eps); active_range = max(cost_95 - cost_05, eps)
-        # [极性纠正] 核心区越小，筹码越集中，呈负指数衰减逼近1.0
-        metrics['chip_concentration_ratio'] = float(math.exp(-2.0 * (core_range / macro_range)))
-        metrics['chip_stability'] = float(math.exp(-1.5 * (active_range / macro_range)))
-        # [摒弃 atan] 发散度本身就是区间比值，直接截断
-        metrics['chip_divergence_ratio'] = float(min(1.0, active_range / macro_range))
-        price_position = np.clip((current_price - his_low) / macro_range, 0.0, 1.0)
-        metrics['price_percentile_position'] = float(price_position)
-        copula_risk = price_position * (1.0 - metrics['winner_rate'])
-        metrics['win_rate_price_position'] = float(1.0 - math.sqrt(max(0.0, copula_risk))) 
-        # [摒弃 atan] 还原真实的百分比偏移度，硬约束在 ±1.0 (±100%)
-        raw_price_ratio = (current_price - chip_mean) / max(chip_mean, eps)
-        metrics['price_to_weight_avg_ratio'] = float(np.clip(raw_price_ratio, -1.0, 1.0))
-        # [消除断层] 修复高位套牢盘计算：定位真实的 his_high，用 Logistic 平滑映射
-        high_watermark = his_high - macro_range * 0.10
-        dist_to_high = (price_grid - high_watermark) / max(macro_range, eps)
-        high_lock_weights = 1.0 / (1.0 + np.exp(-30.0 * dist_to_high))
-        metrics['high_position_lock_ratio_90'] = float(np.sum(p * high_lock_weights))
-        # [消除断层] 主力成本区硬边界改用高斯平滑权重
-        dist_to_cost_50 = np.abs(price_grid - cost_50) / max(cost_50, eps)
-        main_cost_weights = np.exp(-0.5 * (dist_to_cost_50 / 0.05)**2)
-        metrics['main_cost_range_ratio'] = float(np.sum(p * main_cost_weights))
-        metrics['chip_convergence_ratio'] = metrics['main_cost_range_ratio']
-        smoothed_p = (p + 1e-5) / np.sum(p + 1e-5)
-        entropy_val = float(-np.sum(smoothed_p * np.log(smoothed_p)))
-        metrics['chip_entropy'] = float(entropy_val)
-        metrics['entropy_concentration'] = float(1.0 - (entropy_val / np.log(len(smoothed_p))))
-        sorted_p = np.sort(p)[::-1]
-        metrics['peak_concentration'] = float(np.sum(sorted_p[:max(1, int(len(p) * 0.2))]))
-        metrics['cv_concentration'] = float(math.exp(- (chip_std / max(chip_mean, eps)) * 2.0))
-        metrics['main_force_concentration'] = metrics['main_cost_range_ratio']
-        # 调和平均 (Harmonic Mean)：任何一项集中度拉垮，整体集中度直接暴跌，杜绝危机掩盖
-        indicators = [max(0.01, metrics['entropy_concentration']), max(0.01, metrics['peak_concentration']), max(0.01, metrics['cv_concentration']), max(0.01, metrics['main_cost_range_ratio'])]
-        metrics['comprehensive_concentration'] = float(len(indicators) / sum(1.0 / x for x in indicators))
+        h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.8
+        h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.2
+        m_range = max(h_high - h_low, eps)
+        # [MM饱和方程替代tanh]：K_m=0.15 代表当核心区间占据全幅15%时，浓度达到半饱和
+        km_conc = 0.15
+        s_ratio = max(c85 - c15, eps) / m_range
+        metrics['chip_concentration_ratio'] = 1.0 - (s_ratio / (km_conc + s_ratio))
+        metrics['chip_stability'] = 1.0 - (max(c95 - c05, eps) / (0.3 + max(c95 - c05, eps) / m_range))
+        p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
+        metrics['price_percentile_position'] = float(p_pos)
+        # [高位套牢敏感度]：使用Hill方程模拟高位风险爆发
+        high_mark = h_high - m_range * 0.1
+        h_lock_p = 1.0 / (1.0 + np.exp(-40.0 * (price_grid - high_mark) / m_range))
+        metrics['high_position_lock_ratio_90'] = float(np.sum(p * h_lock_p))
+        metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50))**2)))
+        # [探针输出]
         if not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {'current_price': float(current_price), 'macro_range': float(macro_range)}, {'true_skewness': metrics['chip_skewness'], 'true_kurtosis': metrics['chip_kurtosis'], 'lock_90': metrics['high_position_lock_ratio_90']}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"p_pos": p_pos, "s_ratio": s_ratio}, {"km_conc": km_conc, "high_mark": high_high}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -606,116 +574,70 @@ class AdvancedChipDynamicsService:
         return {'entropy_concentration': 0.5, 'peak_concentration': 0.3, 'cv_concentration': 0.5, 'main_force_concentration': 0.2, 'comprehensive_concentration': 0.4, 'chip_skewness': 0.0, 'chip_kurtosis': 0.0, 'chip_mean': 0.0, 'chip_std': 0.0, 'weight_avg_cost': 0.0, 'cost_5pct': 0.0, 'cost_15pct': 0.0, 'cost_50pct': 0.0, 'cost_85pct': 0.0, 'cost_95pct': 0.0, 'winner_rate': 0.0, 'win_rate_price_position': 0.0, 'price_to_weight_avg_ratio': 0.0, 'high_position_lock_ratio_90': 0.0, 'main_cost_range_ratio': 0.0, 'chip_convergence_ratio': 0.0, 'chip_divergence_ratio': 0.0, 'chip_entropy': 0.0, 'chip_concentration_ratio': 0.0, 'chip_stability': 0.0, 'price_percentile_position': 0.0, 'his_low': 0.0, 'his_high': 0.0}
 
     def _calculate_holding_metrics(self, turnover_rate: float, chip_stability: float) -> Dict[str, float]:
-        """
-        [Version 6.3.0] 持有期异质性反演器 (Tsallis q-Exponential 与 NaN 熔断版)
-        修改思路：根除 turnover_rate 传入 NaN 或 0 导致的静默级数据黑洞。采用 Tsallis 统计力学模型重构换手率衰减，真实映射A股市场“底部死筹”的厚尾分布。
-        """
+        """[Version 6.4.0] 筹码持有期反演引擎 (引入MM饱和衰减与死筹记忆版)"""
         import math
         metrics = {'short_term_chip_ratio': 0.2, 'mid_term_chip_ratio': 0.3, 'long_term_chip_ratio': 0.5, 'avg_holding_days': 60.0}
         try:
-            if math.isnan(turnover_rate) or math.isinf(turnover_rate) or turnover_rate <= 0:
-                return metrics
-            tr = float(turnover_rate) / 100.0
-            tr = max(0.0001, min(0.6, tr))
-            q = 1.5
-            p_not_trade_5 = (1.0 + (q - 1.0) * tr * 5.0) ** (-1.0 / (q - 1.0))
-            p_not_trade_60 = (1.0 + (q - 1.0) * tr * 60.0) ** (-1.0 / (q - 1.0))
-            safe_stability = 0.5 if (math.isnan(chip_stability) or math.isinf(chip_stability)) else chip_stability
-            metrics['short_term_chip_ratio'] = float((1.0 - p_not_trade_5) * 0.6 + (1.0 - safe_stability) * 0.4)
-            metrics['long_term_chip_ratio'] = float(p_not_trade_60 * 0.6 + safe_stability * 0.4)
-            metrics['mid_term_chip_ratio'] = float(max(0.0, 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']))
-            avg_days = 1.0 / (tr * (2.0 - q))
-            metrics['avg_holding_days'] = float(max(1.0, min(avg_days, 1500.0)))
+            # [防死锁：保底换手率]
+            tr = max(0.0001, 0.0 if math.isnan(turnover_rate) else float(turnover_rate) / 100.0)
+            # 使用MM方程模拟短期筹码爆发：换手率越高，短线占比饱和越快
+            # Km = 0.03 (3%换手率时，短线贡献达半饱和)
+            short_vol = tr / (0.03 + tr)
+            metrics['short_term_chip_ratio'] = float(short_vol * 0.7 + (1.0 - chip_stability) * 0.3)
+            # 长线筹码：受稳定性加持，且随换手率增加而对数衰减
+            long_base = 1.0 / (1.0 + math.log1p(tr * 10.0))
+            metrics['long_term_chip_ratio'] = float(long_base * 0.6 + chip_stability * 0.4)
+            # 归一化处理 (非单纯线性)
+            total = metrics['short_term_chip_ratio'] + metrics['long_term_chip_ratio']
+            if total > 0.95:
+                scale = 0.95 / total
+                metrics['short_term_chip_ratio'] *= scale
+                metrics['long_term_chip_ratio'] *= scale
+            metrics['mid_term_chip_ratio'] = 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']
+            metrics['avg_holding_days'] = float(max(1.0, 1.0 / (tr + 0.0005)))
             return metrics
-        except Exception:
-            return metrics
+        except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 24.0.0] 技术面共振引擎 (彻底融合 AD 孤岛与防死锁版)"""
+        """[Version 25.0.0] 博弈共振技术引擎 (流形概率融合与信号隔离消除版)"""
         import numpy as np
         import math
-        import pandas as pd
         from services.chip_holding_calculator import QuantitativeTelemetryProbe
         metrics = self._get_default_technical_metrics()
-        if price_history is None or price_history.empty or 'close_qfq' not in price_history.columns: return metrics
+        if price_history is None or price_history.empty: return metrics
         try:
-            clean_df = price_history.copy()
-            clean_df['close_qfq'] = pd.to_numeric(clean_df['close_qfq'], errors='coerce').ffill().fillna(current_price)
-            closes = clean_df['close_qfq'].to_numpy(dtype=np.float64)
-            if len(closes) == 0: return metrics
-            metrics['his_low'] = float(np.min(closes)); metrics['his_high'] = float(np.max(closes))
-            ma5 = float(np.mean(closes[-5:])) if len(closes) >= 5 else float(closes[-1])
-            ma21 = float(np.mean(closes[-21:])) if len(closes) >= 21 else float(closes[-1])
-            ma34 = float(np.mean(closes[-34:])) if len(closes) >= 34 else float(closes[-1])
-            ma55 = float(np.mean(closes[-55:])) if len(closes) >= 55 else float(closes[-1])
-            metrics['price_to_ma5_ratio'] = float((current_price - ma5) / (ma5 + 1e-8) * 100.0)
-            metrics['price_to_ma21_ratio'] = float((current_price - ma21) / (ma21 + 1e-8) * 100.0)
-            metrics['price_to_ma34_ratio'] = float((current_price - ma34) / (ma34 + 1e-8) * 100.0)
-            metrics['price_to_ma55_ratio'] = float((current_price - ma55) / (ma55 + 1e-8) * 100.0)
+            closes = price_history['close_qfq'].to_numpy(dtype=np.float64)
+            ma21 = float(np.mean(closes[-21:])) if len(closes) >= 21 else current_price
+            # [信号聚合]：提取三大核心动力学特征
+            e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
+            ad_ratio = float(ad_metrics.get('net_ad_ratio', 0.0))
+            t_flow = float(tick_factors.get('tick_level_chip_flow', 0.0)) if tick_factors else 0.0
+            t_quality = float(tick_factors.get('tick_data_quality_score', 0.0)) if tick_factors else 0.0
+            # [MM方程映射：能量动力学归一化] K=10.0
+            p_energy = e_flow / (10.0 + abs(e_flow))
+            p_ad = ad_ratio / (0.5 + abs(ad_ratio))
+            p_tick = (t_flow / (0.2 + abs(t_flow))) * t_quality
+            # [逻辑防死锁：Soft-OR 共振网]
+            # 计算正面共振强度 (Any signal can trigger, but combined is stronger)
+            pos_resonance = 1.0 - (1.0 - max(0, p_energy)) * (1.0 - max(0, p_ad)) * (1.0 - max(0, p_tick))
+            neg_resonance = 1.0 - (1.0 - abs(min(0, p_energy))) * (1.0 - abs(min(0, p_ad))) * (1.0 - abs(min(0, p_tick)))
+            # [冲突压制逻辑]
+            direction_conflict = (p_energy * p_ad < -0.01) or (p_energy * p_tick < -0.01)
+            conflict_penalty = 0.5 if direction_conflict else 1.0
+            # 趋势得分：结合均线排列
+            ma_status = 0
             if len(closes) >= 55:
-                p21 = np.clip((ma5 - ma21) / (ma21 + 1e-8) * 20.0, -1.0, 1.0)
-                p34 = np.clip((ma21 - ma34) / (ma34 + 1e-8) * 20.0, -1.0, 1.0)
-                p55 = np.clip((ma34 - ma55) / (ma55 + 1e-8) * 20.0, -1.0, 1.0)
-                align_score = 0.4 * p21 + 0.3 * p34 + 0.3 * p55
-                metrics['ma_arrangement_status'] = int(np.sign(align_score)) if abs(align_score) > 0.3 else 0
-            else: metrics['ma_arrangement_status'] = 0
-                
-            metrics['chip_cost_to_ma21_diff'] = float((chip_mean - ma21) / (ma21 + 1e-8) * 100.0)
-            log_returns = np.log(closes[1:] / (closes[:-1] + 1e-8))
-            volatility = float(np.std(log_returns[-20:])) if len(log_returns) >= 20 else 0.02
-            if math.isnan(volatility) or math.isinf(volatility): volatility = 0.02
-            metrics['volatility_adjusted_concentration'] = float(current_concentration * math.exp(-volatility * 15.0))
-            net_energy = float(energy_metrics.get('net_energy_flow', 0.0))
-            # 【打通孤岛】直接调取 Direct Accumulation Distribution 数据参与共振
-            net_ad_ratio = float(ad_metrics.get('net_ad_ratio', 0.0))
-            ad_quality = float(ad_metrics.get('accumulation_quality', 0.5)) if net_ad_ratio > 0 else float(ad_metrics.get('distribution_quality', 0.5))
-            if len(closes) >= 15:
-                diffs = np.diff(closes[-15:])
-                gains = np.where(diffs > 0, diffs, 0.0); losses = np.where(diffs < 0, -diffs, 0.0)
-                mean_loss = float(np.mean(losses))
-                rs = float(np.mean(gains)) / (mean_loss + 1e-8) if mean_loss > 1e-8 else 100.0
-                rsi_norm = float((100.0 - (100.0 / (1.0 + rs))) / 100.0)
-                energy_norm = float(0.5 + 0.5 * (net_energy / (abs(net_energy) + 10.0)))
-                metrics['chip_rsi_divergence'] = float(energy_norm - rsi_norm)
-                
-            if 'turnover_rate' in clean_df.columns:
-                trn = pd.to_numeric(clean_df['turnover_rate'], errors='coerce').ffill()
-                if not trn.dropna().empty: metrics['turnover_rate'] = float(trn.dropna().iloc[-1])
-            if 'volume_ratio' in clean_df.columns:
-                vr = pd.to_numeric(clean_df['volume_ratio'], errors='coerce').ffill()
-                if not vr.dropna().empty: metrics['volume_ratio'] = float(vr.dropna().iloc[-1])
-                
-            if chip_matrix.shape[0] >= 6:
-                morph_5d = self._identify_peak_morphology(chip_matrix[-6], price_grid, is_history=True)
-                metrics['peak_migration_speed_5d'] = float((morph_metrics.get('main_peak_price', current_price) - morph_5d.get('main_peak_price', current_price)) / (current_price + 1e-8) * 100.0)
-                conc_5d = self._calculate_concentration_metrics(chip_matrix[-6], price_grid, float(clean_df['close_qfq'].iloc[-6]) if len(clean_df) >= 6 else current_price, pd.DataFrame(), is_history=True)
-                metrics['chip_stability_change_5d'] = float(current_concentration - conc_5d.get('chip_stability', 0.5))
-                
-            his_range = max(metrics['his_high'] - metrics['his_low'], 1e-5)
-            active_range = max(conc_metrics.get('cost_95pct', current_price*1.1) - conc_metrics.get('cost_5pct', current_price*0.9), 1e-5)
-            metrics['chip_divergence_ratio'] = float(min(1.0, active_range / his_range))
-            metrics['chip_convergence_ratio'] = float(1.0 - metrics['chip_divergence_ratio'])
-            # AD 强引力合体
-            trend_score = 0.5 + (0.15 * metrics['ma_arrangement_status']) + (0.15 * (net_energy / (abs(net_energy) + 10.0))) + (0.1 * net_ad_ratio * ad_quality)
-            tick_quality = float(tick_factors.get('tick_data_quality_score', 0.0)) if tick_factors else 0.0
-            if tick_quality > 0.3: 
-                t_flow = float(tick_factors.get('tick_level_chip_flow', 0.0))
-                tick_main_force = float(tick_factors.get('intraday_main_force_activity', 0.0))
-                trend_score += float((t_flow / (abs(t_flow) + 0.5)) * 0.05) + (tick_main_force * 0.05)
-            metrics['trend_confirmation_score'] = float(np.clip(trend_score, 0.0, 1.0))
-            # [核心重构：彻底消灭0乘法死锁]：采用 Soft-OR 联合防线，任何一个恶化立刻拉响防空警报
-            overbought_risk = float(np.clip((metrics['price_to_ma5_ratio'] - 3.0) / 10.0, 0.0, 1.0))
-            dynamic_vol_bench = max(5.0, abs(net_energy) * 0.5)
-            energy_danger = float(np.clip(-net_energy / dynamic_vol_bench, 0.0, 1.0))
-            top_position_risk = float(conc_metrics.get('price_percentile_position', 0.5) ** 2)
-            distrib_danger = float(max(0.0, -net_ad_ratio) * ad_quality)
-            reversal = float(1.0 - (1.0 - overbought_risk) * (1.0 - energy_danger) * (1.0 - top_position_risk * 0.5) * (1.0 - distrib_danger * 0.8))
-            if tick_quality > 0.3:
-                abnormal_vol = float(tick_factors.get('tick_abnormal_volume_ratio', 0.0))
-                if abnormal_vol > 0.2: reversal = float(1.0 - (1.0 - reversal) * (1.0 - min(1.0, abnormal_vol * 0.5)))
-                
-            metrics['reversal_warning_score'] = float(np.clip(reversal, 0.0, 1.0))
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {'ma5': ma5, 'net_energy': net_energy}, {'volatility': volatility, 'overbought_risk': overbought_risk, 'energy_danger': energy_danger}, {'status': 'success', 'chip_rsi_divergence': metrics['chip_rsi_divergence'], 'reversal_warning_score': metrics['reversal_warning_score']})
+                ma5, ma21, ma34, ma55 = [np.mean(closes[-n:]) for n in [5, 21, 34, 55]]
+                if ma5 > ma21 > ma34 > ma55: ma_status = 1
+                elif ma5 < ma21 < ma34 < ma55: ma_status = -1
+            trend_score = 0.5 + (0.3 * (pos_resonance - neg_resonance)) + (0.2 * ma_status)
+            metrics['trend_confirmation_score'] = float(np.clip(trend_score * conflict_penalty, 0.0, 1.0))
+            # 反转得分：MM方程模拟超买饱和
+            price_to_ma5 = (current_price - np.mean(closes[-5:])) / np.mean(closes[-5:])
+            overbought = price_to_ma5 / (0.1 + abs(price_to_ma5)) # 10%偏离即达半饱和
+            metrics['reversal_warning_score'] = float(np.clip(overbought * 0.5 + neg_resonance * 0.5, 0.0, 1.0))
+            # [全链路探针]
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics", {"e_flow": e_flow, "ad_ratio": ad_ratio, "t_flow": t_flow}, {"pos_res": pos_resonance, "neg_res": neg_resonance, "conflict": direction_conflict}, metrics)
             return metrics
         except Exception: return metrics
 
