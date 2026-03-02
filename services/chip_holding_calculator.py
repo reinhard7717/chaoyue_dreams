@@ -473,45 +473,46 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 38.9.0] 邏輯疊加態濃度引擎 - 強化「深谷吸籌」場景下的籌碼張力與物理量完整性版"""
+        """[Version 39.0.0] 邏輯疊加態濃度引擎 - 強化底部張力與場景自適應修正版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         eps = 1e-10
         p = current_chip_dist / (np.sum(current_chip_dist) + eps)
         cdf = np.cumsum(p)
-        # 🧪 [步驟 4] 基礎物理層：產出全量分位點價格坐標
+        # 🧪 [步驟 4] 基礎物理層：產出全量指標，確保數據庫結構對齊
         c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.9
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.1
         m_range = max(h_high - h_low, eps)
         core_range = max(c85 - c15, eps)
         total_range = max(c95 - c05, eps)
-        # 基礎指標計算
         conc_ratio = math.exp(-2.0 * (core_range / m_range))
         winner_rate = float(np.interp(current_price, price_grid, cdf))
-        # 🧪 [步驟 4] 場景修正層：針對鹽湖 000737 「深谷吸籌」場景 (Winner < 0.2)
-        # 疊加「剛性係數」，在此場景下穩定度衰減應受限，反映主力的被動鎖倉行為
-        is_deep_valley = winner_rate < 0.2
-        lambda_adj = 1.8 * (0.6 if is_deep_valley else 1.0)
+        p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
+        # 🧪 [步驟 4] 場景修正層：疊加邏輯而不替代。針對 000669 這種谷底低價股
+        # 疊加「泥潭粘滯係數」，降低極低位時穩定度的衰減速率
+        lambda_dyn = 1.8
+        is_valley = winner_rate < 0.15 and p_pos < 0.2
+        if is_valley: lambda_dyn = 1.8 * 0.5 # 深谷場景：穩定度衰減減半
+        elif current_price < 5.0: lambda_dyn = 1.2 # 低價股場景：常規修正
         metrics = {
             'chip_mean': float(np.sum(p * price_grid)),
             'chip_concentration_ratio': float(conc_ratio),
-            'chip_stability': float(math.exp(-lambda_adj * (total_range / m_range))),
+            'chip_stability': float(math.exp(-lambda_dyn * (total_range / (m_range + eps)))),
             'winner_rate': winner_rate,
-            'price_percentile_position': float(np.clip((current_price - h_low) / m_range, 0.0, 1.0)),
+            'price_percentile_position': float(p_pos),
             'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95
         }
-        # 🧪 [步驟 2 & 4] 邏輯守恆：完整恢復主成本區間佔比計算
+        # 🧪 [步驟 2 & 4] 恢復主成本區比例：不論何種場景均需產出
         metrics['main_cost_range_ratio'] = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        # 🧪 [步驟 8] 二階探針：籌碼表面張力模型 (Surface Tension)
-        # 反映籌碼在低位的「抓地力」，抓地力越強，跌勢越容易止住
-        metrics['chip_surface_tension'] = float(metrics['chip_concentration_ratio'] * (1.0 / (0.1 + metrics['price_percentile_position'])))
+        # 🧪 [步驟 8] 疊加二階探針：底部張力模型
+        metrics['chip_surface_tension'] = float(metrics['chip_concentration_ratio'] / (0.1 + p_pos))
         if not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            # 📡 [步驟 10] 全鏈路探針輸出：物理量 -> 場景項 -> 修正分
+            # 📡 [步驟 10] 全鏈路探針：物理量 -> 場景項 -> 修正分
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
-                {"price": current_price, "is_valley": is_deep_valley}, 
+                {"price": current_price, "is_valley": is_valley}, 
                 {"main_cost": metrics['main_cost_range_ratio'], "tension": metrics['chip_surface_tension']}, metrics)
         return metrics
 
@@ -545,7 +546,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 27.2.0] 博弈共振引擎 - 引入同步熵 (Sync-Entropy) 與多維極性背離懲罰版"""
+        """[Version 27.3.0] 博弈共振引擎 - 實施「極性背離」與「底部張力」邏輯疊加版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -553,27 +554,27 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
+            tension = float(conc_metrics.get('chip_surface_tension', 0.0))
+            # 🧪 [步驟 9] 消除信息孤島：建立 EMS 同步校驗矩陣
+            # 檢測資金流入(+)與重心下移(-)的背離係數
+            is_exhaustion_bottom = (e_flow > 1.0) and (mig_dir < -0.1) and (tension > 1.5)
+            # 🧪 [步驟 7] 負反饋係數疊加：背離時實施得分抑制
+            # 針對 000669 12月19日：若能量正但重心下移，趨勢得分需受限
+            conflict_index = abs(e_flow / (abs(e_flow) + 1.0) - mig_dir)
+            divergence_penalty = math.exp(-conflict_index * 1.5) if conflict_index > 0.5 else 1.0
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            # 🧪 [步驟 9] 建立多維校驗矩陣：消除信息孤島
-            # 檢測能量流與遷移極性的背離係數 (Divergence Index)
-            # 若能量強流入(+)但重心強下移(-)，D_index 將趨向於 -1
-            divergence_index = math.tanh(e_flow * mig_dir * 3.0)
-            # 🧪 [步驟 9] 邏輯合攏：計算同步熵 (Sync-Entropy)
-            # 衡量市場博弈的「無序度」。高背離 + 低集中度 = 高熵 (危險)
-            sync_entropy = abs(divergence_index) * (1.0 - current_concentration)
-            # 🧪 [步驟 7] 負反饋係數疊加：若極性相反且熵值過高，實施趨勢得分熔斷
-            is_polarity_conflict = (e_flow > 0.5 and mig_dir < -0.1)
-            conflict_penalty = math.exp(-sync_entropy * 4.0) if is_polarity_conflict else 1.0
-            # 趨勢得分：疊加態架構 (Base * Conflict_Penalty * Quality)
+            # 最終趨勢得分：疊加態架構 (Base * Penalty * Tension_Support)
             trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * conflict_penalty * sig_q, 0.0, 1.0))
-            metrics['sync_entropy_index'] = float(sync_entropy)
-            metrics['polarity_divergence_coefficient'] = float(divergence_index)
-            # 📡 [步驟 10] 全鏈路探針
+            # 底部張力加成：若張力極大，即使背離也賦予一定的「相變置信度」
+            support_bonus = 1.0 + (min(0.2, tension * 0.05) if is_exhaustion_bottom else 0.0)
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * divergence_penalty * support_bonus * sig_q, 0.0, 1.0))
+            metrics['exhaustion_bottom_flag'] = float(1.0 if is_exhaustion_bottom else 0.0)
+            metrics['divergence_conflict_penalty'] = float(divergence_penalty)
+            # 📡 [步驟 10]
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_SYNC", 
-                {"e_flow": e_flow, "mig_dir": mig_dir}, 
-                {"sync_entropy": sync_entropy, "penalty": conflict_penalty}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_STACK", 
+                {"is_exh": is_exhaustion_bottom, "conflict": conflict_index}, 
+                {"penalty": divergence_penalty, "bonus": support_bonus}, metrics)
             return metrics
         except Exception: return metrics
 
