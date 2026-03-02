@@ -501,7 +501,7 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False, energy_metrics: Dict = None) -> Dict[str, float]:
-        """[Version 39.5.0] 高海拔自適應捲積引擎 - 引入海拔脆性修正與邏輯疊加態強化版"""
+        """[Version 39.6.0] 疊加態濃度引擎 - 引入空中斷層修正 (m_fracture) 與物理量守恆版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
@@ -518,32 +518,30 @@ class AdvancedChipDynamicsService:
         winner_rate = float(np.interp(current_price, price_grid, cdf))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        # 🧪 [步驟 4 & 5] 捲積修正層：增加「海拔因子」
-        lambda_base = 1.8
+        # 🧪 [步驟 4] 捲積修正層：疊加態 Modifiers
+        lambda_final = 1.8
         m_lp = 0.66 if current_price < 5.0 else 1.0
         m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.2) else 1.0
         m_spring = 0.75 if (main_cost_ratio > 0.7 and conc_ratio > 0.4) else 1.0
-        # 🧪 [步驟 4] 海拔修正子：針對 001359 (P > 50) 疊加脆性
-        m_altitude = 1.35 if current_price > 50.0 else 1.0
-        # 最終 λ 捲積：基礎 * 低價 * 深谷 * 內聚 * 海拔
-        lambda_final = lambda_base * m_lp * m_valley * m_spring * m_altitude
-        lambda_final = max(0.3, min(2.5, lambda_final))
+        # 🧪 [步驟 4 & 8] 空中斷層修正子 (Fracture Modifier)：針對 000833
+        # 特徵：價格在中位以上 (p_pos > 0.3) 且獲利盤極低 (< 0.1)
+        is_fracture = (p_pos > 0.3 and winner_rate < 0.1)
+        m_fracture = 1.6 if is_fracture else 1.0 # 斷層導致穩定度快速瓦解
+        lambda_final = lambda_final * m_lp * m_valley * m_spring * m_fracture
+        lambda_final = max(0.3, min(3.0, lambda_final))
         metrics = {
-            'chip_mean': float(np.sum(p * price_grid)),
-            'chip_concentration_ratio': float(conc_ratio),
-            'chip_stability': float(math.exp(-lambda_final * (total_range / (m_range + eps)))),
-            'winner_rate': winner_rate,
-            'price_percentile_position': float(p_pos),
-            'main_cost_range_ratio': main_cost_ratio,
+            'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio),
+            'chip_stability': float(math.exp(-lambda_final * (total_range / m_range))),
+            'winner_rate': winner_rate, 'price_percentile_position': float(p_pos),
+            'main_cost_range_ratio': main_cost_ratio, 'fracture_risk_flag': float(1.0 if is_fracture else 0.0),
             'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95
         }
         metrics['chip_surface_tension'] = float(metrics['chip_concentration_ratio'] / (0.1 + p_pos))
         if probe_state.get():
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            # 📡 [步驟 10] 強制輸出海拔修正係數
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
-                {"price": current_price, "m_altitude": m_altitude}, 
-                {"m_spring": m_spring, "lambda_final": lambda_final}, metrics)
+                {"price": current_price, "is_fracture": is_fracture}, 
+                {"m_frac": m_fracture, "lambda": lambda_final, "main_cost": main_cost_ratio}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -576,37 +574,33 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 28.0.0] 博弈共振引擎 - 實施高位脆性熔斷與核心熵增校準疊加態版"""
+        """[Version 28.1.0] 博弈共振引擎 - 實施「空中斷層熔斷」與「多維捲積合攏」版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
+            # 🧪 [步驟 9] 向下滲透：獲取全層級捲積指標
+            conv_m = self._calculate_convergence_metrics(chip_matrix, np.diff(chip_matrix, axis=0), price_grid, energy_metrics)
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
-            mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            is_brittle = float(conc_metrics.get('brittleness_flag', 0.0))
-            # 1. 基礎捲積層
+            is_fracture = float(conc_metrics.get('fracture_risk_flag', 0.0))
+            m_dispersion = float(conv_m.get('dispersion_heat_modifier', 1.0))
+            # 1. 基礎得分層
             trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.35)
-            # 🧪 [步驟 9] 消除信息孤島：核心熵增修正 (Core Entropy Increase)
-            # 當主成本佔比極高但能量流向相反，系統處於「不穩定熱運動」
-            main_cost = float(conc_metrics.get('main_cost_range_ratio', 0.5))
-            core_entropy_factor = math.exp(-abs(e_flow) * 0.2) if (main_cost > 0.8 and e_flow < 0) else 1.0
-            # 🧪 [步驟 7] 高位背離硬熔斷：針對盛視科技 12月1日極端背離
-            # 若高價、高獲利、高背離，實施 90% 得分壓制
-            modifier_high_risk = 0.1 if (current_price > 35.0 and is_brittle > 0.5) else 1.0
-            # 🧪 [步驟 5] 質量捲積
+            # 🧪 [步驟 7] 空中斷層熔斷：針對 000833
+            # 若結構斷裂且發散熱高，趨勢分強制歸零
+            modifier_fracture = 0.05 if (is_fracture > 0.5 and m_dispersion < 0.8) else 1.0
+            # 🧪 [步驟 5] 捲積其餘因子 (質量、ETC)
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
             modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.12)))
-            # 3. 最終決策捲積 (疊加態合攏)
-            # 趨勢分 = 基礎 * 核心熵修正 * 高位風險熔斷 * 質量門檻
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * core_entropy_factor * modifier_high_risk * modifier_quality, 0.0, 1.0))
-            metrics['core_entropy_modifier'] = float(core_entropy_factor)
-            metrics['high_altitude_risk_flag'] = is_brittle
+            # 最終得分：全鏈路疊加態捲積
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_fracture * m_dispersion * modifier_quality, 0.0, 1.0))
+            metrics['fracture_breaker_active'] = is_fracture
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"e_flow": e_flow, "main_cost": main_cost}, 
-                    {"m_entropy": core_entropy_factor, "m_risk": modifier_high_risk, "final": metrics['trend_confirmation_score']}, metrics)
+                    {"e_flow": e_flow, "m_frac": modifier_fracture}, 
+                    {"m_disp": m_dispersion, "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
@@ -744,8 +738,8 @@ class AdvancedChipDynamicsService:
         """[Version 18.0.0] 默认迁移模式"""
         return {'upward_migration': {'strength': 0.0, 'volume': 0.0}, 'downward_migration': {'strength': 0.0, 'volume': 0.0}, 'convergence_migration': {'strength': 0.0, 'areas': []}, 'divergence_migration': {'strength': 0.0, 'areas': []}, 'net_migration_direction': 0.0, 'chip_flow_direction': 0, 'chip_flow_intensity': 0.0}
 
-    def _calculate_convergence_metrics(self, chip_matrix: np.ndarray, percent_change_matrix: np.ndarray, price_grid: np.ndarray) -> Dict[str, float]:
-        """[Version 62.0.0] 筹码聚散度分析算子 (基于MM方程的二阶矩坍缩模型版)"""
+    def _calculate_convergence_metrics(self, chip_matrix: np.ndarray, percent_change_matrix: np.ndarray, price_grid: np.ndarray, energy_metrics: Dict = None) -> Dict[str, float]:
+        """[Version 62.2.0] 聚散度分析引擎 - 實施「熵流捲積」與「發散熱」疊加態版"""
         import numpy as np
         import math
         if chip_matrix.shape[0] < 2 or len(percent_change_matrix) == 0: return self._get_default_convergence_metrics()
@@ -753,23 +747,33 @@ class AdvancedChipDynamicsService:
         cur_chip = (chip_matrix[-1] / (np.sum(chip_matrix[-1]) + eps)).astype(np.float32)
         p_center = float(np.dot(price_grid, cur_chip))
         s_ent, s_cnt, d_ent, d_cnt, t_chg, w_chg, v_chg = _numba_calc_convergence_core(cur_chip, (percent_change_matrix[-1]/100.0).astype(np.float32), price_grid.astype(np.float32), float(p_center))
-        metrics = {'static_convergence': float(1.0 - (s_ent / np.log(s_cnt))) if s_cnt > 1 else 1.0}
-        metrics['dynamic_convergence'] = float(1.0 - (d_ent / np.log(d_cnt))) if d_cnt > 1 else 1.0
+        # 1. 基礎物理層
+        static_conv = float(1.0 - (s_ent / np.log(s_cnt))) if s_cnt > 1 else 1.0
+        dynamic_conv = float(1.0 - (d_ent / np.log(d_cnt))) if d_cnt > 1 else 1.0
         var = float(np.sum(cur_chip * (price_grid - p_center)**2))
         c_std = np.sqrt(var) + eps
-        # [MM方程替代tanh]：K=1.0。当权重迁移距离等于一倍标准差时，收敛度下降到0.5
-        metrics['migration_convergence'] = float(1.0 / (1.0 + abs(w_chg / c_std)))
-        metrics['comprehensive_convergence'] = float(0.4 * metrics['static_convergence'] + 0.3 * metrics['dynamic_convergence'] + 0.3 * metrics['migration_convergence'])
-        # 收敛强度逻辑重构：基于方差变动率
+        # 🧪 [步驟 4 & 9] 疊加態修正層：發散熱子 (Dispersion Modifier)
+        e_flow = float(energy_metrics.get('net_energy_flow', 0.0)) if energy_metrics else 0.0
         rel_v_chg = v_chg / (var + eps)
+        # 若籌碼發散(rel_v_chg > 0)且能量強流出，疊加「無序熵」
+        m_dispersion = math.exp(-rel_v_chg * 2.0) if (rel_v_chg > 0 and e_flow < -0.5) else 1.0
+        metrics = {
+            'static_convergence': static_conv, 'dynamic_convergence': dynamic_conv,
+            'migration_convergence': float(1.0 / (1.0 + abs(w_chg / c_std))),
+            'dispersion_heat_modifier': m_dispersion
+        }
+        # 🧪 [步驟 9] 捲積合攏
+        metrics['comprehensive_convergence'] = float((0.4*static_conv + 0.3*dynamic_conv + 0.3*metrics['migration_convergence']) * m_dispersion)
         if rel_v_chg < 0:
-            metrics['convergence_strength'] = float(abs(rel_v_chg) / (0.05 + abs(rel_v_chg))) # 5%的缩减即达半饱和
+            metrics['convergence_strength'] = float(abs(rel_v_chg) / (0.05 + abs(rel_v_chg)))
             metrics['divergence_strength'] = 0.0
         else:
             metrics['convergence_strength'] = 0.0
             metrics['divergence_strength'] = float(rel_v_chg / (0.05 + rel_v_chg))
-        # [探针输出]
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics", {"v_chg": v_chg, "var": var}, {"rel_v_chg": rel_v_chg, "c_std": c_std}, metrics)
+        if probe_state.get():
+            from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics_STACK", 
+                {"v_chg": v_chg, "e_flow": e_flow}, {"m_disp": m_dispersion, "rel_v": rel_v_chg}, metrics)
         return metrics
 
     def _calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, volume_history: pd.Series, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> Dict[str, Any]: 
