@@ -471,7 +471,7 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
-        """[Version 38.2.0] 低價彈性補償版濃度引擎 - 修復低價股穩定度死鎖問題"""
+        """[Version 38.3.0] 低價股張力補償版濃度引擎 - 修復獲利盤穿透與穩定度失靈邏輯"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
@@ -482,26 +482,30 @@ class AdvancedChipDynamicsService:
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.9
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.1
         m_range = max(h_high - h_low, eps)
+        # 🧪 [步驟 4 & 5] 低價股對數補償：針對 $P < 5$ 的標的，使用 log 空間計算波幅比
+        if current_price < 5:
+            m_ratio_adj = math.log1p(m_range) / math.log1p(current_price * 0.2)
+        else:
+            m_ratio_adj = m_range / current_price
         core_range = max(c85 - c15, eps)
         total_range = max(c95 - c05, eps)
-        # 🧪 [優化] 低價股彈性係數：價格越低，對波幅比的敏感度越鈍化，防止指標歸零
-        elasticity = 1.0 + max(0, (10.0 - current_price) / 10.0) if current_price < 10 else 1.0
-        lambda_stability = 1.8 / elasticity
+        # 指標輸出：引入動態 λ 調節
+        lambda_stability = 1.2 if current_price < 5 else 1.8
         metrics = {
             'chip_mean': float(np.sum(p * price_grid)),
             'chip_concentration_ratio': float(math.exp(-2.0 * (core_range / m_range))),
-            'chip_stability': float(math.exp(-lambda_stability * (total_range / m_range))),
+            'chip_stability': float(math.exp(-lambda_stability * (total_range / (m_range + current_price * 0.01)))),
             'winner_rate': float(np.interp(current_price, price_grid, cdf)),
             'price_percentile_position': float(np.clip((current_price - h_low) / m_range, 0.0, 1.0))
         }
-        high_mark = h_high - m_range * 0.1
-        h_lock_p = 1.0 / (1.0 + np.exp(-40.0 * (price_grid - high_mark) / m_range))
-        metrics['high_position_lock_ratio_90'] = float(np.sum(p * h_lock_p))
+        # 🧪 [步驟 8] 籌碼張力模型：在高獲利盤下計算「分布坍縮風險」
+        tension = metrics['winner_rate'] * (1.0 - metrics['chip_concentration_ratio'])
+        metrics['distribution_collapse_risk'] = float(tension if metrics['winner_rate'] > 0.8 else 0.0)
         if not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
-                {"price": current_price, "elasticity": elasticity}, 
-                {"raw_stability": float(total_range/m_range)}, metrics)
+                {"price": current_price, "winner": metrics['winner_rate']}, 
+                {"m_ratio_adj": m_ratio_adj, "collapse_risk": metrics['distribution_collapse_risk']}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -534,7 +538,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 26.5.0] 博弈共振引擎 - 引入場景拆解與漂移效率校準邏輯"""
+        """[Version 26.6.0] 博弈共振引擎 - 引入高位派發 climax 與張力崩塌預警"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -542,33 +546,27 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            pressure = float(conc_metrics.get('comprehensive_pressure', 0.5))
-            # 🧪 [步驟 4 & 8] 漂移效率模型：衡量能量流轉化為重心遷移的能力
-            # Drift Efficiency = (Migration / Energy) * Correlation_Sign
-            energy_norm = e_flow / (abs(e_flow) + 1.0)
-            drift_efficiency = (mig_dir * energy_norm) / (energy_norm**2 + 0.1)
-            # 🧪 [步驟 4] 場景拆解：泥潭模式 (Mud Pit Mode)
-            # 特徵：高壓力、有流入、無遷移
-            is_mud_pit = (pressure > 0.8) and (e_flow > 0) and (mig_dir < 0)
-            damping_factor = 0.4 if is_mud_pit else 1.0
-            # 🧪 [步驟 5] 非線性歸一化：信號質量極化處理 (Power Law)
+            winner_rate = float(conc_metrics.get('winner_rate', 0.5))
+            dist_str = float(ad_metrics.get('dist_str', 0.0))
+            # 🧪 [步驟 9] 消除信息孤島：判定 Climax Distribution (派發頂點)
+            # 特徵：極高獲利盤 + 正向遷移趨緩 + 負向能量流 + 強力派發行為
+            is_dist_climax = (winner_rate > 0.9) and (e_flow < 0) and (dist_str > 0.3)
+            climax_penalty = 0.2 if is_dist_climax else 1.0
+            # 🧪 [步驟 8] 引入籌碼張力崩塌修正
+            collapse_risk = float(conc_metrics.get('distribution_collapse_risk', 0.0))
+            tension_factor = math.exp(-collapse_risk * 2.0)
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            refined_sig_q = math.pow(sig_q, 0.7) # 提升低質量區間的感知力
-            # 🧪 [步驟 9] 消除信息孤島：解套坍縮率
-            # 當收斂強度高且處於高壓區，預示著一次劇烈的解套拋壓釋放
-            conv_str = float(conc_metrics.get('convergence_strength', 0.0))
-            trap_collapse_risk = conv_str * pressure
-            # 最終得分計算
-            resonance = math.tanh(e_flow * mig_dir * 5.0)
-            metrics['trend_confirmation_score'] = float(np.clip((0.5 + 0.5 * resonance) * refined_sig_q * damping_factor, 0.0, 1.0))
-            metrics['drift_efficiency_index'] = float(drift_efficiency)
-            metrics['mud_pit_status_flag'] = float(1.0 if is_mud_pit else 0.0)
-            metrics['trap_collapse_risk_score'] = float(trap_collapse_risk)
-            # 📡 [步驟 10] 探針輸出全鏈路
+            # 趨勢得分：受 Climax 懲罰與張力修正
+            trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.8)
+            resonance = math.tanh(e_flow * mig_dir * 10.0)
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * (0.6 + 0.4 * resonance) * sig_q * climax_penalty * tension_factor, 0.0, 1.0))
+            metrics['distribution_climax_flag'] = float(1.0 if is_dist_climax else 0.0)
+            metrics['chip_tension_factor'] = float(tension_factor)
+            # 📡 [步驟 10] 專業探針輸出
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FP", 
-                {"is_mud": is_mud_pit, "drift": drift_efficiency}, 
-                {"damping": damping_factor, "polar_q": refined_sig_q}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_CLIMAX", 
+                {"is_climax": is_dist_climax, "winner": winner_rate}, 
+                {"tension_factor": tension_factor, "trend_raw": trend_base}, metrics)
             return metrics
         except Exception: return metrics
 
