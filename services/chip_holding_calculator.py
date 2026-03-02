@@ -451,31 +451,23 @@ class AdvancedChipDynamicsService:
         return change_matrix
 
     def _analyze_absolute_changes(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float) -> Dict[str, any]:
-        """[Version 25.0.0] 增强型绝对变化扫描器 (引入低价股价格档位敏感度自适应版)"""
+        """[Version 25.1.0] 絕對變化掃描器 - 引入 Sigmoid 質量過濾與湍流預警版"""
         import numpy as np
         import math
         if percent_change_matrix.shape[0] == 0: return self._get_default_absolute_signals()
         recent_chg = percent_change_matrix[-min(3, len(percent_change_matrix)):, :]
         avg_chgs = np.mean(recent_chg, axis=0).astype(np.float32)
-        abs_chgs = np.abs(avg_chgs)
-        total_e = float(np.sum(abs_chgs))
-        # [价格档位敏感度修正]：低价股(Price<10)由于每分钱占比大，需调高能量判定基准
+        total_e = float(np.sum(np.abs(avg_chgs)))
         price_sens = 1.0 + max(0, (10.0 - current_price) / 10.0)
-        # [Hill方程信号质量评估] n=2, K=5.0*price_sens
-        km_q = 5.0 * price_sens
-        sig_q = float((total_e**2) / (km_q**2 + total_e**2))
-        noise_r = float(1.0 - sig_q)
-        # 动态阈值：能量极低时设置物理保底阈值
-        dyn_th = np.float32(max(0.3 * price_sens, total_e * 0.12))
-        k_th = 12.0 / max(dyn_th, 1e-5)
-        inc_p, dec_p = 1.0 / (1.0 + np.exp(-k_th * (avg_chgs - dyn_th))), 1.0 / (1.0 + np.exp(k_th * (avg_chgs + dyn_th)))
-        signals = {'significant_increase_areas': [], 'significant_decrease_areas': [], 'noise_level': noise_r, 'signal_quality': sig_q}
-        p_rel = (np.abs(price_grid - current_price) / max(current_price, 1e-5)).astype(np.float32)
+        # 🧪 [優化] Sigmoid 信號質量模型：K=4.0。防止低能量區信號跳變
+        raw_sig_q = (total_e**2) / ((5.0 * price_sens)**2 + total_e**2)
+        refined_sig_q = 1.0 / (1.0 + math.exp(-12.0 * (raw_sig_q - 0.2)))
+        signals = {'significant_increase_areas': [], 'significant_decrease_areas': [], 'signal_quality': refined_sig_q, 'raw_energy': total_e}
+        # 🧪 [擴充] 湍流邊界判定
+        dyn_th = np.float32(max(0.3 * price_sens, total_e * 0.15))
         for i in range(len(price_grid)):
-            if inc_p[i] > 0.5: signals['significant_increase_areas'].append({'price': float(price_grid[i]), 'change': float(avg_chgs[i]), 'dist': float(p_rel[i])})
-            if dec_p[i] > 0.5: signals['significant_decrease_areas'].append({'price': float(price_grid[i]), 'change': float(avg_chgs[i]), 'dist': float(p_rel[i])})
-        # 探针输出关键节点
-        QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_analyze_absolute_changes", {"total_e": total_e, "price": current_price}, {"price_sens": price_sens, "dyn_th": float(dyn_th)}, {"sig_q": sig_q})
+            if avg_chgs[i] > dyn_th: signals['significant_increase_areas'].append({'price': float(price_grid[i]), 'chg': float(avg_chgs[i])})
+            elif avg_chgs[i] < -dyn_th: signals['significant_decrease_areas'].append({'price': float(price_grid[i]), 'chg': float(avg_chgs[i])})
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False) -> Dict[str, float]:
@@ -542,7 +534,7 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 26.3.0] 博弈共振引擎 - 強化背離偵測與極性校準邏輯"""
+        """[Version 26.4.0] 共振技術引擎 - 引入湍流抑制因子與虛假派發二階修正"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
@@ -550,23 +542,26 @@ class AdvancedChipDynamicsService:
         try:
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             mig_dir = float(conc_metrics.get('net_migration_direction', 0.0))
-            # 🧪 [優化] 計算能量-遷移共振因子 (Resonance Factor)
-            # 公式: R = tanh(e_flow * mig_dir * 10)
-            resonance = math.tanh(e_flow * mig_dir * 10.0)
-            # 🧪 [優化] 突破勢能修正：若背離(R < 0)，則視為誘多陷阱
-            raw_breakout = float(energy_metrics.get('breakout_potential', 0.0))
-            adjusted_breakout = raw_breakout * (1.0 + resonance) if resonance > 0 else raw_breakout * math.exp(resonance * 3.0)
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            # 趨勢得分矩陣：結合信號質量與共振因子
-            trend_base = 1.0 / (1.0 + math.exp(-5.0 * (e_flow / 10.0)))
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * (0.5 + 0.5 * resonance) * sig_q, 0.0, 1.0))
-            metrics['breakout_potential_adj'] = float(adjusted_breakout)
-            metrics['resonance_divergence_index'] = float(resonance)
-            # 📡 [探針] 全鏈路輸出
+            # 🧪 [優化] GTI 湍流指數：衡量能量與遷移的脫節程度
+            turbulence = abs(e_flow / (abs(e_flow) + 1.0) - mig_dir)
+            turbulence_penalty = math.exp(-turbulence * 2.0)
+            # 🧪 [優化] 虛假派發深度介入：若判定為真實派發（fake_dist 小），加重趨勢懲罰
+            fake_dist_prob = float(energy_metrics.get('fake_distribution_flag', 0.5))
+            dist_conviction = 1.0 - fake_dist_prob
+            # 最終得分計算
+            trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.5)
+            # 共振邏輯：能量與遷移同向則加分，異向則受 GTI 懲罰
+            resonance_multiplier = 1.2 if e_flow * mig_dir > 0.02 else 0.4
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * resonance_multiplier * sig_q * turbulence_penalty, 0.0, 1.0))
+            # 特殊預警：派發定型得分
+            metrics['distribution_conviction_score'] = float(dist_conviction * (1.0 - sig_q))
+            metrics['market_turbulence_index'] = float(turbulence)
+            # 📡 [探針]
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_RES", 
-                {"e_flow": e_flow, "mig_dir": mig_dir}, 
-                {"resonance": resonance, "raw_breakout": raw_breakout}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_EXT", 
+                {"turbulence": turbulence, "fake_dist": fake_dist_prob}, 
+                {"penalty": turbulence_penalty, "sig_q": sig_q}, metrics)
             return metrics
         except Exception: return metrics
 
