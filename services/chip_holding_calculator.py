@@ -43,10 +43,9 @@ def _numba_build_matrix_core(prices: np.ndarray, percents: np.ndarray, days_arr:
 @njit(cache=True, fastmath=True)
 def _numba_calc_pressure_core(chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, recent_high: float) -> tuple:
     """
-    [Version 6.3.0] Numba 压力阻尼心理学积分内核 (高斯平滑与极性反噬破除版)
-    修改思路：废除 `if rel >= -0.08` 的绝对硬截断，改为全局连续高斯平滑衰减，彻底消除极小价格波动引发的支撑/阻力断崖式归零现象。
+    [Version 6.4.0] Numba 压力阻尼心理学积分内核 (JIT 静态图编译修复版)
+    修改思路：彻底移除 njit 作用域内部引发 UnsupportedBytecodeError 的 import math 语句。Numba 的 nopython 模式下完全脱离 Python 解释器，遇到 IMPORT_NAME 字节码会直接触发 LLVM 编译管线阻断。全程利用外层已导入且受 Numba 原生支持的 np.exp 进行高斯平滑运算，恢复 C 级别极限性能。
     """
-    import math
     profit_pressure = 0.0; trapped_pressure = 0.0; recent_trapped = 0.0
     support = 0.0; resistance = 0.0; pressure_release = 0.0; total = 0.0
     n = len(chip_dist)
