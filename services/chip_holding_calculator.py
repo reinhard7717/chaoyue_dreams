@@ -1334,41 +1334,33 @@ class GameEnergyCalculator:
         }
     
 class GameEnergyCalculator:
-    """[Version 6.2.0] 博弈能量場計算器 - 修復滲透接口與疊加態捲積版"""
+    """[Version 6.2.2] 博弈能量場計算器 - 徹底修復滲透接口死鎖與參數溢出版"""
     def calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, volume_history: pd.Series = None, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> Dict[str, Any]:
-        """[Version 6.2.0] 修正 conc_metrics 缺失導致的死鎖報錯，實施跨層疊加捲積版"""
+        """[Version 6.2.2] 確保 conc_metrics 作為可選疊加項，防止 TypeError 阻斷數據鏈版"""
+        import numpy as np
         reference_price = close_price if close_price > 0 else current_price
-        # 🧪 [步驟 2 修復] 必須顯式接受 conc_metrics 參數，否則上游調用會觸發 TypeError
-        if percent_change_matrix.shape[0] == 0 or len(price_grid) == 0 or reference_price <= 0:
-            return self._get_default_energy()
+        if percent_change_matrix.shape[0] == 0 or len(price_grid) == 0 or reference_price <= 0: return self._get_default_energy()
         try:
             latest_change = percent_change_matrix[-1]
-            # 向下透傳 conc_metrics 至各指標算子
+            # 🧪 [步驟 9] 消除信息孤島：將空間張力因子向下透傳至核心能量算子
             energy_result = self._calculate_energy_field(latest_change, price_grid, reference_price, close_price, stock_code, trade_date, conc_metrics=conc_metrics)
             energy_result['fake_distribution_flag'] = self._detect_fake_distribution_advanced(latest_change, price_grid, reference_price, close_price)
             return self._ensure_nonzero_energy(energy_result)
         except Exception as e:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "FATAL_ERR", {"stock": stock_code}, {"error": str(e)}, {"status": "failed"})
+            # 📡 [步驟 10] 此處為 FATAL 級別，探針應不受 probe_state 限制
+            QuantitativeTelemetryProbe.emit("GameEnergyCalculator", "INTERNAL_FATAL_ERR", {"stock": stock_code, "date": trade_date}, {"error": str(e)}, {"status": "failed"})
             return self._get_default_energy()
-
     def _calculate_energy_field(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> Dict[str, Any]:
-        """[Version 61.1.0] 捲積能量場核心 - 接收並應用空間疊加因子版"""
+        """[Version 61.3.0] 能量場核心捲積層 - 兼容性參數封裝版"""
         import numpy as np
         reference_price = close_price if close_price > 0 else current_price
-        # 🧪 [步驟 9] 接收 conc_metrics 並應用於指標計算
+        # 🧪 [步驟 9] 向下滲透：調用具備「疊加態」處理能力的指標引擎
         game_intensity, breakout_potential, energy_density = self._calculate_energy_indicators(changes, price_grid, reference_price, stock_code, trade_date, conc_metrics=conc_metrics)
-        # 此處繼續執行原有 Numba 加速後的能量分箱與吸收派發計算
         price_rel = (price_grid - reference_price) / reference_price
         pos_sums, neg_sums = _numba_calc_energy_bins_core(changes.astype(np.float32), price_rel.astype(np.float32), 0.05)
-        # (原有 logic 保持不變，捲積計算 net_energy)
         net_energy = float(np.sum(pos_sums) - np.sum(neg_sums))
-        return {
-            'absorption_energy': float(np.sum(pos_sums)), 'distribution_energy': float(np.sum(neg_sums)),
-            'net_energy_flow': net_energy, 'game_intensity': game_intensity,
-            'breakout_potential': breakout_potential, 'energy_concentration': energy_density,
-            'reference_price': float(reference_price)
-        }
+        return {'absorption_energy': float(np.sum(pos_sums)), 'distribution_energy': float(np.sum(neg_sums)), 'net_energy_flow': net_energy, 'game_intensity': game_intensity, 'breakout_potential': breakout_potential, 'energy_concentration': energy_density, 'reference_price': float(reference_price)}
 
     def _calculate_energy_indicators(self, changes: np.ndarray, price_grid: np.ndarray, current_price: float, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> tuple:
         """[Version 19.1.0] 疊加態博弈能量算子 - 引入能量密度與表面張力阻尼捲積版"""
@@ -1603,20 +1595,19 @@ class ChipFactorCalculationHelper:
         return final_result
 
 class QuantitativeTelemetryProbe:
-    """
-    [Version 1.0.0] 工业级量化全链路探针输出组件
-    说明：负责统一收集并格式化输出模型计算全链路的"原始数据、关键计算节点、最终分数"，消除系统信息孤岛。
-    """
+    """[Version 5.1.0] 疊加態智能探針 - 實施「計算靜默、異常強制」分級策略版"""
     @classmethod
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
         """
-        [Version 5.0.0] 物理落盤級絕對強制探針（上下文靜默版）
-        說明：新增 ContextVar 校驗邏輯。若當前上下文未激活探針（即無 Tick 數據場景），則立即中止執行，杜絕 I/O 資源浪費。
+        [Version 5.1.0] 修復探針死鎖邏輯。
+        策略：若方法名包含 "ERR"、"FATAL" 或 "FAIL"，則無視 ContextVar 強制輸出，確保系統健康度可見性。
         """
-        # 🧪 [核心邏輯修改] 只有當前任務具備 Tick 數據時，才允許探針輸出
         from services.chip_holding_calculator import probe_state
-        if not probe_state.get(): return
+        # 🧪 [步驟 10] 修正：若為異常探針，強制擊穿靜默屏障
+        is_error_probe = any(tag in method_name.upper() for tag in ["ERR", "FATAL", "FAIL", "CRASH"])
+        if not probe_state.get() and not is_error_probe: return
         import json, sys, os, datetime
+        import numpy as np
         class UltimateEncoder(json.JSONEncoder):
             def default(self, obj):
                 if isinstance(obj, (np.integer, np.int64, np.int32)): return int(obj)
@@ -1635,15 +1626,11 @@ class QuantitativeTelemetryProbe:
         except Exception as e:
             out_str = f"⚠️ [QUANT-PROBE-ERR] 无法序列化: {e} | Module: {module_name} | Method: {method_name}\n"
         try:
-            sys.stderr.write(out_str)
-            sys.stderr.flush()
-            # pass
+            sys.stderr.write(out_str); sys.stderr.flush()
         except Exception: pass
         try:
-            with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
-                f.write(out_str)
+            with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f: f.write(out_str)
         except Exception: pass
-
 
 
 
