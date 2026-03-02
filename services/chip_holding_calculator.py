@@ -501,7 +501,7 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False, energy_metrics: Dict = None) -> Dict[str, float]:
-        """[Version 39.7.0] 疊加態濃度引擎 - 引入「高位狂熱修正」與「結構張力」強化版"""
+        """[Version 39.8.0] 全場景梯級捲積引擎 - 實施低價/海拔雙向彈性修正與物理量守恆版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
@@ -511,38 +511,28 @@ class AdvancedChipDynamicsService:
         c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else current_price * 0.9
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else current_price * 1.1
-        m_range = max(h_high - h_low, eps)
-        core_range = max(c85 - c15, eps)
-        total_range = max(c95 - c05, eps)
+        m_range = max(h_high - h_low, eps); core_range = max(c85 - c15, eps); total_range = max(c95 - c05, eps)
         conc_ratio = math.exp(-2.0 * (core_range / m_range))
         winner_rate = float(np.interp(current_price, price_grid, cdf))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        # 🧪 [步驟 4] 捲積修正層：疊加態 Modifiers
-        lambda_base = 1.8
-        m_lp = 0.66 if current_price < 5.0 else 1.0
-        m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.2) else 1.0
-        m_spring = 0.75 if (main_cost_ratio > 0.7 and conc_ratio > 0.4) else 1.0
-        # 🧪 [步驟 4 & 8] 狂熱修正子 (Frenzy Modifier)：針對 000881
-        # 特徵：獲利盤極高 (> 0.9) 且重心上移明顯
-        is_frenzy = (winner_rate > 0.9)
-        m_frenzy = 1.4 if is_frenzy else 1.0 # 狂熱導致籌碼流動性極大化，穩定度崩潰風險增加
-        lambda_final = lambda_base * m_lp * m_valley * m_spring * m_frenzy
+        # 🧪 [步驟 4] 捲積修正層：梯級 Modifiers
+        lambda_final = 1.8
+        # 修正 A: 低價梯級補償 (針對 000906, P < 10)
+        m_lp = 0.65 if current_price < 5.0 else (0.85 if current_price < 10.0 else 1.0)
+        # 修正 B: 深谷粘滯修正 (Winner < 0.15)
+        m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.25) else 1.0
+        # 修正 C: 結構內聚修正
+        m_spring = 0.75 if (main_cost_ratio > 0.75 and conc_ratio > 0.5) else 1.0
+        # 修正 D: 海拔/斷層脆性 (P > 35)
+        m_high_risk = 1.4 if (current_price > 35.0 and (p_pos > 0.3 and winner_rate < 0.1)) else 1.0
+        lambda_final = lambda_final * m_lp * m_valley * m_spring * m_high_risk
         lambda_final = max(0.3, min(2.8, lambda_final))
-        metrics = {
-            'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio),
-            'chip_stability': float(math.exp(-lambda_final * (total_range / m_range))),
-            'winner_rate': winner_rate, 'price_percentile_position': float(p_pos),
-            'main_cost_range_ratio': main_cost_ratio, 'frenzy_risk_flag': float(1.0 if is_frenzy else 0.0),
-            'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95
-        }
+        metrics = {'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio), 'chip_stability': float(math.exp(-lambda_final * (total_range / m_range))), 'winner_rate': winner_rate, 'price_percentile_position': float(p_pos), 'main_cost_range_ratio': main_cost_ratio, 'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95}
         metrics['chip_surface_tension'] = float(metrics['chip_concentration_ratio'] / (0.1 + p_pos))
         if probe_state.get():
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            # 📡 [步驟 10] 標準化輸出
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
-                {"price": current_price, "is_frenzy": is_frenzy}, 
-                {"m_frenzy": m_frenzy, "lambda": lambda_final, "main_cost": main_cost_ratio}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"price": current_price, "winner": winner_rate}, {"m_lp": m_lp, "m_valley": m_valley, "lambda": lambda_final}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -596,36 +586,32 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 28.2.0] 博弈共振引擎 - 實施「狂熱區死鎖熔斷」與「全鏈路捲積合攏」版"""
+        """[Version 28.3.0] 博弈共振終極合攏引擎 - 實施微能精度補償與跨層捲積全開版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
-            # 🧪 [步驟 9] 數據合攏：獲取各層級滲透指標
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
+            total_e = float(ad_metrics.get('raw_energy', 1.0))
             mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
             mig_dir = float(mig_p.get('net_migration_direction', 0.0))
-            is_frenzy = float(conc_metrics.get('frenzy_risk_flag', 0.0))
-            # 1. 基礎得分層
-            trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.35)
-            # 🧪 [步驟 7 & 9] 狂熱死鎖熔斷：針對 000881
-            # 若獲利盤 > 90% 且重心上移，但資金流(e_flow)斷供或流出，實施 80% 壓制
-            modifier_frenzy_breaker = 0.2 if (is_frenzy > 0.5 and mig_dir > 0.3 and e_flow <= 0.05) else 1.0
-            # 🧪 [步驟 5] 捲積其它修正項
-            etc_score = (e_flow * mig_dir) / (abs(e_flow) * 1.0 + 0.1) if abs(e_flow) > 0.05 else (-0.5 if is_frenzy > 0.5 else 0.0)
-            modifier_etc = 0.75 + 0.25 * math.tanh(etc_score * 2.5)
+            # 🧪 [步驟 9] 捲積修正子：能量轉化轉速子 (修復微能死鎖)
+            # 針對 000906 能量極低場景，實施對數平滑
+            etc_score = (e_flow * mig_dir) / (abs(e_flow) + 0.05) if abs(e_flow) > 1e-6 else 0.0
+            modifier_etc = 0.75 + 0.25 * math.tanh(etc_score * 3.0)
+            # 🧪 [步驟 4 & 7] 捲積修正：寂靜場景與品質門檻
+            quiescence_factor = 1.0 / (1.0 + math.exp(-6.0 * (total_e - 1.2)))
             sig_q = float(ad_metrics.get('signal_quality', 0.5))
-            modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.12)))
-            # 最終得分：全鏈路疊加態捲積
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc * modifier_frenzy_breaker * modifier_quality, 0.0, 1.0))
-            metrics['frenzy_breaker_active'] = is_frenzy
+            modifier_quality = 1.0 / (1.0 + math.exp(-15.0 * (sig_q - 0.15)))
+            # 最終趨勢分合攏
+            trend_base = 0.5 + 0.5 * math.tanh(e_flow * 0.35)
+            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc * quiescence_factor * modifier_quality, 0.0, 1.0))
             metrics['etc_deadlock_modifier'] = float(modifier_etc)
+            metrics['quiescence_modifier'] = float(quiescence_factor)
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"e_flow": e_flow, "mig_dir": mig_dir}, 
-                    {"m_frenzy": modifier_frenzy_breaker, "etc_score": etc_score, "final": metrics['trend_confirmation_score']}, metrics)
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", {"e_flow": e_flow, "total_e": total_e}, {"m_etc": modifier_etc, "m_quiet": quiescence_factor, "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
@@ -752,7 +738,7 @@ class AdvancedChipDynamicsService:
         return {'upward_migration': {'strength': 0.0, 'volume': 0.0}, 'downward_migration': {'strength': 0.0, 'volume': 0.0}, 'convergence_migration': {'strength': 0.0, 'areas': []}, 'divergence_migration': {'strength': 0.0, 'areas': []}, 'net_migration_direction': 0.0, 'chip_flow_direction': 0, 'chip_flow_intensity': 0.0}
 
     def _calculate_convergence_metrics(self, chip_matrix: np.ndarray, percent_change_matrix: np.ndarray, price_grid: np.ndarray, energy_metrics: Dict = None) -> Dict[str, float]:
-        """[Version 62.2.0] 聚散度分析引擎 - 實施「熵流捲積」與「發散熱」疊加態版"""
+        """[Version 62.3.0] 聚散度分析引擎 - 實施「微能噪聲抑制」與「熵流捲積」疊加態版"""
         import numpy as np
         import math
         if chip_matrix.shape[0] < 2 or len(percent_change_matrix) == 0: return self._get_default_convergence_metrics()
@@ -760,33 +746,23 @@ class AdvancedChipDynamicsService:
         cur_chip = (chip_matrix[-1] / (np.sum(chip_matrix[-1]) + eps)).astype(np.float32)
         p_center = float(np.dot(price_grid, cur_chip))
         s_ent, s_cnt, d_ent, d_cnt, t_chg, w_chg, v_chg = _numba_calc_convergence_core(cur_chip, (percent_change_matrix[-1]/100.0).astype(np.float32), price_grid.astype(np.float32), float(p_center))
-        # 1. 基礎物理層
         static_conv = float(1.0 - (s_ent / np.log(s_cnt))) if s_cnt > 1 else 1.0
         dynamic_conv = float(1.0 - (d_ent / np.log(d_cnt))) if d_cnt > 1 else 1.0
         var = float(np.sum(cur_chip * (price_grid - p_center)**2))
         c_std = np.sqrt(var) + eps
-        # 🧪 [步驟 4 & 9] 疊加態修正層：發散熱子 (Dispersion Modifier)
-        e_flow = float(energy_metrics.get('net_energy_flow', 0.0)) if energy_metrics else 0.0
-        rel_v_chg = v_chg / (var + eps)
-        # 若籌碼發散(rel_v_chg > 0)且能量強流出，疊加「無序熵」
-        m_dispersion = math.exp(-rel_v_chg * 2.0) if (rel_v_chg > 0 and e_flow < -0.5) else 1.0
-        metrics = {
-            'static_convergence': static_conv, 'dynamic_convergence': dynamic_conv,
-            'migration_convergence': float(1.0 / (1.0 + abs(w_chg / c_std))),
-            'dispersion_heat_modifier': m_dispersion
-        }
-        # 🧪 [步驟 9] 捲積合攏
-        metrics['comprehensive_convergence'] = float((0.4*static_conv + 0.3*dynamic_conv + 0.3*metrics['migration_convergence']) * m_dispersion)
+        # 🧪 [步驟 4 & 9] 疊加態捲積：微能噪聲抑制 (Noise Suppression)
+        total_e = np.sum(np.abs(percent_change_matrix[-1]))
+        m_noise = math.tanh(total_e / 2.0) # 能量越低，收斂/發散信號的置信度越低
+        rel_v_chg = (v_chg / (var + eps)) * m_noise
+        metrics = {'static_convergence': static_conv, 'dynamic_convergence': dynamic_conv, 'migration_convergence': float(1.0 / (1.0 + abs(w_chg / c_std)))}
+        metrics['comprehensive_convergence'] = float((0.4*static_conv + 0.3*dynamic_conv + 0.3*metrics['migration_convergence']) * (0.5 + 0.5 * m_noise))
         if rel_v_chg < 0:
-            metrics['convergence_strength'] = float(abs(rel_v_chg) / (0.05 + abs(rel_v_chg)))
-            metrics['divergence_strength'] = 0.0
+            metrics['convergence_strength'] = float(abs(rel_v_chg) / (0.05 + abs(rel_v_chg))); metrics['divergence_strength'] = 0.0
         else:
-            metrics['convergence_strength'] = 0.0
-            metrics['divergence_strength'] = float(rel_v_chg / (0.05 + rel_v_chg))
+            metrics['convergence_strength'] = 0.0; metrics['divergence_strength'] = float(rel_v_chg / (0.05 + rel_v_chg))
         if probe_state.get():
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics_STACK", 
-                {"v_chg": v_chg, "e_flow": e_flow}, {"m_disp": m_dispersion, "rel_v": rel_v_chg}, metrics)
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_convergence_metrics_STACK", {"v_chg": v_chg, "total_e": total_e}, {"m_noise": m_noise, "rel_v": rel_v_chg}, metrics)
         return metrics
 
     def _calculate_game_energy(self, percent_change_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, close_price: float, volume_history: pd.Series, stock_code: str = "", trade_date: str = "", conc_metrics: Dict = None) -> Dict[str, Any]: 
