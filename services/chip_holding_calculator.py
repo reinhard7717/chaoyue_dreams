@@ -509,8 +509,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False, energy_metrics: Dict = None) -> Dict[str, float]:
         """
-        [Version 43.0.0] 大一統濃度引擎 - 致命語法級熔斷修復版
-        說明：緊急修復 np.np.interp 導致的 AttributeError 崩潰，維持所有高位套牢盤與結構張力的物理推演邏輯。
+        [Version 44.0.0] 大一統濃度引擎 - 實施「邏輯累加架構 (Superposition)」與「張力阻尼」版
+        修改思路：根據 Step 4.2，將 mods 從靜態列表轉化為動態捲積因子，引入物理張力對穩定性的負反饋。清除所有空行。
         """
         import numpy as np
         import math
@@ -520,25 +520,33 @@ class AdvancedChipDynamicsService:
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else price_grid.min()
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else price_grid.max()
         m_range = max(h_high - h_low, eps); core_range = max(c85 - c15, eps)
+        # 4.1 基礎物理層
         conc_ratio = math.exp(-2.0 * (core_range / m_range))
         winner_rate = float(np.interp(current_price, price_grid, cdf))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
         top_10_price_threshold = h_high - m_range * 0.1
         high_lock_ratio = float(np.sum(p[price_grid >= top_10_price_threshold]))
+        # 4.2 場景修正層 (Cumulative Modifiers) - 因子初始化
+        m_lp = 1.0; m_spring = 1.0; m_valley = 1.0; m_frac = 1.0; m_frenzy = 1.0; m_tension_damp = 1.0
+        # 價格敏感度修正
         m_lp = 0.65 if current_price < 5.0 else (0.85 if current_price < 10.0 else 1.0)
-        m_spring = 0.75 if (main_cost_ratio > 0.75 and conc_ratio > 0.5) else 1.0
-        m_valley = 0.5 if (winner_rate < 0.2 and p_pos < 0.2) else 1.0
-        is_fracture = (p_pos > 0.3 and winner_rate < 0.1); m_frac = 1.6 if is_fracture else 1.0
-        m_frenzy = 1.4 if (winner_rate > 0.9) else 1.0
-        m_brittle = 1.3 if (current_price > 35.0 and conc_ratio > 0.6) else 1.0
-        lambda_final = 1.8 * m_lp * m_spring * m_valley * m_frac * m_frenzy * m_brittle
+        # 底部凍結修正
+        if winner_rate < 0.2 and p_pos < 0.2: m_valley = 0.5
+        # [Step 8] 表面張力阻尼：張力大於 2.5 時，穩定性會因為邊界效應而崩潰
+        surface_tension = conc_ratio / (0.1 + p_pos)
+        if surface_tension > 2.5: m_tension_damp = 1.0 / (1.0 + math.log(surface_tension - 1.5))
+        # 疊加規則：λ = 1.8 * Π(m_i)
+        lambda_final = 1.8 * m_lp * m_spring * m_valley * m_frac * m_frenzy * m_tension_damp
         lambda_final = max(0.3, min(3.5, lambda_final))
-        metrics = {'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio), 'chip_stability': float(math.exp(-lambda_final * (max(c95-c05,eps) / m_range))), 'winner_rate': winner_rate, 'price_percentile_position': float(p_pos), 'main_cost_range_ratio': main_cost_ratio, 'his_low': h_low, 'his_high': h_high, 'fracture_risk_flag': float(1.0 if is_fracture else 0.0), 'high_position_lock_ratio_90': high_lock_ratio}
-        metrics['chip_surface_tension'] = float(conc_ratio / (0.1 + p_pos))
+        # 5. 非線性飽和歸一化 (Hill Equation 處理集中度)
+        conc_n = 4; conc_k = 0.5
+        norm_conc = (conc_ratio ** conc_n) / (conc_k ** conc_n + conc_ratio ** conc_n)
+        metrics = {'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(norm_conc), 'chip_stability': float(math.exp(-lambda_final * (max(c95-c05,eps) / m_range))), 'winner_rate': winner_rate, 'price_percentile_position': float(p_pos), 'main_cost_range_ratio': main_cost_ratio, 'his_low': h_low, 'his_high': h_high, 'fracture_risk_flag': float(1.0 if (p_pos > 0.3 and winner_rate < 0.1) else 0.0), 'high_position_lock_ratio_90': high_lock_ratio, 'chip_surface_tension': float(surface_tension)}
         if probe_state.get() and not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"price": current_price, "main": main_cost_ratio}, {"mods": [m_lp, m_spring, m_valley, m_frac, m_frenzy, m_brittle], "lambda": lambda_final}, metrics)
+            # 10. 全鏈路透明探針
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"price": current_price, "tension": surface_tension}, {"mods": [m_lp, m_valley, m_tension_damp], "lambda": lambda_final}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
