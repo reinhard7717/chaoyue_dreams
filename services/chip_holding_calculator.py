@@ -595,8 +595,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 33.0.0] 大一統決策引擎 - 實施 10 步檢查法之「流體阻力與結構疲勞」疊加版
-        說明：根據 000951.SZ 探針日誌，強化了反彈受阻場景下的阻尼修正，引入 m_drag 與 m_fatigue 因子。
+        [Version 34.0.0] 大一統決策引擎 - 實施 10 步檢查法之「高位耗竭與脆性崩解」疊加版
+        說明：針對 000965.SZ 的 96% 獲利盤滯漲場景，引入 m_exhaustion (耗竭) 與 m_loosening (松動) 修正子。
         """
         import numpy as np
         import math
@@ -623,25 +623,26 @@ class AdvancedChipDynamicsService:
                 if e_flow > 0 and mig_dir > 0: m_compression = 1.0 + 0.4 * math.exp(-ma_spread) * current_concentration
                 else: m_compression = 1.0 - 0.3 * math.exp(-ma_spread) * current_concentration
             else: m_compression = 1.0
-            # 🧪 [10步檢查法 - 步驟 4/7/8] 疊加態修正：流體阻力與疲勞
-            # m_drag: 根據探針日誌中高表面張力 (tension) 與 弱能量流 (e_flow) 的背離實施壓制
             tension = float(conc_metrics.get('chip_surface_tension', 1.0))
             visc = float(mig_p.get('viscosity_confidence', 0.5))
             m_drag = 1.0 - (0.4 * tension * visc) if (metrics['price_to_ma21_ratio'] < 0 and e_flow < 0.01) else 1.0
-            # m_fatigue: 檢測能量流是否連續萎縮 (針對 000951.SZ 的 3.27 -> 2.24 過程)
             energy_hist = [float(np.sum(np.abs(row))) for row in np.diff(chip_matrix, axis=0)[-3:]] if len(chip_matrix) > 3 else []
             is_fading = all(energy_hist[i] > energy_hist[i+1] for i in range(len(energy_hist)-1)) if len(energy_hist) >= 2 else False
             m_fatigue = 0.8 if is_fading else 1.0
+            # 🧪 [10步檢查法 - 步驟 4.2] 場景修正：高位耗竭與脆性 (Exhaustion & Loosening)
+            # m_exhaustion: 當獲利盤 > 90% 且能量衰減時，判定為“高位耗竭”，強度熔斷
+            m_exhaustion = 1.0 - (0.5 * math.tanh(total_e / 5.0)) if (winner_rate > 0.9 and is_fading) else 1.0
+            # m_loosening: 表面張力快速上升意味著籌碼凝聚力崩解
+            m_loosening = math.exp(-(max(0, tension - 0.5)) * 2.0)
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            # 🧪 [步驟 9] 大一統決策合攏：捲積所有修正因子
-            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue, 0.0, 1.0))
+            # 🧪 [步驟 9] 大一統決策合攏 (Universal Convergence)
+            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue * m_exhaustion * m_loosening, 0.0, 1.0))
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                # 🧪 [步驟 10] 全鏈路透明探針：輸出因子陣列
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"e_flow": e_flow, "tension": tension, "is_fading": is_fading}, 
-                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression, m_drag, m_fatigue], "final": metrics['trend_confirmation_score']}, metrics)
+                    {"e_flow": e_flow, "winner": winner_rate, "tension": tension}, 
+                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression, m_drag, m_fatigue, m_exhaustion, m_loosening], "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
