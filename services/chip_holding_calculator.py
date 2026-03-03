@@ -508,12 +508,14 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False, energy_metrics: Dict = None) -> Dict[str, float]:
-        """[Version 41.0.0] 大一統濃度引擎 - 全場景累積修正矩陣版"""
+        """
+        [Version 42.1.0] 大一統濃度引擎 - 補齊 high_position_lock_ratio_90 黑洞版
+        """
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         eps = 1e-10; p = current_chip_dist / (np.sum(current_chip_dist) + eps); cdf = np.cumsum(p)
-        c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
+        c05, c15, c50, c85, c95 = [float(np.np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else price_grid.min()
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else price_grid.max()
         m_range = max(h_high - h_low, eps); core_range = max(c85 - c15, eps)
@@ -521,20 +523,23 @@ class AdvancedChipDynamicsService:
         winner_rate = float(np.interp(current_price, price_grid, cdf))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        # 🧪 [步驟 4] 累積修正矩陣：繼承所有歷史診斷邏輯
-        # m1:低價補償; m2:結構內聚; m3:深谷冬眠; m4:空中斷層; m5:高位狂熱; m6:高價脆性
+        
+        # 🧪 [黑洞修復 1]：計算 high_position_lock_ratio_90
+        # 物理意義：歷史價格區間最頂部 10% 空間內，沉澱了多少籌碼（反映真正的死套牢盤）
+        top_10_price_threshold = h_high - m_range * 0.1
+        high_lock_ratio = float(np.sum(p[price_grid >= top_10_price_threshold]))
+        
         m_lp = 0.65 if current_price < 5.0 else (0.85 if current_price < 10.0 else 1.0)
         m_spring = 0.75 if (main_cost_ratio > 0.75 and conc_ratio > 0.5) else 1.0
         m_valley = 0.5 if (winner_rate < 0.2 and p_pos < 0.2) else 1.0
         is_fracture = (p_pos > 0.3 and winner_rate < 0.1); m_frac = 1.6 if is_fracture else 1.0
         m_frenzy = 1.4 if (winner_rate > 0.9) else 1.0
         m_brittle = 1.3 if (current_price > 35.0 and conc_ratio > 0.6) else 1.0
-        # 🧪 [大一統捲積]
         lambda_final = 1.8 * m_lp * m_spring * m_valley * m_frac * m_frenzy * m_brittle
         lambda_final = max(0.3, min(3.5, lambda_final))
-        metrics = {'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio), 'chip_stability': float(math.exp(-lambda_final * (max(c95-c05,eps) / m_range))), 'winner_rate': winner_rate, 'price_percentile_position': float(p_pos), 'main_cost_range_ratio': main_cost_ratio, 'his_low': h_low, 'his_high': h_high, 'fracture_risk_flag': float(1.0 if is_fracture else 0.0)}
+        metrics = {'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio), 'chip_stability': float(math.exp(-lambda_final * (max(c95-c05,eps) / m_range))), 'winner_rate': winner_rate, 'price_percentile_position': float(p_pos), 'main_cost_range_ratio': main_cost_ratio, 'his_low': h_low, 'his_high': h_high, 'fracture_risk_flag': float(1.0 if is_fracture else 0.0), 'high_position_lock_ratio_90': high_lock_ratio}
         metrics['chip_surface_tension'] = float(conc_ratio / (0.1 + p_pos))
-        if probe_state.get():
+        if probe_state.get() and not is_history:
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"price": current_price, "main": main_cost_ratio}, {"mods": [m_lp, m_spring, m_valley, m_frac, m_frenzy, m_brittle], "lambda": lambda_final}, metrics)
         return metrics
@@ -595,8 +600,7 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 41.0.0] 大一統決策引擎 - 實施 10 步檢查法之「深淵破位防禦與彈簧驗證」疊加版
-        說明：針對 000541.SZ 縮量陰跌創低點的場景，修復 m_spring 因子在無量破位時的誤觸發。新增 m_abyss 因子，對創出新低且缺乏資金承接的標的實施結構場熔斷。
+        [Version 42.2.0] 大一統決策引擎 - 終極時序求導與反轉預警補完版
         """
         import numpy as np
         import math
@@ -623,8 +627,33 @@ class AdvancedChipDynamicsService:
             if len(closes) > 1 and closes[-1] > closes[-2] and e_flow < 0: metrics['chip_rsi_divergence'] = float(-1.0 * abs(e_flow))
             elif len(closes) > 1 and closes[-1] < closes[-2] and e_flow > 0: metrics['chip_rsi_divergence'] = float(1.0 * e_flow)
             else: metrics['chip_rsi_divergence'] = 0.0
+            
+            # 🧪 [黑洞修復 2]：時序求導 (5日動態變化)
+            if chip_matrix.shape[0] >= 5:
+                p_old = chip_matrix[-5] / (np.sum(chip_matrix[-5]) + 1e-10)
+                mean_5d_ago = float(np.sum(p_old * price_grid))
+                metrics['peak_migration_speed_5d'] = float((chip_mean - mean_5d_ago) / (mean_5d_ago + 1e-8) * 100.0)
+                cdf_old = np.cumsum(p_old); eps = 1e-10
+                c05_old, c95_old = float(np.interp(0.05, cdf_old, price_grid)), float(np.interp(0.95, cdf_old, price_grid))
+                stab_5d_ago = math.exp(-1.5 * (max(c95_old - c05_old, eps) / max(metrics['his_high'] - metrics['his_low'], eps)))
+                current_stab = float(conc_metrics.get('chip_stability', stab_5d_ago))
+                metrics['chip_stability_change_5d'] = float(current_stab - stab_5d_ago)
+            else:
+                metrics['peak_migration_speed_5d'] = 0.0
+                metrics['chip_stability_change_5d'] = 0.0
+
             mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
             mig_dir = float(mig_p.get('net_migration_direction', 0.0)); winner_rate = float(conc_metrics.get('winner_rate', 0.5))
+            
+            # 🧪 [黑洞修復 3]：反轉預警得分 (Reversal Warning Score)
+            # 物理意義：當獲利盤極高但發生高位派發(頂背離)，或獲利盤極低但發生放量吸籌(底背離)時，拉響預警。
+            if winner_rate > 0.9 and e_flow < -0.1 and metrics['chip_rsi_divergence'] < 0:
+                metrics['reversal_warning_score'] = float(min(1.0, abs(e_flow) * 2.0))
+            elif winner_rate < 0.1 and e_flow > 0.1 and metrics['chip_rsi_divergence'] > 0:
+                metrics['reversal_warning_score'] = float(min(1.0, e_flow * 2.0))
+            else:
+                metrics['reversal_warning_score'] = 0.0
+
             etc_score = (e_flow * mig_dir) / (abs(e_flow) + (1e-6 if abs(e_flow)<1e-4 else 0.05))
             m_etc = 0.75 + 0.25 * math.tanh(etc_score * 3.0)
             m_gravity = 1.0 - (abs(min(0, metrics['price_to_ma21_ratio'])) / 25.0) if metrics['price_to_ma21_ratio'] < -5.0 else 1.0
@@ -645,10 +674,7 @@ class AdvancedChipDynamicsService:
             m_fatigue = 0.8 if is_fading else 1.0
             m_exhaustion = 1.0 - (0.5 * math.tanh(total_e / 5.0)) if (winner_rate > 0.9 and is_fading) else 1.0
             m_loosening = math.exp(-(max(0, tension - 0.5)) * 2.0) if winner_rate > 0.7 else 1.0
-            
-            # 🧪 [10步檢查法 - 步驟 6 & 7] 修復 m_spring：必須有正向資金流驗證，否則是死貓跳
             m_spring = 1.0 + 0.4 * math.tanh(max(0, tension - 1.0)) if (winner_rate < 0.4 and e_flow > 0.1) else 1.0
-            
             m_pulse = 1.0 + 0.3 * math.tanh(total_e / 20.0) if (winner_rate < 0.4 and total_e > 10.0 and abs(e_flow) < 2.0) else 1.0
             breakout = float(energy_metrics.get('breakout_potential', 0.0))
             m_breakout = 1.0 + 0.5 * math.tanh(breakout / 20.0) if (breakout > 5.0 and current_concentration > 0.3 and tension < 0.6) else 1.0
@@ -656,32 +682,28 @@ class AdvancedChipDynamicsService:
             main_cost = float(conc_metrics.get('main_cost_range_ratio', 0.0))
             density = float(energy_metrics.get('energy_concentration', 0.5))
             m_pinning = 1.0 + 0.4 * density if (current_price < 5.0 and main_cost > 0.6 and density > 0.8) else 1.0
-
-            # 🧪 [10步檢查法 - 步驟 4.2] 新增 m_abyss：深淵破位因子
             p_pos = float(conc_metrics.get('price_percentile_position', 0.5))
-            m_abyss = 0.5 if (p_pos < 0.05 and winner_rate < 0.1 and e_flow <= 0) else 1.0
-
+            m_abyss = 0.5 if (p_pos < 0.05 and winner_rate < 0.1 and e_flow <= 0 and total_e < 10.0) else 1.0
+            m_climax = 1.0 + 0.8 * math.tanh((total_e - 20.0) / 20.0) if ((p_pos < 0.1 or winner_rate < 0.1) and total_e > 25.0) else 1.0
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            kinetic_score = float(np.clip(energy_term * m_etc * m_disintegrate * m_fatigue * m_exhaustion * m_pulse * m_breakout, 0.0, 1.0))
+            kinetic_score = float(np.clip(energy_term * m_etc * m_disintegrate * m_fatigue * m_exhaustion * m_pulse * m_breakout * m_climax, 0.0, 1.0))
             struct_base = 0.5 + (current_concentration * 0.5)
-            # 🧪 [大一統合攏] 將 m_abyss 加入結構場運算
             structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind * m_pinning * m_abyss, 0.0, 1.0))
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             gravity_score = float(np.clip(ma_trend * m_gravity * m_rebound_trap * m_frenzy_breaker, 0.0, 1.0))
-            
             metrics['trend_confirmation_score'] = float(kinetic_score * 0.4 + structural_score * 0.4 + gravity_score * 0.2)
             metrics['kinetic_field_score'] = kinetic_score
             metrics['structural_field_score'] = structural_score
             metrics['gravity_field_score'] = gravity_score
-            
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_PHASE_SPACE", 
-                    {"total_e": total_e, "p_pos": p_pos, "e_flow": e_flow}, 
-                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score, "mods_s": [m_inertia, m_compression, m_drag, m_loosening, m_spring, m_grind, m_pinning, m_abyss]}, 
+                    {"total_e": total_e, "p_pos": p_pos, "winner": winner_rate, "5d_speed": metrics['peak_migration_speed_5d']}, 
+                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score}, 
                     {"final_trend_score": metrics['trend_confirmation_score']})
             return metrics
         except Exception: return metrics
+
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """[Version 26.2.0] 動態分析主引擎 - 實施全量技術面合攏與數據依賴鏈修補版"""
         import traceback
