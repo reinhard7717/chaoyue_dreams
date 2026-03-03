@@ -56,7 +56,7 @@ def get_local_ip():
 
 SERVER_IP = get_local_ip()
 TARGET_SERVER_IP = "39.101.65.133"
-REDIS_PASSWORD = 'Asdf1234' # 将密码定义在这里，方便复用
+REDIS_PASSWORD = 'dsufahnasilfbaspfonaofjnas' # 将密码定义在这里，方便复用
 REDIS_PORT = '6379'
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -153,7 +153,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'beyond_dreams',
         'USER': 'stocker',
-        'PASSWORD': 'Asdf+1234',
+        'PASSWORD': '迫害u防溺水；‘给猫狗猫狗插座拿上；哦’',
         'HOST': MYSQL_HOST_DYNAMIC,  # 数据库地址保持不变
         'PORT': '3306',
         'OPTIONS': {
