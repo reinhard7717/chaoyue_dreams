@@ -149,3 +149,4 @@ cython_debug/
 config/indicator_parameters.json
 *.SZ_best_params.json
 *.SH_best_params.json
+chaoyue_dreams/settings.py
