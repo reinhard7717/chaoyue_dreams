@@ -597,7 +597,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 42.2.0] 大一統決策引擎 - 終極時序求導與反轉預警補完版
+        [Version 44.0.0] 大一統決策引擎 - 實施 10 步檢查法之「套牢盤出清 (Washout)」疊加版
+        說明：針對 000612.SZ 震盪洗盤導致 high_position_lock_ratio_90 降至 1.3% 的場景，引入 m_washout 因子。當上方死套牢盤被徹底清洗且籌碼密集時，賦予結構場極大溢價，標誌著上行天花板被打開。
         """
         import numpy as np
         import math
@@ -625,7 +626,6 @@ class AdvancedChipDynamicsService:
             elif len(closes) > 1 and closes[-1] < closes[-2] and e_flow > 0: metrics['chip_rsi_divergence'] = float(1.0 * e_flow)
             else: metrics['chip_rsi_divergence'] = 0.0
             
-            # 🧪 [黑洞修復 2]：時序求導 (5日動態變化)
             if chip_matrix.shape[0] >= 5:
                 p_old = chip_matrix[-5] / (np.sum(chip_matrix[-5]) + 1e-10)
                 mean_5d_ago = float(np.sum(p_old * price_grid))
@@ -642,8 +642,6 @@ class AdvancedChipDynamicsService:
             mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
             mig_dir = float(mig_p.get('net_migration_direction', 0.0)); winner_rate = float(conc_metrics.get('winner_rate', 0.5))
             
-            # 🧪 [黑洞修復 3]：反轉預警得分 (Reversal Warning Score)
-            # 物理意義：當獲利盤極高但發生高位派發(頂背離)，或獲利盤極低但發生放量吸籌(底背離)時，拉響預警。
             if winner_rate > 0.9 and e_flow < -0.1 and metrics['chip_rsi_divergence'] < 0:
                 metrics['reversal_warning_score'] = float(min(1.0, abs(e_flow) * 2.0))
             elif winner_rate < 0.1 and e_flow > 0.1 and metrics['chip_rsi_divergence'] > 0:
@@ -682,10 +680,16 @@ class AdvancedChipDynamicsService:
             p_pos = float(conc_metrics.get('price_percentile_position', 0.5))
             m_abyss = 0.5 if (p_pos < 0.05 and winner_rate < 0.1 and e_flow <= 0 and total_e < 10.0) else 1.0
             m_climax = 1.0 + 0.8 * math.tanh((total_e - 20.0) / 20.0) if ((p_pos < 0.1 or winner_rate < 0.1) and total_e > 25.0) else 1.0
+
+            # 🧪 [10步檢查法 - 步驟 4.2] 新增 m_washout：高位套牢盤出清因子
+            high_lock_90 = float(conc_metrics.get('high_position_lock_ratio_90', 0.2))
+            m_washout = 1.0 + 0.3 * math.exp(-high_lock_90 * 20.0) if (high_lock_90 < 0.05 and current_concentration < 0.4) else 1.0
+
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
             kinetic_score = float(np.clip(energy_term * m_etc * m_disintegrate * m_fatigue * m_exhaustion * m_pulse * m_breakout * m_climax, 0.0, 1.0))
             struct_base = 0.5 + (current_concentration * 0.5)
-            structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind * m_pinning * m_abyss, 0.0, 1.0))
+            # 🧪 [大一統合攏] 將 m_washout 納入結構場
+            structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind * m_pinning * m_abyss * m_washout, 0.0, 1.0))
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             gravity_score = float(np.clip(ma_trend * m_gravity * m_rebound_trap * m_frenzy_breaker, 0.0, 1.0))
             metrics['trend_confirmation_score'] = float(kinetic_score * 0.4 + structural_score * 0.4 + gravity_score * 0.2)
@@ -695,8 +699,8 @@ class AdvancedChipDynamicsService:
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_PHASE_SPACE", 
-                    {"total_e": total_e, "p_pos": p_pos, "winner": winner_rate, "5d_speed": metrics['peak_migration_speed_5d']}, 
-                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score}, 
+                    {"total_e": total_e, "high_lock_90": high_lock_90, "conc": current_concentration}, 
+                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score, "mods_s": [m_inertia, m_compression, m_drag, m_loosening, m_spring, m_grind, m_pinning, m_abyss, m_washout]}, 
                     {"final_trend_score": metrics['trend_confirmation_score']})
             return metrics
         except Exception: return metrics
