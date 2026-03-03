@@ -983,7 +983,6 @@ class AdvancedChipDynamicsService:
             'intraday_market_microstructure': {},
         }
     # ============== 数据获取方法 ==============
-    
     async def _fetch_chip_percent_data(self, stock_code: str, trade_date: str, lookback_days: int) -> Dict[str, any]:
         """[Version 25.0.0] 全息数据泵 - 变量逻辑修复与失败探针强化版"""
         import pandas as pd
@@ -1038,7 +1037,6 @@ class AdvancedChipDynamicsService:
             return None
 
     # ============== 默认结果方法 ==============
-    
     def _get_default_result(self, stock_code: str = "", trade_date: str = "", error_msg: str = "Unknown") -> Dict[str, any]:
         """[Version 24.1.0] 增强型默认结果 - 包含错误追踪与全量字段"""
         return {
@@ -1478,16 +1476,19 @@ class ChipFactorCalculationHelper:
         return final_result
 
 class QuantitativeTelemetryProbe:
-    """[Version 6.0.0] 工業級量化全鏈路探針 - Tick 上下文精簡靜默版"""
+    """[Version 6.1.0] 工業級量化探針 - 實施「異常優先、Tick靜默」分級過濾版"""
     @classmethod
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
         """
-        [Version 6.0.0] 精簡版探針發射器。
-        策略：完全依賴 probe_state 上下文變量。若當前任務未傳入 Tick 數據，則立即中斷，拒絕產出任何日誌與文件寫入。
+        [Version 6.1.0] 增強版探針發射器。
+        策略：邏輯疊加態判定 (ShouldEmit = IsTickMode OR IsErrorSignal)。
+        確保系統在發生死鎖、參數錯誤或數據庫崩潰時，即便沒有 Tick 數據也能強制輸出。
         """
         from services.chip_holding_calculator import probe_state
-        # 🧪 [步驟 10] 核心門禁：只有當 probe_state 為 True (即存在 Tick 數據時) 才允許向下執行
-        if not probe_state.get(): return
+        # 🧪 [步驟 4 & 10] 異常標識掃描：若為錯誤信息，則具備最高優先權
+        is_error = any(tag in method_name.upper() for tag in ["ERR", "FATAL", "FAIL", "CRASH", "FUSE"])
+        # 🧪 [核心門禁]：僅在 Tick 模式或發生錯誤時輸出，徹底杜絕大規模計算時的 I/O 浪費
+        if not (probe_state.get() or is_error): return
         import json, sys, os, datetime
         import numpy as np
         class UltimateEncoder(json.JSONEncoder):
@@ -1503,19 +1504,22 @@ class QuantitativeTelemetryProbe:
                     if pd.isna(obj): return None
                 except Exception: pass
                 return str(obj)
-        # 🧪 [步驟 10] 全鏈路探針協議：原始數據、關鍵計算節點、最終分數
+        # 🧪 [步驟 10] 全鏈路探針協議：格式化 payload
         payload = {"time": datetime.datetime.now().isoformat(), "module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
         try:
-            out_str = f"📡 [QUANT-PROBE] | {json.dumps(payload, ensure_ascii=False, cls=UltimateEncoder)}\n"
+            # 確保中文不亂碼，並增加前綴標識
+            prefix = "🚨 [FATAL-PROBE]" if is_error else "📡 [QUANT-PROBE]"
+            out_str = f"{prefix} | {json.dumps(payload, ensure_ascii=False, cls=UltimateEncoder)}\n"
         except Exception as e:
-            out_str = f"⚠️ [QUANT-PROBE-ERR] 无法序列化: {e} | Module: {module_name} | Method: {method_name}\n"
-        # 物理輸出：標準錯誤流與緊急日誌文件同步寫入
+            out_str = f"⚠️ [PROBE-SERIALIZE-ERR] {e} | Module: {module_name} | Method: {method_name}\n"
+        # 物理輸出：同步寫入 stderr 與本地日誌，提供雙重保險
         try:
             sys.stderr.write(out_str)
             sys.stderr.flush()
         except Exception: pass
         try:
-            with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f:
+            # 使用 os.path 確保路徑普適性
+            log_path = os.path.join(os.getcwd(), 'quant_probe_emergency.log')
+            with open(log_path, 'a', encoding='utf-8') as f:
                 f.write(out_str)
         except Exception: pass
-
