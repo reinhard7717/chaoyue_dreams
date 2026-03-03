@@ -595,8 +595,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 40.0.0] 大一統決策引擎 - 實施 10 步檢查法之「低價高密釘死 (Low-Price Pinning)」疊加版
-        說明：針對 000517.SZ 低價區極高能量密度與高籌碼集中的特徵，引入 m_pinning 因子，修復低張力數學陷阱，將其正確識別為結構場的高勢能狀態。
+        [Version 41.0.0] 大一統決策引擎 - 實施 10 步檢查法之「深淵破位防禦與彈簧驗證」疊加版
+        說明：針對 000541.SZ 縮量陰跌創低點的場景，修復 m_spring 因子在無量破位時的誤觸發。新增 m_abyss 因子，對創出新低且缺乏資金承接的標的實施結構場熔斷。
         """
         import numpy as np
         import math
@@ -645,25 +645,27 @@ class AdvancedChipDynamicsService:
             m_fatigue = 0.8 if is_fading else 1.0
             m_exhaustion = 1.0 - (0.5 * math.tanh(total_e / 5.0)) if (winner_rate > 0.9 and is_fading) else 1.0
             m_loosening = math.exp(-(max(0, tension - 0.5)) * 2.0) if winner_rate > 0.7 else 1.0
-            m_spring = 1.0 + 0.4 * math.tanh(max(0, tension - 1.0)) if winner_rate < 0.4 else 1.0
+            
+            # 🧪 [10步檢查法 - 步驟 6 & 7] 修復 m_spring：必須有正向資金流驗證，否則是死貓跳
+            m_spring = 1.0 + 0.4 * math.tanh(max(0, tension - 1.0)) if (winner_rate < 0.4 and e_flow > 0.1) else 1.0
+            
             m_pulse = 1.0 + 0.3 * math.tanh(total_e / 20.0) if (winner_rate < 0.4 and total_e > 10.0 and abs(e_flow) < 2.0) else 1.0
             breakout = float(energy_metrics.get('breakout_potential', 0.0))
             m_breakout = 1.0 + 0.5 * math.tanh(breakout / 20.0) if (breakout > 5.0 and current_concentration > 0.3 and tension < 0.6) else 1.0
             m_grind = 1.0 + 0.3 * math.tanh((total_e - 5.0) / 10.0) if (winner_rate < 0.1 and total_e > 5.0 and breakout < 1.0) else 1.0
-            
-            # 🧪 [10步檢查法 - 步驟 4.2] 場景修正：低價高密釘死 (Low-Price Pinning)
-            # 當股價極低，且籌碼高度集中於主成本區(>0.6)，同時能量高度密集(>0.8)時，激活釘死因子。
             main_cost = float(conc_metrics.get('main_cost_range_ratio', 0.0))
             density = float(energy_metrics.get('energy_concentration', 0.5))
             m_pinning = 1.0 + 0.4 * density if (current_price < 5.0 and main_cost > 0.6 and density > 0.8) else 1.0
 
+            # 🧪 [10步檢查法 - 步驟 4.2] 新增 m_abyss：深淵破位因子
+            p_pos = float(conc_metrics.get('price_percentile_position', 0.5))
+            m_abyss = 0.5 if (p_pos < 0.05 and winner_rate < 0.1 and e_flow <= 0) else 1.0
+
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
             kinetic_score = float(np.clip(energy_term * m_etc * m_disintegrate * m_fatigue * m_exhaustion * m_pulse * m_breakout, 0.0, 1.0))
-            
-            # 🧪 [大一統合攏] 將 m_pinning 加入結構場運算
             struct_base = 0.5 + (current_concentration * 0.5)
-            structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind * m_pinning, 0.0, 1.0))
-            
+            # 🧪 [大一統合攏] 將 m_abyss 加入結構場運算
+            structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind * m_pinning * m_abyss, 0.0, 1.0))
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             gravity_score = float(np.clip(ma_trend * m_gravity * m_rebound_trap * m_frenzy_breaker, 0.0, 1.0))
             
@@ -675,8 +677,8 @@ class AdvancedChipDynamicsService:
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_PHASE_SPACE", 
-                    {"total_e": total_e, "density": density, "main_cost": main_cost}, 
-                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score, "mods_s": [m_inertia, m_compression, m_drag, m_loosening, m_spring, m_grind, m_pinning]}, 
+                    {"total_e": total_e, "p_pos": p_pos, "e_flow": e_flow}, 
+                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score, "mods_s": [m_inertia, m_compression, m_drag, m_loosening, m_spring, m_grind, m_pinning, m_abyss]}, 
                     {"final_trend_score": metrics['trend_confirmation_score']})
             return metrics
         except Exception: return metrics
