@@ -1470,22 +1470,20 @@ class ChipFactorCalculationHelper:
         return final_result
 
 class QuantitativeTelemetryProbe:
-    """[Version 7.0.0] 工業級量化探針 - 實施「異常鎧甲、工作流報備、Tick門禁」大一統版"""
+    """[Version 7.1.0] 大一統探針靜默版 - 實施「成功湮滅、異常優先、Tick透視」策略"""
     @classmethod
     def emit(cls, module_name: str, method_name: str, raw_data: dict, calc_nodes: dict, final_score: dict) -> None:
         """
-        [Version 7.0.0] 修復「看不見錯誤」的黑盒問題。
-        策略：
-        1. 異常探針 (ERR/FATAL/FAIL)：無視上下文，強制輸出並攜帶 Stack Trace。
-        2. 工作流探針 (Gateway/Baton/DONE)：強制輸出，用於監控進度。
-        3. 算法細節 (SENSOR/STACK)：僅在 Tick 數據模式下輸出，節約 I/O。
+        [Version 7.1.0] 廢除成功信息輸出，僅保留關鍵異常與算法細節。
+        策略：ShouldEmit = IsErrorSignal OR (IsTickMode AND IsSensorData)
         """
         from services.chip_holding_calculator import probe_state
         import traceback
+        # 🧪 [步驟 10] 掃描異常信號
         is_error = any(tag in method_name.upper() for tag in ["ERR", "FATAL", "FAIL", "CRASH", "FUSE"])
-        is_workflow = any(tag in method_name.upper() for tag in ["ENTRY", "SUCCESS", "DONE", "BATON", "INIT", "READY"])
-        # 🧪 [步驟 10] 分級門禁判定
-        if not (probe_state.get() or is_error or is_workflow): return
+        # 🧪 [核心門禁] 廢除 IsWorkflow 判定，成功信息不再打印
+        # 只有在「發生錯誤」或「傳入了 Tick 數據」時才允許向下執行
+        if not (is_error or probe_state.get()): return
         import json, sys, os, datetime, numpy as np
         class UltimateEncoder(json.JSONEncoder):
             def default(self, obj):
@@ -1499,15 +1497,32 @@ class QuantitativeTelemetryProbe:
                     if pd.isna(obj): return None
                 except Exception: pass
                 return str(obj)
-        # 🧪 [步驟 10] 錯誤追蹤：若發生異常，自動抓取最後的 Stack Trace
+        # 異常現場自動快照
         if is_error and 'trace' not in calc_nodes:
             calc_nodes['trace'] = traceback.format_exc()
         payload = {"time": datetime.datetime.now().isoformat(), "module": module_name, "method": method_name, "raw_data": raw_data, "calc_nodes": calc_nodes, "final_score": final_score}
         try:
-            prefix = "🚨 [FATAL-PROBE]" if is_error else ("⚙️ [WORKFLOW-PROBE]" if is_workflow else "📡 [QUANT-PROBE]")
+            # 區分錯誤級別標識
+            prefix = "🚨 [FATAL-PROBE]" if is_error else "📡 [QUANT-PROBE]"
             out_str = f"{prefix} | {json.dumps(payload, ensure_ascii=False, cls=UltimateEncoder)}\n"
+            # 物理輸出
             sys.stderr.write(out_str); sys.stderr.flush()
-            log_path = os.path.join(os.getcwd(), 'quant_probe_emergency.log')
-            with open(log_path, 'a', encoding='utf-8') as f: f.write(out_str)
+            with open(os.path.join(os.getcwd(), 'quant_probe_emergency.log'), 'a', encoding='utf-8') as f: f.write(out_str)
         except Exception as e:
-            sys.stderr.write(f"⚠️ [PROBE-CRITICAL-ERR] {e}\n")
+            sys.stderr.write(f"⚠️ [PROBE-SERIALIZE-ERR] {e}\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
