@@ -595,8 +595,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 38.0.0] 大一統決策引擎 - 實施 10 步檢查法之「磨底結構 (Grinding Bottom)」疊加版
-        說明：針對 001230.SZ 長期處於極低獲利盤且高換手的磨底狀態，引入 m_grind 因子，給予底部持續抵抗的籌碼結構正向補償。
+        [Version 39.0.0] 大一統決策引擎 - 純 CPU 正交相空間與三大物理場降維合攏版
+        說明：徹底廢除「15因子連乘」導致的信號稀釋與一票否決死鎖。將所有因子正交劃分為「動能場(K)」、「結構場(S)」、「引力場(G)」，透過線性加權實現極致魯棒的 CPU 級大一統決策。
         """
         import numpy as np
         import math
@@ -649,18 +649,29 @@ class AdvancedChipDynamicsService:
             m_pulse = 1.0 + 0.3 * math.tanh(total_e / 20.0) if (winner_rate < 0.4 and total_e > 10.0 and abs(e_flow) < 2.0) else 1.0
             breakout = float(energy_metrics.get('breakout_potential', 0.0))
             m_breakout = 1.0 + 0.5 * math.tanh(breakout / 20.0) if (breakout > 5.0 and current_concentration > 0.3 and tension < 0.6) else 1.0
-            # 🧪 [10步檢查法 - 步驟 4.2 & 8] 場景修正：磨底結構 (Grinding Bottom)
-            # 當獲利盤極低 (<10%)，且持續有能量交換 (total_e > 5) 但未形成突破時，給予底層結構補償。
             m_grind = 1.0 + 0.3 * math.tanh((total_e - 5.0) / 10.0) if (winner_rate < 0.1 and total_e > 5.0 and breakout < 1.0) else 1.0
-            ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
+            # 🧪 [相空間重構] 將 15 因子編組為三大獨立物理場，防止信號稀釋
+            # 1. 結合基礎動能與動能修正矩陣
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            # 🧪 [步驟 9] 大一統決策合攏 (Universal Convergence) - 納入 15 級修正矩陣
-            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue * m_exhaustion * m_loosening * m_spring * m_pulse * m_breakout * m_grind, 0.0, 1.0))
+            kinetic_score = float(np.clip(energy_term * m_etc * m_disintegrate * m_fatigue * m_exhaustion * m_pulse * m_breakout, 0.0, 1.0))
+            # 2. 結合籌碼結構基礎與結構修正矩陣 (以 0.5 為震盪基準線)
+            struct_base = 0.5 + (current_concentration * 0.5)
+            structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind, 0.0, 1.0))
+            # 3. 結合均線趨勢與引力修正矩陣
+            ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
+            gravity_score = float(np.clip(ma_trend * m_gravity * m_rebound_trap * m_frenzy_breaker, 0.0, 1.0))
+            # 🧪 [大一統合攏] 採用線性加權（動能40%，結構40%，引力20%），確保任何單一場域的崩塌不會導致全系統休克
+            metrics['trend_confirmation_score'] = float(kinetic_score * 0.4 + structural_score * 0.4 + gravity_score * 0.2)
+            # 透傳物理場得分至外層（可通過 extra_metrics 存入資料庫）
+            metrics['kinetic_field_score'] = kinetic_score
+            metrics['structural_field_score'] = structural_score
+            metrics['gravity_field_score'] = gravity_score
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_PHASE_SPACE", 
                     {"total_e": total_e, "winner": winner_rate, "breakout": breakout}, 
-                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression, m_drag, m_fatigue, m_exhaustion, m_loosening, m_spring, m_pulse, m_breakout, m_grind], "final": metrics['trend_confirmation_score']}, metrics)
+                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score}, 
+                    {"final_trend_score": metrics['trend_confirmation_score']})
             return metrics
         except Exception: return metrics
 
