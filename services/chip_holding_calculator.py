@@ -594,25 +594,23 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 31.0.0] 大一統決策引擎 - 實施全量累積修正矩陣與技術降級生存版"""
+        """
+        [Version 32.0.0] 大一統決策引擎 - 實施全量累積修正矩陣與技術降級生存版
+        [更新说明] 新增 m_compression (空间压缩势能) 因子，针对均线粘合与筹码高度密集形态实施极性共振校准，捕获爆发前夜特征。
+        """
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
-            # 1. 物理量補完 (消除孤島)
             closes = price_history['close_qfq'].values.astype(np.float32)
             metrics['his_low'] = float(price_history['low_qfq'].min()); metrics['his_high'] = float(price_history['high_qfq'].max())
             def calc_ma_safe(p, w): 
                 win = min(len(p), w); return float((current_price - np.mean(p[-win:])) / (np.mean(p[-win:]) + 1e-8) * 100.0) if win >= 2 else 0.0
             metrics['price_to_ma5_ratio'] = calc_ma_safe(closes, 5); metrics['price_to_ma21_ratio'] = calc_ma_safe(closes, 21)
-            # 2. 累積修正矩陣 (Incremental Modifiers) - 繼承所有歷史邏輯
-            # m_etc: 能量效率放大(000951); m_gravity: 均線重力(000920); m_inertia: 結構慣性(000965)
-            # m_frenzy: 狂熱熔斷(000881); m_disintegrate: 高能崩解(001380); m_rebound: 反彈陷阱(000820)
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0)); total_e = float(ad_metrics.get('raw_energy', 1.0))
             mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
             mig_dir = float(mig_p.get('net_migration_direction', 0.0)); winner_rate = float(conc_metrics.get('winner_rate', 0.5))
-            # 捲積計算修正項 (NEVER DELETE EXISTING ONES)
             etc_score = (e_flow * mig_dir) / (abs(e_flow) + (1e-6 if abs(e_flow)<1e-4 else 0.05))
             m_etc = 0.75 + 0.25 * math.tanh(etc_score * 3.0)
             m_gravity = 1.0 - (abs(min(0, metrics['price_to_ma21_ratio'])) / 25.0) if metrics['price_to_ma21_ratio'] < -5.0 else 1.0
@@ -620,15 +618,27 @@ class AdvancedChipDynamicsService:
             m_frenzy_breaker = 0.2 if (winner_rate > 0.9 and e_flow <= 0.05) else 1.0
             m_disintegrate = 0.5 if (total_e > 50.0 and abs(e_flow) < 1.0) else 1.0
             m_rebound_trap = 0.6 if (metrics['price_to_ma5_ratio'] > 0 and metrics['price_to_ma21_ratio'] < -3.0) else 1.0
-            # 3. 大一統捲積合攏
+            # 🧪 [步驟 4 & 7] 新增修正因子：空間壓縮勢能 (Compression)
+            # 判斷均線黏合度 (MA5與MA21差值絕對值小於1.5%)
+            ma_spread = abs(metrics['price_to_ma5_ratio'] - metrics['price_to_ma21_ratio'])
+            # 只有當籌碼高度集中且均線黏合時才啟動壓縮判定
+            if current_concentration > 0.5 and ma_spread < 1.5:
+                # 極性共振校準：順勢爆發則強化(>1)，逆勢崩解則削弱(<1)
+                if e_flow > 0 and mig_dir > 0:
+                    m_compression = 1.0 + 0.4 * math.exp(-ma_spread) * current_concentration
+                else:
+                    m_compression = 1.0 - 0.3 * math.exp(-ma_spread) * current_concentration
+            else:
+                m_compression = 1.0
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap, 0.0, 1.0))
+            # 🧪 [大一統捲積合攏] 將 m_compression 乘入最終得分
+            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression, 0.0, 1.0))
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
                     {"e_flow": e_flow, "ma21": metrics['price_to_ma21_ratio']}, 
-                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap], "final": metrics['trend_confirmation_score']}, metrics)
+                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression], "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
