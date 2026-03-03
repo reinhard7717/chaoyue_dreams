@@ -370,49 +370,56 @@ class AdvancedChipDynamicsService:
         except Exception:
             return {'peak_count': 0, 'main_peak_position': 0, 'main_peak_price': 0.0, 'peak_distance_ratio': 0.0, 'peak_concentration': 0.0, 'is_double_peak': False, 'is_multi_peak': False}
 
-    def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, energy_metrics: Dict = None) -> Dict[str, any]:
-        """[Version 25.3.0] 疊加態行為金融引擎 - 引入行為對焦因子與一致性校準版"""
+    def _identify_behavior_patterns(self, percent_change_matrix: np.ndarray, chip_matrix: np.ndarray, price_grid: np.ndarray, current_price: float, energy_metrics: Dict = None, conc_metrics: Dict = None, ad_metrics: Dict = None) -> Dict[str, any]:
+        """[Version 25.4.0] 大一統行為金融引擎 - 實施「遺產繼承」與「跨層捲積」合攏版"""
         import numpy as np
         import math
         if percent_change_matrix.shape[0] < 3: return self._get_default_behavior_patterns()
         lookback = min(5, percent_change_matrix.shape[0])
-        recent_changes = percent_change_matrix[-lookback:, :]
-        changes_sum = np.sum(recent_changes, axis=0)
-        total_energy = np.sum(np.abs(changes_sum))
-        eps = 1e-10
-        # 1. 基礎物理層 - 執行原始邏輯
-        p_mean = np.sum(chip_matrix[-1] * price_grid) / 100.0
-        p_std = np.sqrt(np.sum(chip_matrix[-1] * (price_grid - p_mean)**2) / 100.0)
+        recent_changes = percent_change_matrix[-lookback:, :]; changes_sum = np.sum(recent_changes, axis=0)
+        total_energy = np.sum(np.abs(changes_sum)); eps = 1e-10
+        # 1. 基礎物理層 (Base Physics) - 繼承原有高低位過濾邏輯
+        p_mean = np.sum(chip_matrix[-1] * price_grid) / 100.0; p_std = np.sqrt(np.sum(chip_matrix[-1] * (price_grid - p_mean)**2) / 100.0)
         low_w = 1.0 / (1.0 + np.exp(15.0 * (price_grid - (p_mean - 0.5 * p_std)) / (p_std + eps)))
         high_w = 1.0 / (1.0 + np.exp(-15.0 * (price_grid - (p_mean + 0.5 * p_std)) / (p_std + eps)))
         r_acc = np.sum(changes_sum[changes_sum > 0] * low_w[changes_sum > 0]) + np.sum(np.abs(changes_sum[changes_sum < 0]) * high_w[changes_sum < 0])
         r_dist = np.sum(changes_sum[changes_sum > 0] * high_w[changes_sum > 0]) + np.sum(np.abs(changes_sum[changes_sum < 0]) * low_w[changes_sum < 0])
-        # 🧪 [步驟 4 & 8] 邏輯疊加：引入行為對焦因子 (Focus Factor)
-        # 衡量能量是否集中在特定的價格區間。若行為高度離散，說明是隨機波動。
-        focus_score = np.sum(changes_sum**2) / (total_energy**2 + eps)
-        # 🧪 [步驟 9] 意圖一致性校準：結合能量流極性
+        # 2. 數據總線合攏 (Data Bus Convergence) - 獲取疊加態因子
+        tension = float(conc_metrics.get('chip_surface_tension', 1.0)) if conc_metrics else 1.0
+        is_fracture = float(conc_metrics.get('fracture_risk_flag', 0.0)) if conc_metrics else 0.0
+        is_frenzy = float(conc_metrics.get('frenzy_risk_flag', 0.0)) if conc_metrics else 0.0
         e_flow = float(energy_metrics.get('net_energy_flow', 0.0)) if energy_metrics else 0.0
-        # 如果計算出的吸籌方向與能量流(+)一致，一致性高
-        acc_consistency = math.tanh(e_flow * 2.0) if e_flow > 0 else 0.1
-        dist_consistency = math.tanh(abs(e_flow) * 2.0) if e_flow < 0 else 0.1
-        # 2. 疊加態強度產出
-        km_pattern = 6.0
-        confidence_base = total_energy / (10.0 + total_energy)
-        # 強度捲積：原始強度 * 對焦修正 * 一致性修正
-        acc_strength = (r_acc / (km_pattern + r_acc)) * confidence_base * (0.5 + 0.5 * focus_score) * acc_consistency
-        dist_strength = (r_dist / (km_pattern + r_dist)) * confidence_base * (0.5 + 0.5 * focus_score) * dist_consistency
+        sig_q = float(ad_metrics.get('signal_quality', 0.5)) if ad_metrics else 0.5
+        # 3. 大一統修正矩陣 (Universal Behavior Modifier Matrix)
+        # [000529] 修正 A: 行為對焦子 (Focus)
+        m_focus = 0.5 + 0.5 * (np.sum(changes_sum**2) / (total_energy**2 + eps))
+        # [000906] 修正 B: 能量一致性子 (Consistency)
+        acc_cons = math.tanh(e_flow * 2.0) if e_flow > 0 else 0.1
+        dist_cons = math.tanh(abs(e_flow) * 2.0) if e_flow < 0 else 0.1
+        # [000920] 修正 C: 張力強化子 (Tension) - 針對底部脈衝
+        m_tension_boost = 1.0 + (math.log1p(tension) * 0.2) if current_price < p_mean else 1.0
+        # [000833] 修正 D: 斷層/風險過濾子 (Risk-Filter)
+        m_risk_gate = 0.2 if (is_fracture > 0.5 or sig_q < 0.1) else 1.0
+        # [000881] 修正 E: 狂熱壓制子 (Frenzy-Filter)
+        m_frenzy_acc = 0.3 if is_frenzy > 0.5 else 1.0
+        # 4. 行為意圖捲積合攏 (Final Intention Convolution)
+        km_pattern = 6.0; confidence_base = total_energy / (10.0 + total_energy)
+        # 吸籌強度 = 基礎 * 對焦 * 一致性 * 張力 * 狂熱壓制 * 風險門控
+        acc_final = (r_acc / (km_pattern + r_acc)) * confidence_base * m_focus * acc_cons * m_tension_boost * m_frenzy_acc * m_risk_gate
+        # 派發強度 = 基礎 * 對焦 * 一致性 * 風險門控
+        dist_final = (r_dist / (km_pattern + r_dist)) * confidence_base * m_focus * dist_cons * m_risk_gate
         patterns = {
-            'accumulation': {'strength': float(acc_strength), 'detected': acc_strength > 0.15},
-            'distribution': {'strength': float(dist_strength), 'detected': dist_strength > 0.15},
-            'behavior_focus_index': float(focus_score),
-            'intent_consistency': float(acc_consistency if acc_strength > dist_strength else dist_consistency)
+            'accumulation': {'strength': float(acc_final), 'detected': acc_final > 0.15},
+            'distribution': {'strength': float(dist_final), 'detected': dist_final > 0.15},
+            'behavior_focus_index': float(m_focus), 'intent_consistency': float(max(acc_cons, dist_cons)),
+            'main_force_activity': float(confidence_base * m_focus * (1.0 + tension * 0.1))
         }
-        # [步驟 10] 探針輸出
         if probe_state.get():
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
+            # 📡 [步驟 10] 全鏈路行為探針
             QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_identify_behavior_patterns_SENSOR", 
-                {"total_e": total_energy, "e_flow": e_flow}, 
-                {"focus": focus_score, "acc_cons": acc_consistency, "r_acc": r_acc}, patterns)
+                {"r_acc": r_acc, "tension": tension}, 
+                {"m_focus": m_focus, "m_cons": max(acc_cons, dist_cons), "m_risk": m_risk_gate}, patterns)
         return patterns
 
     def _build_normalized_chip_matrix(self, chip_history: list, current_chip_dist: pd.DataFrame) -> tuple:
