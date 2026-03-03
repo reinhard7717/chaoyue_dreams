@@ -6,13 +6,16 @@ from pathlib import Path
 from celery.schedules import crontab
 from kombu import Queue
 from datetime import timedelta
+from decouple import config, Csv
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# --- 安全配置 (从 .env 读取) ---
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = '6AEE029A-44A4-3404-A405-FB2C20085521'
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+SECRET_KEY = config('SECRET_KEY')
+# 默认生产环境为 False，本地开发可在 .env 中设为 True
+DEBUG = config('DEBUG', default=False, cast=bool)
+
 ALLOWED_HOSTS = [
     "chaoyuedreams.top",  # 你的域名
     "www.chaoyuedreams.top",
@@ -33,43 +36,46 @@ SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 X_FRAME_OPTIONS = 'DENY'
 
-# --- 开始: 动态获取本机IP并设置Redis主机 ---
+# --- 动态获取本机IP并设置Redis主机 ---
 def get_local_ip():
     """尝试获取本机的主要出站IP地址"""
     s = None
     try:
-        # 连接到一个外部地址（不需要实际发送数据）来确定本机用于出站连接的IP
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # 使用一个不太可能无法访问的公共DNS服务器
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
     except Exception:
-        # 如果获取失败，尝试使用hostname，或者回退到localhost
         try:
             ip = socket.gethostbyname(socket.gethostname())
         except socket.gaierror:
-            ip = '127.0.0.1' # 最终回退
+            ip = '127.0.0.1'
     finally:
         if s:
             s.close()
     return ip
 
 SERVER_IP = get_local_ip()
-TARGET_SERVER_IP = "39.101.65.133"
-REDIS_PASSWORD = 'dsufahnasilfbaspfonaofjnas' # 将密码定义在这里，方便复用
-REDIS_PORT = '6379'
+# 从 .env 读取目标服务器IP，如果没有则默认为空字符串导致走本地逻辑
+TARGET_SERVER_IP = config('TARGET_SERVER_IP', default='')
+
+# 从 .env 读取 Redis 和 DB 密码
+REDIS_PASSWORD = config('REDIS_PASSWORD')
+REDIS_PORT = config('REDIS_PORT', default='6379')
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# 动态逻辑判断
 if SERVER_IP == TARGET_SERVER_IP or SERVER_IP == '172.30.93.158':
     REDIS_HOST_DYNAMIC = '127.0.0.1'
-    MYSQL_HOST_DYNAMIC = '127.0.0.1'
-    STRATEGY_DATA_DIR = '/data/chaoyue_dreams/models'
+    MYSQL_HOST_DYNAMIC = config('DB_HOST', default='127.0.0.1') # 优先读取 env，否则默认本地
+    STRATEGY_DATA_DIR = config('STRATEGY_DATA_DIR', default='/data/chaoyue_dreams/models')
     print(f"检测到服务器IP为 {SERVER_IP}，Redis Host 设置为: 127.0.0.1，STRATEGY_DATA_DIR：{STRATEGY_DATA_DIR}")
 else:
-    REDIS_HOST_DYNAMIC = TARGET_SERVER_IP
-    MYSQL_HOST_DYNAMIC = TARGET_SERVER_IP
+    # 如果不是目标服务器，则远程连接
+    REDIS_HOST_DYNAMIC = TARGET_SERVER_IP if TARGET_SERVER_IP else '127.0.0.1'
+    MYSQL_HOST_DYNAMIC = TARGET_SERVER_IP if TARGET_SERVER_IP else '127.0.0.1'
     STRATEGY_DATA_DIR = str(BASE_DIR / 'models')
-    print(f"检测到服务器IP为 {SERVER_IP} (非 {TARGET_SERVER_IP})，Redis Host 设置为: {TARGET_SERVER_IP}，STRATEGY_DATA_DIR：{STRATEGY_DATA_DIR}")
+    print(f"检测到服务器IP为 {SERVER_IP} (非 {TARGET_SERVER_IP})，Redis Host 设置为: {REDIS_HOST_DYNAMIC}，STRATEGY_DATA_DIR：{STRATEGY_DATA_DIR}")
 
 # --- 结束: 动态获取本机IP并设置Redis主机 ---
 
@@ -151,16 +157,16 @@ CHANNEL_LAYERS = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'beyond_dreams',
-        'USER': 'stocker',
-        'PASSWORD': '迫害u防溺水；‘给猫狗猫狗插座拿上；哦’',
-        'HOST': MYSQL_HOST_DYNAMIC,  # 数据库地址保持不变
-        'PORT': '3306',
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': MYSQL_HOST_DYNAMIC,
+        'PORT': config('DB_PORT', default='3306'),
         'OPTIONS': {
             'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'; SET SESSION wait_timeout=86400;",  # 添加wait_timeout设置为2400秒
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'; SET SESSION wait_timeout=86400;",
         },
-        'CONN_MAX_AGE': 86400,  # 如上所述
+        'CONN_MAX_AGE': 86400,
     }
 }
 
@@ -489,7 +495,8 @@ INDEX_CACHE_TIMEOUT = {
     'technical_indicators': 300,  # 技术指标缓存5分钟
 }
 
-API_LICENCES_TUSHARE = '0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c'
+# Tushare Token 从 .env 读取
+API_LICENCES_TUSHARE = config('TUSHARE_TOKEN')
 
 # Celery基础配置
 # 使用动态获取的 Redis 主机地址和密码变量
