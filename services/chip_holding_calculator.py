@@ -597,8 +597,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 45.0.0] 大一統決策引擎 - 實施 10 步檢查法之「空中斷層坍塌 (Fracture Collapse)」疊加版
-        說明：針對 001331.SZ 在下跌中途觸發的 fracture_risk_flag (空中斷層：價格分位不低但獲利盤極低)，新增 m_fracture 因子，強制破壞此時的結構場得分，防禦自由落體過程中的虛假支撐。
+        [Version 46.0.0] 大一統決策引擎 - 實施 10 步檢查法之「單極化奇點鎖定 (Singularity)」疊加版
+        說明：針對 000860.SZ 在中高價區展現出的絕對單極化密集 (density ≈ 1.0, main_cost > 0.8)，新增 m_singularity 因子，捕捉主力絕對控盤下的高勢能死鎖狀態，填補了 m_pinning 因子對非低價股的盲區。
         """
         import numpy as np
         import math
@@ -625,7 +625,6 @@ class AdvancedChipDynamicsService:
             if len(closes) > 1 and closes[-1] > closes[-2] and e_flow < 0: metrics['chip_rsi_divergence'] = float(-1.0 * abs(e_flow))
             elif len(closes) > 1 and closes[-1] < closes[-2] and e_flow > 0: metrics['chip_rsi_divergence'] = float(1.0 * e_flow)
             else: metrics['chip_rsi_divergence'] = 0.0
-            
             if chip_matrix.shape[0] >= 5:
                 p_old = chip_matrix[-5] / (np.sum(chip_matrix[-5]) + 1e-10)
                 mean_5d_ago = float(np.sum(p_old * price_grid))
@@ -638,17 +637,11 @@ class AdvancedChipDynamicsService:
             else:
                 metrics['peak_migration_speed_5d'] = 0.0
                 metrics['chip_stability_change_5d'] = 0.0
-
             mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
             mig_dir = float(mig_p.get('net_migration_direction', 0.0)); winner_rate = float(conc_metrics.get('winner_rate', 0.5))
-            
-            if winner_rate > 0.9 and e_flow < -0.1 and metrics['chip_rsi_divergence'] < 0:
-                metrics['reversal_warning_score'] = float(min(1.0, abs(e_flow) * 2.0))
-            elif winner_rate < 0.1 and e_flow > 0.1 and metrics['chip_rsi_divergence'] > 0:
-                metrics['reversal_warning_score'] = float(min(1.0, e_flow * 2.0))
-            else:
-                metrics['reversal_warning_score'] = 0.0
-
+            if winner_rate > 0.9 and e_flow < -0.1 and metrics['chip_rsi_divergence'] < 0: metrics['reversal_warning_score'] = float(min(1.0, abs(e_flow) * 2.0))
+            elif winner_rate < 0.1 and e_flow > 0.1 and metrics['chip_rsi_divergence'] > 0: metrics['reversal_warning_score'] = float(min(1.0, e_flow * 2.0))
+            else: metrics['reversal_warning_score'] = 0.0
             etc_score = (e_flow * mig_dir) / (abs(e_flow) + (1e-6 if abs(e_flow)<1e-4 else 0.05))
             m_etc = 0.75 + 0.25 * math.tanh(etc_score * 3.0)
             m_gravity = 1.0 - (abs(min(0, metrics['price_to_ma21_ratio'])) / 25.0) if metrics['price_to_ma21_ratio'] < -5.0 else 1.0
@@ -682,17 +675,19 @@ class AdvancedChipDynamicsService:
             m_climax = 1.0 + 0.8 * math.tanh((total_e - 20.0) / 20.0) if ((p_pos < 0.1 or winner_rate < 0.1) and total_e > 25.0) else 1.0
             high_lock_90 = float(conc_metrics.get('high_position_lock_ratio_90', 0.2))
             m_washout = 1.0 + 0.3 * math.exp(-high_lock_90 * 20.0) if (high_lock_90 < 0.05 and current_concentration < 0.4) else 1.0
-
-            # 🧪 [10步檢查法 - 步驟 4.2] 新增 m_fracture：空中斷層坍塌因子
-            # 物理意義：當價格處於半空中（並非絕對底部），但腳下毫無籌碼支撐（獲利盤極低）時，結構呈現極端脆弱的真空狀態，必須熔斷。
             is_fracture = float(conc_metrics.get('fracture_risk_flag', 0.0))
             m_fracture = 0.4 if is_fracture > 0.5 else 1.0
+
+            # 🧪 [10步檢查法 - 步驟 4.2] 新增 m_singularity：單極化奇點鎖定因子
+            # 物理意義：無論價格高低，當能量密度逼近 1.0 且主成本區極度集中 (>0.8) 時，代表絕對控盤的休眠狀態。
+            # 只要不是高位出貨(winner_rate < 0.8)，就給予結構場強力的穩定性溢價。
+            m_singularity = 1.0 + 0.5 * density if (density > 0.95 and main_cost > 0.8 and winner_rate < 0.8) else 1.0
 
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
             kinetic_score = float(np.clip(energy_term * m_etc * m_disintegrate * m_fatigue * m_exhaustion * m_pulse * m_breakout * m_climax, 0.0, 1.0))
             struct_base = 0.5 + (current_concentration * 0.5)
-            # 🧪 [大一統合攏] 將 m_fracture 納入結構場
-            structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind * m_pinning * m_abyss * m_washout * m_fracture, 0.0, 1.0))
+            # 🧪 [大一統合攏] 將 m_singularity 納入結構場
+            structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind * m_pinning * m_abyss * m_washout * m_fracture * m_singularity, 0.0, 1.0))
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             gravity_score = float(np.clip(ma_trend * m_gravity * m_rebound_trap * m_frenzy_breaker, 0.0, 1.0))
             metrics['trend_confirmation_score'] = float(kinetic_score * 0.4 + structural_score * 0.4 + gravity_score * 0.2)
@@ -702,8 +697,8 @@ class AdvancedChipDynamicsService:
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_PHASE_SPACE", 
-                    {"total_e": total_e, "is_fracture": is_fracture, "winner": winner_rate}, 
-                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score, "mods_s": [m_inertia, m_compression, m_drag, m_loosening, m_spring, m_grind, m_pinning, m_abyss, m_washout, m_fracture]}, 
+                    {"density": density, "main_cost": main_cost, "winner": winner_rate}, 
+                    {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score, "mods_s": [m_pinning, m_abyss, m_washout, m_fracture, m_singularity]}, 
                     {"final_trend_score": metrics['trend_confirmation_score']})
             return metrics
         except Exception: return metrics
