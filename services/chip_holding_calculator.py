@@ -595,8 +595,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 37.0.0] 大一統決策引擎 - 實施 10 步檢查法之「突破勢能共振」疊加版
-        說明：針對 001219.SZ 洗盤後突破場景，引入 m_breakout (突破勢能因子)，將 GameEnergyCalculator 輸出的 breakout_potential 正式納入最終捲積陣列，精準捕獲向上攻擊信號。
+        [Version 38.0.0] 大一統決策引擎 - 實施 10 步檢查法之「磨底結構 (Grinding Bottom)」疊加版
+        說明：針對 001230.SZ 長期處於極低獲利盤且高換手的磨底狀態，引入 m_grind 因子，給予底部持續抵抗的籌碼結構正向補償。
         """
         import numpy as np
         import math
@@ -647,19 +647,20 @@ class AdvancedChipDynamicsService:
             m_loosening = math.exp(-(max(0, tension - 0.5)) * 2.0) if winner_rate > 0.7 else 1.0
             m_spring = 1.0 + 0.4 * math.tanh(max(0, tension - 1.0)) if winner_rate < 0.4 else 1.0
             m_pulse = 1.0 + 0.3 * math.tanh(total_e / 20.0) if (winner_rate < 0.4 and total_e > 10.0 and abs(e_flow) < 2.0) else 1.0
-            # 🧪 [10步檢查法 - 步驟 4.2 & 8] 場景修正：向上突破勢能 (Breakout Potential)
-            # 當探針顯示 breakout_potential 飆升時，賦予強大的向上確認乘數。
             breakout = float(energy_metrics.get('breakout_potential', 0.0))
             m_breakout = 1.0 + 0.5 * math.tanh(breakout / 20.0) if (breakout > 5.0 and current_concentration > 0.3 and tension < 0.6) else 1.0
+            # 🧪 [10步檢查法 - 步驟 4.2 & 8] 場景修正：磨底結構 (Grinding Bottom)
+            # 當獲利盤極低 (<10%)，且持續有能量交換 (total_e > 5) 但未形成突破時，給予底層結構補償。
+            m_grind = 1.0 + 0.3 * math.tanh((total_e - 5.0) / 10.0) if (winner_rate < 0.1 and total_e > 5.0 and breakout < 1.0) else 1.0
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            # 🧪 [步驟 9] 大一統決策合攏 (Universal Convergence) - 納入 14 級修正矩陣
-            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue * m_exhaustion * m_loosening * m_spring * m_pulse * m_breakout, 0.0, 1.0))
+            # 🧪 [步驟 9] 大一統決策合攏 (Universal Convergence) - 納入 15 級修正矩陣
+            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue * m_exhaustion * m_loosening * m_spring * m_pulse * m_breakout * m_grind, 0.0, 1.0))
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"total_e": total_e, "breakout": breakout, "tension": tension}, 
-                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression, m_drag, m_fatigue, m_exhaustion, m_loosening, m_spring, m_pulse, m_breakout], "final": metrics['trend_confirmation_score']}, metrics)
+                    {"total_e": total_e, "winner": winner_rate, "breakout": breakout}, 
+                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression, m_drag, m_fatigue, m_exhaustion, m_loosening, m_spring, m_pulse, m_breakout, m_grind], "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
