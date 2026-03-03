@@ -501,13 +501,13 @@ class AdvancedChipDynamicsService:
         return signals
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False, energy_metrics: Dict = None) -> Dict[str, float]:
-        """[Version 39.9.0] 濃度引擎物理量守恆版 - 確保歷史極值向下傳遞版"""
+        """[Version 40.0.0] 大一統濃度引擎 - 全場景邏輯疊加態合攏版"""
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         eps = 1e-10; p = current_chip_dist / (np.sum(current_chip_dist) + eps); cdf = np.cumsum(p)
+        # 1. 基礎物理層 (Base Physics) - 指標守恆
         c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
-        # 🧪 [步驟 9] 物理量守恆：從 price_history 提取真實極值，而非依賴當前網格
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else price_grid.min()
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else price_grid.max()
         m_range = max(h_high - h_low, eps); core_range = max(c85 - c15, eps); total_range = max(c95 - c05, eps)
@@ -515,18 +515,38 @@ class AdvancedChipDynamicsService:
         winner_rate = float(np.interp(current_price, price_grid, cdf))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        # 捲積 Modifiers (保留原有空中斷層與高海拔修正)
+        # 2. 場景修正層 (Cumulative Modifiers) - 邏輯疊加態
+        lambda_final = 1.8
+        # [000906] 修正 A: 低價梯級補償 (Low-Price)
         m_lp = 0.65 if current_price < 5.0 else (0.85 if current_price < 10.0 else 1.0)
-        m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.25) else 1.0
-        m_spring = 0.75 if (main_cost_ratio > 0.75 and conc_ratio > 0.5) else 1.0
+        # [000598] 修正 B: 結構內聚保護 (Spring-Inertia)
+        m_spring = 0.75 if (main_cost_ratio > 0.7 and conc_ratio > 0.4) else 1.0
+        # [000931] 修正 C: 深谷冬眠修正 (Deep-Valley)
+        m_valley = 0.5 if (winner_rate < 0.15 and p_pos < 0.2) else 1.0
+        # [001317] 修正 D: 高位脆性修正 (High-Price Brittleness)
+        e_flow = float(energy_metrics.get('net_energy_flow', 0.0)) if energy_metrics else 0.0
+        m_brittle = 1.5 if (current_price > 35.0 and conc_ratio > 0.6 and e_flow < -0.5) else 1.0
+        # [000833] 修正 E: 空中斷層修正 (Fracture-Zone)
         is_fracture = (p_pos > 0.3 and winner_rate < 0.1)
-        m_frac = 1.6 if is_fracture else 1.0
-        lambda_final = 1.8 * m_lp * m_valley * m_spring * m_frac
-        metrics = {'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio), 'chip_stability': float(math.exp(-lambda_final * (total_range / m_range))), 'winner_rate': winner_rate, 'price_percentile_position': float(p_pos), 'main_cost_range_ratio': main_cost_ratio, 'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95, 'his_low': h_low, 'his_high': h_high, 'fracture_risk_flag': float(1.0 if is_fracture else 0.0)}
-        metrics['chip_surface_tension'] = float(metrics['chip_concentration_ratio'] / (0.1 + p_pos))
+        m_fracture = 1.6 if is_fracture else 1.0
+        # [000881] 修正 F: 狂熱區風險修正 (Frenzy)
+        m_frenzy = 1.4 if (winner_rate > 0.9) else 1.0
+        # 🧪 [大一統捲積]：所有因子全量參與計算，不遺棄任何歷史病誌
+        lambda_final = lambda_final * m_lp * m_spring * m_valley * m_brittle * m_fracture * m_frenzy
+        lambda_final = max(0.3, min(3.0, lambda_final))
+        metrics = {
+            'chip_mean': float(np.sum(p * price_grid)), 'chip_concentration_ratio': float(conc_ratio),
+            'chip_stability': float(math.exp(-lambda_final * (total_range / m_range))),
+            'winner_rate': winner_rate, 'price_percentile_position': float(p_pos),
+            'main_cost_range_ratio': main_cost_ratio, 'cost_5pct': c05, 'cost_15pct': c15, 'cost_50pct': c50, 'cost_85pct': c85, 'cost_95pct': c95, 'his_low': h_low, 'his_high': h_high,
+            'fracture_risk_flag': float(1.0 if is_fracture else 0.0), 'chip_surface_tension': float(conc_ratio / (0.1 + p_pos))
+        }
         if probe_state.get():
             from services.chip_holding_calculator import QuantitativeTelemetryProbe
-            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", {"price": current_price, "main_cost": main_cost_ratio}, {"h_high": h_high, "h_low": h_low, "lambda": lambda_final}, metrics)
+            # 📡 [步驟 10] 全方位探針：暴露所有捲積修正子
+            QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_concentration_metrics", 
+                {"price": current_price, "winner": winner_rate}, 
+                {"modifiers": [m_lp, m_spring, m_valley, m_brittle, m_fracture, m_frenzy], "lambda": lambda_final}, metrics)
         return metrics
 
     def _get_default_concentration_metrics(self) -> Dict[str, float]:
@@ -580,52 +600,47 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 28.6.0] 博弈共振引擎 - 實施梯級均線降級與全量歷史極值補全版"""
+        """[Version 29.0.0] 博弈共振大一統決策引擎 - 實施全維度捲積與遺產繼承版"""
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
-            # 🧪 [步驟 9] 物理量合攏：強制提取歷史極值與均線系統
+            # 1. 物理量補完 (消除孤島)
             closes = price_history['close_qfq'].values.astype(np.float32)
-            metrics['his_low'] = float(price_history['low_qfq'].min())
-            metrics['his_high'] = float(price_history['high_qfq'].max())
-            def calc_ma_ratio_flexible(p_arr, window, curr_p):
-                # 實施降級生存：若長線數據不足，以現有最長數據為準
-                actual_win = min(len(p_arr), window)
-                if actual_win < 5: return 0.0
-                ma = np.mean(p_arr[-actual_win:]); return float((curr_p - ma) / (ma + 1e-8) * 100.0)
-            metrics['price_to_ma5_ratio'] = calc_ma_ratio_flexible(closes, 5, current_price)
-            metrics['price_to_ma21_ratio'] = calc_ma_ratio_flexible(closes, 21, current_price)
-            metrics['price_to_ma34_ratio'] = calc_ma_ratio_flexible(closes, 34, current_price)
-            metrics['price_to_ma55_ratio'] = calc_ma_ratio_flexible(closes, 55, current_price)
-            # 梯級排列判定 (Arrangement Status)
-            ma5 = np.mean(closes[-min(len(closes),5):]); ma21 = np.mean(closes[-min(len(closes),21):])
-            metrics['ma_arrangement_status'] = 1 if ma5 > ma21 else -1
-            if len(closes) >= 55:
-                ma34, ma55 = np.mean(closes[-34:]), np.mean(closes[-55:])
-                if ma5 > ma21 > ma34 > ma55: metrics['ma_arrangement_status'] = 2 # 強多頭
-            # 🧪 [步驟 4 & 9] 疊加態修正：顯微鏡式能量效率捲積
-            e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
+            metrics['his_low'] = float(price_history['low_qfq'].min()); metrics['his_high'] = float(price_history['high_qfq'].max())
+            def calc_ma(p, w): return float((current_price - np.mean(p[-min(len(p), w):])) / (np.mean(p[-min(len(p), w):]) + 1e-8) * 100.0)
+            metrics['price_to_ma5_ratio'] = calc_ma(closes, 5); metrics['price_to_ma21_ratio'] = calc_ma(closes, 21)
+            metrics['ma_arrangement_status'] = 1 if np.mean(closes[-5:]) > np.mean(closes[-21:]) else -1
+            # 2. 跨層級捲積指標獲取
+            e_flow = float(energy_metrics.get('net_energy_flow', 0.0)); total_e = float(ad_metrics.get('raw_energy', 1.0))
             mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
             mig_dir = float(mig_p.get('net_migration_direction', 0.0))
-            # 針對 000951 微能區 (e_flow ~ 10^-5) 的放大修正
-            etc_sens = 1e-6 if abs(e_flow) < 1e-4 else 0.05
-            etc_score = (e_flow * mig_dir) / (abs(e_flow) + etc_sens)
-            modifier_etc = 0.75 + 0.25 * math.tanh(etc_score * 5.0)
-            # 最終得分：技術面與籌碼面的物理捲積
+            winner_rate = float(conc_metrics.get('winner_rate', 0.5))
+            # 3. 疊加態修正子矩陣 (Superposition Matrix)
+            # [000951] 能量效率放大子
+            etc_score = (e_flow * mig_dir) / (abs(e_flow) + 1e-6); modifier_etc = 0.75 + 0.25 * math.tanh(etc_score * 4.0)
+            # [000931] 地量蓄勢補償 (Hibernation)
+            is_hibernation = (total_e < 2.0 and float(conc_metrics.get('main_cost_range_ratio', 0.5)) > 0.7)
+            modifier_quiet = 1.0 / (1.0 + math.exp(-6.0 * (total_e - 1.2)))
+            # [000965] 結構慣性補償 (Inertia)
+            m_inertia = 1.0 + (math.exp(winner_rate - 0.85) - 1.0) * (1.0 + mig_dir) if (winner_rate > 0.85 and mig_dir > 0.1) else 1.0
+            # [000833] 斷層熔斷子 (Fracture Breaker)
+            m_fracture = 0.05 if (float(conc_metrics.get('fracture_risk_flag', 0.0)) > 0.5) else 1.0
+            # [000881] 狂熱死鎖熔斷 (Frenzy Breaker)
+            m_frenzy_breaker = 0.2 if (winner_rate > 0.9 and mig_dir > 0.3 and e_flow <= 0.05) else 1.0
+            # 4. 大一統最終捲積 (The Grand Convergence)
             ma_trend = 0.5 + 0.1 * metrics['ma_arrangement_status'] + 0.01 * np.clip(metrics['price_to_ma5_ratio'], -10, 10)
-            trend_base = ma_trend * (0.5 + 0.5 * math.tanh(e_flow * 0.4))
-            metrics['trend_confirmation_score'] = float(np.clip(trend_base * modifier_etc, 0.0, 1.0))
-            metrics['etc_deadlock_modifier'] = float(modifier_etc)
+            energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
+            # 趨勢分 = 技術底色 * 捲積(能量, 慣性) * 各類熔斷/修正因子
+            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * modifier_etc * modifier_quiet * m_fracture * m_frenzy_breaker, 0.0, 1.0))
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                # 📡 [步驟 10] 全鏈路探針合攏
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"e_flow": e_flow, "ma5": metrics['price_to_ma5_ratio']}, 
-                    {"m_etc": modifier_etc, "ma_status": metrics['ma_arrangement_status']}, metrics)
+                    {"e_flow": e_flow, "ma_status": metrics['ma_arrangement_status']}, 
+                    {"m_etc": modifier_etc, "m_inertia": m_inertia, "m_breaker": min(m_fracture, m_frenzy_breaker)}, metrics)
             return metrics
-        except Exception: return metrics
+        except Exception as e: return metrics
 
     async def analyze_chip_dynamics_daily(self, stock_code: str, trade_date: str, lookback_days: int = 20, tick_data: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """[Version 26.2.0] 動態分析主引擎 - 實施全量技術面合攏與數據依賴鏈修補版"""
