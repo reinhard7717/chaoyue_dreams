@@ -554,48 +554,52 @@ class AdvancedChipDynamicsService:
         return {'entropy_concentration': 0.5, 'peak_concentration': 0.3, 'cv_concentration': 0.5, 'main_force_concentration': 0.2, 'comprehensive_concentration': 0.4, 'chip_skewness': 0.0, 'chip_kurtosis': 0.0, 'chip_mean': 0.0, 'chip_std': 0.0, 'weight_avg_cost': 0.0, 'cost_5pct': 0.0, 'cost_15pct': 0.0, 'cost_50pct': 0.0, 'cost_85pct': 0.0, 'cost_95pct': 0.0, 'winner_rate': 0.0, 'win_rate_price_position': 0.0, 'price_to_weight_avg_ratio': 0.0, 'high_position_lock_ratio_90': 0.0, 'main_cost_range_ratio': 0.0, 'chip_convergence_ratio': 0.0, 'chip_divergence_ratio': 0.0, 'chip_entropy': 0.0, 'chip_concentration_ratio': 0.0, 'chip_stability': 0.0, 'price_percentile_position': 0.0, 'his_low': 0.0, 'his_high': 0.0}
 
     def _calculate_holding_metrics(self, turnover_rate: float, chip_stability: float, conc_metrics: Dict = None, energy_metrics: Dict = None) -> Dict[str, float]:
-        """[Version 6.5.0] 疊加態籌碼持有期反演引擎 - 引入博弈溫度與心理阻尼捲積版"""
+        """[Version 6.6.0] 大一統疊加態持有期反演引擎 - 實施全場景心理阻尼捲積版"""
         import math
         import numpy as np
         metrics = {'short_term_chip_ratio': 0.2, 'mid_term_chip_ratio': 0.3, 'long_term_chip_ratio': 0.5, 'avg_holding_days': 60.0}
         try:
-            # 1. 基礎物理層 - MM飽和衰減模型 (Base State)
+            # 1. 基礎物理層 (Base Physics) - 換手率與穩定度映射
             tr = max(0.0001, 0.0 if math.isnan(turnover_rate) else float(turnover_rate) / 100.0)
-            short_vol_base = tr / (0.03 + tr) # Km=3%
+            short_vol_base = tr / (0.03 + tr) # Km=3% 換手率
             long_vol_base = 1.0 / (1.0 + math.log1p(tr * 10.0))
-            # 🧪 [步驟 9] 消除信息孤島：從各層獲取疊加態因子
+            # 2. 數據總線合攏 (Data Bus Convergence) - 獲取疊加態因子
             w_rate = float(conc_metrics.get('winner_rate', 0.5)) if conc_metrics else 0.5
             is_frenzy = float(conc_metrics.get('frenzy_risk_flag', 0.0)) if conc_metrics else 0.0
             is_fracture = float(conc_metrics.get('fracture_risk_flag', 0.0)) if conc_metrics else 0.0
+            is_brittle = float(conc_metrics.get('brittleness_flag', 0.0)) if conc_metrics else 0.0
+            is_inertia = float(conc_metrics.get('structural_inertia_modifier', 1.0)) > 1.1 if conc_metrics else False
             g_intensity = float(energy_metrics.get('game_intensity', 0.5)) if energy_metrics else 0.5
-            # 🧪 [步驟 4 & 8] 捲積修正層 (Modifiers)
-            # 修正 A: 狂熱加速子 (Frenzy Churn) - 獲利盤>90%時，熱錢流轉加速，降低真實持有期
+            # 3. 大一統修正矩陣 (Universal Modifier Matrix)
+            # [000881] 修正 A: 狂熱加速子 (Frenzy)
             m_churn = 1.0 + (is_frenzy * g_intensity * 0.5)
-            # 修正 B: 斷層恐慌子 (Fracture Panic) - 結構斷裂時，籌碼名義鎖定但隨時崩塌，實施長線折減
+            # [000833] 修正 B: 斷層恐慌子 (Fracture)
             m_panic = 1.0 - (is_fracture * 0.4)
-            # 修正 C: 底部凍結子 (Valley Freeze) - 低獲利且低能時，籌碼進入「冬眠態」
-            is_valley = (w_rate < 0.15)
-            m_freeze = 1.2 if is_valley else 1.0
-            # 2. 疊加態指標捲積計算
-            # 短線比例：基礎值 * 狂熱加速 * (1 - 穩定度)
-            metrics['short_term_chip_ratio'] = float(np.clip(short_vol_base * m_churn * (1.0 - chip_stability * 0.5), 0.05, 0.9))
-            # 長線比例：基礎值 * 斷層折減 * 穩定度 * 凍結修正
-            metrics['long_term_chip_ratio'] = float(np.clip(long_vol_base * m_panic * chip_stability * m_freeze, 0.05, 0.9))
-            # 平均持有天數：捲積博弈強度與流轉加速
+            # [000931/000906] 修正 C: 底部凍結子 (Valley)
+            m_freeze = 1.25 if (w_rate < 0.15) else 1.0
+            # [000965] 修正 D: 結構慣性子 (Inertia)
+            m_inertia_boost = 1.15 if is_inertia else 1.0
+            # [001317] 修正 E: 高位脆性子 (Brittleness)
+            m_brittle_decay = 0.85 if is_brittle else 1.0
+            # 4. 全量捲積合攏 (Final Convolution)
+            # 短線佔比：基礎 * 狂熱加速 * (1 - 穩定度) / 慣性鎖定
+            metrics['short_term_chip_ratio'] = float(np.clip(short_vol_base * m_churn * (1.0 - chip_stability * 0.5) / m_inertia_boost, 0.05, 0.95))
+            # 長線佔比：基礎 * 斷層壓制 * 穩定度 * 凍結 * 慣性 - 脆性損耗
+            metrics['long_term_chip_ratio'] = float(np.clip(long_vol_base * m_panic * chip_stability * m_freeze * m_inertia_boost * m_brittle_decay, 0.05, 0.95))
+            # 平均持有天數：物理基線 / 修正矩陣綜合影響
             base_days = 1.0 / (tr + 0.0005)
-            metrics['avg_holding_days'] = float(np.clip(base_days / (m_churn + 1e-5) * m_freeze, 1.0, 500.0))
-            # 歸一化處理 (確保不超過物理極限)
+            metrics['avg_holding_days'] = float(np.clip(base_days * m_freeze * m_inertia_boost / (m_churn * (2.0 - m_brittle_decay) + 1e-6), 1.0, 500.0))
+            # 歸一化與防溢出
             sum_sl = metrics['short_term_chip_ratio'] + metrics['long_term_chip_ratio']
-            if sum_sl > 0.95:
-                scale = 0.95 / sum_sl
-                metrics['short_term_chip_ratio'] *= scale; metrics['long_term_chip_ratio'] *= scale
+            if sum_sl > 0.98:
+                scale = 0.98 / sum_sl; metrics['short_term_chip_ratio'] *= scale; metrics['long_term_chip_ratio'] *= scale
             metrics['mid_term_chip_ratio'] = 1.0 - metrics['short_term_chip_ratio'] - metrics['long_term_chip_ratio']
+            # 5. 全鏈路探針輸出 (Telemetry)
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                # 📡 [步驟 10] 全鏈路探針輸出：物理底色 -> 心理修正項 -> 捲積指標
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_holding_metrics_STACK", 
-                    {"tr": tr, "intensity": g_intensity}, 
-                    {"m_churn": m_churn, "m_panic": m_panic, "m_freeze": m_freeze}, metrics)
+                    {"tr": tr, "winner": w_rate}, 
+                    {"m_churn": m_churn, "m_panic": m_panic, "m_freeze": m_freeze, "m_inertia": m_inertia_boost}, metrics)
             return metrics
         except Exception: return metrics
 
