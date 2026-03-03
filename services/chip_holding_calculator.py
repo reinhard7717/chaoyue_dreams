@@ -595,8 +595,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 32.0.0] 大一統決策引擎 - 實施全量累積修正矩陣與技術降級生存版
-        [更新说明] 新增 m_compression (空间压缩势能) 因子，针对均线粘合与筹码高度密集形态实施极性共振校准，捕获爆发前夜特征。
+        [Version 33.0.0] 大一統決策引擎 - 實施 10 步檢查法之「流體阻力與結構疲勞」疊加版
+        說明：根據 000951.SZ 探針日誌，強化了反彈受阻場景下的阻尼修正，引入 m_drag 與 m_fatigue 因子。
         """
         import numpy as np
         import math
@@ -618,27 +618,30 @@ class AdvancedChipDynamicsService:
             m_frenzy_breaker = 0.2 if (winner_rate > 0.9 and e_flow <= 0.05) else 1.0
             m_disintegrate = 0.5 if (total_e > 50.0 and abs(e_flow) < 1.0) else 1.0
             m_rebound_trap = 0.6 if (metrics['price_to_ma5_ratio'] > 0 and metrics['price_to_ma21_ratio'] < -3.0) else 1.0
-            # 🧪 [步驟 4 & 7] 新增修正因子：空間壓縮勢能 (Compression)
-            # 判斷均線黏合度 (MA5與MA21差值絕對值小於1.5%)
             ma_spread = abs(metrics['price_to_ma5_ratio'] - metrics['price_to_ma21_ratio'])
-            # 只有當籌碼高度集中且均線黏合時才啟動壓縮判定
             if current_concentration > 0.5 and ma_spread < 1.5:
-                # 極性共振校準：順勢爆發則強化(>1)，逆勢崩解則削弱(<1)
-                if e_flow > 0 and mig_dir > 0:
-                    m_compression = 1.0 + 0.4 * math.exp(-ma_spread) * current_concentration
-                else:
-                    m_compression = 1.0 - 0.3 * math.exp(-ma_spread) * current_concentration
-            else:
-                m_compression = 1.0
+                if e_flow > 0 and mig_dir > 0: m_compression = 1.0 + 0.4 * math.exp(-ma_spread) * current_concentration
+                else: m_compression = 1.0 - 0.3 * math.exp(-ma_spread) * current_concentration
+            else: m_compression = 1.0
+            # 🧪 [10步檢查法 - 步驟 4/7/8] 疊加態修正：流體阻力與疲勞
+            # m_drag: 根據探針日誌中高表面張力 (tension) 與 弱能量流 (e_flow) 的背離實施壓制
+            tension = float(conc_metrics.get('chip_surface_tension', 1.0))
+            visc = float(mig_p.get('viscosity_confidence', 0.5))
+            m_drag = 1.0 - (0.4 * tension * visc) if (metrics['price_to_ma21_ratio'] < 0 and e_flow < 0.01) else 1.0
+            # m_fatigue: 檢測能量流是否連續萎縮 (針對 000951.SZ 的 3.27 -> 2.24 過程)
+            energy_hist = [float(np.sum(np.abs(row))) for row in np.diff(chip_matrix, axis=0)[-3:]] if len(chip_matrix) > 3 else []
+            is_fading = all(energy_hist[i] > energy_hist[i+1] for i in range(len(energy_hist)-1)) if len(energy_hist) >= 2 else False
+            m_fatigue = 0.8 if is_fading else 1.0
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            # 🧪 [大一統捲積合攏] 將 m_compression 乘入最終得分
-            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression, 0.0, 1.0))
+            # 🧪 [步驟 9] 大一統決策合攏：捲積所有修正因子
+            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue, 0.0, 1.0))
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
+                # 🧪 [步驟 10] 全鏈路透明探針：輸出因子陣列
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"e_flow": e_flow, "ma21": metrics['price_to_ma21_ratio']}, 
-                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression], "final": metrics['trend_confirmation_score']}, metrics)
+                    {"e_flow": e_flow, "tension": tension, "is_fading": is_fading}, 
+                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression, m_drag, m_fatigue], "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
