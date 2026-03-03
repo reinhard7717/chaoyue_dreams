@@ -509,13 +509,14 @@ class AdvancedChipDynamicsService:
 
     def _calculate_concentration_metrics(self, current_chip_dist: np.ndarray, price_grid: np.ndarray, current_price: float, price_history: pd.DataFrame, is_history: bool = False, energy_metrics: Dict = None) -> Dict[str, float]:
         """
-        [Version 42.1.0] 大一統濃度引擎 - 補齊 high_position_lock_ratio_90 黑洞版
+        [Version 43.0.0] 大一統濃度引擎 - 致命語法級熔斷修復版
+        說明：緊急修復 np.np.interp 導致的 AttributeError 崩潰，維持所有高位套牢盤與結構張力的物理推演邏輯。
         """
         import numpy as np
         import math
         if len(current_chip_dist) == 0: return self._get_default_concentration_metrics()
         eps = 1e-10; p = current_chip_dist / (np.sum(current_chip_dist) + eps); cdf = np.cumsum(p)
-        c05, c15, c50, c85, c95 = [float(np.np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
+        c05, c15, c50, c85, c95 = [float(np.interp(q, cdf, price_grid)) for q in [0.05, 0.15, 0.50, 0.85, 0.95]]
         h_low = float(price_history['low_qfq'].min()) if not price_history.empty else price_grid.min()
         h_high = float(price_history['high_qfq'].max()) if not price_history.empty else price_grid.max()
         m_range = max(h_high - h_low, eps); core_range = max(c85 - c15, eps)
@@ -523,12 +524,8 @@ class AdvancedChipDynamicsService:
         winner_rate = float(np.interp(current_price, price_grid, cdf))
         p_pos = np.clip((current_price - h_low) / m_range, 0.0, 1.0)
         main_cost_ratio = float(np.sum(p * np.exp(-0.5 * ((price_grid - c50) / (0.05 * c50 + eps))**2)))
-        
-        # 🧪 [黑洞修復 1]：計算 high_position_lock_ratio_90
-        # 物理意義：歷史價格區間最頂部 10% 空間內，沉澱了多少籌碼（反映真正的死套牢盤）
         top_10_price_threshold = h_high - m_range * 0.1
         high_lock_ratio = float(np.sum(p[price_grid >= top_10_price_threshold]))
-        
         m_lp = 0.65 if current_price < 5.0 else (0.85 if current_price < 10.0 else 1.0)
         m_spring = 0.75 if (main_cost_ratio > 0.75 and conc_ratio > 0.5) else 1.0
         m_valley = 0.5 if (winner_rate < 0.2 and p_pos < 0.2) else 1.0
