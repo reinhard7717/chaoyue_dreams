@@ -595,8 +595,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 34.0.0] 大一統決策引擎 - 實施 10 步檢查法之「高位耗竭與脆性崩解」疊加版
-        說明：針對 000965.SZ 的 96% 獲利盤滯漲場景，引入 m_exhaustion (耗竭) 與 m_loosening (松動) 修正子。
+        [Version 35.0.0] 大一統決策引擎 - 實施 10 步檢查法之「極性張力反轉與底部彈簧」疊加版
+        說明：修復高張力因子 (tension) 在底部的誤殺。引入 winner_rate 作為極性開關：高位高張力=鬆動(m_loosening)，低位高張力=彈簧(m_spring)。新增底部巨量脈衝(m_pulse)識別。
         """
         import numpy as np
         import math
@@ -629,20 +629,21 @@ class AdvancedChipDynamicsService:
             energy_hist = [float(np.sum(np.abs(row))) for row in np.diff(chip_matrix, axis=0)[-3:]] if len(chip_matrix) > 3 else []
             is_fading = all(energy_hist[i] > energy_hist[i+1] for i in range(len(energy_hist)-1)) if len(energy_hist) >= 2 else False
             m_fatigue = 0.8 if is_fading else 1.0
-            # 🧪 [10步檢查法 - 步驟 4.2] 場景修正：高位耗竭與脆性 (Exhaustion & Loosening)
-            # m_exhaustion: 當獲利盤 > 90% 且能量衰減時，判定為“高位耗竭”，強度熔斷
             m_exhaustion = 1.0 - (0.5 * math.tanh(total_e / 5.0)) if (winner_rate > 0.9 and is_fading) else 1.0
-            # m_loosening: 表面張力快速上升意味著籌碼凝聚力崩解
-            m_loosening = math.exp(-(max(0, tension - 0.5)) * 2.0)
+            # 🧪 [10步檢查法 - 步驟 7] 極性共振校準：張力的物理意義由價格位置 (winner_rate) 決定
+            m_loosening = math.exp(-(max(0, tension - 0.5)) * 2.0) if winner_rate > 0.7 else 1.0
+            m_spring = 1.0 + 0.4 * math.tanh(max(0, tension - 1.0)) if winner_rate < 0.4 else 1.0
+            # 🧪 [10步檢查法 - 步驟 4.2] 場景修正：底部異常巨量脈衝 (Pulse)
+            m_pulse = 1.0 + 0.3 * math.tanh(total_e / 20.0) if (winner_rate < 0.4 and total_e > 10.0 and abs(e_flow) < 2.0) else 1.0
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
             # 🧪 [步驟 9] 大一統決策合攏 (Universal Convergence)
-            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue * m_exhaustion * m_loosening, 0.0, 1.0))
+            metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue * m_exhaustion * m_loosening * m_spring * m_pulse, 0.0, 1.0))
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
                 QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_FINAL", 
-                    {"e_flow": e_flow, "winner": winner_rate, "tension": tension}, 
-                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression, m_drag, m_fatigue, m_exhaustion, m_loosening], "final": metrics['trend_confirmation_score']}, metrics)
+                    {"total_e": total_e, "winner": winner_rate, "tension": tension}, 
+                    {"mods": [m_etc, m_gravity, m_inertia, m_frenzy_breaker, m_disintegrate, m_rebound_trap, m_compression, m_drag, m_fatigue, m_exhaustion, m_loosening, m_spring, m_pulse], "final": metrics['trend_confirmation_score']}, metrics)
             return metrics
         except Exception: return metrics
 
