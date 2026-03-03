@@ -595,8 +595,8 @@ class AdvancedChipDynamicsService:
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
         """
-        [Version 35.0.0] 大一統決策引擎 - 實施 10 步檢查法之「極性張力反轉與底部彈簧」疊加版
-        說明：修復高張力因子 (tension) 在底部的誤殺。引入 winner_rate 作為極性開關：高位高張力=鬆動(m_loosening)，低位高張力=彈簧(m_spring)。新增底部巨量脈衝(m_pulse)識別。
+        [Version 36.0.0] 大一統決策引擎 - 基礎物理量全息補完與結構黑洞修復版
+        說明：修復 MA34/MA55、均線排列、籌碼成本差值、波動率調整等基礎字段長期為 0.0 的系統級遺漏，確保 ChipFactorBase 模型獲得全量精確數據，同時完整繼承 13 級高階修正捲積陣列。
         """
         import numpy as np
         import math
@@ -608,7 +608,21 @@ class AdvancedChipDynamicsService:
             def calc_ma_safe(p, w): 
                 win = min(len(p), w); return float((current_price - np.mean(p[-win:])) / (np.mean(p[-win:]) + 1e-8) * 100.0) if win >= 2 else 0.0
             metrics['price_to_ma5_ratio'] = calc_ma_safe(closes, 5); metrics['price_to_ma21_ratio'] = calc_ma_safe(closes, 21)
+            metrics['price_to_ma34_ratio'] = calc_ma_safe(closes, 34); metrics['price_to_ma55_ratio'] = calc_ma_safe(closes, 55)
+            ma5_v = np.mean(closes[-min(len(closes), 5):]) if len(closes) >= 5 else current_price
+            ma21_v = np.mean(closes[-min(len(closes), 21):]) if len(closes) >= 21 else current_price
+            ma34_v = np.mean(closes[-min(len(closes), 34):]) if len(closes) >= 34 else current_price
+            ma55_v = np.mean(closes[-min(len(closes), 55):]) if len(closes) >= 55 else current_price
+            if ma5_v > ma21_v > ma34_v > ma55_v: metrics['ma_arrangement_status'] = 1.0
+            elif ma5_v < ma21_v < ma34_v < ma55_v: metrics['ma_arrangement_status'] = -1.0
+            else: metrics['ma_arrangement_status'] = 0.0
+            metrics['chip_cost_to_ma21_diff'] = float((chip_mean - ma21_v) / (ma21_v + 1e-8) * 100.0)
+            volatility = float(np.std(np.diff(closes[-20:]) / (closes[-21:-1] + 1e-8))) if len(closes) > 5 else 0.02
+            metrics['volatility_adjusted_concentration'] = float(current_concentration * math.exp(-volatility * 10.0))
             e_flow = float(energy_metrics.get('net_energy_flow', 0.0)); total_e = float(ad_metrics.get('raw_energy', 1.0))
+            if len(closes) > 1 and closes[-1] > closes[-2] and e_flow < 0: metrics['chip_rsi_divergence'] = float(-1.0 * abs(e_flow))
+            elif len(closes) > 1 and closes[-1] < closes[-2] and e_flow > 0: metrics['chip_rsi_divergence'] = float(1.0 * e_flow)
+            else: metrics['chip_rsi_divergence'] = 0.0
             mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
             mig_dir = float(mig_p.get('net_migration_direction', 0.0)); winner_rate = float(conc_metrics.get('winner_rate', 0.5))
             etc_score = (e_flow * mig_dir) / (abs(e_flow) + (1e-6 if abs(e_flow)<1e-4 else 0.05))
@@ -630,14 +644,11 @@ class AdvancedChipDynamicsService:
             is_fading = all(energy_hist[i] > energy_hist[i+1] for i in range(len(energy_hist)-1)) if len(energy_hist) >= 2 else False
             m_fatigue = 0.8 if is_fading else 1.0
             m_exhaustion = 1.0 - (0.5 * math.tanh(total_e / 5.0)) if (winner_rate > 0.9 and is_fading) else 1.0
-            # 🧪 [10步檢查法 - 步驟 7] 極性共振校準：張力的物理意義由價格位置 (winner_rate) 決定
             m_loosening = math.exp(-(max(0, tension - 0.5)) * 2.0) if winner_rate > 0.7 else 1.0
             m_spring = 1.0 + 0.4 * math.tanh(max(0, tension - 1.0)) if winner_rate < 0.4 else 1.0
-            # 🧪 [10步檢查法 - 步驟 4.2] 場景修正：底部異常巨量脈衝 (Pulse)
             m_pulse = 1.0 + 0.3 * math.tanh(total_e / 20.0) if (winner_rate < 0.4 and total_e > 10.0 and abs(e_flow) < 2.0) else 1.0
             ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
             energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            # 🧪 [步驟 9] 大一統決策合攏 (Universal Convergence)
             metrics['trend_confirmation_score'] = float(np.clip(ma_trend * max(energy_term, 0.4 * m_inertia) * m_etc * m_gravity * m_frenzy_breaker * m_disintegrate * m_rebound_trap * m_compression * m_drag * m_fatigue * m_exhaustion * m_loosening * m_spring * m_pulse, 0.0, 1.0))
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
