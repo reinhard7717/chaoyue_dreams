@@ -625,101 +625,53 @@ class AdvancedChipDynamicsService:
         except Exception: return metrics
 
     def _calculate_technical_metrics(self, price_history: pd.DataFrame, current_price: float, chip_mean: float, current_concentration: float, chip_matrix: np.ndarray, price_grid: np.ndarray, morph_metrics: Dict, energy_metrics: Dict, conc_metrics: Dict, ad_metrics: Dict, tick_factors: Dict = None) -> Dict[str, float]:
-        """[Version 48.0.0] 大一統決策引擎 - 實施「達摩克利斯之劍 (Damocles)」全域壓制疊加版"""
+        """
+        [Version 49.0.0] 大一统决策引擎 - 探针实战修正版
+        说明：引入探针日志中观测到的 m_damocles 压制逻辑。针对 000529.SZ 这种筹码极度密集
+        但股价处于相对高位的标的，计算其“结构性脆性”。使用米氏方程计算动能转化效率。
+        """
         import numpy as np
         import math
         metrics = self._get_default_technical_metrics()
         if price_history is None or price_history.empty: return metrics
         try:
             closes = price_history['close_qfq'].values.astype(np.float32)
-            metrics['his_low'] = float(price_history['low_qfq'].min()); metrics['his_high'] = float(price_history['high_qfq'].max())
+            # 1. 基础物理层：均线系统与乖离率
             def calc_ma_safe(p, w): 
                 win = min(len(p), w); return float((current_price - np.mean(p[-win:])) / (np.mean(p[-win:]) + 1e-8) * 100.0) if win >= 2 else 0.0
-            metrics['price_to_ma5_ratio'] = calc_ma_safe(closes, 5); metrics['price_to_ma21_ratio'] = calc_ma_safe(closes, 21)
-            metrics['price_to_ma34_ratio'] = calc_ma_safe(closes, 34); metrics['price_to_ma55_ratio'] = calc_ma_safe(closes, 55)
-            ma5_v = np.mean(closes[-min(len(closes), 5):]) if len(closes) >= 5 else current_price
-            ma21_v = np.mean(closes[-min(len(closes), 21):]) if len(closes) >= 21 else current_price
-            ma34_v = np.mean(closes[-min(len(closes), 34):]) if len(closes) >= 34 else current_price
-            ma55_v = np.mean(closes[-min(len(closes), 55):]) if len(closes) >= 55 else current_price
-            if ma5_v > ma21_v > ma34_v > ma55_v: metrics['ma_arrangement_status'] = 1.0
-            elif ma5_v < ma21_v < ma34_v < ma55_v: metrics['ma_arrangement_status'] = -1.0
-            else: metrics['ma_arrangement_status'] = 0.0
-            metrics['chip_cost_to_ma21_diff'] = float((chip_mean - ma21_v) / (ma21_v + 1e-8) * 100.0)
-            volatility = float(np.std(np.diff(closes[-20:]) / (closes[-21:-1] + 1e-8))) if len(closes) > 5 else 0.02
-            metrics['volatility_adjusted_concentration'] = float(current_concentration * math.exp(-volatility * 10.0))
-            e_flow = float(energy_metrics.get('net_energy_flow', 0.0)); total_e = float(ad_metrics.get('raw_energy', 1.0))
-            if len(closes) > 1 and closes[-1] > closes[-2] and e_flow < 0: metrics['chip_rsi_divergence'] = float(-1.0 * abs(e_flow))
-            elif len(closes) > 1 and closes[-1] < closes[-2] and e_flow > 0: metrics['chip_rsi_divergence'] = float(1.0 * e_flow)
-            else: metrics['chip_rsi_divergence'] = 0.0
-            if chip_matrix.shape[0] >= 5:
-                p_old = chip_matrix[-5] / (np.sum(chip_matrix[-5]) + 1e-10)
-                mean_5d_ago = float(np.sum(p_old * price_grid))
-                metrics['peak_migration_speed_5d'] = float((chip_mean - mean_5d_ago) / (mean_5d_ago + 1e-8) * 100.0)
-                cdf_old = np.cumsum(p_old); eps = 1e-10
-                c05_old, c95_old = float(np.interp(0.05, cdf_old, price_grid)), float(np.interp(0.95, cdf_old, price_grid))
-                macro_range = max(metrics['his_high'] - metrics['his_low'], price_grid.max() - price_grid.min(), c95_old - c05_old, eps)
-                stab_5d_ago = math.exp(-1.5 * min(1.0, max(c95_old - c05_old, eps) / macro_range))
-                current_stab = float(conc_metrics.get('chip_stability', stab_5d_ago))
-                metrics['chip_stability_change_5d'] = float(current_stab - stab_5d_ago)
-            else:
-                metrics['peak_migration_speed_5d'] = 0.0; metrics['chip_stability_change_5d'] = 0.0
-            mig_p = self._calculate_migration_patterns(np.diff(chip_matrix, axis=0), chip_matrix, price_grid, energy_metrics, conc_metrics)
-            mig_dir = float(mig_p.get('net_migration_direction', 0.0)); winner_rate = float(conc_metrics.get('winner_rate', 0.5))
-            if winner_rate > 0.9 and e_flow < -0.1 and metrics['chip_rsi_divergence'] < 0: metrics['reversal_warning_score'] = float(min(1.0, abs(e_flow) * 2.0))
-            elif winner_rate < 0.1 and e_flow > 0.1 and metrics['chip_rsi_divergence'] > 0: metrics['reversal_warning_score'] = float(min(1.0, e_flow * 2.0))
-            else: metrics['reversal_warning_score'] = 0.0
-            etc_score = (e_flow * mig_dir) / (abs(e_flow) + (1e-6 if abs(e_flow)<1e-4 else 0.05))
-            m_etc = 0.75 + 0.25 * math.tanh(etc_score * 3.0)
-            m_gravity = 1.0 - (abs(min(0, metrics['price_to_ma21_ratio'])) / 25.0) if metrics['price_to_ma21_ratio'] < -5.0 else 1.0
-            m_inertia = 1.0 + (math.exp(winner_rate - 0.85) - 1.0) * (1.0 + mig_dir) if (winner_rate > 0.85 and mig_dir > 0.1) else 1.0
-            m_frenzy_breaker = 0.2 if (winner_rate > 0.9 and e_flow <= 0.05) else 1.0
-            m_disintegrate = 0.5 if (total_e > 50.0 and abs(e_flow) < 1.0) else 1.0
-            m_rebound_trap = 0.6 if (metrics['price_to_ma5_ratio'] > 0 and metrics['price_to_ma21_ratio'] < -3.0) else 1.0
-            ma_spread = abs(metrics['price_to_ma5_ratio'] - metrics['price_to_ma21_ratio'])
-            if current_concentration > 0.5 and ma_spread < 1.5:
-                if e_flow > 0 and mig_dir > 0: m_compression = 1.0 + 0.4 * math.exp(-ma_spread) * current_concentration
-                else: m_compression = 1.0 - 0.3 * math.exp(-ma_spread) * current_concentration
-            else: m_compression = 1.0
+            metrics['price_to_ma5_ratio'] = calc_ma_safe(closes, 5)
+            metrics['price_to_ma21_ratio'] = calc_ma_safe(closes, 21)
+            # 2. 场景修正层 (Modifiers)
+            winner_rate = float(conc_metrics.get('winner_rate', 0.5))
+            high_lock_90 = float(conc_metrics.get('high_position_lock_ratio_90', 0.0))
+            e_flow = float(energy_metrics.get('net_energy_flow', 0.0))
             tension = float(conc_metrics.get('chip_surface_tension', 1.0))
-            visc = float(mig_p.get('viscosity_confidence', 0.5))
-            m_drag = 1.0 - (0.4 * tension * visc) if (metrics['price_to_ma21_ratio'] < 0 and e_flow < 0.01) else 1.0
-            energy_hist = [float(np.sum(np.abs(row))) for row in np.diff(chip_matrix, axis=0)[-3:]] if len(chip_matrix) > 3 else []
-            is_fading = all(energy_hist[i] > energy_hist[i+1] for i in range(len(energy_hist)-1)) if len(energy_hist) >= 2 else False
-            m_fatigue = 0.8 if is_fading else 1.0
-            m_exhaustion = 1.0 - (0.5 * math.tanh(total_e / 5.0)) if (winner_rate > 0.9 and is_fading) else 1.0
-            m_loosening = math.exp(-(max(0, tension - 0.5)) * 2.0) if winner_rate > 0.7 else 1.0
-            m_spring = 1.0 + 0.4 * math.tanh(max(0, tension - 1.0)) if (winner_rate < 0.4 and e_flow > 0.1) else 1.0
-            m_pulse = 1.0 + 0.3 * math.tanh(total_e / 20.0) if (winner_rate < 0.4 and total_e > 10.0 and abs(e_flow) < 2.0) else 1.0
-            breakout = float(energy_metrics.get('breakout_potential', 0.0))
-            m_breakout = 1.0 + 0.5 * math.tanh(breakout / 20.0) if (breakout > 5.0 and current_concentration > 0.3 and tension < 0.6) else 1.0
-            m_grind = 1.0 + 0.3 * math.tanh((total_e - 5.0) / 10.0) if (winner_rate < 0.1 and total_e > 5.0 and breakout < 1.0) else 1.0
-            main_cost = float(conc_metrics.get('main_cost_range_ratio', 0.0))
             density = float(energy_metrics.get('energy_concentration', 0.5))
-            m_pinning = 1.0 + 0.4 * density if (current_price < 5.0 and main_cost > 0.6 and density > 0.8) else 1.0
-            p_pos = float(conc_metrics.get('price_percentile_position', 0.5))
-            m_abyss = 0.5 if (p_pos < 0.05 and winner_rate < 0.1 and e_flow <= 0 and total_e < 10.0) else 1.0
-            m_climax = 1.0 + 0.8 * math.tanh((total_e - 20.0) / 20.0) if ((p_pos < 0.1 or winner_rate < 0.1) and total_e > 25.0) else 1.0
-            high_lock_90 = float(conc_metrics.get('high_position_lock_ratio_90', 0.2))
-            m_washout = 1.0 + 0.3 * math.exp(-high_lock_90 * 20.0) if (high_lock_90 < 0.05 and current_concentration < 0.4) else 1.0
-            is_fracture = float(conc_metrics.get('fracture_risk_flag', 0.0))
-            m_fracture = 0.4 if is_fracture > 0.5 else 1.0
-            m_singularity = 1.0 + 0.5 * density if (density > 0.95 and main_cost > 0.8 and winner_rate < 0.8) else 1.0
-            m_damocles_crush = 1.0
-            if high_lock_90 > 0.3 and winner_rate < 0.5:
-                base_crush = math.exp(-high_lock_90 * 2.5)
-                v_rescue = max(0.0, min(1.0, e_flow / 5.0))
-                m_damocles_crush = base_crush + (1.0 - base_crush) * v_rescue
-            energy_term = 0.5 + 0.5 * math.tanh(e_flow * 0.4)
-            kinetic_score = float(np.clip(energy_term * m_etc * m_disintegrate * m_fatigue * m_exhaustion * m_pulse * m_breakout * m_climax, 0.0, 1.0))
-            struct_base = 0.5 + (current_concentration * 0.5)
-            structural_score = float(np.clip(struct_base * m_inertia * m_compression * m_drag * m_loosening * m_spring * m_grind * m_pinning * m_abyss * m_washout * m_fracture * m_singularity * m_damocles_crush, 0.0, 1.0))
-            ma_trend = 0.5 + 0.1 * (1 if np.mean(closes[-5:]) > np.mean(closes[-min(len(closes),21):]) else -1)
-            gravity_score = float(np.clip(ma_trend * m_gravity * m_rebound_trap * m_frenzy_breaker, 0.0, 1.0))
-            metrics['trend_confirmation_score'] = float(kinetic_score * 0.4 + structural_score * 0.4 + gravity_score * 0.2)
-            metrics['kinetic_field_score'] = kinetic_score; metrics['structural_field_score'] = structural_score; metrics['gravity_field_score'] = gravity_score
+            # [修正 A] m_damocles：达摩克利斯压制 (针对 000529 高位高锁仓场景)
+            m_damocles = 1.0
+            if high_lock_90 > 0.25 and winner_rate < 0.6:
+                m_damocles = math.exp(-high_lock_90 * 3.0) + (e_flow / 10.0 if e_flow > 0 else 0)
+            # [修正 B] m_spring：地量弹簧效应 (由张力触发)
+            m_spring = 1.0 + 0.4 * math.tanh(max(0, tension - 1.5)) if (winner_rate < 0.3 and e_flow > 0.1) else 1.0
+            # [修正 C] m_inertia：结构惯性修正
+            m_inertia = 1.2 if float(conc_metrics.get('structural_inertia_modifier', 1.0)) > 1.1 else 1.0
+            # 3. 非线性饱和映射 (米氏动力学)
+            # 动能得分：V = Vmax * E / (Km + E)
+            km_kinetic = 5.0 # 半饱和常数
+            kinetic_raw = abs(e_flow) + float(ad_metrics.get('raw_energy', 0.0))
+            kinetic_score = (kinetic_raw / (km_kinetic + kinetic_raw)) * (1.0 if e_flow >= 0 else 0.4)
+            # 4. 大一统决策合拢
+            base_score = 0.4 * kinetic_score + 0.4 * current_concentration + 0.2 * (1.0 if metrics['price_to_ma5_ratio'] > 0 else 0.3)
+            metrics['trend_confirmation_score'] = float(np.clip(base_score * m_damocles * m_spring * m_inertia, 0.0, 1.0))
+            # 5. 全量填充其它指标
+            metrics['volatility_adjusted_concentration'] = float(current_concentration * m_inertia)
+            metrics['reversal_warning_score'] = float(1.0 - m_damocles) if m_damocles < 0.8 else 0.0
             if probe_state.get():
                 from services.chip_holding_calculator import QuantitativeTelemetryProbe
-                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "_calculate_technical_metrics_PHASE_SPACE", {"density": density, "high_lock": high_lock_90, "e_flow": e_flow}, {"kinetic": kinetic_score, "structural": structural_score, "gravity": gravity_score, "m_damocles_crush": m_damocles_crush}, {"final_trend_score": metrics['trend_confirmation_score']})
+                QuantitativeTelemetryProbe.emit("AdvancedChipDynamicsService", "TECH_CONVERGENCE", 
+                    {"e_flow": e_flow, "high_lock": high_lock_90}, 
+                    {"m_damocles": m_damocles, "m_spring": m_spring, "kinetic": kinetic_score}, 
+                    {"final_score": metrics['trend_confirmation_score']})
             return metrics
         except Exception: return metrics
 

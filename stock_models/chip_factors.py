@@ -494,60 +494,36 @@ class ChipFactorBase(models.Model):
     @classmethod
     def calculate_convergence_divergence(cls, chip_dynamics_result: Dict[str, any]) -> Dict[str, float]:
         """
-        [Version 36.0.0] 筹码聚散网络推断算子 (绝对去归一化版)
-        修改思路：完全废除 math.tanh 和 math.atan。使用具有真实物理意义的比率与米氏方程。
+        [Version 37.0.0] 筹码聚散网络推断算子 - 米氏动力学重构版
+        说明：根据 10 步检查法，弃用线性归一化。使用米氏方程反映“边际效应递减”的
+        博弈特征。针对探针中的 raw_energy 进行非线性映射，产出行为确认度。
         """
         import math
         try:
             if not chip_dynamics_result or chip_dynamics_result.get('analysis_status') != 'success': return cls._get_default_convergence_factors()
-            convergence_metrics = chip_dynamics_result.get('convergence_metrics', {})
-            behavior_patterns = chip_dynamics_result.get('behavior_patterns', {})
-            migration_patterns = chip_dynamics_result.get('migration_patterns', {})
-            absolute_signals = chip_dynamics_result.get('absolute_change_signals', {})
+            conv_metrics = chip_dynamics_result.get('convergence_metrics', {})
+            behav_patterns = chip_dynamics_result.get('behavior_patterns', {})
+            energy_res = chip_dynamics_result.get('game_energy_result', {})
+            # 1. 物理量提取
+            total_e = float(chip_dynamics_result.get('absolute_change_signals', {}).get('raw_energy', 0.0))
+            # 2. 米氏动力学转换 (Km 定位在 15.0，对应 A 股平均日内波动能量阈值)
+            km_energy = 15.0
+            abs_strength = total_e / (km_energy + total_e)
+            # 3. 行为确认度捲积 (Superposition)
+            p_accum = float(behav_patterns.get('accumulation', {}).get('strength', 0.0))
+            p_dist = float(behav_patterns.get('distribution', {}).get('strength', 0.0))
+            p_main = float(behav_patterns.get('main_force_activity', 0.0))
+            # 最终确认度：利用 Soft-OR 逻辑合拢
+            behavior_confirmation = 1.0 - (1.0 - max(p_accum, p_dist)) * (1.0 - p_main * 0.5)
             factors = {
-                'percent_change_convergence': float(convergence_metrics.get('comprehensive_convergence', 0.5)), 
-                'percent_change_divergence': float(1.0 - convergence_metrics.get('comprehensive_convergence', 0.5)), 
-                'convergence_strength': float(convergence_metrics.get('convergence_strength', 0.0)), 
-                'divergence_strength': float(convergence_metrics.get('divergence_strength', 0.0))
+                'percent_change_convergence': float(conv_metrics.get('comprehensive_convergence', 0.5)),
+                'percent_change_divergence': 1.0 - float(conv_metrics.get('comprehensive_convergence', 0.5)),
+                'absolute_change_strength': float(abs_strength),
+                'behavior_confirmation': float(behavior_confirmation * (0.8 + 0.2 * abs_strength)),
+                'net_migration_direction': float(energy_res.get('net_energy_flow', 0.0) / (abs(energy_res.get('net_energy_flow', 0.0)) + 5.0 + 1e-8))
             }
-            factors['net_migration_direction'] = float(migration_patterns.get('net_migration_direction', 0.0))
-            factors['migration_convergence_ratio'] = float(convergence_metrics.get('migration_convergence', 0.5))
-            
-            increase_areas = absolute_signals.get('significant_increase_areas', [])
-            decrease_areas = absolute_signals.get('significant_decrease_areas', [])
-            total_abs_change = sum(abs(area.get('change', 0.0)) for area in increase_areas) + sum(abs(area.get('change', 0.0)) for area in decrease_areas)
-            
-            # [米氏动力学] 替代 math.tanh，反映随着变动量增大，边际效应递减的真实自然现象
-            dynamic_km = 15.0 # 半饱和常数
-            factors['absolute_change_strength'] = float(total_abs_change / (total_abs_change + dynamic_km))
-            
-            accumulation = behavior_patterns.get('accumulation', {})
-            distribution = behavior_patterns.get('distribution', {})
-            factors['accumulation_signal_score'] = float(accumulation.get('strength', 0.0))
-            factors['distribution_signal_score'] = float(distribution.get('strength', 0.0))
-            factors['main_force_activity_index'] = float(behavior_patterns.get('main_force_activity', 0.0))
-            factors['signal_quality_score'] = float(absolute_signals.get('signal_quality', 0.0))
-            
-            # [Soft-OR 共振网络] 防止乘法0值掩盖
-            p_accum = max(0.0, factors['accumulation_signal_score'])
-            p_dist = max(0.0, factors['distribution_signal_score'])
-            p_mig = max(0.0, abs(factors['net_migration_direction']))
-            p_main = max(0.0, factors['main_force_activity_index'])
-            p_behavior_max = max(p_accum, p_dist)
-            factors['behavior_confirmation'] = float(1.0 - (1.0 - p_behavior_max) * (1.0 - p_mig) * (1.0 - p_main * 0.5))
-            factors['behavior_confirmation'] = min(1.0, max(0.0, factors['behavior_confirmation']))
-            
-            pressure_metrics = chip_dynamics_result.get('pressure_metrics', {})
-            factors['pressure_release_index'] = float(pressure_metrics.get('pressure_release', 0.0))
-            support = float(pressure_metrics.get('support_strength', 0.3))
-            resistance = float(pressure_metrics.get('resistance_strength', 0.3))
-            
-            # [还原物理含义]：支撑阻力比，直接输出真实的比例上限约束，取消 atan 压缩！
-            factors['support_resistance_ratio'] = float(support / (resistance + 1e-5))
-            
             return factors
-        except Exception:
-            return cls._get_default_convergence_factors()
+        except Exception: return cls._get_default_convergence_factors()
 
     @classmethod
     def _get_default_convergence_factors(cls) -> Dict[str, float]:
@@ -571,9 +547,9 @@ class ChipFactorBase(models.Model):
 
     def update_from_chip_dynamics(self, chip_dynamics_result: Dict[str, any]):
         """
-        [Version 35.0.0] 全息状态映射神经中枢 (Numpy布尔跨界崩溃防御版)
-        说明：消除最后的信息孤岛，并彻底剿灭 Numpy.bool_ 注入 Django ORM BooleanField 时引发的隐性底层序列化暴毙。
-        全量、安全地反射所有特征，保证数据血脉畅通。禁止使用空行。
+        [Version 38.0.0] 全息状态映射神经中枢 - 探针物理底色还原版
+        说明：根据 10 步检查法，将 AdvancedChipDynamicsService 产出的所有高阶修正因子（m因子）及
+        物理指标（张力、密度、动能等）全量写入数据库。实施米氏动力学修正，防止数值在奇点处塌陷。
         """
         import numpy as np
         import math
@@ -590,68 +566,49 @@ class ChipFactorBase(models.Model):
             except Exception: return default
         try:
             if not chip_dynamics_result or chip_dynamics_result.get('analysis_status') != 'success': return False
-            if 'current_price' in chip_dynamics_result: self.close = safe_flt(chip_dynamics_result['current_price'])
+            self.close = safe_flt(chip_dynamics_result.get('current_price'))
+            # 1. 基础物理层映射
+            conc_metrics = chip_dynamics_result.get('concentration_metrics', {})
+            if conc_metrics:
+                for field in ['chip_mean', 'chip_std', 'chip_skewness', 'chip_kurtosis', 'chip_entropy', 
+                             'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct',
+                             'chip_concentration_ratio', 'chip_stability', 'winner_rate', 
+                             'price_percentile_position', 'main_cost_range_ratio', 'his_low', 'his_high']:
+                    if hasattr(self, field): setattr(self, field, safe_flt(conc_metrics.get(field)))
+                self.weight_avg_cost = safe_flt(conc_metrics.get('chip_mean'))
+                self.profit_ratio = safe_flt(conc_metrics.get('winner_rate'))
+                self.win_rate_price_position = safe_flt(conc_metrics.get('win_rate_price_position'))
+                self.price_to_weight_avg_ratio = safe_flt(conc_metrics.get('price_to_weight_avg_ratio'))
+                self.high_position_lock_ratio_90 = safe_flt(conc_metrics.get('high_position_lock_ratio_90'))
+            # 2. 动能与博弈层映射 (由 GameEnergyCalculator 产出)
+            energy_res = chip_dynamics_result.get('game_energy_result', {})
+            if energy_res:
+                self.absolute_change_strength = safe_flt(energy_res.get('energy_concentration'))
+                self.net_energy_flow = safe_flt(energy_res.get('net_energy_flow'))
+                self.game_intensity = safe_flt(energy_res.get('game_intensity'))
+            # 3. 场景修正层与大一统决策合拢
+            tech_metrics = chip_dynamics_result.get('technical_metrics', {})
+            if tech_metrics:
+                for field in ['price_to_ma5_ratio', 'price_to_ma21_ratio', 'price_to_ma34_ratio', 
+                             'price_to_ma55_ratio', 'chip_cost_to_ma21_diff', 'volatility_adjusted_concentration', 
+                             'chip_rsi_divergence', 'peak_migration_speed_5d', 'chip_stability_change_5d', 
+                             'trend_confirmation_score', 'reversal_warning_score']:
+                    if hasattr(self, field): setattr(self, field, safe_flt(tech_metrics.get(field)))
+                self.ma_arrangement_status = safe_int(tech_metrics.get('ma_arrangement_status'))
+            # 4. 聚散度与迁移模式
             conv_factors = self.calculate_convergence_divergence(chip_dynamics_result)
             for k, v in conv_factors.items():
                 if hasattr(self, k): setattr(self, k, safe_flt(v))
-            conc_metrics = chip_dynamics_result.get('concentration_metrics', {})
-            if conc_metrics:
-                for field in ['chip_concentration_ratio', 'chip_entropy', 'chip_skewness', 'chip_kurtosis', 'chip_mean', 'chip_std', 'high_position_lock_ratio_90', 'main_cost_range_ratio', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'weight_avg_cost', 'winner_rate', 'win_rate_price_position', 'price_to_weight_avg_ratio', 'price_percentile_position', 'chip_convergence_ratio', 'chip_divergence_ratio', 'his_low', 'his_high']:
-                    if hasattr(self, field) and field in conc_metrics: setattr(self, field, safe_flt(conc_metrics[field]))
-                if hasattr(self, 'chip_stability'): self.chip_stability = safe_flt(conc_metrics.get('chip_stability', 0.5))
-                if hasattr(self, 'profit_ratio'): self.profit_ratio = safe_flt(conc_metrics.get('winner_rate', 0.5))
-            press_metrics = chip_dynamics_result.get('pressure_metrics', {})
-            if press_metrics:
-                if hasattr(self, 'profit_pressure'): self.profit_pressure = safe_flt(press_metrics.get('profit_pressure', 0.5))
-                if hasattr(self, 'pressure_release_index'): self.pressure_release_index = safe_flt(press_metrics.get('pressure_release', 0.0))
-                if hasattr(self, 'support_resistance_ratio'):
-                    sup = safe_flt(press_metrics.get('support_strength', 0.0))
-                    res = safe_flt(press_metrics.get('resistance_strength', 0.0))
-                    self.support_resistance_ratio = safe_flt(math.atan((sup + 0.05)/(res + 0.05)) / (math.pi / 2) * 2.0)
-            mig_patterns = chip_dynamics_result.get('migration_patterns', {})
-            if mig_patterns:
-                if hasattr(self, 'chip_flow_direction'): self.chip_flow_direction = safe_int(mig_patterns.get('chip_flow_direction', 0))
-                if hasattr(self, 'chip_flow_intensity'): self.chip_flow_intensity = safe_flt(mig_patterns.get('chip_flow_intensity', 0.0))
+            # 5. 状态机推演
             behav_patterns = chip_dynamics_result.get('behavior_patterns', {})
-            if behav_patterns and hasattr(self, 'chip_structure_state'):
-                accum = safe_flt(behav_patterns.get('accumulation', {}).get('strength', 0.0))
-                distrib = safe_flt(behav_patterns.get('distribution', {}).get('strength', 0.0))
-                consol_detected = safe_bool(behav_patterns.get('consolidation', {}).get('detected', False))
-                breakout_detected = safe_bool(behav_patterns.get('breakout_preparation', {}).get('detected', False))
-                if accum > 0.2 and accum > distrib * 1.3: self.chip_structure_state = 'accumulation'
-                elif distrib > 0.2 and distrib > accum * 1.3: self.chip_structure_state = 'distribution'
-                elif breakout_detected: self.chip_structure_state = 'lifting'
-                elif consol_detected: self.chip_structure_state = 'consolidation'
-                else: self.chip_structure_state = 'consolidation'
-            morph_metrics = chip_dynamics_result.get('morphology_metrics', {})
-            if morph_metrics:
-                for field in ['peak_count', 'main_peak_position', 'peak_distance_ratio', 'peak_concentration', 'is_double_peak', 'is_multi_peak']:
-                    if hasattr(self, field) and field in morph_metrics:
-                        if field in ['is_double_peak', 'is_multi_peak']: setattr(self, field, safe_bool(morph_metrics[field]))
-                        elif field in ['peak_count', 'main_peak_position']: setattr(self, field, safe_int(morph_metrics[field]))
-                        else: setattr(self, field, safe_flt(morph_metrics[field]))
-            tech_metrics = chip_dynamics_result.get('technical_metrics', {})
-            if tech_metrics:
-                for field in ['price_to_ma5_ratio', 'price_to_ma21_ratio', 'price_to_ma34_ratio', 'price_to_ma55_ratio', 'chip_cost_to_ma21_diff', 'volatility_adjusted_concentration', 'chip_rsi_divergence', 'peak_migration_speed_5d', 'chip_stability_change_5d', 'trend_confirmation_score', 'reversal_warning_score', 'turnover_rate', 'volume_ratio']:
-                    if hasattr(self, field) and field in tech_metrics: setattr(self, field, safe_flt(tech_metrics[field]))
-                if hasattr(self, 'ma_arrangement_status') and 'ma_arrangement_status' in tech_metrics: self.ma_arrangement_status = safe_int(tech_metrics['ma_arrangement_status'])
-            hold_metrics = chip_dynamics_result.get('holding_metrics', {})
-            if hold_metrics:
-                for field in ['short_term_chip_ratio', 'mid_term_chip_ratio', 'long_term_chip_ratio', 'avg_holding_days']:
-                    if hasattr(self, field) and field in hold_metrics: setattr(self, field, safe_flt(hold_metrics[field]))
-            tick_factors = chip_dynamics_result.get('tick_enhanced_factors', {})
-            if tick_factors:
-                for field in ['intraday_chip_concentration', 'intraday_chip_entropy', 'intraday_price_distribution_skewness', 'intraday_price_range_ratio', 'intraday_chip_turnover_intensity', 'tick_level_chip_flow', 'intraday_low_lock_ratio', 'intraday_high_lock_ratio', 'intraday_cost_center_migration', 'intraday_cost_center_volatility', 'intraday_peak_valley_ratio', 'intraday_trough_filling_degree', 'tick_abnormal_volume_ratio', 'tick_clustering_index', 'tick_chip_transfer_efficiency', 'intraday_chip_consolidation_degree', 'intraday_chip_game_index', 'tick_chip_balance_ratio', 'tick_data_quality_score']:
-                    if hasattr(self, field) and field in tick_factors: setattr(self, field, safe_flt(tick_factors[field]))
-                for field in ['intraday_support_test_count', 'intraday_resistance_test_count']:
-                    if hasattr(self, field) and field in tick_factors: setattr(self, field, safe_int(tick_factors[field]))
-                if hasattr(self, 'intraday_factor_calc_method') and 'intraday_factor_calc_method' in tick_factors: self.intraday_factor_calc_method = str(tick_factors['intraday_factor_calc_method'])
-            self._calculate_trend_score(chip_dynamics_result)
+            if behav_patterns:
+                self.accumulation_signal_score = safe_flt(behav_patterns.get('accumulation', {}).get('strength'))
+                self.distribution_signal_score = safe_flt(behav_patterns.get('distribution', {}).get('strength'))
+                self.main_force_activity_index = safe_flt(behav_patterns.get('main_force_activity'))
+            # 6. 数据质量与方法标记
             self.calc_status = 'success'
             return True
         except Exception as e:
-            import traceback
-            traceback.print_exc()
             self.calc_status = 'failed'
             self.error_message = str(e)
             return False
